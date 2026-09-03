@@ -1,0 +1,76 @@
+# ipgaze - Test Docker Compose
+# FOR AI AND AUTOMATED TESTING - This is the ONLY docker-compose file AI may use
+#
+# Usage (MUST use temp directory workflow):
+#   mkdir -p "${TMPDIR:-/tmp}/apimgr"
+#   TEMP_DIR=$(mktemp -d "${TMPDIR:-/tmp}/apimgr/ipgaze-XXXXXX")
+#   mkdir -p "$TEMP_DIR/volumes/config" "$TEMP_DIR/volumes/data"
+#   cp docker/docker-compose.test.yml "$TEMP_DIR/docker-compose.yml"
+#   cd "$TEMP_DIR" && docker compose up --abort-on-container-exit
+#   rm -rf "$TEMP_DIR"  # Cleanup after tests
+
+name: ipgaze-test
+
+# Logging anchor - reusable logging config
+x-logging: &default-logging
+  options:
+    max-size: '5m'
+    max-file: '1'
+  driver: json-file
+
+services:
+  ipgaze:
+    image: ghcr.io/apimgr/ipgaze:devel
+    pull_policy: always
+    container_name: ipgaze-test
+    hostname: ipgaze
+    restart: "no"
+    logging: *default-logging
+    environment:
+      # Test mode - debug enabled for visibility
+      PORT: 80
+      DEBUG: true
+      MODE: development
+      TZ: America/New_York
+      CACHE_URL: valkey://ipgaze-cache-test:6379
+    volumes:
+      # CRITICAL: ./volumes/ must resolve to $TEMP_DIR/volumes/, NOT project directory
+      # This file MUST be copied to a temp directory before running
+      # AI: NEVER run this from the project directory
+      - './volumes/config:/config:z'
+      - './volumes/data:/data:z'
+    ports:
+      - '172.17.0.1:64581:80'
+    healthcheck:
+      test: ['CMD', '/usr/local/bin/ipgaze', '--status']
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 90s
+    depends_on:
+      ipgaze-cache-test:
+        condition: service_healthy
+    networks:
+      - ipgaze-test
+
+  ipgaze-cache-test:
+    image: valkey/valkey:alpine
+    pull_policy: always
+    container_name: ipgaze-cache-test
+    restart: "no"
+    logging: *default-logging
+    tmpfs:
+      - /data
+    healthcheck:
+      test: ['CMD-SHELL', 'valkey-cli ping || exit 1']
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    networks:
+      - ipgaze-test
+
+networks:
+  ipgaze-test:
+    name: ipgaze-test
+    external: false

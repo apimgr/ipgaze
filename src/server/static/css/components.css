@@ -1,0 +1,905 @@
+/* ============================================================================
+   ipgaze - Modern CSS Framework
+   Based on AI.md PART 16/17 - Web UI / Frontend Standards
+   components.css: Shared components (modals, buttons, toasts) — loaded
+   after common.css, before public.css.
+   ============================================================================ */
+
+/* Buttons */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: var(--space-xs) var(--space-sm);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  background: var(--color-bg-secondary);
+  color: var(--color-text);
+  cursor: pointer;
+  font-size: 0.9rem;
+  text-decoration: none;
+  transition: background 0.2s, border-color 0.2s;
+}
+
+.btn:hover {
+  background: var(--color-bg-hover);
+  border-color: var(--color-primary);
+}
+
+.btn-primary {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: var(--color-text-on-primary);
+}
+
+.btn-primary:hover {
+  background: var(--color-bg-active);
+  border-color: var(--color-border-hover);
+}
+
+.btn-secondary {
+  background: var(--color-bg-hover);
+  color: var(--color-text);
+  padding: var(--space-md) var(--space-xl);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.btn-secondary:hover {
+  background: var(--color-bg-active);
+  transform: translateY(-1px);
+}
+
+.btn-copy, .btn-icon {
+  background: transparent;
+  border: none;
+  padding: 2px var(--space-xs);
+  font-size: 0.9rem;
+  cursor: pointer;
+  color: var(--color-muted);
+  flex-shrink: 0;
+}
+
+.btn-copy:hover, .btn-icon:hover {
+  color: var(--color-text);
+}
+
+button.selected {
+  background-color: var(--color-primary);
+  color: var(--color-text-on-primary);
+}
+
+/* Cards */
+.card {
+  background: var(--color-bg-card);
+  padding: var(--space-xl);
+  border-radius: 12px;
+  transition: all var(--transition-normal);
+  border: 2px solid var(--color-border);
+  margin: var(--space-md) 0;
+}
+
+.card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+  border-color: var(--color-primary);
+}
+
+/* Forms */
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  margin: var(--space-md) 0;
+  margin-bottom: var(--space-md);
+}
+
+.form-group label {
+  display: block;
+  font-weight: 600;
+  color: var(--color-muted);
+  margin-bottom: var(--space-xs);
+}
+
+.form-group input,
+.form-group select,
+.form-group textarea {
+  padding: var(--space-md);
+  background: var(--color-bg-hover);
+  border: 2px solid var(--color-border);
+  border-radius: 8px;
+  color: var(--color-text);
+  font-size: 1rem;
+  font-family: var(--font-primary);
+  transition: border-color var(--transition-fast);
+}
+
+.form-group input:focus,
+.form-group select:focus,
+.form-group textarea:focus {
+  outline: none;
+  border-color: var(--color-primary);
+}
+
+.form-group input::placeholder {
+  color: var(--color-muted);
+}
+
+/* Zero-JS error styling — :user-invalid matches only after interaction
+   (AI.md PART 16 "Form Validation") */
+.form-group input:user-invalid,
+.form-group select:user-invalid,
+.form-group textarea:user-invalid {
+  border-color: var(--color-error);
+}
+
+.form-group.error input,
+.form-group.error select,
+.form-group.error textarea {
+  border-color: var(--color-error);
+}
+
+.field-error {
+  color: var(--color-error);
+  font-size: 0.875rem;
+  margin-top: var(--space-xs);
+  display: none;
+}
+
+/* Reveal the error message only after the field has been interacted
+   with and is invalid (AI.md PART 16 "Form Validation" — zero JS) */
+.form-group input:user-invalid + .field-error,
+.form-group select:user-invalid + .field-error,
+.form-group textarea:user-invalid + .field-error {
+  display: block;
+}
+
+.form-group.error .field-error {
+  display: block;
+}
+
+.form-group.success input {
+  border-color: var(--color-success);
+}
+
+.form-control {
+  width: 100%;
+  padding: var(--space-sm);
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  color: var(--color-text);
+  font-size: 1rem;
+  box-sizing: border-box;
+}
+
+.form-control:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 2px var(--color-primary-bg);
+}
+
+/* Toast Notifications — AI.md PART 16 "Toast Behavior Rules": fixed
+   top-right, newest on top. column-reverse means the most-recently
+   appended toast (newest) renders at the top edge, closest to the anchor,
+   with older toasts stacking downward beneath it. */
+#toast-container {
+  position: fixed;
+  top: var(--space-lg);
+  right: var(--space-lg);
+  display: flex;
+  flex-direction: column-reverse;
+  gap: var(--space-sm);
+  z-index: 9999;
+  pointer-events: none;
+}
+
+.toast {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  border-radius: 6px;
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  color: var(--color-text);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+  animation: slideIn 0.3s ease;
+  min-width: 200px;
+  max-width: 380px;
+  pointer-events: all;
+  position: relative;
+  overflow: hidden;
+}
+
+.toast.success { border-color: var(--color-success); }
+.toast.error   { border-color: var(--color-error); }
+.toast.warning { border-color: var(--color-warning); }
+
+.toast-close {
+  background: none;
+  border: none;
+  color: var(--color-muted);
+  cursor: pointer;
+  font-size: 1.2rem;
+  line-height: 1;
+  margin-left: auto;
+  padding: 0 var(--space-xs);
+}
+
+/* Visible auto-dismiss countdown — JS sets animation-duration and toggles
+   animation-play-state on hover/mouseleave (pause, then resume). */
+.toast-progress {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  height: 3px;
+  background: rgba(255, 255, 255, 0.5);
+}
+
+.toast-progress-active {
+  animation-name: countdown;
+  animation-timing-function: linear;
+  animation-fill-mode: forwards;
+}
+
+@keyframes countdown {
+  from { width: 100%; }
+  to   { width: 0%; }
+}
+
+@keyframes slideIn {
+  from { transform: translateX(100%); opacity: 0; }
+  to   { transform: translateX(0);   opacity: 1; }
+}
+
+@keyframes slideOut {
+  from { transform: translateX(0);   opacity: 1; }
+  to   { transform: translateX(100%); opacity: 0; }
+}
+
+/* Modal Dialogs — native <dialog>; browser handles focus trap + centering.
+   showModal()/close() are called from app.js (openModal/closeModal); close
+   and cancel buttons use <form method="dialog"> so they work with zero JS. */
+dialog.modal {
+  background: var(--color-bg-card);
+  color: var(--color-text);
+  max-width: 600px;
+  width: 90%;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  padding: var(--space-xl);
+  box-shadow: var(--shadow-lg);
+}
+
+dialog.modal::backdrop {
+  background: rgba(0, 0, 0, 0.7);
+}
+
+@media (max-width: 480px) {
+  dialog.modal {
+    width: 100%;
+    max-width: 100%;
+    height: 100%;
+    max-height: 100%;
+    border-radius: 0;
+  }
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--space-lg);
+}
+
+.modal-header h2 {
+  margin: 0;
+}
+
+.modal-close {
+  background: none;
+  border: none;
+  font-size: 2rem;
+  color: var(--color-muted);
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+}
+
+.modal-close:hover {
+  color: var(--color-text);
+}
+
+.modal-body {
+  color: var(--color-muted);
+}
+
+.modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-sm);
+  margin-top: var(--space-lg);
+}
+
+.cookie-preferences-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.cookie-preference-item strong {
+  color: var(--color-text);
+}
+
+.cookie-preference-item p {
+  margin: var(--space-xs) 0 0;
+}
+
+/* ============================================================================
+   Widget Box
+   Distinct surface color (not the same background as the .section-card it
+   sits inside) so the code/output box reads as one clear inset element
+   rather than a border nested inside another border.
+   ============================================================================ */
+
+.widgetbox {
+  width: 100%;
+  /* min-width: 0 lets this flex/grid child shrink below its content's
+     intrinsic width instead of forcing the page to overflow horizontally
+     (AI.md PART 16 "Long Strings" — code blocks must scroll, never widen
+     the page) when the generated curl command is long (e.g. an IPv6
+     query string). */
+  min-width: 0;
+  box-sizing: border-box;
+  padding: var(--space-sm) var(--space-md);
+  border: 1px solid var(--color-border);
+  font-family: var(--font-code);
+  margin: var(--space-sm) 0 var(--space-md);
+  border-radius: 8px;
+  background: var(--color-bg-card);
+  /* Long unbreakable content (IPs, tokens) scrolls within the box per
+     AI.md PART 16 ".code-block" pattern, instead of overflowing it. */
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.widgetbox code {
+  white-space: pre;
+}
+
+.widgetbox.output {
+  min-height: 4em;
+  white-space: pre;
+  overflow-x: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border) var(--color-bg-secondary);
+}
+
+.widgetbox.output::-webkit-scrollbar {
+  height: 6px;
+}
+
+.widgetbox.output::-webkit-scrollbar-track {
+  background: var(--color-bg-secondary);
+}
+
+.widgetbox.output::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: 3px;
+}
+
+/* ============================================================================
+   Input Buttons
+   A grid (not a flex-wrap row) so the API field buttons line up in even
+   columns instead of wrapping raggedly; each cell keeps a 44px touch
+   target per AI.md PART 16 mobile touch-target requirement.
+   ============================================================================ */
+
+.input-buttons {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(6rem, 1fr));
+  gap: var(--space-sm);
+  margin: var(--space-md) 0;
+}
+
+.input-buttons .btn {
+  justify-content: center;
+  text-align: center;
+  min-height: 44px;
+  min-width: 44px;
+  padding: var(--space-sm);
+  white-space: normal;
+  overflow-wrap: break-word;
+  word-break: break-word;
+}
+
+/* The port number input is a full control, not a button-sized cell — span
+   the full grid width when it becomes visible. */
+.input-buttons .input-narrow {
+  grid-column: 1 / -1;
+  width: 100%;
+  max-width: 12rem;
+  min-height: 44px;
+}
+
+/* ============================================================================
+   Site Banners (announcement, consent, updates)
+   ============================================================================ */
+
+.site-banner {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  font-size: 0.9rem;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.site-banner-info {
+  background: var(--color-info-bg);
+  color: var(--color-info-text);
+}
+
+.site-banner-warning {
+  background: var(--color-warning-bg, #3a2a00);
+  color: var(--color-warning-text);
+}
+
+.site-banner-error {
+  background: var(--color-error-bg, #3a0000);
+  color: var(--color-error-text);
+}
+
+.site-banner-success {
+  background: var(--color-success-bg, #003a1a);
+  color: var(--color-success-text);
+}
+
+.site-banner-icon {
+  flex-shrink: 0;
+  font-size: 1rem;
+}
+
+.site-banner-text {
+  flex: 1;
+}
+
+.site-banner-action {
+  flex-shrink: 0;
+  margin-left: var(--space-sm);
+}
+
+.site-banner-dismiss {
+  margin: 0;
+  padding: 0;
+  display: inline;
+}
+
+.site-banner-close {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 1.2rem;
+  line-height: 1;
+  padding: 2px var(--space-xs);
+  color: inherit;
+  opacity: 0.7;
+  flex-shrink: 0;
+}
+
+.site-banner-close:hover {
+  opacity: 1;
+}
+
+/* ============================================================================
+   Consent Banner
+   ============================================================================ */
+
+.consent-banner {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 200;
+  background: var(--color-bg-secondary);
+  border-top: 1px solid var(--color-border);
+  padding: var(--space-md);
+}
+
+.consent-banner__content {
+  max-width: 900px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  flex-wrap: wrap;
+}
+
+.consent-banner__message {
+  flex: 1;
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--color-muted);
+}
+
+.consent-banner__policy-link {
+  color: var(--color-primary);
+}
+
+.consent-banner__actions {
+  display: flex;
+  gap: var(--space-sm);
+  flex-shrink: 0;
+  align-items: center;
+}
+
+.consent-banner__form {
+  display: inline;
+  margin: 0;
+  padding: 0;
+}
+
+.consent-banner__btn {
+  padding: var(--space-xs) var(--space-md);
+  border-radius: 4px;
+  border: none;
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+
+.consent-banner__btn--accept {
+  background: var(--color-primary);
+  color: var(--color-text-on-primary);
+}
+
+.consent-banner__btn--accept:hover {
+  opacity: 0.9;
+}
+
+.consent-banner__btn--decline {
+  background: transparent;
+  border: 1px solid var(--color-border);
+  color: var(--color-muted);
+}
+
+.consent-banner__btn--decline:hover {
+  color: var(--color-text);
+  border-color: var(--color-muted);
+}
+
+/* ============================================================================
+   Offline Indicator
+   ============================================================================ */
+
+#offline-indicator,
+.offline-indicator {
+  position: fixed;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 300;
+  background: var(--color-warning-bg, #3a2a00);
+  color: var(--color-warning-text);
+  padding: var(--space-xs) var(--space-md);
+  border-bottom-left-radius: 6px;
+  border-bottom-right-radius: 6px;
+  font-size: 0.9rem;
+  font-weight: 500;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+}
+
+/* ============================================================================
+   Copy Buttons
+   ============================================================================ */
+
+.copy-btn {
+  background: transparent;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  padding: 2px var(--space-xs);
+  font-size: 0.85rem;
+  cursor: pointer;
+  color: var(--color-muted);
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+
+.copy-btn:hover {
+  color: var(--color-text);
+  border-color: var(--color-muted);
+  background: var(--color-bg-hover);
+}
+
+.copy-btn.copied {
+  color: var(--color-success-text);
+  border-color: var(--color-success-text);
+  background: var(--color-success-bg, #003a1a);
+}
+
+.copy-icon {
+  flex-shrink: 0;
+}
+
+.copy-text {
+  display: none;
+}
+
+/* ============================================================================
+   Section Card
+   ============================================================================ */
+
+.section-card {
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: var(--space-lg);
+  margin-bottom: var(--space-md);
+}
+
+.section-card h2 {
+  margin-top: 0;
+  font-size: 1.1rem;
+  color: var(--color-text);
+  border-bottom: 1px solid var(--color-border);
+  padding-bottom: var(--space-sm);
+  margin-bottom: var(--space-md);
+}
+
+/* ============================================================================
+   Info List
+   ============================================================================ */
+
+.info-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.info-list li {
+  display: flex;
+  gap: var(--space-sm);
+  padding: var(--space-xs) 0;
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-text);
+}
+
+.info-list li:last-child { border-bottom: none; }
+
+.info-list strong {
+  min-width: 140px;
+  color: var(--color-muted);
+  flex-shrink: 0;
+}
+
+/* ============================================================================
+   Status Banner
+   ============================================================================ */
+
+.status-banner {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-md) var(--space-lg);
+  border-radius: 8px;
+  margin-bottom: var(--space-md);
+  font-weight: 600;
+  font-size: 1.05rem;
+}
+
+.status-banner.status-ok {
+  background: var(--color-success-bg);
+  border: 1px solid var(--color-success);
+  color: var(--color-success);
+}
+
+.status-banner.status-warning {
+  background: var(--color-warning-bg);
+  border: 1px solid var(--color-warning);
+  color: var(--color-warning);
+}
+
+.status-banner.status-error {
+  background: var(--color-error-bg);
+  border: 1px solid var(--color-error);
+  color: var(--color-error);
+}
+
+.status-icon { font-size: 1.3rem; }
+
+/* ============================================================================
+   Inline Status
+   ============================================================================ */
+
+.status { font-weight: 600; }
+.status.status-ok { color: var(--color-success); }
+.status.status-error { color: var(--color-error); }
+.status.status-warning { color: var(--color-warning); }
+
+/* Standalone status classes used outside .status-banner */
+.status-ok { background: var(--color-success-bg); color: var(--color-success); }
+.status-error { background: var(--color-error-bg); color: var(--color-error); }
+.status-warning { background: var(--color-warning-bg); color: var(--color-warning); }
+
+/* ============================================================================
+   Feature List
+   ============================================================================ */
+
+.feature-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+}
+
+.feature-list li {
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: 4px;
+  font-size: 0.9rem;
+}
+
+/* Per-feature detail line (Tor/I2P status, I2P provider) rendered inside a
+   feature-list item, mirroring the health endpoint's features.*.status and
+   features.i2p.provider fields. */
+.feature-detail {
+  display: block;
+  font-size: 0.8rem;
+  opacity: 0.85;
+}
+
+.feature-enabled {
+  background: var(--color-success-bg);
+  color: var(--color-success);
+  border: 1px solid var(--color-success);
+}
+
+.feature-disabled {
+  background: var(--color-bg-hover);
+  color: var(--color-muted);
+  border: 1px solid var(--color-border);
+  text-decoration: line-through;
+}
+
+/* ============================================================================
+   Badges
+   ============================================================================ */
+
+.badge {
+  display: inline-block;
+  padding: 2px var(--space-sm);
+  border-radius: 12px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.badge-production {
+  background: var(--color-primary-bg);
+  color: var(--color-primary);
+  border: 1px solid var(--color-primary);
+}
+
+.badge-development {
+  background: var(--color-warning-bg);
+  color: var(--color-warning);
+  border: 1px solid var(--color-warning);
+}
+
+/* ============================================================================
+   Code Block
+   ============================================================================ */
+
+.code-block {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-sm);
+  background: var(--color-bg-hover);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  padding: var(--space-xs) var(--space-sm);
+  margin: var(--space-xs) 0;
+  width: 100%;
+  box-sizing: border-box;
+  overflow-x: auto;
+}
+
+.code-block code {
+  flex: 1;
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 0.9rem;
+  color: var(--color-text);
+  white-space: nowrap;
+}
+
+/* ============================================================================
+   Data Table
+   ============================================================================ */
+
+.table-wrapper { overflow-x: auto; }
+
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.data-table th, .data-table td {
+  padding: var(--space-sm) var(--space-md);
+  border: 1px solid var(--color-border);
+  text-align: left;
+}
+
+.data-table th[scope="row"] {
+  background: var(--color-bg-hover);
+  color: var(--color-muted);
+  font-weight: 500;
+  min-width: 140px;
+}
+
+.data-table thead th {
+  background: var(--color-bg-hover);
+  font-weight: 600;
+  color: var(--color-muted);
+}
+
+/* ============================================================================
+   Loading Spinner
+   ============================================================================ */
+
+.spinner {
+  border: 3px solid var(--color-border);
+  border-top: 3px solid var(--color-primary);
+  border-radius: 50%;
+  width: 40px;
+  height: 40px;
+  animation: spin 1s linear infinite;
+  margin: var(--space-lg) auto;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+/* ============================================================================
+   Responsive Design - Mobile First (base = < 768px)
+   Component-level responsive overrides only — base typography lives in
+   common.css, page-specific responsive rules live in public.css.
+   ============================================================================ */
+
+/* Mobile base styles (no min-width query — mobile-first default) */
+.card {
+  padding: var(--space-md);
+}
+
+.input-buttons {
+  font-size: 0.9rem;
+}
+
+.toast {
+  min-width: auto;
+  width: calc(100vw - 40px);
+}
+
+/* Tablet and up (768px+) */
+@media (min-width: 768px) {
+  .card {
+    padding: var(--space-xl);
+  }
+
+  .toast {
+    min-width: 200px;
+    width: auto;
+    max-width: 380px;
+  }
+
+  .copy-text { display: inline; }
+}

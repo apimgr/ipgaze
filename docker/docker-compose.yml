@@ -1,0 +1,84 @@
+# nginx proxy address - http://172.17.0.1:64580
+# ipgaze - IP address lookup and geolocation service
+#
+# ipgaze - Production Docker Compose
+# FOR HUMAN USE ONLY - AI assistants must NEVER use this file
+#
+# Usage (copy to temp directory first):
+#   mkdir -p "${TMPDIR:-/tmp}/apimgr"
+#   TEMP_DIR=$(mktemp -d "${TMPDIR:-/tmp}/apimgr/ipgaze-XXXXXX")
+#   mkdir -p "$TEMP_DIR/volumes/config" "$TEMP_DIR/volumes/data"
+#   cp docker/docker-compose.yml "$TEMP_DIR/"
+#   cd "$TEMP_DIR" && docker compose up -d
+
+name: ipgaze
+
+# Logging anchor - reusable logging config
+x-logging: &default-logging
+  options:
+    max-size: '5m'
+    max-file: '1'
+  driver: json-file
+
+services:
+  ipgaze:
+    image: ghcr.io/apimgr/ipgaze:latest
+    pull_policy: always
+    container_name: ipgaze-app
+    hostname: ipgaze
+    restart: always
+    logging: *default-logging
+    environment:
+      # Production: strict security, minimal logging, caching enabled
+      # NO DEBUG/MODE - debug must be explicitly set via CLI if needed
+      PORT: 80
+      TZ: America/New_York
+      CACHE_URL: valkey://ipgaze-cache:6379
+      # DOMAIN (optional - auto-detects from reverse proxy headers)
+      # DOMAIN: myapp.com,www.myapp.com
+      # SMTP (optional - autodetects if not set)
+      # SMTP_HOST: smtp.example.com
+      # SMTP_PORT: 587
+      # SMTP_USERNAME: user
+      # SMTP_PASSWORD: pass
+    volumes:
+      # TEMP DIR WORKFLOW: ./volumes/ resolves to $TEMP_DIR/volumes/
+      # NEVER run from project directory - always use temp dir workflow
+      - './volumes/config:/config:z'
+      - './volumes/data:/data:z'
+    ports:
+      # Production: bound to Docker bridge only (reverse proxy handles external)
+      - '172.17.0.1:64580:80'
+    healthcheck:
+      test: ['CMD', '/usr/local/bin/ipgaze', '--status']
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 90s
+    depends_on:
+      ipgaze-cache:
+        condition: service_healthy
+    networks:
+      - ipgaze
+
+  ipgaze-cache:
+    image: valkey/valkey:alpine
+    pull_policy: always
+    container_name: ipgaze-cache
+    restart: always
+    logging: *default-logging
+    volumes:
+      - './volumes/data/db/valkey:/data:z'
+    healthcheck:
+      test: ['CMD-SHELL', 'valkey-cli ping || exit 1']
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    networks:
+      - ipgaze
+
+networks:
+  ipgaze:
+    name: ipgaze
+    external: false

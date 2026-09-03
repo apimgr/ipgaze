@@ -1,0 +1,14 @@
+Subject: {subject}
+---
+{heading}
+
+{from_line}
+{label_time} {time}
+
+{intro}
+
+{action}
+
+--
+{app_name}
+{app_url}

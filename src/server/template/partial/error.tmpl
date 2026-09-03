@@ -1,0 +1,13 @@
+{{define "error"}}
+<div class="error-container" role="alert" aria-live="assertive">
+  <div class="error-card">
+    <span class="error-icon">{{if eq .Code 404}}🔍{{else if eq .Code 403}}🚫{{else if eq .Code 429}}⏱️{{else}}⚠️{{end}}</span>
+    <h1 class="error-title">{{.Code}} {{.Title}}</h1>
+    <p class="error-message">{{.Message}}</p>
+    {{if .RequestID}}
+    <p class="error-id">{{t .Lang "errors.request_id_label"}}: <code>{{.RequestID}}</code></p>
+    {{end}}
+    <a href="/" class="btn btn-primary">← {{t .Lang "common.return_home"}}</a>
+  </div>
+</div>
+{{end}}

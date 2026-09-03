@@ -1,0 +1,13 @@
+# CODEOWNERS for apimgr/ipgaze
+# See https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# Catch-all: all paths are owned by the apimgr org
+*                           @apimgr
+
+# Security-sensitive areas — require explicit owner review
+.github/workflows/          @apimgr
+docker/                     @apimgr
+src/auth/                   @apimgr
+src/store/                  @apimgr
+src/ssl/                    @apimgr
+scripts/                    @apimgr

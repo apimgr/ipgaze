@@ -1,0 +1,47 @@
+{{define "footer"}}
+<footer class="footer" role="contentinfo">
+  {{ if .FooterCustomHTML }}
+  <div class="footer-custom">{{ .FooterCustomHTML }}</div>
+  {{ end }}
+
+  {{ if and .TorEnabled .TorRunning }}
+  <p class="footer-onion">
+    <a href="/server/help#tor-access" aria-label="{{t .Lang "help.tor_access"}}">🧅</a>
+    <code class="onion-address">{{.OnionAddress}}</code>
+    <button type="button" class="copy-btn" data-copy="{{.OnionAddress}}" aria-live="polite" aria-label="{{t .Lang "common.copy_onion_aria"}}">📋</button>
+  </p>
+  {{ end }}
+
+  {{ if and .I2PEnabled .I2PRunning }}
+  <p class="footer-i2p">
+    <a href="/server/help#i2p-access" aria-label="{{t .Lang "help.i2p_access"}}">🔗</a>
+    <code class="i2p-address">{{.I2PAddress}}</code>
+    <button type="button" class="copy-btn" data-copy="{{.I2PAddress}}" aria-live="polite" aria-label="{{t .Lang "common.copy_i2p_aria"}}">📋</button>
+  </p>
+  {{ end }}
+
+  <p>
+    <a href="/server/about">{{t .Lang "nav.about"}}</a>
+    <span>&bull;</span>
+    <a href="/server/privacy">{{t .Lang "nav.privacy"}}</a>
+    <span>&bull;</span>
+    <a href="/server/contact">{{t .Lang "nav.contact"}}</a>
+    <span>&bull;</span>
+    <a href="/server/help">{{t .Lang "nav.help"}}</a>
+    <span>&bull;</span>
+    <a href="/server/preferences">{{t .Lang "nav.preferences"}}</a>
+  </p>
+
+  {{ if .FooterShowDefaultBranding }}
+  <p>
+    <a href="{{.RepoURL}}" target="_blank" rel="noopener noreferrer">{{t .Lang "common.made_with"}}</a> &#10084;&#65039;
+    <span>&bull;</span>
+    <span>{{.Version}}</span>
+  </p>
+  {{ end }}
+
+  <p>
+    <a href="/server/healthz">{{tf .Lang "common.last_updated" "datetime" .BuildDate}}</a>
+  </p>
+</footer>
+{{end}}

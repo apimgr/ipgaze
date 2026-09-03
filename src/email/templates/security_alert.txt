@@ -1,0 +1,17 @@
+Subject: {subject}
+---
+{heading}
+
+{from_line}
+{label_time} {time}
+
+{intro}
+
+{label_event} {message}
+{label_ip} {ip}
+
+{action}
+
+--
+{app_name}
+{app_url}

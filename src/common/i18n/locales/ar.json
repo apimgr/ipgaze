@@ -1,0 +1,1368 @@
+{
+  "meta": {
+    "language": "ar",
+    "name": "Arabic",
+    "native_name": "العربية",
+    "direction": "rtl",
+    "version": "1.0.0"
+  },
+
+  "common": {
+    "select_language": "اختر اللغة",
+    "save": "حفظ",
+    "save_all": "حفظ الكل",
+    "cancel": "إلغاء",
+    "delete": "حذف",
+    "edit": "تعديل",
+    "create": "إنشاء",
+    "update": "تحديث",
+    "close": "إغلاق",
+    "back": "رجوع",
+    "next": "التالي",
+    "previous": "السابق",
+    "submit": "إرسال",
+    "confirm": "تأكيد",
+    "search": "بحث",
+    "search_placeholder": "بحث...",
+    "filter": "تصفية",
+    "refresh": "تحديث",
+    "download": "تنزيل",
+    "upload": "رفع",
+    "copy": "نسخ",
+    "copy_to_clipboard": "نسخ إلى الحافظة",
+    "copied": "تم النسخ",
+    "copy_failed": "Copy failed",
+    "loading": "جارٍ التحميل...",
+    "error": "خطأ",
+    "error_prefix": "Error: ",
+    "success": "نجاح",
+    "warning": "تحذير",
+    "info": "معلومات",
+    "yes": "نعم",
+    "no": "لا",
+    "on": "تشغيل",
+    "off": "إيقاف",
+    "enabled": "مفعّل",
+    "disabled": "معطّل",
+    "required": "مطلوب",
+    "optional": "اختياري",
+    "none": "لا شيء",
+    "all": "الكل",
+    "actions": "الإجراءات",
+    "details": "التفاصيل",
+    "settings": "الإعدادات",
+    "preferences": "التفضيلات",
+    "view": "عرض",
+    "expand": "توسيع",
+    "collapse": "طي",
+    "show": "إظهار",
+    "hide": "إخفاء",
+    "more": "المزيد",
+    "less": "أقل",
+    "notifications": "الإشعارات",
+    "done": "تم",
+    "unsaved_changes": "تغييرات غير محفوظة",
+    "requires_restart": "يتطلب إعادة تشغيل",
+    "page_x_of_y": "الصفحة {current} من {total}",
+    "showing_x_of_y": "عرض {count} من {total}",
+    "last_updated": "آخر تحديث: {datetime}",
+    "made_with": "صُنع بـ",
+    "copy_ip_aria": "نسخ عنوان IP",
+    "copy_command_aria": "نسخ الأمر",
+    "copy_onion_aria": "نسخ عنوان onion",
+    "copy_i2p_aria": "نسخ عنوان I2P",
+    "return_home": "العودة إلى الصفحة الرئيسية",
+    "close_notification": "إغلاق الإشعار",
+    "running": "قيد التشغيل…"
+  },
+
+  "theme": {
+    "light": "فاتح",
+    "dark": "داكن",
+    "auto": "تلقائي",
+    "toggle": "تبديل المظهر",
+    "toast_prefix": "Theme: ",
+    "toggle_aria": "تبديل السمة (الحالية: {theme})"
+  },
+
+  "auth": {
+    "login": "تسجيل الدخول",
+    "logout": "تسجيل الخروج",
+    "register": "إنشاء حساب",
+    "forgot_password": "هل نسيت كلمة المرور؟",
+    "reset_password": "إعادة تعيين كلمة المرور",
+    "remember_me": "تذكّرني",
+    "username": "اسم المستخدم",
+    "password": "كلمة المرور",
+    "confirm_password": "تأكيد كلمة المرور",
+    "email": "البريد الإلكتروني",
+    "already_have_account": "لديك حساب بالفعل؟ تسجيل الدخول",
+    "no_account": "لا يوجد حساب؟ سجّل الآن",
+    "show_password": "إظهار كلمة المرور",
+    "hide_password": "إخفاء كلمة المرور",
+    "password_requirements": "متطلبات كلمة المرور",
+    "min_length": "على الأقل {min} أحرف",
+    "require_uppercase": "تحتوي على أحرف كبيرة وصغيرة",
+    "require_number": "تحتوي على رقم",
+    "require_special": "تحتوي على حرف خاص",
+    "2fa_required": "المصادقة الثنائية مطلوبة",
+    "2fa_code": "رمز التحقق",
+    "2fa_enter_code": "أدخل الرمز من تطبيق المصادقة الخاص بك",
+    "2fa_enable": "تفعيل المصادقة الثنائية",
+    "2fa_disable": "تعطيل المصادقة الثنائية",
+    "2fa_enabled": "المصادقة الثنائية مفعّلة",
+    "2fa_disabled": "المصادقة الثنائية معطّلة",
+    "recovery_key": "مفتاح الاسترداد",
+    "session_timeout": "انتهاء مهلة الجلسة",
+    "extend_on_activity": "تمديد عند النشاط"
+  },
+
+  "nav": {
+    "home": "الرئيسية",
+    "about": "حول",
+    "contact": "اتصل بنا",
+    "help": "المساعدة",
+    "privacy": "الخصوصية",
+    "terms": "شروط الخدمة",
+    "docs": "التوثيق",
+    "api_docs": "توثيق API",
+    "status": "الحالة",
+    "preferences": "التفضيلات",
+    "skip_to_content": "انتقل إلى المحتوى الرئيسي",
+    "skip_to_navigation": "انتقل إلى التنقل",
+    "main_navigation": "التنقل الرئيسي",
+    "toggle_navigation": "تبديل التنقل",
+    "home_aria": "الصفحة الرئيسية لـ {app}"
+  },
+
+  "health": {
+    "title": "حالة النظام",
+    "all_operational": "جميع الأنظمة تعمل",
+    "degraded": "أداء منخفض",
+    "unhealthy": "غير سليم",
+    "healthy": "سليم",
+    "version": "الإصدار",
+    "go_version": "إصدار Go",
+    "build": "البناء",
+    "uptime": "وقت التشغيل",
+    "mode": "الوضع",
+    "status": "الحالة",
+    "primary": "رئيسي",
+    "role": "الدور",
+    "nodes": "العقد",
+    "cluster": "المجموعة",
+    "features": "الميزات",
+    "component_status": "حالة المكونات",
+    "server_statistics": "إحصاءات الخادم",
+    "total_requests": "إجمالي الطلبات",
+    "requests_24h": "الطلبات (24 ساعة)",
+    "active_connections": "الاتصالات النشطة",
+    "last_checked": "آخر فحص:",
+    "auto_refresh": "تحديث تلقائي خلال {seconds}ث",
+    "ok": "موافق",
+    "connected": "متصل",
+    "disconnected": "غير متصل",
+    "production": "إنتاج",
+    "development": "تطوير"
+  },
+
+  "status_values": {
+    "online": "متصل",
+    "offline": "غير متصل",
+    "maintenance": "صيانة",
+    "starting": "جارٍ البدء",
+    "stopping": "جارٍ الإيقاف",
+    "error": "خطأ",
+    "good": "جيد",
+    "warn": "تحذير"
+  },
+
+  "contact": {
+    "title": "اتصل بنا",
+    "name": "الاسم",
+    "email": "البريد الإلكتروني",
+    "subject": "الموضوع",
+    "message": "الرسالة",
+    "send": "إرسال الرسالة",
+    "sending": "جارٍ الإرسال...",
+    "success": "شكراً لرسالتك. سنرد عليك قريباً.",
+    "support_intro": "للدعم أو الأسئلة حول ipgaze:",
+    "security_issues": "مشكلات أمنية",
+    "github": "GitHub",
+    "form_heading": "إرسال رسالة"
+  },
+
+  "help": {
+    "title": "المساعدة",
+    "getting_started": "البدء",
+    "features": "الميزات",
+    "api_documentation": "توثيق API",
+    "swagger_description": "Swagger UI - مستكشف REST API التفاعلي",
+    "graphql_description": "مستكشف GraphQL التفاعلي",
+    "tor_access": "الوصول عبر Tor",
+    "i2p_access": "الوصول عبر I2P",
+    "onion_address": "عنوان Onion",
+    "how_to_connect": "كيفية الاتصال",
+    "download_tor": "تنزيل متصفح Tor",
+    "open_tor": "افتح متصفح Tor وانتظر حتى يتصل",
+    "paste_onion": "انسخ عنوان onion أعلاه والصقه في شريط عنوان متصفح Tor",
+    "tor_privacy": "يوفر استخدام Tor خصوصية إضافية...",
+    "faq": "الأسئلة الشائعة",
+    "troubleshooting": "استكشاف الأخطاء وإصلاحها"
+  },
+
+  "privacy": {
+    "title": "سياسة الخصوصية",
+    "last_updated": "آخر تحديث:",
+    "summary": "ملخص",
+    "data_stored": "يتم تخزين بياناتك على خوادمنا",
+    "never_sell": "لا نبيع بياناتك أبداً",
+    "may_sell": "قد يتم بيع بياناتك",
+    "you_control": "أنت تتحكم في بياناتك",
+    "cookie_policy": "سياسة ملفات تعريف الارتباط",
+    "essential_cookies": "ملفات تعريف الارتباط الأساسية",
+    "preference_cookies": "ملفات تعريف ارتباط التفضيلات",
+    "analytics_cookies": "ملفات تعريف ارتباط التحليلات",
+    "no_analytics": "لا نستخدم تتبع التحليلات على هذا الموقع.",
+    "uses_analytics": "نستخدم {provider} لأغراض التحليلات.",
+    "manage_cookies": "إدارة تفضيلات ملفات تعريف الارتباط",
+    "data_we_collect": "البيانات التي نجمعها",
+    "how_we_use": "كيف نستخدم بياناتك",
+    "data_security": "أمان البيانات",
+    "data_storage": "تخزين البيانات والأطراف الثالثة",
+    "all_data_stored": "يتم تخزين جميع بياناتك على خوادمنا.",
+    "when_shared": "متى يمكن مشاركة البيانات",
+    "data_retention": "الاحتفاظ بالبيانات",
+    "your_rights": "حقوقك",
+    "right_access": "الوصول",
+    "right_export": "التصدير",
+    "right_deletion": "الحذف",
+    "right_correction": "التصحيح",
+    "right_cookie_control": "التحكم في ملفات تعريف الارتباط",
+    "third_party_services": "خدمات الأطراف الثالثة",
+    "service": "الخدمة",
+    "purpose": "الغرض",
+    "data_sent": "البيانات المُرسلة",
+    "no_third_party": "لا نستخدم حالياً خدمات أطراف ثالثة تتلقى بياناتك.",
+    "view_policy": "عرض السياسة",
+    "contact_us": "اتصل بنا",
+    "privacy_inquiries": "للاستفسارات المتعلقة بالخصوصية، يرجى التواصل معنا.",
+    "ccpa_title": "حقوق الخصوصية في كاليفورنيا (CCPA)",
+    "ccpa_do_not_sell": "لا تبيع معلوماتي الشخصية",
+    "ccpa_opted_out": "لقد اخترت إلغاء الاشتراك في بيع البيانات.",
+    "ccpa_opt_back_in": "إعادة الاشتراك",
+    "data_body": "عند وصولك إلى ipgaze، نقوم بمعالجة عنوان IP الخاص بك لإرجاع معلومات الموقع الجغرافي. لا نقوم بتخزين عنوان IP الخاص بك بعد التدوير القياسي لسجلات الوصول.",
+    "access_logs_heading": "سجلات الوصول",
+    "access_logs_body": "يتم الاحتفاظ بسجلات الوصول القياسية عبر HTTP لأغراض تشغيلية ويتم تدويرها بانتظام. تحتوي السجلات على عناوين IP ومسارات الطلبات والطوابع الزمنية.",
+    "no_tracking_heading": "بدون تتبع",
+    "no_tracking_body": "لا نستخدم أدوات التحليلات أو بكسلات التتبع أو ملفات تعريف الارتباط الخاصة بجهات خارجية. لا نبيع بياناتك أو نشاركها مع أطراف ثالثة.",
+    "contact_body_pre": "لأي استفسارات تتعلق بالخصوصية، تواصل معنا:"
+  },
+
+  "terms": {
+    "title": "شروط الخدمة",
+    "acceptance": "القبول",
+    "account_terms": "شروط الحساب",
+    "acceptable_use": "الاستخدام المقبول",
+    "content": "المحتوى",
+    "termination": "الإنهاء",
+    "liability": "المسؤولية",
+    "changes": "التغييرات",
+    "governing_law": "القانون الحاكم",
+    "acceptable_use_body": "يجوز لك استخدام ipgaze للأغراض القانونية فقط. يُحظر إجراء عمليات بحث جماعية آلية تُضعف الخدمة للمستخدمين الآخرين.",
+    "no_warranty_heading": "بدون ضمان",
+    "no_warranty_body": "يتم تقديم هذه الخدمة \"كما هي\" دون أي ضمان من أي نوع. نحن لا نضمن وقت التشغيل أو دقة بيانات الموقع الجغرافي.",
+    "rate_limiting_heading": "تحديد المعدل",
+    "rate_limiting_body": "تقتصر واجهة برمجة التطبيقات على 120 طلبًا في الدقيقة. سيؤدي تجاوز هذا الحد إلى حظر مؤقت.",
+    "changes_body": "قد تتغير هذه الشروط في أي وقت. يُعد الاستمرار في استخدام الخدمة قبولًا بالشروط المحدثة."
+  },
+
+  "cookie_consent": {
+    "message": "وفقاً لقانون GDPR الأوروبي، يتم عرض هذه الرسالة.",
+    "accept": "أوافق",
+    "decline": "رفض",
+    "manage_preferences": "إدارة التفضيلات",
+    "blocked_content": "المحتوى الخارجي محظور بسبب تفضيلات ملفات تعريف الارتباط.",
+    "essential_description": "مطلوب لعمل الموقع. لا يمكن تعطيله.",
+    "preference_description": "يتذكر إعداداتك مثل السمة (فاتح/داكن) واللغة وتفضيلات الواجهة. سيؤدي التعطيل إلى إعادة الضبط الافتراضي عند كل زيارة.",
+    "analytics_description": "يساعدنا على فهم كيفية استخدام الموقع.",
+    "aria_label": "موافقة ملفات تعريف الارتباط",
+    "accepted_toast": "Cookies accepted",
+    "declined_toast": "Cookies declined"
+  },
+
+  "about": {
+    "title": "حول",
+    "features": "الميزات",
+    "version": "الإصدار",
+    "links": "الروابط",
+    "heading": "حول ipgaze",
+    "intro": "ipgaze هي خدمة سريعة وخاصة للبحث عن عناوين IP. تُرجع عنوان IP العام الخاص بك ومعلومات تحديد الموقع الجغرافي دون أي تتبع.",
+    "feature_ip_support": "دعم IPv4 و IPv6",
+    "feature_geoip": "البحث عن الدولة والمدينة ورقم النظام المستقل عبر GeoIP",
+    "feature_rest_api": "واجهة REST API مع استجابات JSON ونص و HTML",
+    "feature_no_tracking": "بدون تتبع، ولا يتم الاحتفاظ بالسجلات إلا وفق دورة سجل الوصول",
+    "feature_open_source": "مفتوحة المصدر، قابلة للاستضافة الذاتية",
+    "api_heading": "API",
+    "api_description_pre": "واجهة API متاحة على",
+    "api_description_post": "التوثيق الكامل متاح على",
+    "attribution_heading": "الإسناد"
+  },
+
+  "preferences": {
+    "title": "Preferences",
+    "heading": "Preferences",
+    "intro": "Your theme and language choices are stored in cookies on this device only. Use the link below to carry them to another browser or device.",
+    "current_theme_label": "Current theme",
+    "current_lang_label": "Current language",
+    "export_heading": "Export",
+    "export_intro": "Open this link on another device to apply the same theme and language, or copy the short code and paste it there instead.",
+    "export_url_label": "Import link",
+    "export_code_label": "Short code",
+    "copy_url_aria": "Copy import link",
+    "copy_code_aria": "Copy short code",
+    "import_heading": "Import",
+    "import_intro": "Paste a short code (or a full import link) from another device below.",
+    "import_paste_label": "Code or link",
+    "import_submit": "Apply"
+  },
+
+  "announcements": {
+    "warning": "تحذير",
+    "info": "معلومات",
+    "error": "خطأ",
+    "success": "نجاح",
+    "scheduled_maintenance": "صيانة مجدولة",
+    "dismiss_aria": "إغلاق الإعلان"
+  },
+
+  "pwa": {
+    "install": "تثبيت التطبيق",
+    "installed": "تم تثبيت التطبيق",
+    "offline_message": "لا يوجد اتصال بالإنترنت. يتم عرض المحتوى المخزن مؤقتاً.",
+    "offline_title": "أنت غير متصل بالإنترنت",
+    "offline_description": "يتطلب IPGaze اتصالاً بالشبكة للبحث عن عناوين IP. يرجى التحقق من اتصالك والمحاولة مرة أخرى.",
+    "offline_try_again": "حاول مرة أخرى",
+    "update_available": "يتوفر إصدار جديد.",
+    "update_later": "لاحقًا",
+    "update_now": "التحديث الآن"
+  },
+
+  "errors": {
+    "required": "هذا الحقل مطلوب",
+    "invalid_email": "عنوان البريد الإلكتروني غير صالح",
+    "too_short": "يجب أن يكون على الأقل {min} أحرف",
+    "too_long": "لا يمكن تجاوز {max} حرف",
+    "passwords_dont_match": "كلمات المرور غير متطابقة",
+    "invalid_format": "تنسيق غير صالح",
+    "already_exists": "موجود بالفعل",
+    "not_found": "غير موجود",
+    "bad_request": "تنسيق الطلب غير صالح",
+    "validation_failed": "فشل التحقق: {details}",
+    "unauthorized": "المصادقة مطلوبة",
+    "token_expired": "انتهت صلاحية الرمز",
+    "token_invalid": "رمز غير صالح",
+    "2fa_required": "المصادقة الثنائية مطلوبة",
+    "2fa_invalid": "رمز 2FA غير صالح",
+    "forbidden": "الإذن مرفوض",
+    "blocked_by_blocklist": "الوصول مرفوض",
+    "blocked_by_country": "الوصول غير متاح في منطقتك",
+    "account_locked": "الحساب مقفل",
+    "method_not_allowed": "الطريقة غير مسموح بها",
+    "conflict": "المورد موجود بالفعل",
+    "rate_limited": "طلبات كثيرة جداً",
+    "server_error": "خطأ داخلي في الخادم",
+    "maintenance_mode": "الخدمة غير متاحة",
+    "request_id_label": "معرّف الطلب"
+  },
+
+  "plurals": {
+    "items": {
+      "zero": "لا توجد عناصر",
+      "one": "عنصر واحد",
+      "two": "عنصران",
+      "few": "{count} عناصر",
+      "many": "{count} عنصراً",
+      "other": "{count} عنصر"
+    },
+    "results": {
+      "zero": "لا توجد نتائج",
+      "one": "نتيجة واحدة",
+      "two": "نتيجتان",
+      "few": "{count} نتائج",
+      "many": "{count} نتيجة",
+      "other": "{count} نتيجة"
+    },
+    "users": {
+      "zero": "لا يوجد مستخدمون",
+      "one": "مستخدم واحد",
+      "two": "مستخدمان",
+      "few": "{count} مستخدمون",
+      "many": "{count} مستخدماً",
+      "other": "{count} مستخدم"
+    },
+    "days": {
+      "zero": "لا أيام",
+      "one": "يوم واحد",
+      "two": "يومان",
+      "few": "{count} أيام",
+      "many": "{count} يوماً",
+      "other": "{count} يوم"
+    },
+    "hours": {
+      "zero": "لا ساعات",
+      "one": "ساعة واحدة",
+      "two": "ساعتان",
+      "few": "{count} ساعات",
+      "many": "{count} ساعة",
+      "other": "{count} ساعة"
+    },
+    "minutes": {
+      "zero": "لا دقائق",
+      "one": "دقيقة واحدة",
+      "two": "دقيقتان",
+      "few": "{count} دقائق",
+      "many": "{count} دقيقة",
+      "other": "{count} دقيقة"
+    }
+  },
+
+  "app": {
+    "name": "IPGaze",
+    "tagline": "خدمة البحث عن عناوين IP",
+    "description": "تحديد موقع IP سريع ودقيق ومعلومات الشبكة",
+    "cache_resized": "تم تحديث سعة ذاكرة التخزين المؤقت"
+  },
+
+  "ip": {
+    "your": "عنوان IP الخاص بك",
+    "lookup": "البحث عن IP",
+    "address": "عنوان IP",
+    "version": "إصدار IP",
+    "decimal": "عشري",
+    "hostname": "اسم المضيف",
+    "is_eu": "عضو في الاتحاد الأوروبي",
+    "enter_ip": "أدخل عنوان IP للبحث عنه"
+  },
+
+  "location": {
+    "country": "الدولة",
+    "country_code": "رمز الدولة",
+    "city": "المدينة",
+    "region": "المنطقة",
+    "region_code": "رمز المنطقة",
+    "timezone": "المنطقة الزمنية",
+    "coordinates": "الإحداثيات",
+    "latitude": "خط العرض",
+    "longitude": "خط الطول",
+    "metro_code": "رمز المنطقة الحضرية",
+    "zip_code": "الرمز البريدي"
+  },
+
+  "network": {
+    "asn": "ASN",
+    "org": "المنظمة",
+    "isp": "مزود خدمة الإنترنت"
+  },
+
+  "admin": {
+    "title": "لوحة الإدارة",
+    "dashboard": "لوحة التحكم",
+    "users": "المستخدمون",
+    "settings": "الإعدادات",
+    "logs": "السجلات",
+    "metrics": "المقاييس",
+    "geoip": "GeoIP",
+    "scheduler": "المُجدوِل",
+    "maintenance": "الصيانة",
+    "backup": "النسخ الاحتياطي",
+    "restore": "الاستعادة",
+    "update": "تحديث",
+    "reload": "إعادة تحميل الإعدادات"
+  },
+
+  "cli": {
+    "requires_privileges": "تتطلب هذه العملية صلاحيات مرتفعة: {action}",
+    "escalate_prompt": "يرجى إعادة التشغيل بصلاحيات sudo أو كمستخدم root.",
+    "daemon_started": "تم تشغيل الخادم الخلفي بمعرف العملية {pid}",
+    "running_in_mode_label": "يعمل في الوضع",
+    "listening_on": "يستمع على {proto}://{fqdn}:{port}",
+    "version_info": "الإصدار: {version} ({commit})، تم البناء في {date}",
+    "help_flag": "عرض رسالة المساعدة هذه",
+    "version_flag": "طباعة معلومات الإصدار",
+    "port_flag": "منفذ الخادم",
+    "address_flag": "عنوان استماع الخادم",
+    "config_flag": "دليل الإعدادات",
+    "data_flag": "دليل البيانات",
+    "reverse_lookup_flag": "تفعيل البحث العكسي عن اسم المضيف",
+    "port_lookup_flag": "تفعيل اختبار إمكانية الوصول إلى المنفذ",
+    "cache_size_flag": "حجم ذاكرة التخزين المؤقت للاستجابة (0=معطّل)",
+    "profile_flag": "تفعيل معالجات التنميط",
+    "header_flag": "الوثوق بهذا الرأس لعنوان IP البعيد (قابل للتكرار)",
+    "status_flag": "فحص الصحة (الخروج 0=سليم، 1=غير سليم)",
+    "service_flag": "إدارة الخدمة",
+    "maintenance_flag": "عمليات الصيانة"
+  },
+
+  "accessibility": {
+    "skip_to_content": "انتقل إلى المحتوى",
+    "menu": "القائمة",
+    "search": "بحث",
+    "close_dialog": "إغلاق مربع الحوار",
+    "expand_section": "توسيع القسم",
+    "collapse_section": "طي القسم",
+    "loading": "جارٍ التحميل، يرجى الانتظار",
+    "required_field": "حقل مطلوب"
+  },
+
+  "api_help": {
+    "title": "المساعدة ومرجع واجهة برمجة التطبيقات",
+    "basic_heading": "الاستخدام الأساسي",
+    "basic_intro": "احصل على عنوان IP العام الخاص بك (نص عادي — يعمل مع curl وwget وHTTPie وغيرها):",
+    "force_ip_version": "فرض استخدام IPv4 أو IPv6:",
+    "json_heading": "استجابة JSON",
+    "json_intro": "تُرجع بيانات GeoIP الكاملة بما في ذلك الدولة والمدينة ورقم ASN والمزيد:",
+    "force_json": "فرض JSON عبر ترويسة Accept:",
+    "fields_heading": "حقول محددة",
+    "fields_intro": "يمكن الوصول إلى كل حقل كنقطة نهاية نصية عادية:",
+    "lookup_heading": "البحث عن عنوان IP آخر",
+    "lookup_intro": "استعلم عن أي عنوان IP للحصول على بيانات GeoIP:",
+    "port_heading": "إمكانية الوصول إلى المنفذ",
+    "port_intro": "تحقق مما إذا كان أحد المنافذ مفتوحًا على عنوان IP الطالب:",
+    "tor_access_intro": "هذا الخادم متاح أيضًا كخدمة Tor مخفية — لا توجد عقدة خروج، ولا يرى أي وسيط عنوان IP الحقيقي الخاص بك:",
+    "tor_access_disabled": "لا يقوم هذا الخادم حاليًا بتشغيل خدمة Tor مخفية.",
+    "i2p_access_intro": "هذا الخادم متاح أيضًا كموقع eepsite عبر I2P:",
+    "i2p_access_disabled": "لا يقوم هذا الخادم حاليًا بتشغيل موقع eepsite عبر I2P.",
+    "formats_heading": "تنسيقات واجهة برمجة التطبيقات",
+    "formats_plain_label": "نص عادي",
+    "formats_plain_desc": "الافتراضي لوكلاء المستخدم curl/wget/CLI وUser-Agent الفارغ",
+    "formats_json_label": "JSON",
+    "formats_json_mid": "ترويسة، أو",
+    "formats_json_suffix": "لاحقة",
+    "formats_html_label": "HTML",
+    "formats_html_desc_pre": "وكلاء متصفح، أو",
+    "append_pre": "أضف",
+    "append_post": "إلى أي نقطة نهاية حقل للحصول على نص عادي صريح:",
+    "rate_heading": "حدود المعدل",
+    "rate_body_pre": "الاستخدام الآلي مسموح به. يُرجى تحديد الطلبات بمعدل طلب واحد في الدقيقة. قد تتلقى الطلبات التي تتجاوز هذا الحد استجابة",
+    "rate_body_post": "."
+  },
+
+  "index": {
+    "title": "ما هو عنوان IP الخاص بي؟ — {host}",
+    "meta_description": "{host} • ما هو عنوان IP الخاص بي؟ — أفضل أداة للعثور على عنوان IP الخاص بك ومعلومات عنه. دعم كامل لـ IPv4 وIPv6.",
+    "heading": "ما هو عنوان IP الخاص بي؟",
+    "subtitle": "أفضل أداة للعثور على عنوان IP الخاص بك ومعلومات عنه.",
+    "ip_info_aria": "معلومات IP",
+    "ip_details_heading": "تفاصيل IP",
+    "field_postal_code": "الرمز البريدي",
+    "api_usage_aria": "استخدام واجهة برمجة التطبيقات",
+    "column1_heading": "ماذا نعرف عن عنوان IP هذا؟",
+    "column2_heading": "كيف أحصل على هذا برمجياً؟",
+    "column2_intro": "باستخدام الأداة أدناه يمكنك إنشاء استعلامك ورؤية شكل النتيجة.",
+    "widget_select_group_aria": "اختر حقل API للمعاينة",
+    "field_ip_decimal": "عنوان IP (عشري)",
+    "field_country_iso": "الدولة (رمز ISO)",
+    "field_in_eu": "هل هي ضمن الاتحاد الأوروبي؟",
+    "field_vpn_proxy": "VPN / بروكسي",
+    "field_tor_exit": "عقدة خروج Tor",
+    "field_tor_hidden_service": "خدمة Tor المخفية",
+    "tor_hidden_service_notice": "أنت تزور عنوان .onion هذا عبر Tor. دوائر خدمة Tor المخفية لا تنقل أبدًا عنوان IP الحقيقي الخاص بك إلى الخادم — العنوان المعروض أدناه هو فقط عنوان الاسترجاع الذاتي لهذا الخادم، وليس عنوانك.",
+    "field_user_agent": "وكيل المستخدم",
+    "field_user_agent_comment": "وكيل المستخدم: تعليق",
+    "field_user_agent_raw": "وكيل المستخدم: القيمة الخام",
+    "field_asn_org": "ASN (المؤسسة)",
+    "geoip_attribution_pre": "بيانات GeoIP مقدمة من",
+    "sponsor_hosted_by": "هذا الموقع مستضاف بواسطة",
+    "sponsor_logo_alt": "شعار الموقع",
+    "value_not_available": "غير متوفر",
+    "map_title": "الموقع التقريبي على الخريطة",
+    "map_view_larger": "عرض خريطة أكبر",
+    "widget_port_label": "رقم المنفذ",
+    "widget_check_ip_label": "فحص عنوان IP آخر (اختياري)",
+    "widget_ip_placeholder": "عنوان IP للاستعلام",
+    "widget_open": "فتح",
+    "faq_heading": "الأسئلة الشائعة",
+    "faq_ipv4_ipv6_question": "كيف أجبر البحث على استخدام IPv4 أو IPv6؟",
+    "faq_ipv4_ipv6_intro": "أجبر البروتوكول بتمرير الخيار المناسب إلى العميل الخاص بك:",
+    "faq_ipv4_result": "يُرجع عنوان IPv4 الخاص بك",
+    "faq_ipv6_result": "يُرجع عنوان IPv6 الخاص بك",
+    "faq_json_question": "هل يمكنني إجبار الحصول على JSON؟",
+    "faq_json_answer_pre": "يعمل ضبط ترويسة",
+    "faq_json_answer_post": "كما هو متوقع.",
+    "faq_automated_question": "هل الاستخدام الآلي لهذه الخدمة مسموح به؟",
+    "faq_automated_answer": "نعم، طالما تم احترام حد المعدل. حد المعدل موجود لضمان خدمة عادلة للجميع.",
+    "faq_rate_limit_note": "يرجى تحديد الطلبات الآلية بمعدل طلب واحد في الدقيقة",
+    "faq_rate_limit_guarantee": "لا يوجد ضمان للطلبات التي تتجاوز هذا الحد.",
+    "faq_rate_limit_consequence": "قد يتم تقييد معدلها برمز حالة 429، أو إسقاطها بالكامل."
+  },
+
+  "healthz": {
+    "restart_pending": "إعادة التشغيل معلقة:",
+    "commit_label": "الالتزام",
+    "build_date_label": "تاريخ البناء",
+    "runtime_heading": "وقت التشغيل",
+    "timestamp_label": "الطابع الزمني",
+    "checks_heading": "فحوصات السلامة",
+    "column_component": "المكوّن",
+    "check_database": "قاعدة البيانات",
+    "check_cache": "التخزين المؤقت",
+    "check_disk": "القرص",
+    "check_scheduler": "المجدول",
+    "check_tor": "Tor",
+    "check_i2p": "I2P",
+    "refreshing_in_prefix": "التحديث خلال",
+    "provider_label": "المزوّد"
+  },
+  "client": {
+    "help_flag": "عرض هذه المساعدة ثم الخروج",
+    "version_flag": "عرض معلومات الإصدار ثم الخروج",
+    "debug_flag": "تفعيل مخرجات التصحيح",
+    "server_flag": "عنوان الخادم المراد الاستعلام منه",
+    "output_flag": "تنسيق المخرجات",
+    "field_flag": "طباعة حقل واحد فقط",
+    "lang_flag": "رمز لغة المخرجات",
+    "color_flag": "وضع الألوان (auto، always، never)",
+    "shell_flag": "أمر التكامل مع الصدفة (completions، init، help)",
+    "token_flag": "رمز الواجهة البرمجية المستخدم للمصادقة",
+    "token_file_flag": "قراءة رمز الواجهة البرمجية من ملف",
+    "config_flag": "اسم ملف الإعدادات أو مساره",
+    "update_flag": "أمر التحديث (check، yes)",
+    "usage_line": "الاستخدام: {binary} [خيارات] [ip]",
+    "description": "الاستعلام عن معلومات عنوان IP والشبكة من خادم ipgaze.",
+    "options_header": "الخيارات:",
+    "formats_header": "التنسيقات: {formats}",
+    "fields_header": "الحقول: {fields}",
+    "shells_header": "الصدفات: {shells}",
+    "examples_header": "أمثلة:",
+    "example_own_ip": "عرض عنوان IP الخاص بك",
+    "example_lookup_ip": "البحث عن عنوان IP محدد",
+    "example_json": "طباعة النتيجة بتنسيق JSON",
+    "example_field": "طباعة حقل واحد لعنوان IP",
+    "example_server": "الاستعلام من خادم آخر",
+    "example_config": "استخدام ملف إعدادات باسم محدد",
+    "example_update_check": "التحقق من توفر تحديث",
+    "example_update_install": "تنزيل التحديث وتثبيته",
+    "err_config_path": "تعذر تحديد مسار ملف الإعدادات: {error}",
+    "warn_create_config": "تحذير: تعذر إنشاء ملف الإعدادات: {error}",
+    "err_invalid_output": "تنسيق مخرجات غير صالح \"{format}\". التنسيقات الصالحة: {formats}",
+    "err_no_server": "لم يتم ضبط أي خادم. استخدم ‎--server URL أو اضبط server.primary في ملف الإعدادات.",
+    "version_server_label": "الخادم",
+    "version_server_version_label": "إصدار الخادم",
+    "version_build_info_label": "معلومات البناء",
+    "err_update_check": "فشل التحقق من التحديثات: {error}",
+    "err_cli_too_old": "هذا العميل أقدم من الإصدار الأدنى {version} الذي يطلبه الخادم. نفّذ ‎{binary} --update yes.",
+    "update_up_to_date": "محدَّث بالفعل.",
+    "update_available": "يتوفر تحديث: {current} إلى {available}",
+    "err_update_failed": "فشل التحديث: {error}",
+    "err_unknown_update": "أمر تحديث غير معروف \"{command}\". الأوامر الصالحة: check، yes",
+    "update_prompt": "هل تريد تثبيت هذا التحديث الآن؟ [y/N]",
+    "err_token_revoked": "أبطل الخادم هذا الرمز. أعد المصادقة باستخدام ‎--token أو ‎--token-file.",
+    "shell_help_usage": "الاستخدام: {binary} --shell completions|init|help SHELL",
+    "err_unknown_shell_command": "أمر صدفة غير معروف \"{command}\". الأوامر الصالحة: completions، init، help",
+    "err_unsupported_shell": "صدفة غير مدعومة \"{shell}\". الصدفات المدعومة: {shells}"
+  },
+  "tui": {
+    "title": "معلومات عنوان IP",
+    "loading": "جارٍ البحث عن عنوان IP…",
+    "no_data": "لا توجد بيانات",
+    "field_hostname": "اسم المضيف",
+    "field_country": "الدولة",
+    "field_city": "المدينة",
+    "field_region": "المنطقة",
+    "field_postal_code": "الرمز البريدي",
+    "field_timezone": "المنطقة الزمنية",
+    "field_asn": "ASN",
+    "field_coordinates": "الإحداثيات",
+    "abbrev_hostname": "مضيف",
+    "abbrev_country": "دولة",
+    "abbrev_city": "مدينة",
+    "abbrev_region": "منطقة",
+    "abbrev_postal_code": "بريدي",
+    "abbrev_timezone": "توقيت",
+    "abbrev_asn": "ASN",
+    "abbrev_coordinates": "إحداثيات",
+    "help_title": "اختصارات لوحة المفاتيح",
+    "help_navigate": "التنقل بين الحقول",
+    "help_jump": "الانتقال إلى الحقل الأول أو الأخير",
+    "help_expand": "عرض القيمة الكاملة للحقل المحدد",
+    "help_back": "إغلاق المساعدة أو الطي أو مسح البحث",
+    "help_search": "البحث في الحقول",
+    "help_help": "إظهار هذه المساعدة أو إخفاؤها",
+    "help_quit": "خروج",
+    "hint_minimal": "?:مساعدة q:خروج",
+    "hint_compact": "↑↓:تنقل │ enter:عرض │ ?:مساعدة │ q:خروج",
+    "hint_full": "↑/↓: تنقل │ Enter: عرض │ /: بحث │ ?: مساعدة │ q: خروج",
+    "search_prompt": "بحث: {query}",
+    "search_active": "تصفية: {query}",
+    "search_no_match": "لا توجد حقول تطابق {query}"
+  },
+  "setup": {
+    "title": "إعداد {app} CLI",
+    "intro": "لا يوجد خادم مُهيأ. لنقم بإعداد واحد!",
+    "server_url_label": "عنوان الخادم",
+    "token_label": "رمز API (اختياري)",
+    "token_placeholder": "اتركه فارغًا للوصول المجهول",
+    "save_option": "الحفظ في الإعدادات (موصى به)",
+    "test_connection": "اختبار الاتصال",
+    "testing": "جارٍ اختبار الاتصال بـ {server}…",
+    "connected": "تم الاتصال بـ {server} (الإصدار {version})",
+    "failed": "فشل الاتصال: {error}",
+    "invalid_url": "أدخل عنوان خادم http(s) صالحًا",
+    "hint": "tab: الحقل التالي │ space: تبديل │ enter: اختبار وحفظ │ esc: إلغاء",
+    "saved": "تم حفظ الإعدادات في {path}"
+  },
+
+  "notifications": {
+    "title": "الإشعارات",
+    "mark_all_read": "تعليم الكل كمقروء",
+    "clear_all": "مسح الكل",
+    "ssl_expiring": "شهادة SSL تنتهي خلال {count} يوم",
+    "ssl_renewal_failed": "فشل تجديد شهادة SSL",
+    "backup_completed": "اكتملت النسخة الاحتياطية",
+    "backup_failed": "فشلت النسخة الاحتياطية",
+    "update_available": "يتوفر تحديث",
+    "disk_space_low": "مساحة القرص منخفضة",
+    "task_failed": "فشلت المهمة",
+    "task_triggered": "تم تشغيل المهمة يدويًا",
+    "ssl_renewed": "تم تجديد شهادة SSL",
+    "blocklist_updated": "تم تحديث قائمة الحظر: {name} ({count} قاعدة)",
+    "blocklist_update_failed": "فشل تحديث قائمة الحظر: {name}",
+    "geoip_updated": "تم تحديث قاعدة بيانات GeoIP",
+    "geoip_update_failed": "فشل تحديث GeoIP",
+    "ip_blocked": "تم حظر عنوان IP: {ip} ({reason})",
+    "ip_allowlisted": "تمت إضافة عنوان IP إلى قائمة السماح: {cidr}",
+    "country_blocked": "تم حظر طلب حسب الدولة: {ip} ({country})",
+    "preferences": {
+      "webui": "واجهة الويب",
+      "email": "البريد الإلكتروني",
+      "security_cannot_disable": "الأمان (لا يمكن تعطيله)",
+      "server": "الخادم",
+      "backup": "النسخ الاحتياطي",
+      "scheduler": "المجدول",
+      "other_admins": "مسؤولون آخرون"
+    }
+  },
+
+  "email": {
+    "subjects": {
+      "security_alert": "تنبيه أمني - {app_name}",
+      "backup_completed": "اكتملت النسخة الاحتياطية - {app_name}",
+      "backup_failed": "فشلت النسخة الاحتياطية - {app_name}",
+      "task_failed": "فشلت مهمة مجدولة - {app_name}",
+      "ssl_expiring": "شهادة SSL على وشك الانتهاء - {app_name}",
+      "ssl_renewed": "تم تجديد شهادة SSL - {app_name}",
+      "ssl_renewal_failed": "فشل تجديد SSL - {app_name}",
+      "update_available": "يتوفر تحديث - {app_name}",
+      "update_installed": "تم تثبيت التحديث - {app_name}",
+      "test_email": "رسالة اختبار - {app_name}"
+    },
+    "body": {
+      "from": "من: {app_name} ({fqdn})",
+      "recommended_actions": "الإجراءات الموصى بها",
+      "contact_information": "معلومات الاتصال",
+      "security_alert_heading": "تنبيه أمني",
+      "backup_completed_heading": "اكتملت النسخة الاحتياطية",
+      "backup_failed_heading": "فشلت النسخة الاحتياطية",
+      "task_failed_heading": "فشلت مهمة مجدولة",
+      "ssl_expiring_heading": "شهادة SSL على وشك الانتهاء",
+      "ssl_renewed_heading": "تم تجديد شهادة SSL",
+      "ssl_renewal_failed_heading": "فشل تجديد SSL",
+      "update_available_heading": "يتوفر تحديث",
+      "update_installed_heading": "تم تثبيت التحديث",
+      "test_heading": "رسالة اختبار",
+      "label_time": "الوقت:",
+      "label_event": "الحدث:",
+      "label_ip": "عنوان IP:",
+      "label_filename": "اسم الملف:",
+      "label_size": "الحجم:",
+      "label_error": "الخطأ:",
+      "label_task": "المهمة:",
+      "label_domain": "النطاق:",
+      "label_expires": "ينتهي في:",
+      "label_days_remaining": "الأيام المتبقية:",
+      "label_new_expiry": "تاريخ الانتهاء الجديد:",
+      "label_days_until_expiry": "الأيام حتى الانتهاء:",
+      "label_next_retry": "المحاولة التالية:",
+      "label_current_version": "الإصدار الحالي:",
+      "label_new_version": "الإصدار الجديد:",
+      "label_channel": "القناة:",
+      "label_previous_version": "الإصدار السابق:",
+      "security_alert_intro": "تم تسجيل حدث أمني في {app_name}.",
+      "backup_completed_intro": "اكتملت نسختك الاحتياطية بنجاح.",
+      "backup_failed_intro": "فشلت محاولة إنشاء نسخة احتياطية.",
+      "task_failed_intro": "فشلت مهمة مجدولة.",
+      "ssl_expiring_intro": "شهادة هذا الخادم على وشك الانتهاء.",
+      "ssl_renewed_intro": "تم تجديد شهادة هذا الخادم بنجاح.",
+      "ssl_renewal_failed_intro": "فشل التجديد التلقائي للشهادة.",
+      "update_available_intro": "يتوفر إصدار جديد من {app_name}.",
+      "update_installed_intro": "تم تحديث {app_name} إلى إصدار جديد.",
+      "test_intro": "هذه رسالة اختبار من {app_name}.",
+      "security_alert_action": "إذا لم يكن هذا النشاط متوقعًا، فراجع إعدادات الأمان لديك.",
+      "backup_completed_action": "أرشيف النسخة الاحتياطية محفوظ في دليل النسخ الاحتياطي المُعدّ.",
+      "backup_failed_action": "راجع إعدادات التخزين والمساحة المتاحة على القرص.",
+      "task_failed_action": "راجع سجلات التطبيق للاطلاع على التفاصيل.",
+      "ssl_expiring_action": "سيُحاول التجديد تلقائيًا. جدّد الشهادة يدويًا إذا فشل ذلك.",
+      "ssl_renewed_action": "لا حاجة إلى أي إجراء.",
+      "ssl_renewal_failed_action": "حقّق في السبب وجدّد الشهادة يدويًا إذا استمر فشل التجديد التلقائي.",
+      "update_available_action": "راجع ملاحظات الإصدار قبل التحديث.",
+      "update_installed_action": "لا حاجة إلى أي إجراء.",
+      "test_action": "استلام هذه الرسالة يؤكد أن إعدادات البريد الصادر صحيحة."
+    }
+  },
+
+  "swagger": {
+    "bodies": {
+      "ccpa": "اختيار الانسحاب وفق CCPA",
+      "consent": "اختيار الموافقة على ملفات تعريف الارتباط",
+      "contact": "محتوى نموذج الاتصال المُرسل",
+      "dismiss": "معرّف الإعلان المراد إخفاؤه",
+      "graphql": "استعلام GraphQL والمتغيرات واسم العملية",
+      "preferences": "تحديث تفضيلات السمة واللغة",
+      "report": "بيانات تقرير أنشأه المتصفح"
+    },
+    "common": {
+      "api_mirror": "النسخة بصيغة JSON من الصفحة المقابلة، وفق قاعدة التطابق بين مسارات الويب ومسارات واجهة البرمجة.",
+      "report_intro": "يستقبل تقارير أنشأها المتصفح ويكتبها في سجلات الخادم.",
+      "txt_variant": "نسخة نصية عادية من نقطة النهاية المقابلة؛ اللاحقة ‎.txt‎ تفرض الاستجابة بنوع text/plain بغض النظر عن ترويسة Accept."
+    },
+    "info": {
+      "description": "خدمة بحث عن عناوين IP مع معلومات GeoIP، متاحة عبر REST وGraphQL وواجهات نصية عادية ملائمة لسطر الأوامر.",
+      "server": "خادم واجهة برمجة IPGaze",
+      "title": "واجهة برمجة IPGaze"
+    },
+    "params": {
+      "asset_path": "مسار المورد ضمن ‎/static/‎",
+      "code_query": "رمز التفضيلات المُشفّر بصيغة base64url من نقطة نهاية التصدير",
+      "filename_path": "اسم ملف عميل سطر الأوامر، مثل ipgaze-linux-amd64",
+      "ip_path": "عنوان IP المراد البحث عنه (IPv4 أو IPv6)",
+      "ip_query": "عنوان IP اختياري للبحث؛ الافتراضي هو عنوان المتصل",
+      "lang_path": "رمز لغة وفق BCP 47، مثل en أو fr أو ja",
+      "lang_query": "اللغة المراد تطبيقها كرمز BCP 47",
+      "port_path": "رقم المنفذ المراد فحصه (1-65535)",
+      "theme_query": "السمة المراد تطبيقها: dark أو light أو auto"
+    },
+    "paths": {
+      "announcements_dismiss": {
+        "description": "يعلّم إعلان الموقع كمُخفى في هذا المتصفح.",
+        "summary": "إخفاء إعلان"
+      },
+      "api_graphql_get": {
+        "summary": "مستكشف GraphQL (اسم بديل بلا إصدار)"
+      },
+      "api_graphql_post": {
+        "summary": "تنفيذ استعلام GraphQL (اسم بديل بلا إصدار)"
+      },
+      "api_healthz": {
+        "description": "اسم بديل بلا إصدار لفحص السلامة. يعيد JSON دائمًا دون تفاوض على المحتوى.",
+        "summary": "فحص السلامة (اسم بديل بلا إصدار)"
+      },
+      "api_healthz_txt": {
+        "summary": "فحص السلامة (اسم بديل بلا إصدار، ‎.txt‎)"
+      },
+      "api_swagger": {
+        "description": "يعيد مستند OpenAPI 3.0 هذا بصيغة JSON دون شروط ودون تفاوض على المحتوى.",
+        "summary": "مستند OpenAPI"
+      },
+      "asn": {
+        "description": "يعيد رقم النظام المستقل الذي يُعلن عن عنوان IP الخاص بالمتصل.",
+        "summary": "جلب رقم ASN"
+      },
+      "asn_org": {
+        "description": "يعيد اسم المؤسسة المالكة للنظام المستقل الذي يُعلن عن عنوان IP الخاص بالمتصل.",
+        "summary": "جلب مؤسسة ASN"
+      },
+      "asn_org_txt": {
+        "summary": "جلب مؤسسة ASN (‎.txt‎)"
+      },
+      "asn_txt": {
+        "summary": "جلب رقم ASN (‎.txt‎)"
+      },
+      "autodiscover": {
+        "description": "يعيد هوية الخادم وإصدار عميل سطر الأوامر المنشور والحد الأدنى لإصدار العميل الذي يقبله هذا الخادم.",
+        "summary": "اكتشاف تلقائي للعميل"
+      },
+      "branding_logo": {
+        "description": "يقدّم شعار الموقع المُعدّ، ويخزّنه محليًا إذا كان مضبوطًا على عنوان URL بعيد.",
+        "summary": "تقديم شعار الموقع"
+      },
+      "city": {
+        "description": "يعيد اسم المدينة المستنتج من عنوان IP الخاص بالمتصل.",
+        "summary": "جلب اسم المدينة"
+      },
+      "city_txt": {
+        "summary": "جلب اسم المدينة (‎.txt‎)"
+      },
+      "cli_binary": {
+        "description": "ينقل ملف عميل سطر الأوامر التنفيذي لنظام التشغيل والمعمارية المطلوبين.",
+        "summary": "تنزيل ملف عميل سطر الأوامر"
+      },
+      "coordinates": {
+        "description": "يعيد خطي العرض والطول المستنتجين من عنوان IP الخاص بالمتصل بالدرجات العشرية مفصولين بفاصلة.",
+        "summary": "جلب الإحداثيات"
+      },
+      "coordinates_txt": {
+        "summary": "جلب الإحداثيات (‎.txt‎)"
+      },
+      "country": {
+        "description": "يعيد اسم الدولة المستنتج من عنوان IP الخاص بالمتصل.",
+        "summary": "جلب اسم الدولة"
+      },
+      "country_iso": {
+        "description": "يعيد رمز الدولة المكوّن من حرفين وفق ISO 3166-1 alpha-2 المستنتج من عنوان IP الخاص بالمتصل.",
+        "summary": "جلب رمز الدولة ISO"
+      },
+      "country_iso_txt": {
+        "summary": "جلب رمز الدولة ISO (‎.txt‎)"
+      },
+      "country_txt": {
+        "summary": "جلب اسم الدولة (‎.txt‎)"
+      },
+      "docs_graphql_get": {
+        "description": "يقدّم واجهة مستكشف GraphQL مستقلة لكتابة الاستعلامات وتنفيذها.",
+        "summary": "مستكشف GraphQL"
+      },
+      "docs_graphql_post": {
+        "description": "ينفّذ استعلام GraphQL على المخطط الذي يعكس واجهة REST. الاستعلامات التي تتجاوز حدود العمق أو الأسماء البديلة تُرفض بكائن خطأ مطابق لمواصفة GraphQL.",
+        "summary": "تنفيذ استعلام GraphQL"
+      },
+      "docs_swagger": {
+        "description": "يقدّم واجهة Swagger التفاعلية، أو مستند OpenAPI هذا عند طلب JSON عبر ترويسة Accept.",
+        "summary": "واجهة Swagger"
+      },
+      "healthz": {
+        "description": "يعيد تقرير السلامة الكامل للخادم: الحالة العامة، هوية المشروع، بيانات البناء، مدة التشغيل، وضع التشغيل، الميزات المفعّلة، فحوص الأنظمة الفرعية وإحصاءات الطلبات. تُتفاوض الصيغة: JSON، أو HTML للمتصفحات، أو نص عادي فيما عدا ذلك.",
+        "summary": "فحص السلامة"
+      },
+      "healthz_root": {
+        "description": "اسم بديل اختياري في الجذر لـ ‎/server/healthz‎؛ يُسجَّل فقط عند تفعيل الاسم البديل في الجذر ضمن server.yml.",
+        "summary": "فحص السلامة (اسم بديل في الجذر)"
+      },
+      "ip": {
+        "description": "يعيد عنوان IP الخاص بالمتصل فقط دون أي ترميز.",
+        "summary": "جلب عنوان IP الخاص بك كنص عادي"
+      },
+      "ip_lookup": {
+        "description": "يعيد معلومات GeoIP وASN وDNS العكسي لأي عنوان IPv4 أو IPv6 يُمرَّر في المسار. يعالجه مسار شامل، لذا يُعامل أي مسار من مقطع واحد غير محجوز ويُحلَّل كعنوان IP على أنه عملية بحث.",
+        "summary": "البحث عن عنوان IP محدد"
+      },
+      "ip_txt": {
+        "summary": "جلب عنوان IP الخاص بك كنص عادي (‎.txt‎)"
+      },
+      "json": {
+        "description": "يعيد سجل IP الكامل بما في ذلك حقول GeoIP وASN وDNS العكسي وتصنيف التهديدات.",
+        "summary": "جلب معلومات IP الكاملة بصيغة JSON"
+      },
+      "llms_txt": {
+        "description": "يقدّم سياسة llms.txt التي تصف كيفية استخدام وكلاء نماذج اللغة الآلية لهذه الخدمة.",
+        "summary": "سياسة استخدام الوكلاء الآليين"
+      },
+      "locales": {
+        "description": "يعيد فهرس الترجمة بصيغة JSON للغة المطلوبة كي تُوطّن واجهة الويب النصوص المعروضة لدى العميل.",
+        "summary": "جلب فهرس الترجمة"
+      },
+      "manifest": {
+        "description": "يعيد بيان تطبيق الويب التقدمي مع اسم التطبيق والأيقونات ولون السمة ووضع العرض.",
+        "summary": "بيان تطبيق الويب"
+      },
+      "offline": {
+        "description": "يقدّم الصفحة التي يعرضها عامل الخدمة عندما يتعذّر الوصول إلى الشبكة أثناء التنقل.",
+        "summary": "صفحة العمل دون اتصال"
+      },
+      "port_check": {
+        "description": "يفتح اتصال TCP من الخادم إلى المنفذ المحدد على عنوان IP الخاص بالمتصل ويبلّغ بما إذا كان الاتصال قد نجح.",
+        "summary": "فحص إمكانية الوصول إلى منفذ"
+      },
+      "report_crash": {
+        "summary": "تقرير أعطال"
+      },
+      "report_csp": {
+        "summary": "تقرير سياسة أمان المحتوى"
+      },
+      "report_default": {
+        "summary": "نقطة نهاية التقارير الافتراضية"
+      },
+      "report_deprecation": {
+        "summary": "تقرير إهمال"
+      },
+      "report_error": {
+        "summary": "تقرير خطأ"
+      },
+      "report_intervention": {
+        "summary": "تقرير تدخّل المتصفح"
+      },
+      "report_nel": {
+        "summary": "تقرير سجل أخطاء الشبكة"
+      },
+      "robots_txt": {
+        "description": "يقدّم سياسة الزحف الخاصة بهذا الخادم.",
+        "summary": "قواعد استبعاد الروبوتات"
+      },
+      "root": {
+        "description": "يعيد عنوان IP الخاص بالمتصل. تُتفاوض صيغة الاستجابة: JSON مع Accept: application/json، وHTML للمتصفحات، ونص عادي لعملاء سطر الأوامر.",
+        "summary": "جلب عنوان IP الخاص بك"
+      },
+      "security_txt": {
+        "description": "يقدّم سياسة الإفصاح الأمني وفق RFC 9116 مع جهة الاتصال الأمنية وموقع مفتاح PGP.",
+        "summary": "سياسة الاتصال الأمني"
+      },
+      "server_about": {
+        "description": "يقدّم صفحة معلومات عن هذه الخدمة وإصدارها والجهة المشغّلة لها.",
+        "summary": "حول هذا الخادم"
+      },
+      "server_ccpa": {
+        "description": "يحفظ اختيار عدم بيع البيانات وفق CCPA في ملف تعريف ارتباط بالمتصفح.",
+        "summary": "تسجيل الانسحاب وفق CCPA"
+      },
+      "server_consent": {
+        "description": "يحفظ اختيار الزائر بشأن ملفات تعريف الارتباط في ملف تعريف ارتباط بالمتصفح. تُحفظ الموافقة لكل متصفح ولا تُخزَّن على الخادم إطلاقًا.",
+        "summary": "تسجيل الموافقة على ملفات تعريف الارتباط"
+      },
+      "server_contact": {
+        "description": "يقدّم نموذج الاتصال بالجهة المشغّلة للخادم.",
+        "summary": "صفحة الاتصال"
+      },
+      "server_contact_post": {
+        "description": "يتحقق من صحة رسالة الاتصال ويوصّلها إلى عنوان الجهة المشغّلة المُعدّ.",
+        "summary": "إرسال نموذج الاتصال"
+      },
+      "server_help": {
+        "description": "يقدّم صفحة الاستخدام التي توثّق كل نقطة نهاية بأمثلة جاهزة للنسخ.",
+        "summary": "مساعدة الاستخدام"
+      },
+      "server_index": {
+        "description": "يعيد التوجيه إلى صفحة معلومات الخادم.",
+        "summary": "فهرس معلومات الخادم"
+      },
+      "server_preferences": {
+        "description": "يقدّم صفحة التفضيلات لاختيار السمة واللغة.",
+        "summary": "صفحة التفضيلات"
+      },
+      "server_preferences_export": {
+        "description": "يعيد السمة واللغة الحاليتين على هيئة عنوان URL كامل للاستيراد ورمز base64url قصير لنقل التفضيلات إلى متصفح آخر.",
+        "summary": "تصدير التفضيلات"
+      },
+      "server_preferences_import": {
+        "description": "يفك ترميز القيم المقدّمة ويتحقق منها ويضبط ملفات تعريف الارتباط المطابقة ثم يعيد التوجيه كي لا يبقى الرمز في عنوان URL الظاهر.",
+        "summary": "استيراد التفضيلات"
+      },
+      "server_preferences_post": {
+        "description": "يتحقق من صحة السمة واللغة المُرسلتين ويحفظهما في ملفات تعريف ارتباط بالمتصفح.",
+        "summary": "تحديث التفضيلات"
+      },
+      "server_privacy": {
+        "description": "يقدّم سياسة الخصوصية التي تصف البيانات المسجّلة ومدة الاحتفاظ بها وخيارات الانسحاب المتاحة.",
+        "summary": "سياسة الخصوصية"
+      },
+      "server_terms": {
+        "description": "يقدّم شروط استخدام هذه الخدمة.",
+        "summary": "شروط الخدمة"
+      },
+      "service_worker": {
+        "description": "يقدّم عامل خدمة تطبيق الويب التقدمي الذي يخزّن الموارد مؤقتًا ويعرض صفحة العمل دون اتصال عند تعذّر الوصول إلى الشبكة.",
+        "summary": "سكربت عامل الخدمة"
+      },
+      "static": {
+        "description": "يقدّم الموارد الثابتة المضمّنة: أوراق الأنماط والسكربتات والأيقونات والخطوط وملفات Swagger UI المرفقة.",
+        "summary": "تقديم مورد ثابت"
+      },
+      "v1_about": {
+        "summary": "حول هذا الخادم (API v1)"
+      },
+      "v1_asn": {
+        "description": "يعيد رقم النظام المستقل الذي يُعلن عن عنوان IP الخاص بالمتصل.",
+        "summary": "جلب رقم ASN (API v1)"
+      },
+      "v1_city": {
+        "description": "يعيد اسم المدينة المستنتج من عنوان IP الخاص بالمتصل.",
+        "summary": "جلب المدينة (API v1)"
+      },
+      "v1_contact": {
+        "description": "يتحقق من صحة رسالة الاتصال ويوصّلها ويعيد النتيجة بصيغة JSON.",
+        "summary": "إرسال نموذج الاتصال (API v1)"
+      },
+      "v1_country": {
+        "description": "يعيد اسم الدولة المستنتج من عنوان IP الخاص بالمتصل.",
+        "summary": "جلب الدولة (API v1)"
+      },
+      "v1_graphql_get": {
+        "summary": "مستكشف GraphQL (API v1)"
+      },
+      "v1_graphql_post": {
+        "summary": "تنفيذ استعلام GraphQL (API v1)"
+      },
+      "v1_healthz": {
+        "description": "يعيد تقرير السلامة الكامل للخادم بصيغة JSON. دائمًا JSON، دون تفاوض على المحتوى.",
+        "summary": "فحص السلامة (API v1)"
+      },
+      "v1_healthz_txt": {
+        "summary": "فحص السلامة (API v1، ‎.txt‎)"
+      },
+      "v1_help": {
+        "summary": "مساعدة الاستخدام (API v1)"
+      },
+      "v1_info": {
+        "description": "يعيد سجل IP الكامل بصيغة JSON، تمامًا مثل ‎/json‎.",
+        "summary": "جلب معلومات IP الكاملة (API v1)"
+      },
+      "v1_ip": {
+        "description": "يعيد عنوان IP الخاص بالمتصل فقط.",
+        "summary": "جلب عنوان IP الخاص بك (API v1)"
+      },
+      "v1_ip_lookup": {
+        "description": "يعيد معلومات GeoIP وASN وDNS العكسي لأي عنوان IPv4 أو IPv6.",
+        "summary": "البحث عن عنوان IP محدد (API v1)"
+      },
+      "v1_preferences": {
+        "description": "يعيد السمة واللغة المحفوظتين حاليًا في ملفات تعريف ارتباط المتصل.",
+        "summary": "جلب التفضيلات (API v1)"
+      },
+      "v1_preferences_export": {
+        "description": "يعيد السمة واللغة الحاليتين على هيئة عنوان URL كامل للاستيراد ورمز base64url قصير.",
+        "summary": "تصدير التفضيلات (API v1)"
+      },
+      "v1_preferences_import": {
+        "description": "يفك ترميز القيم المقدّمة ويتحقق منها ويضبط ملفات تعريف الارتباط المطابقة.",
+        "summary": "استيراد التفضيلات (API v1)"
+      },
+      "v1_privacy": {
+        "summary": "سياسة الخصوصية (API v1)"
+      },
+      "v1_swagger": {
+        "description": "يعيد مستند OpenAPI 3.0 هذا بصيغة JSON عبر مسار واجهة البرمجة المُصدَّر.",
+        "summary": "مستند OpenAPI (API v1)"
+      },
+      "v1_terms": {
+        "summary": "شروط الخدمة (API v1)"
+      },
+      "v1_version": {
+        "description": "يعيد الإصدار قيد التشغيل وتجزئة المصدر وتاريخ البناء.",
+        "summary": "جلب إصدار البناء"
+      },
+      "wk_llms_txt": {
+        "summary": "سياسة استخدام الوكلاء الآليين (well-known)"
+      },
+      "wk_pgp_key": {
+        "description": "يقدّم مفتاح PGP العام بترميز ASCII المشار إليه في سياسة الأمان.",
+        "summary": "مفتاح PGP العام"
+      },
+      "wk_security_txt": {
+        "summary": "سياسة الاتصال الأمني (well-known)"
+      }
+    },
+    "responses": {
+      "accepted": "تم قبول التقرير",
+      "asset": "محتوى مورد ثابت",
+      "bad_request": "طلب غير صالح",
+      "binary": "دفق ملف ثنائي",
+      "graphql": "نتيجة تنفيذ GraphQL",
+      "health": "سلامة الخادم",
+      "html_page": "صفحة HTML",
+      "invalid_ip": "عنوان IP غير صالح",
+      "invalid_port": "رقم منفذ غير صالح",
+      "ip_info": "معلومات عنوان IP",
+      "json_object": "كائن JSON",
+      "manifest": "بيان تطبيق الويب",
+      "not_found": "المورد غير موجود",
+      "ok": "نجاح",
+      "port_check": "نتيجة فحص إمكانية الوصول إلى المنفذ",
+      "redirect": "إعادة توجيه إلى الصفحة الهدف",
+      "script": "شيفرة JavaScript",
+      "spec": "مستند مواصفة OpenAPI 3.0",
+      "text_value": "قيمة نصية عادية",
+      "too_many_requests": "تم تجاوز حد المعدل",
+      "unavailable": "الخادم في حالة غير سليمة أو في وضع الصيانة أو قيد الإيقاف",
+      "version": "معلومات إصدار البناء"
+    },
+    "tags": {
+      "api_v1": "API v1",
+      "assets": "الموارد",
+      "documentation": "التوثيق",
+      "geoip": "GeoIP",
+      "ip_lookup": "البحث عن IP",
+      "pages": "الصفحات",
+      "port_check": "فحص المنافذ",
+      "reports": "التقارير",
+      "system": "النظام",
+      "well_known": "Well-Known"
+    },
+    "ui": {
+      "title": "واجهة برمجة IPGaze - واجهة Swagger"
+    }
+  },
+
+  "graphql": {
+    "args": {
+      "checkPort": {
+        "port": "رقم المنفذ المراد فحصه (1-65535)"
+      },
+      "lookupIP": {
+        "ip": "عنوان IP المراد البحث عنه (IPv4 أو IPv6)"
+      }
+    },
+    "query": {
+      "checkPort": {
+        "description": "فحص ما إذا كان منفذ ما قابلاً للوصول على عنوان IP الخاص بك"
+      },
+      "health": {
+        "description": "جلب تقرير السلامة الكامل للخادم"
+      },
+      "lookupIP": {
+        "description": "البحث عن عنوان IP محدد"
+      },
+      "myIP": {
+        "description": "جلب عنوان IP الخاص بك مع معلومات GeoIP"
+      }
+    },
+    "types": {
+      "BuildInfo": {
+        "description": "بيانات بناء الملف التنفيذي قيد التشغيل",
+        "fields": {
+          "commit": "تجزئة المصدر التي بُني منها الملف التنفيذي",
+          "date": "الطابع الزمني للبناء"
+        }
+      },
+      "ChecksInfo": {
+        "description": "نتائج فحص السلامة لكل نظام فرعي",
+        "fields": {
+          "cache": "نتيجة فحص ذاكرة التخزين المؤقت",
+          "database": "نتيجة فحص قاعدة البيانات",
+          "disk": "نتيجة فحص القرص",
+          "i2p": "نتيجة فحص نظام I2P الفرعي",
+          "scheduler": "نتيجة فحص المجدول",
+          "tor": "نتيجة فحص نظام Tor الفرعي"
+        }
+      },
+      "FeaturesInfo": {
+        "description": "توافر الميزات الاختيارية",
+        "fields": {
+          "geoip": "ما إذا كانت قاعدة بيانات GeoIP محمّلة",
+          "i2p": "حالة موقع I2P eepsite",
+          "tor": "حالة خدمة Tor المخفية"
+        }
+      },
+      "HealthResponse": {
+        "description": "تقرير سلامة الخادم، مطابق حقلاً بحقل لنقطة نهاية السلامة في REST",
+        "fields": {
+          "build": "بيانات البناء",
+          "checks": "نتائج فحص السلامة لكل نظام فرعي",
+          "features": "توافر الميزات الاختيارية",
+          "goVersion": "إصدار بيئة تشغيل Go التي بُني بها الملف التنفيذي",
+          "mode": "وضع التشغيل: production أو development",
+          "pendingRestart": "ما إذا كانت هناك تغييرات إعداد تنتظر إعادة التشغيل لتصبح فعّالة",
+          "project": "هوية المشروع",
+          "restartReason": "سبب انتظار إعادة التشغيل",
+          "stats": "إجماليات عدّ الطلبات",
+          "status": "الحالة العامة: healthy أو degraded أو restart_required أو unhealthy أو maintenance أو shutting_down",
+          "timestamp": "وقت إنشاء تقرير السلامة هذا بصيغة RFC 3339",
+          "uptime": "المدة المنقضية منذ بدء تشغيل الخادم",
+          "version": "إصدار التطبيق"
+        }
+      },
+      "I2PInfo": {
+        "description": "حالة موقع I2P eepsite",
+        "fields": {
+          "enabled": "ما إذا كان موقع I2P eepsite مفعّلاً في الإعدادات",
+          "hostname": "اسم المضيف ‎.i2p‎ المنشور",
+          "provider": "الواجهة الخلفية المستخدمة للموقع: i2pd أو sam أو none",
+          "running": "ما إذا كان موقع I2P eepsite يعمل حاليًا",
+          "status": "حالة I2P بصيغة مقروءة"
+        }
+      },
+      "IPResponse": {
+        "description": "استجابة البحث عن عنوان IP مع معلومات GeoIP",
+        "fields": {
+          "asn": "رقم النظام المستقل، مثل AS15169",
+          "asnOrg": "اسم مؤسسة النظام المستقل",
+          "city": "اسم المدينة",
+          "country": "اسم الدولة",
+          "countryEu": "ما إذا كانت الدولة عضوًا في الاتحاد الأوروبي",
+          "countryIso": "رمز الدولة وفق ISO 3166-1 alpha-2",
+          "hostname": "اسم المضيف من DNS العكسي",
+          "ip": "عنوان IP",
+          "ipDecimal": "عنوان IP كعدد عشري",
+          "isProxy": "صحيح إذا كان العنوان وكيلاً مفتوحًا معروفًا أو وكيل مركز بيانات",
+          "isTor": "صحيح إذا كان العنوان عقدة خروج Tor معروفة",
+          "isVpn": "صحيح إذا كان العنوان مرتبطًا بمزوّد VPN أو استضافة معروف",
+          "latitude": "خط العرض",
+          "longitude": "خط الطول",
+          "metroCode": "رمز المنطقة الحضرية",
+          "regionCode": "رمز المنطقة أو الولاية",
+          "regionName": "اسم المنطقة أو الولاية",
+          "timezone": "المنطقة الزمنية، مثل America/Los_Angeles",
+          "userAgent": "معلومات وكيل المستخدم بعد التحليل",
+          "zipCode": "الرمز البريدي"
+        }
+      },
+      "PortResponse": {
+        "description": "استجابة فحص إمكانية الوصول إلى منفذ",
+        "fields": {
+          "ip": "عنوان IP الذي جرى فحصه",
+          "port": "رقم المنفذ",
+          "reachable": "ما إذا كان المنفذ قابلاً للوصول"
+        }
+      },
+      "ProjectInfo": {
+        "description": "هوية المشروع كما يبلّغ عنها الخادم",
+        "fields": {
+          "description": "وصف أطول للمشروع",
+          "name": "اسم المشروع",
+          "tagline": "شعار قصير للمشروع"
+        }
+      },
+      "StatsInfo": {
+        "description": "إجماليات عدّ الطلبات",
+        "fields": {
+          "activeConns": "عدد الاتصالات النشطة حاليًا",
+          "requests24h": "عدد الطلبات المعالجة خلال آخر 24 ساعة",
+          "requestsTotal": "عدد الطلبات المعالجة منذ بدء التشغيل"
+        }
+      },
+      "TorInfo": {
+        "description": "حالة خدمة Tor المخفية",
+        "fields": {
+          "enabled": "ما إذا كانت خدمة Tor المخفية مفعّلة في الإعدادات",
+          "hostname": "اسم المضيف ‎.onion‎ المنشور",
+          "running": "ما إذا كانت خدمة Tor المخفية تعمل حاليًا",
+          "status": "حالة Tor بصيغة مقروءة"
+        }
+      },
+      "UserAgent": {
+        "description": "معلومات وكيل المستخدم بعد التحليل",
+        "fields": {
+          "product": "اسم منتج وكيل المستخدم، مثل curl أو wget",
+          "rawValue": "سلسلة وكيل المستخدم كما وردت",
+          "version": "إصدار وكيل المستخدم"
+        }
+      }
+    },
+    "ui": {
+      "placeholder": "اضغط تشغيل لتنفيذ الاستعلام.",
+      "query": "الاستعلام",
+      "response": "الاستجابة",
+      "run": "تشغيل",
+      "title": "مستكشف IPGaze GraphQL",
+      "variables": "المتغيرات (JSON)"
+    }
+  },
+
+  "version": {
+    "name_version": "{project_name} {project_version}",
+    "built": "تاريخ البناء: {build_date}",
+    "go": "Go: {go_version}",
+    "os_arch": "نظام التشغيل/المعمارية: {goos}/{goarch}"
+  },
+
+  "confirm": {
+    "delete_title": "تأكيد الحذف",
+    "delete_message": "هل أنت متأكد من رغبتك في حذف هذا العنصر؟",
+    "action_irreversible": "لا يمكن التراجع عن هذا الإجراء."
+  },
+
+  "form": {
+    "required_field": "(مطلوب)",
+    "optional_field": "(اختياري)",
+    "hint_email": "لن نشارك عنوان بريدك الإلكتروني أبدًا.",
+    "errors_count": "يوجد {count} خطأ في النموذج"
+  }
+}

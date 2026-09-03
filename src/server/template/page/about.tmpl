@@ -1,0 +1,21 @@
+{{template "base" .}}
+{{define "title"}}{{t .Lang "about.title"}} — {{.ProjectName}}{{end}}
+{{define "content"}}
+<h1>{{t .Lang "about.heading"}}</h1>
+<section class="section-card">
+  <p>{{t .Lang "about.intro"}}</p>
+  <h2>{{t .Lang "about.features"}}</h2>
+  <ul>
+    <li>{{t .Lang "about.feature_ip_support"}}</li>
+    <li>{{t .Lang "about.feature_geoip"}}</li>
+    <li>{{t .Lang "about.feature_rest_api"}}</li>
+    <li>{{t .Lang "about.feature_no_tracking"}}</li>
+    <li>{{t .Lang "about.feature_open_source"}}</li>
+  </ul>
+  <h2>{{t .Lang "about.api_heading"}}</h2>
+  <p>{{t .Lang "about.api_description_pre"}} <code>/api/v1/</code>. {{t .Lang "about.api_description_post"}} <a href="/server/docs/swagger">/server/docs/swagger</a>.</p>
+  <h2>{{t .Lang "about.attribution_heading"}}</h2>
+  <p><a href="https://db-ip.com/">IP Geolocation by DB-IP</a></p>
+  <p>Country and ASN data licensed CC BY 4.0 by the Number Resource Organization (NRO).</p>
+</section>
+{{end}}

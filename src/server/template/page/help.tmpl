@@ -1,0 +1,103 @@
+{{template "base" .}}
+{{define "title"}}{{t .Lang "api_help.title"}} — {{.ProjectName}}{{end}}
+{{define "content"}}
+<h1>{{t .Lang "api_help.title"}}</h1>
+
+<section class="section-card" aria-labelledby="h-basic">
+  <h2 id="h-basic">{{t .Lang "api_help.basic_heading"}}</h2>
+  <p>{{t .Lang "api_help.basic_intro"}}</p>
+  <div class="code-block"><code>curl -s {{.Host}}/ip</code></div>
+  <p>{{t .Lang "api_help.force_ip_version"}}</p>
+  <div class="code-block"><code>curl -4 {{.Host}}</code></div>
+  <div class="code-block"><code>curl -6 {{.Host}}</code></div>
+</section>
+
+<section class="section-card" aria-labelledby="h-json">
+  <h2 id="h-json">{{t .Lang "api_help.json_heading"}}</h2>
+  <p>{{t .Lang "api_help.json_intro"}}</p>
+  <div class="code-block"><code>curl -s {{.Host}}/json</code></div>
+  <p>{{t .Lang "api_help.force_json"}}</p>
+  <div class="code-block"><code>curl -s -H "Accept: application/json" {{.Host}}</code></div>
+</section>
+
+<section class="section-card" aria-labelledby="h-fields">
+  <h2 id="h-fields">{{t .Lang "api_help.fields_heading"}}</h2>
+  <p>{{t .Lang "api_help.fields_intro"}}</p>
+  <div class="code-block"><code>curl -s {{.Host}}/country</code></div>
+  <div class="code-block"><code>curl -s {{.Host}}/country-iso</code></div>
+  <div class="code-block"><code>curl -s {{.Host}}/city</code></div>
+  <div class="code-block"><code>curl -s {{.Host}}/asn</code></div>
+  <div class="code-block"><code>curl -s {{.Host}}/asn-org</code></div>
+  <div class="code-block"><code>curl -s {{.Host}}/latitude</code></div>
+  <div class="code-block"><code>curl -s {{.Host}}/longitude</code></div>
+  <div class="code-block"><code>curl -s {{.Host}}/timezone</code></div>
+  <div class="code-block"><code>curl -s {{.Host}}/hostname</code></div>
+  <div class="code-block"><code>curl -s {{.Host}}/user-agent</code></div>
+</section>
+
+<section class="section-card" aria-labelledby="h-lookup">
+  <h2 id="h-lookup">{{t .Lang "api_help.lookup_heading"}}</h2>
+  <p>{{t .Lang "api_help.lookup_intro"}}</p>
+  <div class="code-block"><code>curl -s {{.Host}}/8.8.8.8</code></div>
+  <div class="code-block"><code>curl -s {{.Host}}/8.8.8.8/json</code></div>
+  <div class="code-block"><code>curl -s {{.Host}}/2001:4860:4860::8888/json</code></div>
+</section>
+
+<section class="section-card" aria-labelledby="h-port">
+  <h2 id="h-port">{{t .Lang "api_help.port_heading"}}</h2>
+  <p>{{t .Lang "api_help.port_intro"}}</p>
+  <div class="code-block"><code>curl -s {{.Host}}/port/22</code></div>
+  <div class="code-block"><code>curl -s {{.Host}}/port/443</code></div>
+</section>
+
+<section class="section-card" aria-labelledby="h-api">
+  <h2 id="h-api">{{t .Lang "api_help.formats_heading"}}</h2>
+  <ul>
+    <li><strong>{{t .Lang "api_help.formats_plain_label"}}</strong> — {{t .Lang "api_help.formats_plain_desc"}}</li>
+    <li><strong>{{t .Lang "api_help.formats_json_label"}}</strong> — <code>Accept: application/json</code> {{t .Lang "api_help.formats_json_mid"}} <code>/json</code> {{t .Lang "api_help.formats_json_suffix"}}</li>
+    <li><strong>{{t .Lang "api_help.formats_html_label"}}</strong> — {{t .Lang "api_help.formats_html_desc_pre"}} <code>Accept: text/html</code></li>
+  </ul>
+  <p>{{t .Lang "api_help.append_pre"}} <code>.txt</code> {{t .Lang "api_help.append_post"}}
+    <code>curl -s {{.Host}}/country.txt</code>
+  </p>
+</section>
+
+<section class="section-card" aria-labelledby="tor-access">
+  <h2 id="tor-access">{{t .Lang "help.tor_access"}}</h2>
+  {{if and .TorEnabled .TorRunning}}
+  <p>{{t .Lang "api_help.tor_access_intro"}}</p>
+  <div class="onion-address-row">
+    <code class="code-content onion-address">{{.OnionAddress}}</code>
+    <button type="button" class="copy-btn copy-value" data-copy="{{.OnionAddress}}" data-copied-label="{{t .Lang "common.copied"}}" aria-label="{{t .Lang "common.copy_onion_aria"}}">
+      <span class="copy-icon" aria-hidden="true">⧉</span>
+      <span class="copy-text">{{t .Lang "common.copy"}}</span>
+    </button>
+  </div>
+  {{else}}
+  <p>{{t .Lang "api_help.tor_access_disabled"}}</p>
+  {{end}}
+</section>
+
+{{if .I2PEnabled}}
+<section class="section-card" aria-labelledby="i2p-access">
+  <h2 id="i2p-access">{{t .Lang "help.i2p_access"}}</h2>
+  {{if .I2PRunning}}
+  <p>{{t .Lang "api_help.i2p_access_intro"}}</p>
+  <div class="i2p-address-row">
+    <code class="code-content i2p-address">{{.I2PAddress}}</code>
+    <button type="button" class="copy-btn copy-value" data-copy="{{.I2PAddress}}" data-copied-label="{{t .Lang "common.copied"}}" aria-label="{{t .Lang "common.copy_i2p_aria"}}">
+      <span class="copy-icon" aria-hidden="true">⧉</span>
+      <span class="copy-text">{{t .Lang "common.copy"}}</span>
+    </button>
+  </div>
+  {{else}}
+  <p>{{t .Lang "api_help.i2p_access_disabled"}}</p>
+  {{end}}
+</section>
+{{end}}
+
+<section class="section-card" aria-labelledby="h-rate">
+  <h2 id="h-rate">{{t .Lang "api_help.rate_heading"}}</h2>
+  <p>{{t .Lang "api_help.rate_body_pre"}} <code>429 Too Many Requests</code> {{t .Lang "api_help.rate_body_post"}}</p>
+</section>
+{{end}}

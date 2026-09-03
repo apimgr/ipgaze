@@ -1,0 +1,55 @@
+{{define "head"}}
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes">
+  <title>{{block "title" .}}{{.ProjectName}}{{end}}</title>
+  <meta name="description" content="{{block "meta_description" .}}{{if .Description}}{{.Description}}{{else}}{{t .Lang "app.description"}}{{end}}{{end}}">
+  <meta name="theme-color" content="{{themeColor .Theme}}">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="{{.ProjectName}}">
+  {{if .Keywords}}<meta name="keywords" content="{{.Keywords}}">
+  {{end}}{{if .Author}}<meta name="author" content="{{.Author}}">
+  {{end}}<meta name="robots" content="{{.Robots}}">
+  <link rel="canonical" href="{{.CanonicalURL}}">
+  {{/* Site verification codes are validated in config before they reach here,
+       so an invalid or over-length code is already dropped. */}}
+  {{range $name, $content := .VerificationTags}}<meta name="{{$name}}" content="{{$content}}">
+  {{end}}{{range .CustomVerificationTags}}{{if .Name}}<meta name="{{.Name}}" content="{{.Content}}">
+  {{else}}<meta property="{{.Property}}" content="{{.Content}}">
+  {{end}}{{end}}
+  {{/* "title" and "meta_description" are defined by the blocks above; a
+       second block with the same name is a redefinition error, so these
+       reuse the already-defined templates and pick up any page override. */}}
+  <meta property="og:title" content="{{template "title" .}}">
+  <meta property="og:description" content="{{template "meta_description" .}}">
+  {{if .OGImage}}<meta property="og:image" content="{{.OGImage}}">
+  {{end}}<meta property="og:type" content="website">
+  <meta property="og:url" content="{{.CanonicalURL}}">
+
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="{{template "title" .}}">
+  <meta name="twitter:description" content="{{template "meta_description" .}}">
+  {{if .OGImage}}<meta name="twitter:image" content="{{.OGImage}}">
+  {{end}}{{if .TwitterHandle}}<meta name="twitter:site" content="{{.TwitterHandle}}">
+  {{end}}
+  <link rel="icon" type="image/png" sizes="16x16" href="{{ asset "/static/icons/favicon-16.png" }}">
+  <link rel="icon" type="image/png" sizes="32x32" href="{{ asset "/static/icons/favicon-32.png" }}">
+  <link rel="apple-touch-icon" href="{{ asset "/static/icons/icon-180.png" }}">
+  <link rel="manifest" href="/manifest.json">
+  <style>{{themeCSS}}</style>
+  <link rel="stylesheet" href="{{ asset "/static/css/common.css" }}">
+  <link rel="stylesheet" href="{{ asset "/static/css/components.css" }}">
+  <link rel="stylesheet" href="{{ asset "/static/css/public.css" }}">
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "WebSite",
+    "name": {{.ProjectName}},
+    "description": {{if .Description}}{{.Description}}{{else}}{{t .Lang "app.description"}}{{end}},
+    "url": {{.CanonicalURL}}
+  }
+  </script>
+  {{block "extra_head" .}}{{end}}
+</head>
+{{end}}

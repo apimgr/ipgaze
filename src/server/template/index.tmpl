@@ -1,0 +1,242 @@
+{{define "title"}}{{ tf .Lang "index.title" "host" .Host }}{{end}}
+
+{{define "meta_description"}}{{ tf .Lang "index.meta_description" "host" .Host }}{{end}}
+
+{{define "body_attrs"}} class="landing-page" data-host="{{ .Host }}" data-json='{{ .JSON }}' data-na="{{ t .Lang "index.value_not_available" }}"{{end}}
+
+{{define "content"}}
+      <div class="landing-hero-row">
+        <div class="hero">
+          <h1>{{ t .Lang "index.heading" }}</h1>
+          <div class="ip-display-row">
+            <code class="ip-scroll" id="ip-address">{{ .IP }}</code>
+            <button type="button" class="copy-btn" data-copy="{{ .IP }}" data-copied-label="{{ t .Lang "common.copied" }}" aria-label="{{ t .Lang "common.copy_ip_aria" }}">
+              <span class="copy-icon" aria-hidden="true">⧉</span>
+              <span class="copy-text">{{ t .Lang "common.copy" }}</span>
+            </button>
+          </div>
+          <p class="subtitle">{{ t .Lang "index.subtitle" }}</p>
+          {{ if .IsTorHiddenService }}
+          <p class="notice tor-hidden-service-notice">{{ t .Lang "index.tor_hidden_service_notice" }}</p>
+          {{ end }}
+        </div>
+        {{ if .Sponsor }}
+        <div class="sponsor-box">
+          <img class="sponsor-logo" src="{{ .LogoURL }}" width="72" height="72" alt="{{ t .Lang "index.sponsor_logo_alt" }}" loading="lazy" />
+          <p class="sponsor-text">
+            {{ t .Lang "index.sponsor_hosted_by" }}<br />
+            <a href="https://casjaysdev.pro" target="_blank" rel="noopener noreferrer">Casjays Developments</a>
+          </p>
+        </div>
+        {{ end }}
+      </div>
+
+      <div class="landing-columns">
+        <!-- COLUMN 1 -->
+        <div class="section-card">
+          <h2>{{ t .Lang "index.column1_heading" }}</h2>
+          <div class="table-wrapper">
+            <table class="info-table">
+              <tr>
+                <th scope="row">{{ t .Lang "ip.address" }}</th>
+                <td>{{ .IP }}</td>
+              </tr>
+              <tr>
+                <th scope="row">{{ t .Lang "index.field_ip_decimal" }}</th>
+                <td>{{ .IPDecimal }}</td>
+              </tr>
+              {{ if .Country }}
+              <tr>
+                <th scope="row">{{ t .Lang "location.country" }}</th>
+                <td>{{ .Country }}</td>
+              </tr>
+              {{ end }} {{ if .CountryISO }}
+              <tr>
+                <th scope="row">{{ t .Lang "index.field_country_iso" }}</th>
+                <td>{{ .CountryISO }}</td>
+              </tr>
+              {{ end }} {{ if .CountryEU }}
+              <tr>
+                <th scope="row">{{ t .Lang "index.field_in_eu" }}</th>
+                <td>{{ .CountryEU }}</td>
+              </tr>
+              {{ end }} {{ if .IsVPN }}
+              <tr>
+                <th scope="row">{{ t .Lang "index.field_vpn_proxy" }}</th>
+                <td>{{ .IsVPN }}</td>
+              </tr>
+              {{ end }} {{ if .IsTor }}
+              <tr>
+                <th scope="row">{{ t .Lang "index.field_tor_exit" }}</th>
+                <td>{{ .IsTor }}</td>
+              </tr>
+              {{ end }} {{ if .IsTorHiddenService }}
+              <tr>
+                <th scope="row">{{ t .Lang "index.field_tor_hidden_service" }}</th>
+                <td>{{ .IsTorHiddenService }}</td>
+              </tr>
+              {{ end }} {{ if .RegionName }}
+              <tr>
+                <th scope="row">{{ t .Lang "location.region" }}</th>
+                <td>{{ .RegionName }}</td>
+              </tr>
+              {{ end }} {{ if .RegionCode }}
+              <tr>
+                <th scope="row">{{ t .Lang "location.region_code" }}</th>
+                <td>{{ .RegionCode }}</td>
+              </tr>
+              {{ end }} {{ if .MetroCode }}
+              <tr>
+                <th scope="row">{{ t .Lang "location.metro_code" }}</th>
+                <td>{{ .MetroCode }}</td>
+              </tr>
+              {{ end }} {{ if .PostalCode }}
+              <tr>
+                <th scope="row">{{ t .Lang "index.field_postal_code" }}</th>
+                <td>{{ .PostalCode }}</td>
+              </tr>
+              {{ end }} {{ if .City }}
+              <tr>
+                <th scope="row">{{ t .Lang "location.city" }}</th>
+                <td>{{ .City }}</td>
+              </tr>
+              {{ end }} {{ if .Latitude }}
+              <tr>
+                <th scope="row">{{ t .Lang "location.latitude" }}</th>
+                <td>{{ .Latitude }}</td>
+              </tr>
+              {{ end }} {{ if .Longitude }}
+              <tr>
+                <th scope="row">{{ t .Lang "location.longitude" }}</th>
+                <td>{{ .Longitude }}</td>
+              </tr>
+              {{ end }} {{ if .Timezone }}
+              <tr>
+                <th scope="row">{{ t .Lang "location.timezone" }}</th>
+                <td>{{ .Timezone }}</td>
+              </tr>
+              {{ end }} {{ if .ASN }}
+              <tr>
+                <th scope="row">{{ t .Lang "network.asn" }}</th>
+                <td>{{ .ASN }}</td>
+              </tr>
+              {{ end }} {{ if .ASNOrg }}
+              <tr>
+                <th scope="row">{{ t .Lang "index.field_asn_org" }}</th>
+                <td>{{ .ASNOrg }}</td>
+              </tr>
+              {{ end }} {{ if .Hostname }}
+              <tr>
+                <th scope="row">{{ t .Lang "ip.hostname" }}</th>
+                <td>{{ .Hostname }}</td>
+              </tr>
+              {{ end }} {{ if .UserAgent }} {{ if .UserAgent.Comment }}
+              <tr>
+                <th scope="row">{{ t .Lang "index.field_user_agent" }}</th>
+                <td>{{ .UserAgent.Product }}/{{ .UserAgent.Version }}</td>
+              </tr>
+              {{ end }} {{ if .UserAgent.Comment }}
+              <tr>
+                <th scope="row">{{ t .Lang "index.field_user_agent_comment" }}</th>
+                <td>{{ .UserAgent.Comment }}</td>
+              </tr>
+              {{ end }} {{ if .UserAgent.RawValue }}
+              <tr>
+                <th scope="row">{{ t .Lang "index.field_user_agent_raw" }}</th>
+                <td>{{ .UserAgent.RawValue }}</td>
+              </tr>
+              {{ end }} {{ end }}
+            </table>
+          </div>
+          <!-- CC BY 4.0 attribution is a license condition for all three databases (AI.md PART 19); both notices are required verbatim and must stay visible unconditionally, never gated on a resolved lookup -->
+          <p class="geoip-attribution">
+            {{ t .Lang "index.geoip_attribution_pre" }} <a href="https://github.com/sapics/ip-location-db" target="_blank" rel="noopener noreferrer">sapics/ip-location-db</a>.
+            <a href="https://db-ip.com/">IP Geolocation by DB-IP</a>.
+            Country and ASN data licensed CC BY 4.0 by the Number Resource Organization (NRO).
+          </p>
+        </div>
+        <!-- COLUMN 2 -->
+        <div class="section-card">
+          <h2>{{ t .Lang "index.column2_heading" }}</h2>
+          <p>{{ t .Lang "index.column2_intro" }}</p>
+
+          <!-- COMMAND WIDGET -->
+          <div class="input-buttons" role="group" aria-label="{{ t .Lang "index.widget_select_group_aria" }}">
+            <button type="button" class="btn widget-select" data-widget="ip">ip</button>
+            <button type="button" class="btn widget-select" data-widget="country">country</button>
+            <button type="button" class="btn widget-select" data-widget="country-iso">country-iso</button>
+            <button type="button" class="btn widget-select" data-widget="city">city</button>
+            <button type="button" class="btn widget-select" data-widget="asn">asn</button>
+            <button type="button" class="btn widget-select" data-widget="json">json</button>
+            <button type="button" class="btn widget-select" data-widget="port">port</button>
+            <input
+              id="portInput"
+              type="number"
+              min="1"
+              max="65535"
+              value="80"
+              class="form-control input-narrow hidden"
+              placeholder="80"
+              aria-label="{{ t .Lang "index.widget_port_label" }}"
+            />
+          </div>
+          <div class="widgetbox input">
+            <code id="command"></code>
+          </div>
+          <div id="output" class="widgetbox output"></div>
+
+          <div class="ip-check-row">
+            <label for="ipInput">
+              {{ t .Lang "index.widget_check_ip_label" }}
+              <input id="ipInput" class="form-control" type="text" placeholder="{{ t .Lang "index.widget_ip_placeholder" }}" />
+            </label>
+            <button type="button" id="widget-open" class="btn">{{ t .Lang "index.widget_open" }}</button>
+          </div>
+
+          <!-- FAQ -->
+          <div class="faq">
+            <h2>{{ t .Lang "index.faq_heading" }}</h2>
+            <h3>{{ t .Lang "index.faq_ipv4_ipv6_question" }}</h3>
+            <p>
+              {{ t .Lang "index.faq_ipv4_ipv6_intro" }}<br />
+              <code>curl -4 {{ if .HostIPv4 }}{{ .HostIPv4 }}{{ else }}{{ .Host }}{{ end }}</code> — {{ t .Lang "index.faq_ipv4_result" }}<br />
+              <code>curl -6 {{ if .HostIPv6 }}{{ .HostIPv6 }}{{ else }}{{ .Host }}{{ end }}</code> — {{ t .Lang "index.faq_ipv6_result" }}
+            </p>
+            <h3>{{ t .Lang "index.faq_json_question" }}</h3>
+            <p>
+              {{ t .Lang "index.faq_json_answer_pre" }} <code>Accept: application/json</code> {{ t .Lang "index.faq_json_answer_post" }}<br />
+              <span>IPv4: <code>curl -q -LSsf -H "Accept: application/json" -4 {{ if .HostIPv4 }}{{ .HostIPv4 }}{{ else }}{{ .Host }}{{ end }}</code></span><br />
+              <span>IPv6: <code>curl -q -LSsf -H "Accept: application/json" -6 {{ if .HostIPv6 }}{{ .HostIPv6 }}{{ else }}{{ .Host }}{{ end }}</code></span>
+            </p>
+            <h3>{{ t .Lang "index.faq_automated_question" }}</h3>
+            <p>
+              {{ t .Lang "index.faq_automated_answer" }}
+            </p>
+            <p>
+              <em>{{ t .Lang "index.faq_rate_limit_note" }}</em>.<br />
+              {{ t .Lang "index.faq_rate_limit_guarantee" }}<br />
+              {{ t .Lang "index.faq_rate_limit_consequence" }}
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {{ if .Latitude }}
+      <div class="map-box">
+        <iframe
+          class="location-map"
+          title="{{ t .Lang "index.map_title" }}"
+          src="https://www.openstreetmap.org/export/embed.html?bbox={{ .BoxLonLeft }}%2C{{ .BoxLatBottom }}%2C{{ .BoxLonRight }}%2C{{ .BoxLatTop }}&layer=mapnik&marker={{ .Latitude }}%2C{{ .Longitude }}"
+          loading="lazy"
+          referrerpolicy="no-referrer-when-downgrade"
+        ></iframe>
+        <a
+          class="map-large-link"
+          href="https://www.openstreetmap.org/?mlat={{ .Latitude }}&amp;mlon={{ .Longitude }}#map=10/{{ .Latitude }}/{{ .Longitude }}"
+          target="_blank"
+          rel="noopener noreferrer"
+          >{{ t .Lang "index.map_view_larger" }}</a
+        >
+      </div>
+      {{ end }}
+{{end}}

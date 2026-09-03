@@ -1,0 +1,18 @@
+{{define "base"}}<!DOCTYPE html>
+<html lang="{{.Lang}}" dir="{{.Dir}}" class="theme-{{.Theme}}">
+{{template "head" .}}
+<body{{block "body_attrs" .}}{{end}}>
+  <a href="#main-content" class="skip-link">{{t .Lang "accessibility.skip_to_content"}}</a>
+  <a href="#navigation" class="skip-link">{{t .Lang "nav.skip_to_navigation"}}</a>
+  {{template "consent_banner" .}}
+  {{template "announcement_banner" .}}
+  {{template "header" .}}
+  <div id="offline-indicator" aria-live="polite" class="offline-indicator hidden"></div>
+  <main id="main-content" class="container" role="main">
+    {{block "content" .}}{{end}}
+  </main>
+  {{template "footer" .}}
+  {{template "scripts" .}}
+</body>
+</html>
+{{end}}

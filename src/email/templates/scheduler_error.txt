@@ -1,0 +1,17 @@
+Subject: {subject}
+---
+{heading}
+
+{from_line}
+{label_time} {time}
+
+{intro}
+
+{label_task} {task}
+{label_error} {error}
+
+{action}
+
+--
+{app_name}
+{app_url}

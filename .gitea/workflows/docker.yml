@@ -1,0 +1,194 @@
+name: Docker Build
+
+on:
+  push:
+    # ALL branches
+    branches: ['**']
+    tags:
+      - 'v*'
+      - '*.*.*'
+  schedule:
+    - cron: '0 4 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: docker-${{ gitea.ref }}
+  cancel-in-progress: ${{ gitea.ref == 'refs/heads/main' || gitea.ref == 'refs/heads/master' || gitea.ref == 'refs/heads/devel' || gitea.ref == 'refs/heads/dev' || gitea.ref == 'refs/heads/beta' }}
+
+env:
+  PROJECT_NAME: ipgaze
+  IMAGE_NAME: ${{ gitea.repository }}
+
+jobs:
+  build-standard:
+    runs-on: ubuntu-latest
+    if: gitea.event_name != 'schedule'
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Determine registry host
+        run: echo "REGISTRY=$(echo '${{ gitea.server_url }}' | sed -E 's#^https?://##')" >> $GITEA_ENV
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@06116385d9baf250c9f4dcb4858b16962ea869c3 # v4.1.0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ gitea.actor }}
+          password: ${{ secrets.GITEA_TOKEN }}
+
+      - name: Set build info
+        run: |
+          echo "COMMIT_ID=$(git rev-parse --short=7 HEAD)" >> $GITEA_ENV
+          echo "YYMM=$(date +"%y%m")" >> $GITEA_ENV
+          if [[ "${{ gitea.ref }}" == refs/tags/* ]]; then
+            VERSION="${GITEA_REF_NAME}"
+            echo "VERSION=${VERSION#v}" >> $GITEA_ENV
+            echo "IS_TAG=true" >> $GITEA_ENV
+          else
+            echo "VERSION=$(git rev-parse --short=7 HEAD)" >> $GITEA_ENV
+            echo "IS_TAG=false" >> $GITEA_ENV
+          fi
+          BUILD_EPOCH=$(date -u +%s)
+          echo "BUILD_EPOCH=${BUILD_EPOCH}" >> $GITEA_ENV
+          echo "BUILD_DATE=$(date -u -d @${BUILD_EPOCH} +"%Y-%m-%dT%H:%M:%SZ")" >> $GITEA_ENV
+
+      - name: Determine tags (standard)
+        id: tags
+        run: |
+          TAGS="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.COMMIT_ID }}"
+
+          if [[ "${{ env.IS_TAG }}" == "true" ]]; then
+            TAGS="$TAGS,${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.VERSION }}"
+            TAGS="$TAGS,${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest"
+            TAGS="$TAGS,${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.YYMM }}"
+          else
+            if [[ "${{ gitea.ref }}" == refs/heads/beta ]]; then
+              TAGS="$TAGS,${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:beta"
+            fi
+          fi
+
+          echo "tags=$TAGS" >> $GITEA_OUTPUT
+
+      - name: Build and push (standard)
+        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
+        with:
+          context: .
+          file: docker/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          provenance: false
+          tags: ${{ steps.tags.outputs.tags }}
+          build-args: |
+            VERSION=${{ env.VERSION }}
+            BUILD_DATE=${{ env.BUILD_DATE }}
+            BUILD_EPOCH=${{ env.BUILD_EPOCH }}
+            COMMIT_ID=${{ env.COMMIT_ID }}
+          labels: |
+            org.opencontainers.image.vendor=apimgr
+            org.opencontainers.image.authors=apimgr
+            org.opencontainers.image.title=${{ env.PROJECT_NAME }}
+            org.opencontainers.image.base.name=${{ env.PROJECT_NAME }}
+            org.opencontainers.image.description=${{ env.PROJECT_NAME }} - standard image (alpine)
+            org.opencontainers.image.version=${{ env.VERSION }}
+            org.opencontainers.image.created=${{ env.BUILD_DATE }}
+            org.opencontainers.image.revision=${{ env.COMMIT_ID }}
+            org.opencontainers.image.url=${{ gitea.server_url }}/${{ gitea.repository }}
+            org.opencontainers.image.source=${{ gitea.server_url }}/${{ gitea.repository }}
+            org.opencontainers.image.documentation=${{ gitea.server_url }}/${{ gitea.repository }}
+            org.opencontainers.image.licenses=MIT
+          annotations: |
+            manifest:org.opencontainers.image.vendor=apimgr
+            manifest:org.opencontainers.image.authors=apimgr
+            manifest:org.opencontainers.image.title=${{ env.PROJECT_NAME }}
+            manifest:org.opencontainers.image.base.name=${{ env.PROJECT_NAME }}
+            manifest:org.opencontainers.image.description=${{ env.PROJECT_NAME }} - standard image (alpine)
+            manifest:org.opencontainers.image.version=${{ env.VERSION }}
+            manifest:org.opencontainers.image.created=${{ env.BUILD_DATE }}
+            manifest:org.opencontainers.image.revision=${{ env.COMMIT_ID }}
+            manifest:org.opencontainers.image.url=${{ gitea.server_url }}/${{ gitea.repository }}
+            manifest:org.opencontainers.image.source=${{ gitea.server_url }}/${{ gitea.repository }}
+            manifest:org.opencontainers.image.documentation=${{ gitea.server_url }}/${{ gitea.repository }}
+            manifest:org.opencontainers.image.licenses=MIT
+
+  build-devel:
+    runs-on: ubuntu-latest
+    if: gitea.event_name == 'schedule' || gitea.event_name == 'workflow_dispatch' || (gitea.event_name == 'push' && !startsWith(gitea.ref, 'refs/tags/'))
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Determine registry host
+        run: echo "REGISTRY=$(echo '${{ gitea.server_url }}' | sed -E 's#^https?://##')" >> $GITEA_ENV
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@06116385d9baf250c9f4dcb4858b16962ea869c3 # v4.1.0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ gitea.actor }}
+          password: ${{ secrets.GITEA_TOKEN }}
+
+      - name: Set build info
+        run: |
+          echo "COMMIT_ID=$(git rev-parse --short=7 HEAD)" >> $GITEA_ENV
+          echo "VERSION=$(git rev-parse --short=7 HEAD)" >> $GITEA_ENV
+          BUILD_EPOCH=$(date -u +%s)
+          echo "BUILD_EPOCH=${BUILD_EPOCH}" >> $GITEA_ENV
+          echo "BUILD_DATE=$(date -u -d @${BUILD_EPOCH} +"%Y-%m-%dT%H:%M:%SZ")" >> $GITEA_ENV
+
+      - name: Build and push (devel)
+        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
+        with:
+          context: .
+          file: docker/Dockerfile.dev
+          platforms: linux/amd64,linux/arm64
+          push: true
+          provenance: false
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:devel
+          build-args: |
+            VERSION=${{ env.VERSION }}
+            BUILD_DATE=${{ env.BUILD_DATE }}
+            BUILD_EPOCH=${{ env.BUILD_EPOCH }}
+            COMMIT_ID=${{ env.COMMIT_ID }}
+          labels: |
+            org.opencontainers.image.vendor=apimgr
+            org.opencontainers.image.authors=apimgr
+            org.opencontainers.image.title=${{ env.PROJECT_NAME }}
+            org.opencontainers.image.base.name=${{ env.PROJECT_NAME }}
+            org.opencontainers.image.description=${{ env.PROJECT_NAME }} - development image (alpine, debug mode)
+            org.opencontainers.image.created=${{ env.BUILD_DATE }}
+            org.opencontainers.image.revision=${{ env.COMMIT_ID }}
+            org.opencontainers.image.url=${{ gitea.server_url }}/${{ gitea.repository }}
+            org.opencontainers.image.source=${{ gitea.server_url }}/${{ gitea.repository }}
+            org.opencontainers.image.documentation=${{ gitea.server_url }}/${{ gitea.repository }}
+            org.opencontainers.image.licenses=MIT
+          annotations: |
+            manifest:org.opencontainers.image.vendor=apimgr
+            manifest:org.opencontainers.image.authors=apimgr
+            manifest:org.opencontainers.image.title=${{ env.PROJECT_NAME }}
+            manifest:org.opencontainers.image.base.name=${{ env.PROJECT_NAME }}
+            manifest:org.opencontainers.image.description=${{ env.PROJECT_NAME }} - development image (alpine, debug mode)
+            manifest:org.opencontainers.image.created=${{ env.BUILD_DATE }}
+            manifest:org.opencontainers.image.revision=${{ env.COMMIT_ID }}
+            manifest:org.opencontainers.image.url=${{ gitea.server_url }}/${{ gitea.repository }}
+            manifest:org.opencontainers.image.source=${{ gitea.server_url }}/${{ gitea.repository }}
+            manifest:org.opencontainers.image.documentation=${{ gitea.server_url }}/${{ gitea.repository }}
+            manifest:org.opencontainers.image.licenses=MIT

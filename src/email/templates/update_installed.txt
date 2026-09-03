@@ -1,0 +1,17 @@
+Subject: {subject}
+---
+{heading}
+
+{from_line}
+{label_time} {time}
+
+{intro}
+
+{label_previous_version} {previous_version}
+{label_new_version} {new_version}
+
+{action}
+
+--
+{app_name}
+{app_url}

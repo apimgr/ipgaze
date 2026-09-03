@@ -1,0 +1,64 @@
+# Git attributes for ipgaze
+
+# Auto detect text files and perform LF normalization
+* text=auto
+
+# Source files
+*.go text diff=golang
+*.mod text diff=golang
+*.sum text diff=golang
+
+# Scripts
+*.sh text eol=lf
+*.bash text eol=lf
+Makefile text eol=lf
+
+# Web files
+*.html text diff=html
+*.css text diff=css
+*.js text diff=js
+*.json text
+*.xml text
+*.svg text
+
+# Documentation
+*.md text diff=markdown
+*.txt text
+*.rst text
+
+# Configuration
+*.yml text
+*.yaml text
+*.toml text
+*.ini text
+
+# Docker
+Dockerfile text
+.dockerignore text
+docker-compose*.yml text
+
+# CI/CD
+Jenkinsfile text
+.github/**/*.yml text
+
+# Binary files
+*.mmdb binary
+*.db binary
+*.sqlite binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.eot binary
+*.exe binary
+
+# Archives
+*.tar binary
+*.gz binary
+*.tgz binary
+*.zip binary
+*.7z binary

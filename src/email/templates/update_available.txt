@@ -1,0 +1,18 @@
+Subject: {subject}
+---
+{heading}
+
+{from_line}
+{label_time} {time}
+
+{intro}
+
+{label_current_version} {current_version}
+{label_new_version} {new_version}
+{label_channel} {channel}
+
+{action}
+
+--
+{app_name}
+{app_url}

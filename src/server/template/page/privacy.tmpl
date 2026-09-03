@@ -1,0 +1,187 @@
+{{template "base" .}}
+{{define "title"}}{{t .Lang "privacy.title"}} — {{.ProjectName}}{{end}}
+{{define "content"}}
+<article class="privacy-policy">
+  <h1>{{t .Lang "privacy.title"}}</h1>
+  <p class="last-updated">{{t .Lang "privacy.last_updated"}} {{.BuildDate}}</p>
+
+  <!-- Summary - Key Points (always shown first) -->
+  <section id="summary" class="section-card privacy-summary">
+    <h2>{{t .Lang "privacy.summary"}}</h2>
+    <div class="key-points">
+      <div class="key-point">
+        <span class="icon">🔒</span>
+        <strong>{{t .Lang "privacy.data_stored"}}</strong>
+      </div>
+      {{ if .Privacy.Data.Sold }}
+      <div class="key-point key-point-warning">
+        <span class="icon">⚠️</span>
+        <strong>{{t .Lang "privacy.may_sell"}}</strong>
+        <p><a href="#ccpa-opt-out">{{t .Lang "privacy.ccpa_do_not_sell"}}</a></p>
+      </div>
+      {{ else }}
+      <div class="key-point">
+        <span class="icon">🚫</span>
+        <strong>{{t .Lang "privacy.never_sell"}}</strong>
+      </div>
+      {{ end }}
+      <div class="key-point">
+        <span class="icon">🎛️</span>
+        <strong>{{t .Lang "privacy.you_control"}}</strong>
+      </div>
+    </div>
+  </section>
+
+  <!-- Cookie Policy Section - from server.privacy.cookies -->
+  <section id="cookies" class="section-card">
+    <h2>{{t .Lang "privacy.cookie_policy"}}</h2>
+
+    <h3>{{t .Lang "privacy.essential_cookies"}}</h3>
+    <p>{{.Privacy.Cookies.Essential.Description}}</p>
+
+    <h3>{{t .Lang "privacy.preference_cookies"}}</h3>
+    <p>{{.Privacy.Cookies.Preferences.Description}}</p>
+
+    <h3>{{t .Lang "privacy.analytics_cookies"}}</h3>
+    {{ if .Tracking.Type }}
+    <p>{{.Privacy.GetAnalyticsDescription}}</p>
+    <p>{{tf .Lang "privacy.uses_analytics" "provider" .Tracking.TypeName}}</p>
+    {{ else }}
+    <p>{{t .Lang "privacy.no_analytics"}}</p>
+    {{ end }}
+
+    <div class="manage-cookies">
+      <button type="button" data-action="cookie-preferences">{{t .Lang "privacy.manage_cookies"}}</button>
+    </div>
+  </section>
+
+  <!-- Data Collection - operator-defined content -->
+  <section id="data-collection" class="section-card">
+    <h2>{{t .Lang "privacy.data_we_collect"}}</h2>
+    {{.Privacy.Content.DataCollection | markdownToHTML}}
+  </section>
+
+  <!-- Data Usage - operator-defined content, dynamic based on data.sold -->
+  <section id="data-usage" class="section-card">
+    <h2>{{t .Lang "privacy.how_we_use"}}</h2>
+    {{.Privacy.GetDataUsageContent | markdownToHTML}}
+  </section>
+
+  <!-- Data Security - operator-defined content -->
+  <section id="data-security" class="section-card">
+    <h2>{{t .Lang "privacy.data_security"}}</h2>
+    {{.Privacy.Content.DataSecurity | markdownToHTML}}
+  </section>
+
+  <!-- Data Storage - from server.privacy.data -->
+  <section id="data-storage" class="section-card">
+    <h2>{{t .Lang "privacy.data_storage"}}</h2>
+    <p><strong>{{t .Lang "privacy.all_data_stored"}}</strong></p>
+
+    <h3>{{t .Lang "privacy.when_shared"}}</h3>
+    <ul>
+      {{ range .Privacy.Data.Sharing }}
+      <li><strong>{{.Condition | humanize}}:</strong> {{.When}} — {{.Data}}</li>
+      {{ end }}
+    </ul>
+
+    <ul>
+      {{ if .Privacy.Data.Sold }}
+      <li>{{t .Lang "privacy.may_sell"}} <a href="#ccpa-opt-out">{{t .Lang "privacy.ccpa_title"}}</a></li>
+      {{ else }}
+      <li>{{t .Lang "privacy.never_sell"}}</li>
+      {{ end }}
+    </ul>
+  </section>
+
+  <!-- Data Retention - from server.privacy.retention -->
+  <section id="data-retention" class="section-card">
+    <h2>{{t .Lang "privacy.data_retention"}}</h2>
+    <p>{{.Privacy.Retention.Period}}</p>
+  </section>
+
+  <!-- Third Parties - from server.privacy.third_party -->
+  <section id="third-parties" class="section-card">
+    <h2>{{t .Lang "privacy.third_party_services"}}</h2>
+    {{ if .Privacy.ThirdParty.Services }}
+    <table>
+      <thead>
+        <tr>
+          <th>{{t .Lang "privacy.service"}}</th>
+          <th>{{t .Lang "privacy.purpose"}}</th>
+          <th>{{t .Lang "privacy.data_sent"}}</th>
+          <th>{{t .Lang "privacy.view_policy"}}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {{ range .Privacy.ThirdParty.Services }}
+        <tr>
+          <td>{{.Name}}</td>
+          <td>{{.Purpose}}</td>
+          <td>{{.DataSent}}</td>
+          <td><a href="{{.PolicyURL}}" target="_blank" rel="noopener">{{t $.Lang "privacy.view_policy"}}</a></td>
+        </tr>
+        {{ end }}
+      </tbody>
+    </table>
+    {{ else }}
+    <p><strong>{{t .Lang "privacy.no_third_party"}}</strong></p>
+    {{ end }}
+  </section>
+
+  <!-- Your Rights - from server.privacy.retention -->
+  <section id="your-rights" class="section-card">
+    <h2>{{t .Lang "privacy.your_rights"}}</h2>
+    <ul>
+      <li><strong>{{t .Lang "privacy.right_access"}}</strong></li>
+      {{ if .Privacy.Retention.ExportAvailable }}
+      <li><strong>{{t .Lang "privacy.right_export"}}</strong></li>
+      {{ end }}
+      {{ if .Privacy.Retention.DeletionAvailable }}
+      <li><strong>{{t .Lang "privacy.right_deletion"}}</strong></li>
+      {{ end }}
+      <li><strong>{{t .Lang "privacy.right_correction"}}</strong></li>
+      <li>
+        <strong>{{t .Lang "privacy.right_cookie_control"}}:</strong>
+        <button type="button" class="link-button" data-action="cookie-preferences">{{t .Lang "privacy.manage_cookies"}}</button>
+      </li>
+    </ul>
+  </section>
+
+  <!-- CCPA "Do Not Sell" - ONLY shown when server.privacy.data.sold = true -->
+  {{ if .Privacy.Data.Sold }}
+  <section id="ccpa-opt-out" class="section-card ccpa-section">
+    <h2>{{t .Lang "privacy.ccpa_title"}}</h2>
+
+    <div class="ccpa-opt-out-box">
+      {{ if .CCPAOptedOut }}
+      <div class="ccpa-status opted-out">
+        <span class="status-icon">✓</span>
+        <span>{{t .Lang "privacy.ccpa_opted_out"}}</span>
+      </div>
+      {{ if .CSRFToken }}
+      <!-- POST form works with zero JS - the server sets/clears the ccpa_opt_out cookie and redirects back; app.js intercepts to skip the reload -->
+      <form method="post" action="/server/ccpa">
+        <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+        <input type="hidden" name="choice" value="opt-in">
+        <button type="submit" class="btn-secondary">{{t .Lang "privacy.ccpa_opt_back_in"}}</button>
+      </form>
+      {{ end }}
+      {{ else if .CSRFToken }}
+      <form method="post" action="/server/ccpa">
+        <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+        <input type="hidden" name="choice" value="opt-out">
+        <button type="submit" class="btn-primary btn-ccpa-opt-out">{{t .Lang "privacy.ccpa_do_not_sell"}}</button>
+      </form>
+      {{ end }}
+    </div>
+  </section>
+  {{ end }}
+
+  <!-- Contact -->
+  <section id="contact" class="section-card">
+    <h2>{{t .Lang "privacy.contact_us"}}</h2>
+    <p>{{t .Lang "privacy.privacy_inquiries"}}</p>
+  </section>
+</article>
+{{end}}

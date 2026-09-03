@@ -1,0 +1,74 @@
+{{define "consent_banner"}}
+<!-- Cookie preferences modal — opened from data-action="cookie-preferences" (nav/privacy page).
+     Native <dialog> per AI.md PART 16 "Modals": focus trap + backdrop are handled by the
+     browser; close/cancel work via <form method="dialog"> with zero JS. The accept/decline
+     forms POST to the same /server/consent endpoint the banner below uses — there is no
+     separate per-category consent storage, so this surfaces the same binary choice with
+     the category descriptions for transparency. -->
+<dialog id="cookie-preferences-modal" aria-labelledby="cookie-preferences-title" class="modal">
+  <header class="modal-header">
+    <h2 id="cookie-preferences-title">{{t .Lang "cookie_consent.manage_preferences"}}</h2>
+    <form method="dialog">
+      <button type="submit" class="modal-close" aria-label="{{t .Lang "common.close"}}">&times;</button>
+    </form>
+  </header>
+  <div class="modal-body cookie-preferences-list">
+    <div class="cookie-preference-item">
+      <strong>{{t .Lang "privacy.essential_cookies"}}</strong>
+      <p>{{t .Lang "cookie_consent.essential_description"}}</p>
+    </div>
+    <div class="cookie-preference-item">
+      <strong>{{t .Lang "privacy.preference_cookies"}}</strong>
+      <p>{{t .Lang "cookie_consent.preference_description"}}</p>
+    </div>
+    {{if .Tracking.Type}}
+    <div class="cookie-preference-item">
+      <strong>{{t .Lang "privacy.analytics_cookies"}}</strong>
+      <p>{{t .Lang "cookie_consent.analytics_description"}}</p>
+    </div>
+    {{end}}
+  </div>
+  <footer class="modal-footer">
+    <form method="post" action="/server/consent">
+      <input type="hidden" name="choice" value="decline">
+      <button type="submit" class="btn btn-secondary" data-action="consent-decline">{{t .Lang "cookie_consent.decline"}}</button>
+    </form>
+    <form method="post" action="/server/consent">
+      <input type="hidden" name="choice" value="accept">
+      <button type="submit" class="btn btn-primary" data-action="consent-accept">{{t .Lang "cookie_consent.accept"}}</button>
+    </form>
+  </footer>
+</dialog>
+{{- if .ShowConsentBanner}}
+<div class="consent-banner" id="consent-banner" role="region" aria-label="{{t .Lang "cookie_consent.aria_label"}}">
+  <div class="consent-banner__content">
+    <p class="consent-banner__message">
+      {{.ConsentMessage}}
+      {{if and .ConsentPolicyURL .ConsentPolicyText}}
+      <a href="{{.ConsentPolicyURL}}" class="consent-banner__policy-link" target="_blank" rel="noopener noreferrer">{{.ConsentPolicyText}}</a>.
+      {{end}}
+    </p>
+    <div class="consent-banner__actions">
+      {{if .ConsentDeclineText}}
+      <form method="post" action="/server/consent" class="consent-banner__form">
+        <input type="hidden" name="choice" value="decline">
+        <button
+          class="consent-banner__btn consent-banner__btn--decline"
+          type="submit"
+          data-action="consent-decline"
+        >{{.ConsentDeclineText}}</button>
+      </form>
+      {{end}}
+      <form method="post" action="/server/consent" class="consent-banner__form">
+        <input type="hidden" name="choice" value="accept">
+        <button
+          class="consent-banner__btn consent-banner__btn--accept"
+          type="submit"
+          data-action="consent-accept"
+        >{{if .ConsentAcceptText}}{{.ConsentAcceptText}}{{else}}{{t .Lang "cookie_consent.accept"}}{{end}}</button>
+      </form>
+    </div>
+  </div>
+</div>
+{{end}}
+{{- end}}

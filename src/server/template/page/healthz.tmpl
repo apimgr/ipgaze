@@ -1,0 +1,108 @@
+{{template "base" .}}
+{{define "title"}}{{t .Lang "health.title"}} — {{.ProjectName}}{{end}}
+{{define "extra_head"}}
+<meta http-equiv="refresh" content="30">
+{{end}}
+{{define "content"}}
+<header class="health-header">
+  <h1>📦 {{.Health.Project.Name}}</h1>
+  <p class="tagline">{{.Health.Project.Tagline}}</p>
+  <p>{{.Health.Project.Description}}</p>
+</header>
+
+<div class="status-banner {{if eq .Health.Status "healthy"}}status-ok{{else if eq .Health.Status "degraded"}}status-warning{{else}}status-error{{end}}">
+  <span class="status-icon">{{if eq .Health.Status "healthy"}}✅{{else if eq .Health.Status "degraded"}}⚠️{{else}}❌{{end}}</span>
+  <span class="status-text">{{if eq .Health.Status "healthy"}}{{t .Lang "health.all_operational"}}{{else if eq .Health.Status "degraded"}}{{t .Lang "health.degraded"}}{{else}}{{t .Lang "health.unhealthy"}}{{end}}</span>
+</div>
+
+{{if .Health.PendingRestart}}
+<div class="status-banner status-warning">
+  <span class="status-icon">🔄</span>
+  <span class="status-text">{{t .Lang "healthz.restart_pending"}} {{range .Health.RestartReason}}{{.}} {{end}}</span>
+</div>
+{{end}}
+
+<section class="section-card">
+  <h2>{{t .Lang "health.version"}} &amp; {{t .Lang "health.build"}}</h2>
+  <ul class="info-list">
+    <li><strong>{{t .Lang "health.version"}}:</strong> <code>{{.Health.Version}}</code></li>
+    <li><strong>{{t .Lang "health.go_version"}}:</strong> <code>{{.Health.GoVersion}}</code></li>
+    <li><strong>{{t .Lang "healthz.commit_label"}}:</strong> <code>{{.Health.Build.Commit}}</code></li>
+    <li><strong>{{t .Lang "healthz.build_date_label"}}:</strong> <time datetime="{{.Health.Build.Date}}">{{.Health.Build.Date}}</time></li>
+  </ul>
+</section>
+
+<section class="section-card">
+  <h2>{{t .Lang "healthz.runtime_heading"}}</h2>
+  <ul class="info-list">
+    <li><strong>{{t .Lang "health.uptime"}}:</strong> {{.Health.Uptime}}</li>
+    <li><strong>{{t .Lang "health.mode"}}:</strong> <span class="badge badge-{{.Health.Mode}}">{{.Health.Mode}}</span></li>
+    <li><strong>{{t .Lang "healthz.timestamp_label"}}:</strong> <time datetime="{{.Health.Timestamp}}">{{.Health.Timestamp}}</time></li>
+  </ul>
+</section>
+
+<section class="section-card">
+  <h2>{{t .Lang "health.features"}}</h2>
+  <ul class="feature-list">
+    <li class="{{if .Health.Features.GeoIP}}feature-enabled{{else}}feature-disabled{{end}}">🌍 GeoIP</li>
+    <li class="{{if .Health.Features.Tor.Enabled}}feature-enabled{{else}}feature-disabled{{end}}">🧅 Tor Hidden Service
+      <span class="feature-detail">{{t .Lang "health.status"}}: {{.Health.Features.Tor.Status}}</span>
+      {{if and .Health.Features.Tor.Enabled .Health.Features.Tor.Running}}
+      <div class="code-block">
+        <code class="code-content onion-address">{{.Health.Features.Tor.Hostname}}</code>
+        <button type="button" class="copy-btn" data-copy="{{.Health.Features.Tor.Hostname}}" data-copied-label="{{t .Lang "common.copied"}}" aria-label="{{t .Lang "common.copy_onion_aria"}}">
+          <span class="copy-icon" aria-hidden="true">📋</span>
+          <span class="copy-text" aria-live="polite">{{t .Lang "common.copy"}}</span>
+        </button>
+      </div>
+      {{end}}
+    </li>
+    <!-- I2P row mirrors the Tor row exactly (AI.md PART 31.2) — only rendered when the I2P feature is enabled -->
+    {{if .Health.Features.I2P.Enabled}}
+    <li class="feature-enabled">🔗 I2P Eepsite
+      <span class="feature-detail">{{t .Lang "health.status"}}: {{.Health.Features.I2P.Status}}</span>
+      <span class="feature-detail">{{t .Lang "healthz.provider_label"}}: {{.Health.Features.I2P.Provider}}</span>
+      {{if .Health.Features.I2P.Running}}
+      <div class="code-block">
+        <code class="code-content i2p-address">{{.Health.Features.I2P.Hostname}}</code>
+        <button type="button" class="copy-btn" data-copy="{{.Health.Features.I2P.Hostname}}" data-copied-label="{{t .Lang "common.copied"}}" aria-label="{{t .Lang "common.copy_i2p_aria"}}">
+          <span class="copy-icon" aria-hidden="true">📋</span>
+          <span class="copy-text" aria-live="polite">{{t .Lang "common.copy"}}</span>
+        </button>
+      </div>
+      {{end}}
+    </li>
+    {{end}}
+  </ul>
+</section>
+
+<section class="section-card">
+  <h2>{{t .Lang "healthz.checks_heading"}}</h2>
+  <table class="data-table" role="table">
+    <thead><tr><th>{{t .Lang "healthz.column_component"}}</th><th>{{t .Lang "health.status"}}</th></tr></thead>
+    <tbody>
+      <tr><td>{{t .Lang "healthz.check_database"}}</td><td><span class="status {{if eq .Health.Checks.Database "ok"}}status-ok{{else}}status-error{{end}}">{{if eq .Health.Checks.Database "ok"}}✅ {{t .Lang "health.ok"}}{{else}}❌ {{t .Lang "common.error"}}{{end}}</span></td></tr>
+      <tr><td>{{t .Lang "healthz.check_cache"}}</td><td><span class="status {{if eq .Health.Checks.Cache "ok"}}status-ok{{else}}status-error{{end}}">{{if eq .Health.Checks.Cache "ok"}}✅ {{t .Lang "health.ok"}}{{else}}❌ {{t .Lang "common.error"}}{{end}}</span></td></tr>
+      <tr><td>{{t .Lang "healthz.check_disk"}}</td><td><span class="status {{if eq .Health.Checks.Disk "ok"}}status-ok{{else}}status-error{{end}}">{{if eq .Health.Checks.Disk "ok"}}✅ {{t .Lang "health.ok"}}{{else}}❌ {{t .Lang "common.error"}}{{end}}</span></td></tr>
+      <tr><td>{{t .Lang "healthz.check_scheduler"}}</td><td><span class="status {{if eq .Health.Checks.Scheduler "ok"}}status-ok{{else}}status-error{{end}}">{{if eq .Health.Checks.Scheduler "ok"}}✅ {{t .Lang "health.ok"}}{{else}}❌ {{t .Lang "common.error"}}{{end}}</span></td></tr>
+      {{if .Health.Checks.Tor}}
+      <tr><td>{{t .Lang "healthz.check_tor"}}</td><td><span class="status {{if eq .Health.Checks.Tor "ok"}}status-ok{{else}}status-error{{end}}">{{if eq .Health.Checks.Tor "ok"}}✅ {{t .Lang "health.ok"}}{{else}}❌ {{t .Lang "common.error"}}{{end}}</span></td></tr>
+      {{end}}
+      {{if .Health.Checks.I2P}}
+      <tr><td>{{t .Lang "healthz.check_i2p"}}</td><td><span class="status {{if eq .Health.Checks.I2P "ok"}}status-ok{{else}}status-error{{end}}">{{if eq .Health.Checks.I2P "ok"}}✅ {{t .Lang "health.ok"}}{{else}}❌ {{t .Lang "common.error"}}{{end}}</span></td></tr>
+      {{end}}
+    </tbody>
+  </table>
+</section>
+
+<section class="section-card">
+  <h2>{{t .Lang "health.server_statistics"}}</h2>
+  <ul class="info-list">
+    <li><strong>{{t .Lang "health.total_requests"}}:</strong> {{.Health.Stats.RequestsTotal}}</li>
+    <li><strong>{{t .Lang "health.requests_24h"}}:</strong> {{.Health.Stats.Requests24h}}</li>
+    <li><strong>{{t .Lang "health.active_connections"}}:</strong> {{.Health.Stats.ActiveConns}}</li>
+  </ul>
+</section>
+
+<p class="refresh-countdown">{{t .Lang "healthz.refreshing_in_prefix"}} <span id="healthz-countdown">30</span>s</p>
+{{end}}

@@ -1,0 +1,55 @@
+# nginx proxy address - http://172.17.0.1:64580
+# ipgaze - development
+#
+# ipgaze - Development Docker Compose
+# FOR HUMAN USE ONLY - AI assistants must NEVER use this file
+#
+# Usage (use temp directory workflow):
+#   mkdir -p "${TMPDIR:-/tmp}/apimgr"
+#   TEMP_DIR=$(mktemp -d "${TMPDIR:-/tmp}/apimgr/ipgaze-XXXXXX")
+#   mkdir -p "$TEMP_DIR/volumes/config" "$TEMP_DIR/volumes/data"
+#   cp docker/docker-compose.dev.yml "$TEMP_DIR/docker-compose.yml"
+#   cd "$TEMP_DIR" && docker compose up -d
+
+name: ipgaze-dev
+
+# Logging anchor - reusable logging config
+x-logging: &default-logging
+  options:
+    max-size: '5m'
+    max-file: '1'
+  driver: json-file
+
+services:
+  ipgaze:
+    image: ghcr.io/apimgr/ipgaze:devel
+    pull_policy: always
+    container_name: ipgaze-app
+    hostname: ipgaze
+    restart: always
+    logging: *default-logging
+    environment:
+      # Development mode - relaxed security, verbose logging, debug enabled
+      PORT: 80
+      DEBUG: true
+      MODE: development
+      TZ: America/New_York
+    ports:
+      # Development: accessible from all interfaces, no 172.17.0.1 bind
+      - '64580:80'
+    volumes:
+      - './volumes/config:/config:z'
+      - './volumes/data:/data:z'
+    healthcheck:
+      test: ['CMD', '/usr/local/bin/ipgaze', '--status']
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 90s
+    networks:
+      - ipgaze-dev
+
+networks:
+  ipgaze-dev:
+    name: ipgaze-dev
+    external: false

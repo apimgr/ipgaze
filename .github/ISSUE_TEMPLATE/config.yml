@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Documentation
+    url: https://apimgr-ipgaze.readthedocs.io
+    about: Read the docs before filing an issue
+  - name: Security Vulnerability
+    url: https://ifcfg.us/.well-known/security.txt
+    about: Report security vulnerabilities privately — do NOT open a public issue
+  - name: General Support / Questions
+    url: https://github.com/apimgr/ipgaze/discussions
+    about: Ask questions and get community support in Discussions

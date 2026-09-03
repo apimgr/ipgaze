@@ -1,0 +1,16 @@
+{{template "base" .}}
+{{define "title"}}{{t .Lang "terms.title"}} — {{.ProjectName}}{{end}}
+{{define "content"}}
+<h1>{{t .Lang "terms.title"}}</h1>
+<section class="section-card">
+  <p>{{t .Lang "privacy.last_updated"}} 2024-01-01</p>
+  <h2>{{t .Lang "terms.acceptable_use"}}</h2>
+  <p>{{t .Lang "terms.acceptable_use_body"}}</p>
+  <h2>{{t .Lang "terms.no_warranty_heading"}}</h2>
+  <p>{{t .Lang "terms.no_warranty_body"}}</p>
+  <h2>{{t .Lang "terms.rate_limiting_heading"}}</h2>
+  <p>{{t .Lang "terms.rate_limiting_body"}}</p>
+  <h2>{{t .Lang "terms.changes"}}</h2>
+  <p>{{t .Lang "terms.changes_body"}}</p>
+</section>
+{{end}}

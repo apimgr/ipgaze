@@ -1,0 +1,55 @@
+{{template "base" .}}
+{{define "title"}}{{t .Lang "preferences.title"}} — {{.ProjectName}}{{end}}
+{{define "content"}}
+<h1>{{t .Lang "preferences.heading"}}</h1>
+<section class="section-card">
+  <p>{{t .Lang "preferences.intro"}}</p>
+  <table class="info-table">
+    <tr>
+      <th scope="row">{{t .Lang "preferences.current_theme_label"}}</th>
+      <td>{{.Theme}}</td>
+    </tr>
+    <tr>
+      <th scope="row">{{t .Lang "preferences.current_lang_label"}}</th>
+      <td>{{.Lang}}</td>
+    </tr>
+  </table>
+</section>
+
+<section class="section-card">
+  <h2>{{t .Lang "preferences.export_heading"}}</h2>
+  <p>{{t .Lang "preferences.export_intro"}}</p>
+  <div class="form-group">
+    <label for="preferences-export-url">{{t .Lang "preferences.export_url_label"}}</label>
+    <div class="ip-display-row">
+      <code class="ip-scroll" id="preferences-export-url">{{.PreferencesExportURL}}</code>
+      <button type="button" class="copy-btn" data-copy="{{.PreferencesExportURL}}" data-copied-label="{{t .Lang "common.copied"}}" aria-label="{{t .Lang "preferences.copy_url_aria"}}">
+        <span class="copy-icon" aria-hidden="true">⧉</span>
+        <span class="copy-text">{{t .Lang "common.copy"}}</span>
+      </button>
+    </div>
+  </div>
+  <div class="form-group">
+    <label for="preferences-export-code">{{t .Lang "preferences.export_code_label"}}</label>
+    <div class="ip-display-row">
+      <code class="ip-scroll" id="preferences-export-code">{{.PreferencesExportCode}}</code>
+      <button type="button" class="copy-btn" data-copy="{{.PreferencesExportCode}}" data-copied-label="{{t .Lang "common.copied"}}" aria-label="{{t .Lang "preferences.copy_code_aria"}}">
+        <span class="copy-icon" aria-hidden="true">⧉</span>
+        <span class="copy-text">{{t .Lang "common.copy"}}</span>
+      </button>
+    </div>
+  </div>
+</section>
+
+<section class="section-card">
+  <h2>{{t .Lang "preferences.import_heading"}}</h2>
+  <p>{{t .Lang "preferences.import_intro"}}</p>
+  <form method="GET" action="/server/preferences/import">
+    <div class="form-group">
+      <label for="preferences-import-code">{{t .Lang "preferences.import_paste_label"}}</label>
+      <input type="text" id="preferences-import-code" name="code" class="form-control">
+    </div>
+    <button type="submit" class="btn btn-primary">{{t .Lang "preferences.import_submit"}}</button>
+  </form>
+</section>
+{{end}}

@@ -1,0 +1,13 @@
+{{define "scripts"}}
+  <div id="toast-container" role="region" aria-label="{{t .Lang "common.notifications"}}" aria-live="polite"
+       data-i18n-cookie-accepted="{{t .Lang "cookie_consent.accepted_toast"}}"
+       data-i18n-cookie-declined="{{t .Lang "cookie_consent.declined_toast"}}"
+       data-i18n-copy-failed="{{t .Lang "common.copy_failed"}}"
+       data-i18n-error-prefix="{{t .Lang "common.error_prefix"}}"
+       data-i18n-theme-dark="{{t .Lang "theme.dark"}}"
+       data-i18n-theme-light="{{t .Lang "theme.light"}}"
+       data-i18n-theme-auto="{{t .Lang "theme.auto"}}"
+       data-i18n-theme-toggle-prefix="{{t .Lang "theme.toast_prefix"}}"></div>
+  <script src="{{ asset "/static/js/app.js" }}"></script>
+  {{block "extra_scripts" .}}{{end}}
+{{end}}

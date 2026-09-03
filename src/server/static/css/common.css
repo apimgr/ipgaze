@@ -1,0 +1,302 @@
+/* ============================================================================
+   ipgaze - Modern CSS Framework
+   Based on AI.md PART 16/17 - Web UI / Frontend Standards
+   common.css: Reset, variables, utilities (loaded first)
+   ============================================================================ */
+
+/* Color variables (--color-*) are NOT defined here. Per AI.md PART 16
+   "Themes (NON-NEGOTIABLE)", the unified palette is defined once in
+   src/common/theme/colors.go and injected as an inline <style> block
+   (src/common/theme/css.go CSSVariables(), wired via the "themeCSS"
+   template func in src/server/templates.go) at the top of <head> in
+   base.tmpl / index.tmpl, before this stylesheet loads. That block sets
+   --color-bg, --color-text, --color-primary, --color-secondary,
+   --color-accent, --color-success, --color-warning, --color-error,
+   --color-info, --color-bg-card, --color-bg-secondary, --color-border,
+   --color-muted, --color-text-on-primary, plus derived shades
+   (--color-bg-hover, --color-bg-active, --color-code-bg,
+   --color-border-hover, --color-primary-bg, and the -bg/-text pairs for
+   success/warning/error/info) for both the dark (default) and light
+   themes, and for the prefers-color-scheme auto branch. */
+:root {
+  /* Layout spacing */
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 16px;
+  --space-lg: 24px;
+  --space-xl: 32px;
+
+  /* Typography */
+  --font-primary: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Open Sans", sans-serif;
+  --font-code: 'Monaco', 'Menlo', 'Consolas', 'Courier New', monospace;
+
+  /* Transitions */
+  --transition-fast: 150ms ease;
+  --transition-normal: 300ms ease;
+
+  /* Shadows (kept here, not in the Go palette: these are elevation
+     overlays, not brand/status colors) */
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.12);
+  --shadow-md: 0 4px 6px rgba(0,0,0,0.16);
+  --shadow-lg: 0 10px 20px rgba(0,0,0,0.2);
+}
+
+/* Light theme shadow overrides (lighter elevation than the dark default) */
+html.theme-light {
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.08);
+  --shadow-md: 0 4px 6px rgba(0,0,0,0.12);
+  --shadow-lg: 0 10px 20px rgba(0,0,0,0.15);
+}
+
+/* Auto-detect system preference for html.theme-auto or when no explicit theme class is set */
+@media (prefers-color-scheme: light) {
+  html:not(.theme-dark):not(.theme-light),
+  html.theme-auto {
+    --shadow-sm: 0 1px 3px rgba(0,0,0,0.08);
+    --shadow-md: 0 4px 6px rgba(0,0,0,0.12);
+    --shadow-lg: 0 10px 20px rgba(0,0,0,0.15);
+  }
+}
+
+/* Accessibility: Skip link (WCAG 2.1 AA) */
+.skip-link {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  z-index: 9999;
+  padding: 0.75rem 1.5rem;
+  background: var(--color-primary);
+  color: var(--color-text-on-primary);
+  font-weight: bold;
+  border-radius: 0 0 4px 4px;
+  text-decoration: none;
+}
+.skip-link:focus {
+  left: 0;
+  outline: 3px solid var(--color-warning);
+  outline-offset: 2px;
+}
+
+/* Reset & Base Styles */
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  font-size: 16px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  font-family: var(--font-primary);
+  background-color: var(--color-bg);
+  color: var(--color-text);
+  line-height: 1.6;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Typography */
+h1, h2, h3, h4, h5, h6 {
+  margin: var(--space-lg) 0 var(--space-md);
+  line-height: 1.2;
+}
+
+h1 { font-size: 2.5rem; }
+h2 { font-size: 2rem; }
+h3 { font-size: 1.5rem; }
+
+p {
+  margin: var(--space-md) 0;
+}
+
+a {
+  color: var(--color-primary);
+  text-decoration: none;
+  transition: color var(--transition-fast);
+}
+
+a:hover {
+  color: var(--color-border-hover);
+  text-decoration: underline;
+}
+
+code, pre {
+  font-family: var(--font-code);
+  background-color: var(--color-code-bg);
+  border-radius: 4px;
+}
+
+code {
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 0.9em;
+  background: var(--color-code-bg);
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+
+pre {
+  padding: var(--space-md);
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+/* Utility Classes */
+.text-center { text-align: center; }
+.text-right { text-align: right; }
+.text-left { text-align: left; }
+
+.mt-sm { margin-top: var(--space-sm); }
+.mt-md { margin-top: var(--space-md); }
+.mt-lg { margin-top: var(--space-lg); }
+
+.mb-sm { margin-bottom: var(--space-sm); }
+.mb-md { margin-bottom: var(--space-md); }
+.mb-lg { margin-bottom: var(--space-lg); }
+
+/* No competing `display` declaration targets these elements at an equal or
+   higher specificity (checked against every class this utility co-occurs
+   with in the templates), so plain `display: none` is sufficient here —
+   `!important` is reserved for print styles only (AI.md PART 16). */
+.hidden { display: none; }
+
+/* ============================================================================
+   Layout Container
+   ============================================================================ */
+
+.container {
+  max-width: 1100px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 0 var(--space-md);
+  box-sizing: border-box;
+  /* body is `display: flex; flex-direction: column`, so .container is
+     itself a flex item — but its `margin: 0 auto` gives it auto
+     cross-axis margins, which per the flexbox spec disable stretch
+     sizing entirely (auto margins take priority over align-items:
+     stretch). Without an explicit width, .container falls back to
+     shrink-to-fit sizing driven by descendant content (e.g. a long
+     unbreakable JSON value), forcing the whole page wider than the
+     viewport on mobile regardless of min-width. `width: 100%` (capped
+     by max-width) restores the intended full-width layout so nested
+     min-width: 0 + overflow-x: auto (.section-card, .widgetbox) can
+     actually take effect (AI.md PART 16 "Long Strings"). */
+  min-width: 0;
+}
+
+/* ============================================================================
+   Long Strings (AI.md PART 16 "Long Strings (IPv6, Tor, Tokens, Hashes)")
+   Two treatments, chosen by whether a copy control sits next to the value.
+   ============================================================================ */
+
+/* No adjacent copy control — the reader has no other way to see the whole
+   value, so it wraps in place. */
+.long-string,
+.ip-address,
+.api-token,
+.hash,
+.uuid,
+.monospace-data {
+  word-break: break-all;
+  overflow-wrap: break-word;
+  font-family: var(--font-code);
+}
+
+/* Adjacent copy button — the button is the intended way to take the value,
+   so it stays on one line and scrolls instead of inflating the container. */
+.onion-address,
+.i2p-address,
+.copy-value {
+  display: inline-block;
+  max-width: 100%;
+  overflow-x: auto;
+  white-space: nowrap;
+  -webkit-overflow-scrolling: touch;
+  font-family: var(--font-code);
+  font-size: 0.875rem;
+}
+
+/* ============================================================================
+   Accessibility
+   ============================================================================ */
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}
+
+/* Focus Styles for Keyboard Navigation */
+a:focus,
+button:focus,
+input:focus,
+select:focus,
+textarea:focus {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+/* High Contrast Mode Support */
+@media (prefers-contrast: high) {
+  :root {
+    --color-border: #ffffff;
+    --color-bg-hover: #000000;
+  }
+}
+
+/* Reduced Motion
+   Deliberate exception to "NO `!important` — print styles only" (AI.md
+   PART 16 CSS Rules): the universal selector here has the lowest possible
+   specificity (0,0,0), so any future component rule that sets
+   animation-duration/transition-duration on even a single class would
+   silently defeat this override without !important — breaking AI.md PART
+   16's own NON-NEGOTIABLE "Reduced Motion" accessibility requirement.
+   Same category of exception as the documented dark-theme Muted contrast
+   fix in src/common/theme/colors.go: a stricter spec requirement
+   (accessibility) taking precedence over a narrower one (no !important). */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ============================================================================
+   Responsive Design - Mobile First (base = < 768px)
+   Base typography only — component and page-specific responsive rules live
+   in components.css / public.css.
+   ============================================================================ */
+
+/* Mobile base styles (no min-width query — mobile-first default) */
+html {
+  font-size: 16px;
+}
+
+h1 { font-size: 2rem; }
+h2 { font-size: 1.5rem; }
+h3 { font-size: 1.25rem; }
+
+/* Tablet and up (768px+) */
+@media (min-width: 768px) {
+  html {
+    font-size: 16px;
+  }
+
+  h1 { font-size: 2.5rem; }
+  h2 { font-size: 2rem; }
+  h3 { font-size: 1.5rem; }
+}

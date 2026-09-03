@@ -1,0 +1,36 @@
+{{template "base" .}}
+{{define "title"}}{{t .Lang "contact.title"}} — {{.ProjectName}}{{end}}
+{{define "content"}}
+<h1>{{t .Lang "contact.title"}}</h1>
+<section class="section-card">
+  <p>{{t .Lang "contact.support_intro"}}</p>
+  <ul>
+    {{if .ContactEmail}}
+    <li>{{t .Lang "contact.email"}}: <a href="mailto:{{.ContactEmail}}">{{.ContactEmail}}</a></li>
+    {{end}}
+    {{if .SecurityEmail}}
+    <li>{{t .Lang "contact.security_issues"}}: <a href="mailto:{{.SecurityEmail}}">{{.SecurityEmail}}</a></li>
+    {{end}}
+    <li>{{t .Lang "contact.github"}}: <a href="{{.RepoURL}}">{{.RepoURL}}</a></li>
+  </ul>
+  {{if .CSRFToken}}
+  <h2>{{t .Lang "contact.form_heading"}}</h2>
+  <form method="POST" action="/server/contact">
+    <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+    <div class="form-group">
+      <label for="email">{{t .Lang "contact.email"}}</label>
+      <input type="email" id="email" name="email" class="form-control" required
+             aria-describedby="email-error">
+      <span id="email-error" class="field-error" role="alert">{{t .Lang "errors.invalid_email"}}</span>
+    </div>
+    <div class="form-group">
+      <label for="message">{{t .Lang "contact.message"}}</label>
+      <textarea id="message" name="message" class="form-control" rows="5" required
+                aria-describedby="message-error"></textarea>
+      <span id="message-error" class="field-error" role="alert">{{t .Lang "errors.required"}}</span>
+    </div>
+    <button type="submit" id="contact-send-btn" class="btn btn-primary" data-loading-text="{{t .Lang "contact.sending"}}">{{t .Lang "contact.send"}}</button>
+  </form>
+  {{end}}
+</section>
+{{end}}

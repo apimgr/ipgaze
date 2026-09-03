@@ -1,0 +1,1347 @@
+{
+  "meta": {
+    "language": "ja",
+    "name": "Japanese",
+    "native_name": "日本語",
+    "direction": "ltr",
+    "version": "1.0.0"
+  },
+
+  "common": {
+    "select_language": "言語を選択",
+    "save": "保存",
+    "save_all": "すべて保存",
+    "cancel": "キャンセル",
+    "delete": "削除",
+    "edit": "編集",
+    "create": "作成",
+    "update": "更新",
+    "close": "閉じる",
+    "back": "戻る",
+    "next": "次へ",
+    "previous": "前へ",
+    "submit": "送信",
+    "confirm": "確認",
+    "search": "検索",
+    "search_placeholder": "検索...",
+    "filter": "フィルター",
+    "refresh": "更新",
+    "download": "ダウンロード",
+    "upload": "アップロード",
+    "copy": "コピー",
+    "copy_to_clipboard": "クリップボードにコピー",
+    "copied": "コピーしました",
+    "copy_failed": "Copy failed",
+    "loading": "読み込み中...",
+    "error": "エラー",
+    "error_prefix": "Error: ",
+    "success": "成功",
+    "warning": "警告",
+    "info": "情報",
+    "yes": "はい",
+    "no": "いいえ",
+    "on": "オン",
+    "off": "オフ",
+    "enabled": "有効",
+    "disabled": "無効",
+    "required": "必須",
+    "optional": "任意",
+    "none": "なし",
+    "all": "すべて",
+    "actions": "操作",
+    "details": "詳細",
+    "settings": "設定",
+    "preferences": "環境設定",
+    "view": "表示",
+    "expand": "展開",
+    "collapse": "折りたたむ",
+    "show": "表示",
+    "hide": "非表示",
+    "more": "もっと見る",
+    "less": "少なく表示",
+    "notifications": "通知",
+    "done": "完了",
+    "unsaved_changes": "未保存の変更",
+    "requires_restart": "再起動が必要です",
+    "page_x_of_y": "{total} ページ中 {current} ページ",
+    "showing_x_of_y": "{total} 件中 {count} 件を表示",
+    "last_updated": "最終更新：{datetime}",
+    "made_with": "作成",
+    "copy_ip_aria": "IPアドレスをコピー",
+    "copy_command_aria": "コマンドをコピー",
+    "copy_onion_aria": "onionアドレスをコピー",
+    "copy_i2p_aria": "I2Pアドレスをコピー",
+    "return_home": "ホームに戻る",
+    "close_notification": "通知を閉じる",
+    "running": "実行中…"
+  },
+
+  "theme": {
+    "light": "ライト",
+    "dark": "ダーク",
+    "auto": "自動",
+    "toggle": "テーマを切り替え",
+    "toast_prefix": "Theme: ",
+    "toggle_aria": "テーマを切り替える (現在: {theme})"
+  },
+
+  "auth": {
+    "login": "ログイン",
+    "logout": "ログアウト",
+    "register": "登録",
+    "forgot_password": "パスワードをお忘れですか？",
+    "reset_password": "パスワードのリセット",
+    "remember_me": "ログイン状態を保持",
+    "username": "ユーザー名",
+    "password": "パスワード",
+    "confirm_password": "パスワードの確認",
+    "email": "メールアドレス",
+    "already_have_account": "すでにアカウントをお持ちですか？ログイン",
+    "no_account": "アカウントをお持ちでない方は登録",
+    "show_password": "パスワードを表示",
+    "hide_password": "パスワードを非表示",
+    "password_requirements": "パスワードの要件",
+    "min_length": "{min} 文字以上",
+    "require_uppercase": "大文字と小文字を含む",
+    "require_number": "数字を含む",
+    "require_special": "特殊文字を含む",
+    "2fa_required": "二要素認証が必要です",
+    "2fa_code": "確認コード",
+    "2fa_enter_code": "認証アプリのコードを入力してください",
+    "2fa_enable": "二要素認証を有効にする",
+    "2fa_disable": "二要素認証を無効にする",
+    "2fa_enabled": "二要素認証が有効です",
+    "2fa_disabled": "二要素認証が無効です",
+    "recovery_key": "回復キー",
+    "session_timeout": "セッションタイムアウト",
+    "extend_on_activity": "アクティビティで延長"
+  },
+
+  "nav": {
+    "home": "ホーム",
+    "about": "About",
+    "contact": "お問い合わせ",
+    "help": "ヘルプ",
+    "privacy": "プライバシー",
+    "terms": "利用規約",
+    "docs": "ドキュメント",
+    "api_docs": "API ドキュメント",
+    "status": "ステータス",
+    "preferences": "設定",
+    "skip_to_content": "メインコンテンツへスキップ",
+    "skip_to_navigation": "ナビゲーションへスキップ",
+    "main_navigation": "メインナビゲーション",
+    "toggle_navigation": "ナビゲーションを切り替え",
+    "home_aria": "{app} ホーム"
+  },
+
+  "health": {
+    "title": "システム状態",
+    "all_operational": "すべてのシステムが正常稼働中",
+    "degraded": "パフォーマンス低下",
+    "unhealthy": "異常",
+    "healthy": "正常",
+    "version": "バージョン",
+    "go_version": "Go バージョン",
+    "build": "ビルド",
+    "uptime": "稼働時間",
+    "mode": "モード",
+    "status": "ステータス",
+    "primary": "プライマリ",
+    "role": "ロール",
+    "nodes": "ノード",
+    "cluster": "クラスター",
+    "features": "機能",
+    "component_status": "コンポーネント状態",
+    "server_statistics": "サーバー統計",
+    "total_requests": "総リクエスト数",
+    "requests_24h": "リクエスト数（24時間）",
+    "active_connections": "アクティブ接続数",
+    "last_checked": "最終確認：",
+    "auto_refresh": "{seconds}秒後に自動更新",
+    "ok": "OK",
+    "connected": "接続済み",
+    "disconnected": "切断",
+    "production": "本番",
+    "development": "開発"
+  },
+
+  "status_values": {
+    "online": "オンライン",
+    "offline": "オフライン",
+    "maintenance": "メンテナンス",
+    "starting": "起動中",
+    "stopping": "停止中",
+    "error": "エラー",
+    "good": "良好",
+    "warn": "警告"
+  },
+
+  "contact": {
+    "title": "お問い合わせ",
+    "name": "お名前",
+    "email": "メールアドレス",
+    "subject": "件名",
+    "message": "メッセージ",
+    "send": "メッセージを送信",
+    "sending": "送信中...",
+    "success": "メッセージをお送りいただきありがとうございます。近日中にご返答いたします。",
+    "support_intro": "ipgazeに関するサポートやご質問は：",
+    "security_issues": "セキュリティに関する問題",
+    "github": "GitHub",
+    "form_heading": "メッセージを送信"
+  },
+
+  "help": {
+    "title": "ヘルプ",
+    "getting_started": "はじめに",
+    "features": "機能",
+    "api_documentation": "API ドキュメント",
+    "swagger_description": "Swagger UI - インタラクティブ REST API エクスプローラー",
+    "graphql_description": "インタラクティブ GraphQL エクスプローラー",
+    "tor_access": "Tor アクセス",
+    "i2p_access": "I2P アクセス",
+    "onion_address": "Onion アドレス",
+    "how_to_connect": "接続方法",
+    "download_tor": "Tor ブラウザをダウンロード",
+    "open_tor": "Tor ブラウザを開き、接続するまで待ちます",
+    "paste_onion": "上記の onion アドレスをコピーして、Tor ブラウザのアドレスバーに貼り付けます",
+    "tor_privacy": "Tor を使用することで追加のプライバシーが提供されます...",
+    "faq": "よくある質問",
+    "troubleshooting": "トラブルシューティング"
+  },
+
+  "privacy": {
+    "title": "プライバシーポリシー",
+    "last_updated": "最終更新：",
+    "summary": "概要",
+    "data_stored": "お客様のデータは当社のサーバーに保存されます",
+    "never_sell": "お客様のデータを販売することはありません",
+    "may_sell": "お客様のデータが販売される場合があります",
+    "you_control": "お客様がデータを管理します",
+    "cookie_policy": "Cookie ポリシー",
+    "essential_cookies": "必須 Cookie",
+    "preference_cookies": "設定 Cookie",
+    "analytics_cookies": "分析 Cookie",
+    "no_analytics": "このサイトでは分析トラッキングを使用していません。",
+    "uses_analytics": "分析には{provider}を使用しています。",
+    "manage_cookies": "Cookie の設定を管理",
+    "data_we_collect": "収集するデータ",
+    "how_we_use": "データの利用方法",
+    "data_security": "データセキュリティ",
+    "data_storage": "データストレージと第三者",
+    "all_data_stored": "すべてのデータは当社のサーバーに保存されます。",
+    "when_shared": "データが共有される場合",
+    "data_retention": "データ保持",
+    "your_rights": "お客様の権利",
+    "right_access": "アクセス",
+    "right_export": "エクスポート",
+    "right_deletion": "削除",
+    "right_correction": "修正",
+    "right_cookie_control": "Cookie 制御",
+    "third_party_services": "サードパーティサービス",
+    "service": "サービス",
+    "purpose": "目的",
+    "data_sent": "送信されるデータ",
+    "no_third_party": "現在、お客様のデータを受け取るサードパーティサービスは使用していません。",
+    "view_policy": "ポリシーを表示",
+    "contact_us": "お問い合わせ",
+    "privacy_inquiries": "プライバシーに関するお問い合わせは、ご連絡ください。",
+    "ccpa_title": "カリフォルニア州プライバシー権（CCPA）",
+    "ccpa_do_not_sell": "個人情報の販売を拒否する",
+    "ccpa_opted_out": "データ販売のオプトアウトを選択しました。",
+    "ccpa_opt_back_in": "再オプトイン",
+    "data_body": "ipgazeにアクセスすると、位置情報を返すためにお客様のIPアドレスを処理します。標準的なアクセスログのローテーションを超えてIPアドレスを保存することはありません。",
+    "access_logs_heading": "アクセスログ",
+    "access_logs_body": "標準的なHTTPアクセスログは運用目的で保持され、定期的にローテーションされます。ログにはIPアドレス、リクエストパス、タイムスタンプが含まれます。",
+    "no_tracking_heading": "トラッキングなし",
+    "no_tracking_body": "アナリティクス、トラッキングピクセル、サードパーティのCookieは使用しません。お客様のデータを第三者に販売または共有することはありません。",
+    "contact_body_pre": "プライバシーに関するお問い合わせは："
+  },
+
+  "terms": {
+    "title": "利用規約",
+    "acceptance": "同意",
+    "account_terms": "アカウント条件",
+    "acceptable_use": "許容される使用",
+    "content": "コンテンツ",
+    "termination": "解約",
+    "liability": "免責事項",
+    "changes": "変更",
+    "governing_law": "準拠法",
+    "acceptable_use_body": "ipgazeは合法的な目的でのみご利用いただけます。他のユーザーへのサービスを低下させる自動化された大量の検索は禁止されています。",
+    "no_warranty_heading": "保証なし",
+    "no_warranty_body": "本サービスは「現状のまま」提供され、いかなる保証もありません。稼働時間や位置情報データの正確性は保証されません。",
+    "rate_limiting_heading": "レート制限",
+    "rate_limiting_body": "APIは1分あたり120リクエストに制限されています。この制限を超えると、一時的にブロックされます。",
+    "changes_body": "これらの規約はいつでも変更される可能性があります。本サービスの継続利用は、更新された規約への同意とみなされます。"
+  },
+
+  "cookie_consent": {
+    "message": "EU GDPR 法に基づき、このメッセージが表示されています。",
+    "accept": "同意する",
+    "decline": "拒否",
+    "manage_preferences": "設定を管理",
+    "blocked_content": "Cookie の設定により外部コンテンツがブロックされています。",
+    "essential_description": "サイトの機能に必要です。無効にすることはできません。",
+    "preference_description": "テーマ（ライト/ダーク）、言語、インターフェースの設定を記憶します。無効にすると、毎回の訪問でデフォルト設定にリセットされます。",
+    "analytics_description": "サイトの利用状況の把握に役立てます。",
+    "aria_label": "Cookieの同意",
+    "accepted_toast": "Cookies accepted",
+    "declined_toast": "Cookies declined"
+  },
+
+  "about": {
+    "title": "About",
+    "features": "機能",
+    "version": "バージョン",
+    "links": "リンク",
+    "heading": "ipgazeについて",
+    "intro": "ipgazeは高速でプライバシーに配慮したIPアドレス検索サービスです。トラッキングなしで、あなたのパブリックIPアドレスと位置情報を返します。",
+    "feature_ip_support": "IPv4とIPv6に対応",
+    "feature_geoip": "GeoIPによる国、都市、ASNの検索",
+    "feature_rest_api": "JSON、テキスト、HTMLレスポンスに対応したREST API",
+    "feature_no_tracking": "トラッキングなし、アクセスログのローテーションを超えてログを保持しない",
+    "feature_open_source": "オープンソースでセルフホスト可能",
+    "api_heading": "API",
+    "api_description_pre": "APIは次の場所で利用できます：",
+    "api_description_post": "完全なドキュメントは次の場所で利用できます：",
+    "attribution_heading": "クレジット表記"
+  },
+
+  "preferences": {
+    "title": "Preferences",
+    "heading": "Preferences",
+    "intro": "Your theme and language choices are stored in cookies on this device only. Use the link below to carry them to another browser or device.",
+    "current_theme_label": "Current theme",
+    "current_lang_label": "Current language",
+    "export_heading": "Export",
+    "export_intro": "Open this link on another device to apply the same theme and language, or copy the short code and paste it there instead.",
+    "export_url_label": "Import link",
+    "export_code_label": "Short code",
+    "copy_url_aria": "Copy import link",
+    "copy_code_aria": "Copy short code",
+    "import_heading": "Import",
+    "import_intro": "Paste a short code (or a full import link) from another device below.",
+    "import_paste_label": "Code or link",
+    "import_submit": "Apply"
+  },
+
+  "announcements": {
+    "warning": "警告",
+    "info": "情報",
+    "error": "エラー",
+    "success": "成功",
+    "scheduled_maintenance": "定期メンテナンス",
+    "dismiss_aria": "お知らせを閉じる"
+  },
+
+  "pwa": {
+    "install": "アプリをインストール",
+    "installed": "アプリがインストールされました",
+    "offline_message": "インターネット接続がありません。キャッシュされたコンテンツを表示しています。",
+    "offline_title": "オフラインです",
+    "offline_description": "IPGazeでIPアドレスを検索するにはネットワーク接続が必要です。接続を確認してもう一度お試しください。",
+    "offline_try_again": "再試行",
+    "update_available": "新しいバージョンが利用可能です。",
+    "update_later": "後で",
+    "update_now": "今すぐ更新"
+  },
+
+  "errors": {
+    "required": "このフィールドは必須です",
+    "invalid_email": "メールアドレスの形式が正しくありません",
+    "too_short": "{min} 文字以上入力してください",
+    "too_long": "{max} 文字以内で入力してください",
+    "passwords_dont_match": "パスワードが一致しません",
+    "invalid_format": "形式が正しくありません",
+    "already_exists": "すでに存在します",
+    "not_found": "見つかりません",
+    "bad_request": "リクエスト形式が正しくありません",
+    "validation_failed": "検証に失敗しました：{details}",
+    "unauthorized": "認証が必要です",
+    "token_expired": "トークンの有効期限が切れています",
+    "token_invalid": "トークンが無効です",
+    "2fa_required": "二要素認証が必要です",
+    "2fa_invalid": "2FA コードが無効です",
+    "forbidden": "アクセスが拒否されました",
+    "blocked_by_blocklist": "アクセスが拒否されました",
+    "blocked_by_country": "お住まいの地域ではご利用いただけません",
+    "account_locked": "アカウントがロックされています",
+    "method_not_allowed": "このメソッドは許可されていません",
+    "conflict": "リソースがすでに存在します",
+    "rate_limited": "リクエストが多すぎます",
+    "server_error": "内部サーバーエラー",
+    "maintenance_mode": "サービスは利用できません",
+    "request_id_label": "リクエストID"
+  },
+
+  "plurals": {
+    "items": {
+      "other": "{count} 件",
+      "zero": "{count} 件",
+      "one": "{count} 件"
+    },
+    "results": {
+      "other": "{count} 件の結果",
+      "zero": "{count} 件の結果",
+      "one": "{count} 件の結果"
+    },
+    "users": {
+      "other": "{count} 人のユーザー",
+      "zero": "{count} 人のユーザー",
+      "one": "{count} 人のユーザー"
+    },
+    "days": {
+      "other": "{count} 日",
+      "one": "{count} 日"
+    },
+    "hours": {
+      "one": "{count} 時間",
+      "other": "{count} 時間"
+    },
+    "minutes": {
+      "one": "{count} 分",
+      "other": "{count} 分"
+    }
+  },
+
+  "app": {
+    "name": "IPGaze",
+    "tagline": "IP アドレス検索サービス",
+    "description": "高速かつ正確な IP ジオロケーションとネットワーク情報",
+    "cache_resized": "キャッシュ容量が更新されました"
+  },
+
+  "ip": {
+    "your": "あなたの IP アドレス",
+    "lookup": "IP 検索",
+    "address": "IP アドレス",
+    "version": "IP バージョン",
+    "decimal": "10進数",
+    "hostname": "ホスト名",
+    "is_eu": "EU 加盟国",
+    "enter_ip": "検索する IP アドレスを入力してください"
+  },
+
+  "location": {
+    "country": "国",
+    "country_code": "国コード",
+    "city": "都市",
+    "region": "地域",
+    "region_code": "地域コード",
+    "timezone": "タイムゾーン",
+    "coordinates": "座標",
+    "latitude": "緯度",
+    "longitude": "経度",
+    "metro_code": "都市圏コード",
+    "zip_code": "郵便番号"
+  },
+
+  "network": {
+    "asn": "ASN",
+    "org": "組織",
+    "isp": "ISP"
+  },
+
+  "admin": {
+    "title": "管理パネル",
+    "dashboard": "ダッシュボード",
+    "users": "ユーザー",
+    "settings": "設定",
+    "logs": "ログ",
+    "metrics": "メトリクス",
+    "geoip": "GeoIP",
+    "scheduler": "スケジューラー",
+    "maintenance": "メンテナンス",
+    "backup": "バックアップ",
+    "restore": "復元",
+    "update": "更新",
+    "reload": "設定を再読み込み"
+  },
+
+  "cli": {
+    "requires_privileges": "この操作には昇格した権限が必要です：{action}",
+    "escalate_prompt": "sudo またはルートとして再実行してください。",
+    "daemon_started": "デーモンが PID {pid} で起動しました",
+    "running_in_mode_label": "実行モード",
+    "listening_on": "{proto}://{fqdn}:{port} で待ち受け中",
+    "version_info": "バージョン：{version}（{commit}）、ビルド日：{date}",
+    "help_flag": "このヘルプメッセージを表示",
+    "version_flag": "バージョン情報を表示",
+    "port_flag": "サーバーポート",
+    "address_flag": "サーバーリッスンアドレス",
+    "config_flag": "設定ディレクトリ",
+    "data_flag": "データディレクトリ",
+    "reverse_lookup_flag": "逆引きホスト名検索を有効にする",
+    "port_lookup_flag": "ポート到達性テストを有効にする",
+    "cache_size_flag": "レスポンスキャッシュサイズ（0=無効）",
+    "profile_flag": "プロファイリングハンドラーを有効にする",
+    "header_flag": "このヘッダーをリモート IP として信頼する（繰り返し可能）",
+    "status_flag": "ヘルスチェック（終了コード 0=正常、1=異常）",
+    "service_flag": "サービス管理",
+    "maintenance_flag": "メンテナンス操作"
+  },
+
+  "accessibility": {
+    "skip_to_content": "コンテンツへスキップ",
+    "menu": "メニュー",
+    "search": "検索",
+    "close_dialog": "ダイアログを閉じる",
+    "expand_section": "セクションを展開",
+    "collapse_section": "セクションを折りたたむ",
+    "loading": "読み込み中、お待ちください",
+    "required_field": "必須フィールド"
+  },
+
+  "api_help": {
+    "title": "ヘルプとAPIリファレンス",
+    "basic_heading": "基本的な使い方",
+    "basic_intro": "パブリックIPアドレスを取得します（プレーンテキスト — curl、wget、HTTPieなどで動作します）：",
+    "force_ip_version": "IPv4またはIPv6を強制する：",
+    "json_heading": "JSONレスポンス",
+    "json_intro": "国、都市、ASNなどを含む完全なGeoIPデータを返します：",
+    "force_json": "Acceptヘッダーを使用してJSONを強制する：",
+    "fields_heading": "特定のフィールド",
+    "fields_intro": "各フィールドはプレーンテキストのエンドポイントとしてアクセスできます：",
+    "lookup_heading": "別のIPを調べる",
+    "lookup_intro": "任意のIPアドレスのGeoIPデータを照会します：",
+    "port_heading": "ポートの到達可能性",
+    "port_intro": "リクエスト元のIPでポートが開いているか確認します：",
+    "tor_access_intro": "このサーバーはTorの隠しサービスとしてもアクセスできます — 出口ノードはなく、仲介者があなたの実際のIPを見ることはありません：",
+    "tor_access_disabled": "このサーバーは現在Torの隠しサービスを実行していません。",
+    "i2p_access_intro": "このサーバーはI2Pのeepsiteとしてもアクセスできます：",
+    "i2p_access_disabled": "このサーバーは現在I2Pのeepsiteを実行していません。",
+    "formats_heading": "APIフォーマット",
+    "formats_plain_label": "プレーンテキスト",
+    "formats_plain_desc": "curl/wget/CLIのユーザーエージェントおよび空のUser-Agentのデフォルト",
+    "formats_json_label": "JSON",
+    "formats_json_mid": "ヘッダー、または",
+    "formats_json_suffix": "サフィックス",
+    "formats_html_label": "HTML",
+    "formats_html_desc_pre": "ブラウザのユーザーエージェント、または",
+    "append_pre": "追加します",
+    "append_post": "任意のフィールドエンドポイントに追加して明示的にプレーンテキストを取得：",
+    "rate_heading": "レート制限",
+    "rate_body_pre": "自動利用は許可されています。リクエストは1分あたり1回に制限してください。この制限を超えるリクエストは",
+    "rate_body_post": "応答を受け取る場合があります。"
+  },
+
+  "index": {
+    "title": "私のIPアドレスは？ — {host}",
+    "meta_description": "{host} • 私のIPアドレスは？ — 自分のIPアドレスとその情報を調べるための最適なツール。IPv4とIPv6を完全にサポート。",
+    "heading": "私のIPアドレスは？",
+    "subtitle": "自分のIPアドレスとその情報を調べるための最適なツールです。",
+    "ip_info_aria": "IP情報",
+    "ip_details_heading": "IP詳細",
+    "field_postal_code": "郵便番号",
+    "api_usage_aria": "API使用方法",
+    "column1_heading": "このIPアドレスについて何がわかりますか？",
+    "column2_heading": "プログラムからこれを取得するには？",
+    "column2_intro": "下のウィジェットでクエリを作成し、結果がどのようになるか確認できます。",
+    "widget_select_group_aria": "プレビューするAPIフィールドを選択",
+    "field_ip_decimal": "IPアドレス（10進数）",
+    "field_country_iso": "国（ISOコード）",
+    "field_in_eu": "EU加盟国？",
+    "field_vpn_proxy": "VPN / プロキシ",
+    "field_tor_exit": "Tor出口ノード",
+    "field_tor_hidden_service": "Torオニオンサービス",
+    "tor_hidden_service_notice": "この.onionアドレスにTor経由でアクセスしています。Torオニオンサービスの回線では、あなたの実際のIPアドレスがサーバーに送られることは決してありません — 以下に表示されているアドレスは、このサーバー自身のループバックアドレスであり、あなたのものではありません。",
+    "field_user_agent": "ユーザーエージェント",
+    "field_user_agent_comment": "ユーザーエージェント：コメント",
+    "field_user_agent_raw": "ユーザーエージェント：生データ",
+    "field_asn_org": "ASN（組織）",
+    "geoip_attribution_pre": "GeoIPデータ提供元:",
+    "sponsor_hosted_by": "このサイトは以下によってホストされています",
+    "sponsor_logo_alt": "サイトのロゴ",
+    "value_not_available": "利用不可",
+    "map_title": "地図上のおおよその位置",
+    "map_view_larger": "拡大地図を見る",
+    "widget_port_label": "ポート番号",
+    "widget_check_ip_label": "別のIPを確認（任意）",
+    "widget_ip_placeholder": "問い合わせるIP",
+    "widget_open": "開く",
+    "faq_heading": "よくある質問",
+    "faq_ipv4_ipv6_question": "IPv4またはIPv6のルックアップを強制するには？",
+    "faq_ipv4_ipv6_intro": "クライアントに適切なオプションを渡すことでプロトコルを強制できます:",
+    "faq_ipv4_result": "IPv4アドレスを返します",
+    "faq_ipv6_result": "IPv6アドレスを返します",
+    "faq_json_question": "JSONの取得を強制できますか？",
+    "faq_json_answer_pre": "",
+    "faq_json_answer_post": "ヘッダーを設定すると期待どおりに動作します。",
+    "faq_automated_question": "このサービスの自動利用は許可されていますか？",
+    "faq_automated_answer": "はい、レート制限を守っていただければ可能です。レート制限はすべてのユーザーに公平なサービスを提供するためのものです。",
+    "faq_rate_limit_note": "自動リクエストは1分間に1回までに制限してください",
+    "faq_rate_limit_guarantee": "この制限を超えるリクエストについては保証されません。",
+    "faq_rate_limit_consequence": "レート制限され429ステータスコードが返される場合や、完全に破棄される場合があります。"
+  },
+
+  "healthz": {
+    "restart_pending": "再起動保留中：",
+    "commit_label": "コミット",
+    "build_date_label": "ビルド日",
+    "runtime_heading": "ランタイム",
+    "timestamp_label": "タイムスタンプ",
+    "checks_heading": "ヘルスチェック",
+    "column_component": "コンポーネント",
+    "check_database": "データベース",
+    "check_cache": "キャッシュ",
+    "check_disk": "ディスク",
+    "check_scheduler": "スケジューラー",
+    "check_tor": "Tor",
+    "check_i2p": "I2P",
+    "refreshing_in_prefix": "更新まで",
+    "provider_label": "プロバイダー"
+  },
+  "client": {
+    "help_flag": "このヘルプを表示して終了します",
+    "version_flag": "バージョン情報を表示して終了します",
+    "debug_flag": "デバッグ出力を有効にします",
+    "server_flag": "問い合わせ先サーバーの URL",
+    "output_flag": "出力形式",
+    "field_flag": "単一のフィールドのみを出力します",
+    "lang_flag": "出力言語コード",
+    "color_flag": "カラーモード（auto、always、never）",
+    "shell_flag": "シェル連携コマンド（completions、init、help）",
+    "token_flag": "認証に使用する API トークン",
+    "token_file_flag": "ファイルから API トークンを読み込みます",
+    "config_flag": "設定プロファイル名またはパス",
+    "update_flag": "更新コマンド（check、yes）",
+    "usage_line": "使い方: {binary} [オプション] [ip]",
+    "description": "ipgaze サーバーから IP アドレスとネットワーク情報を取得します。",
+    "options_header": "オプション:",
+    "formats_header": "形式: {formats}",
+    "fields_header": "フィールド: {fields}",
+    "shells_header": "シェル: {shells}",
+    "examples_header": "例:",
+    "example_own_ip": "自分の IP アドレスを表示します",
+    "example_lookup_ip": "指定した IP アドレスを検索します",
+    "example_json": "結果を JSON 形式で出力します",
+    "example_field": "IP アドレスの単一フィールドを出力します",
+    "example_server": "別のサーバーに問い合わせます",
+    "example_config": "名前付きの設定プロファイルを使用します",
+    "example_update_check": "更新が利用可能かどうかを確認します",
+    "example_update_install": "更新をダウンロードしてインストールします",
+    "err_config_path": "設定ファイルのパスを解決できません: {error}",
+    "warn_create_config": "警告: 設定ファイルを作成できません: {error}",
+    "err_invalid_output": "無効な出力形式「{format}」です。有効な形式: {formats}",
+    "err_no_server": "サーバーが設定されていません。--server URL を使用するか、設定ファイルで server.primary を指定してください。",
+    "version_server_label": "サーバー",
+    "version_server_version_label": "サーバーバージョン",
+    "version_build_info_label": "ビルド情報",
+    "err_update_check": "更新の確認に失敗しました: {error}",
+    "err_cli_too_old": "このクライアントはサーバーが要求する最低バージョン {version} より古いです。{binary} --update yes を実行してください。",
+    "update_up_to_date": "すでに最新です。",
+    "update_available": "更新があります: {current} から {available}",
+    "err_update_failed": "更新に失敗しました: {error}",
+    "err_unknown_update": "不明な更新コマンド「{command}」です。有効なコマンド: check、yes",
+    "update_prompt": "この更新を今すぐインストールしますか? [y/N]",
+    "err_token_revoked": "サーバーがこのトークンを失効させました。--token または --token-file で再度認証してください。",
+    "shell_help_usage": "使い方: {binary} --shell completions|init|help SHELL",
+    "err_unknown_shell_command": "不明なシェルコマンド「{command}」です。有効なコマンド: completions、init、help",
+    "err_unsupported_shell": "サポートされていないシェル「{shell}」です。サポートされるシェル: {shells}"
+  },
+  "tui": {
+    "title": "IP アドレス情報",
+    "loading": "IP アドレスを検索しています…",
+    "no_data": "データなし",
+    "field_hostname": "ホスト名",
+    "field_country": "国",
+    "field_city": "都市",
+    "field_region": "地域",
+    "field_postal_code": "郵便番号",
+    "field_timezone": "タイムゾーン",
+    "field_asn": "ASN",
+    "field_coordinates": "座標",
+    "abbrev_hostname": "ホスト",
+    "abbrev_country": "国",
+    "abbrev_city": "都市",
+    "abbrev_region": "地域",
+    "abbrev_postal_code": "郵便",
+    "abbrev_timezone": "時間帯",
+    "abbrev_asn": "ASN",
+    "abbrev_coordinates": "座標",
+    "help_title": "キーボードショートカット",
+    "help_navigate": "項目間を移動",
+    "help_jump": "最初または最後の項目へ移動",
+    "help_expand": "選択した項目の全体を表示",
+    "help_back": "ヘルプを閉じる・折りたたむ・検索を消去",
+    "help_search": "項目を検索",
+    "help_help": "このヘルプを表示または非表示",
+    "help_quit": "終了",
+    "hint_minimal": "?:ヘルプ q:終了",
+    "hint_compact": "↑↓:移動 │ enter:表示 │ ?:ヘルプ │ q:終了",
+    "hint_full": "↑/↓: 移動 │ Enter: 表示 │ /: 検索 │ ?: ヘルプ │ q: 終了",
+    "search_prompt": "検索: {query}",
+    "search_active": "絞り込み: {query}",
+    "search_no_match": "{query} に一致する項目はありません"
+  },
+  "setup": {
+    "title": "{app} CLI セットアップ",
+    "intro": "サーバーが設定されていません。設定しましょう。",
+    "server_url_label": "サーバー URL",
+    "token_label": "API トークン（任意）",
+    "token_placeholder": "匿名アクセスの場合は空のまま",
+    "save_option": "設定に保存（推奨）",
+    "test_connection": "接続テスト",
+    "testing": "{server} への接続をテストしています…",
+    "connected": "{server} に接続しました（バージョン {version}）",
+    "failed": "接続に失敗しました: {error}",
+    "invalid_url": "有効な http(s) のサーバー URL を入力してください",
+    "hint": "tab: 次の項目 │ space: 切り替え │ enter: テストして保存 │ esc: 中止",
+    "saved": "設定を {path} に保存しました"
+  },
+
+  "notifications": {
+    "title": "通知",
+    "mark_all_read": "すべて既読にする",
+    "clear_all": "すべて消去",
+    "ssl_expiring": "SSL証明書はあと {count} 日で期限切れになります",
+    "ssl_renewal_failed": "SSL証明書の更新に失敗しました",
+    "backup_completed": "バックアップが完了しました",
+    "backup_failed": "バックアップに失敗しました",
+    "update_available": "アップデートがあります",
+    "disk_space_low": "ディスク空き容量が不足しています",
+    "task_failed": "タスクが失敗しました",
+    "task_triggered": "タスクを手動で実行しました",
+    "ssl_renewed": "SSL証明書を更新しました",
+    "blocklist_updated": "ブロックリストを更新しました: {name} ({count} 件のルール)",
+    "blocklist_update_failed": "ブロックリストの更新に失敗しました: {name}",
+    "geoip_updated": "GeoIPデータベースを更新しました",
+    "geoip_update_failed": "GeoIPの更新に失敗しました",
+    "ip_blocked": "IPをブロックしました: {ip} ({reason})",
+    "ip_allowlisted": "IPを許可リストに追加しました: {cidr}",
+    "country_blocked": "国によりリクエストをブロックしました: {ip} ({country})",
+    "preferences": {
+      "webui": "ウェブUI",
+      "email": "メール",
+      "security_cannot_disable": "セキュリティ (無効化できません)",
+      "server": "サーバー",
+      "backup": "バックアップ",
+      "scheduler": "スケジューラー",
+      "other_admins": "他の管理者"
+    }
+  },
+
+  "email": {
+    "subjects": {
+      "security_alert": "セキュリティ警告 - {app_name}",
+      "backup_completed": "バックアップ完了 - {app_name}",
+      "backup_failed": "バックアップ失敗 - {app_name}",
+      "task_failed": "スケジュールされたタスクの失敗 - {app_name}",
+      "ssl_expiring": "SSL証明書の期限切れが近づいています - {app_name}",
+      "ssl_renewed": "SSL証明書を更新しました - {app_name}",
+      "ssl_renewal_failed": "SSL更新失敗 - {app_name}",
+      "update_available": "アップデートがあります - {app_name}",
+      "update_installed": "アップデートを適用しました - {app_name}",
+      "test_email": "テストメール - {app_name}"
+    },
+    "body": {
+      "from": "差出人: {app_name} ({fqdn})",
+      "recommended_actions": "推奨される対応",
+      "contact_information": "連絡先情報",
+      "security_alert_heading": "セキュリティ警告",
+      "backup_completed_heading": "バックアップ完了",
+      "backup_failed_heading": "バックアップ失敗",
+      "task_failed_heading": "スケジュールされたタスクの失敗",
+      "ssl_expiring_heading": "SSL証明書の期限切れが近づいています",
+      "ssl_renewed_heading": "SSL証明書を更新しました",
+      "ssl_renewal_failed_heading": "SSL更新失敗",
+      "update_available_heading": "アップデートがあります",
+      "update_installed_heading": "アップデートを適用しました",
+      "test_heading": "テストメール",
+      "label_time": "日時:",
+      "label_event": "イベント:",
+      "label_ip": "IPアドレス:",
+      "label_filename": "ファイル名:",
+      "label_size": "サイズ:",
+      "label_error": "エラー:",
+      "label_task": "タスク:",
+      "label_domain": "ドメイン:",
+      "label_expires": "有効期限:",
+      "label_days_remaining": "残り日数:",
+      "label_new_expiry": "新しい有効期限:",
+      "label_days_until_expiry": "期限までの日数:",
+      "label_next_retry": "次回の再試行:",
+      "label_current_version": "現在のバージョン:",
+      "label_new_version": "新しいバージョン:",
+      "label_channel": "チャンネル:",
+      "label_previous_version": "以前のバージョン:",
+      "security_alert_intro": "{app_name} でセキュリティイベントが記録されました。",
+      "backup_completed_intro": "バックアップが正常に完了しました。",
+      "backup_failed_intro": "バックアップの実行に失敗しました。",
+      "task_failed_intro": "スケジュールされたタスクが失敗しました。",
+      "ssl_expiring_intro": "このサーバーの証明書はまもなく期限切れになります。",
+      "ssl_renewed_intro": "このサーバーの証明書は正常に更新されました。",
+      "ssl_renewal_failed_intro": "証明書の自動更新に失敗しました。",
+      "update_available_intro": "{app_name} の新しいバージョンが利用できます。",
+      "update_installed_intro": "{app_name} を新しいバージョンに更新しました。",
+      "test_intro": "これは {app_name} からのテストメッセージです。",
+      "security_alert_action": "この操作に心当たりがない場合は、セキュリティ設定を確認してください。",
+      "backup_completed_action": "バックアップアーカイブは設定されたバックアップディレクトリに保存されています。",
+      "backup_failed_action": "ストレージの設定と空きディスク容量を確認してください。",
+      "task_failed_action": "詳細はアプリケーションのログを確認してください。",
+      "ssl_expiring_action": "更新は自動的に試行されます。失敗した場合は手動で更新してください。",
+      "ssl_renewed_action": "対応は不要です。",
+      "ssl_renewal_failed_action": "自動更新が失敗し続ける場合は、原因を調査して手動で証明書を更新してください。",
+      "update_available_action": "更新する前にリリースノートを確認してください。",
+      "update_installed_action": "対応は不要です。",
+      "test_action": "このメッセージが届いていれば、送信メールの設定は正しく構成されています。"
+    }
+  },
+
+  "swagger": {
+    "bodies": {
+      "ccpa": "CCPAオプトアウトの選択",
+      "consent": "Cookie同意の選択",
+      "contact": "お問い合わせフォームの送信内容",
+      "dismiss": "非表示にするお知らせの識別子",
+      "graphql": "GraphQLのクエリ、変数、操作名",
+      "preferences": "テーマと言語の設定の更新",
+      "report": "ブラウザーが生成したレポートのデータ"
+    },
+    "common": {
+      "api_mirror": "対応するウェブページのJSON版です。ウェブルートとAPIルートの対応規則に従います。",
+      "report_intro": "ブラウザーが生成したレポートを受け取り、サーバーログに記録します。",
+      "txt_variant": "対応するエンドポイントのプレーンテキスト版です。.txt 拡張子を付けると、Acceptヘッダーに関係なく text/plain のレスポンスになります。"
+    },
+    "info": {
+      "description": "GeoIP情報付きのIPアドレス照会サービス。REST、GraphQL、およびコマンドラインに適したプレーンテキストインターフェースで提供します。",
+      "server": "IPGaze APIサーバー",
+      "title": "IPGaze API"
+    },
+    "params": {
+      "asset_path": "/static/ 配下のアセットのパス",
+      "code_query": "エクスポートエンドポイントで発行された base64url エンコードの設定コード",
+      "filename_path": "コマンドラインクライアントのファイル名 (例: ipgaze-linux-amd64)",
+      "ip_path": "照会するIPアドレス (IPv4 または IPv6)",
+      "ip_query": "照会するIPアドレス (省略可能)。既定では呼び出し元のIPを使用します",
+      "lang_path": "BCP 47 の言語コード (例: en、fr、ja)",
+      "lang_query": "適用する言語 (BCP 47 コード)",
+      "port_path": "確認するポート番号 (1-65535)",
+      "theme_query": "適用するテーマ: dark、light、auto"
+    },
+    "paths": {
+      "announcements_dismiss": {
+        "description": "このブラウザーでサイトのお知らせを非表示として記録します。",
+        "summary": "お知らせを非表示にする"
+      },
+      "api_graphql_get": {
+        "summary": "GraphQLエクスプローラー (バージョンなしAPIエイリアス)"
+      },
+      "api_graphql_post": {
+        "summary": "GraphQLクエリの実行 (バージョンなしAPIエイリアス)"
+      },
+      "api_healthz": {
+        "description": "ヘルスチェックのバージョンなしAPIエイリアスです。コンテンツネゴシエーションを行わず、常にJSONを返します。",
+        "summary": "ヘルスチェック (バージョンなしAPIエイリアス)"
+      },
+      "api_healthz_txt": {
+        "summary": "ヘルスチェック (バージョンなしAPIエイリアス、.txt)"
+      },
+      "api_swagger": {
+        "description": "コンテンツネゴシエーションを行わず、この OpenAPI 3.0 ドキュメントを常にJSONで返します。",
+        "summary": "OpenAPIドキュメント"
+      },
+      "asn": {
+        "description": "呼び出し元のIPアドレスを広告している自律システム番号を返します。",
+        "summary": "ASNを取得"
+      },
+      "asn_org": {
+        "description": "呼び出し元のIPアドレスを広告している自律システムを所有する組織名を返します。",
+        "summary": "ASNの組織名を取得"
+      },
+      "asn_org_txt": {
+        "summary": "ASNの組織名を取得 (.txt)"
+      },
+      "asn_txt": {
+        "summary": "ASNを取得 (.txt)"
+      },
+      "autodiscover": {
+        "description": "サーバーの識別情報、公開されているコマンドラインクライアントのバージョン、およびこのサーバーが受け付ける最小クライアントバージョンを返します。",
+        "summary": "クライアントの自動検出"
+      },
+      "branding_logo": {
+        "description": "設定されたサイトのロゴを配信します。リモートURLとして設定されている場合はローカルにキャッシュします。",
+        "summary": "サイトのロゴを配信"
+      },
+      "city": {
+        "description": "呼び出し元のIPアドレスから判定された都市名を返します。",
+        "summary": "都市名を取得"
+      },
+      "city_txt": {
+        "summary": "都市名を取得 (.txt)"
+      },
+      "cli_binary": {
+        "description": "要求されたOSとアーキテクチャ向けのコマンドラインクライアントの実行ファイルを送信します。",
+        "summary": "コマンドラインクライアントの実行ファイルをダウンロード"
+      },
+      "coordinates": {
+        "description": "呼び出し元のIPアドレスから判定された緯度と経度を、カンマ区切りの十進度で返します。",
+        "summary": "座標を取得"
+      },
+      "coordinates_txt": {
+        "summary": "座標を取得 (.txt)"
+      },
+      "country": {
+        "description": "呼び出し元のIPアドレスから判定された国名を返します。",
+        "summary": "国名を取得"
+      },
+      "country_iso": {
+        "description": "呼び出し元のIPアドレスから判定された ISO 3166-1 alpha-2 の2文字の国コードを返します。",
+        "summary": "ISO国コードを取得"
+      },
+      "country_iso_txt": {
+        "summary": "ISO国コードを取得 (.txt)"
+      },
+      "country_txt": {
+        "summary": "国名を取得 (.txt)"
+      },
+      "docs_graphql_get": {
+        "description": "クエリの作成と実行ができる、単体のGraphQLエクスプローラー画面を配信します。",
+        "summary": "GraphQLエクスプローラー"
+      },
+      "docs_graphql_post": {
+        "description": "REST APIに対応するスキーマに対してGraphQLクエリを実行します。深さやエイリアスの上限を超えるクエリは、GraphQL準拠のエラーオブジェクトで拒否されます。",
+        "summary": "GraphQLクエリの実行"
+      },
+      "docs_swagger": {
+        "description": "対話型のSwagger画面を配信します。AcceptヘッダーでJSONが要求された場合はこのOpenAPIドキュメントを返します。",
+        "summary": "Swagger画面"
+      },
+      "healthz": {
+        "description": "サーバーの完全なヘルスレポートを返します。全体のステータス、プロジェクト情報、ビルドのメタデータ、稼働時間、動作モード、有効な機能、サブシステムのチェック結果、リクエスト統計を含みます。形式はネゴシエーションされ、JSON、ブラウザー向けのHTML、それ以外はプレーンテキストになります。",
+        "summary": "ヘルスチェック"
+      },
+      "healthz_root": {
+        "description": "/server/healthz の任意のトップレベルエイリアスです。server.yml でトップレベルのヘルスエイリアスが有効な場合にのみ登録されます。",
+        "summary": "ヘルスチェック (トップレベルエイリアス)"
+      },
+      "ip": {
+        "description": "呼び出し元のIPアドレスのみを、マークアップなしで返します。",
+        "summary": "自分のIPをプレーンテキストで取得"
+      },
+      "ip_lookup": {
+        "description": "パスで指定した任意のIPv4またはIPv6アドレスについて、GeoIP、ASN、逆引きDNSの情報を返します。ワイルドカードルートで処理されるため、IPアドレスとして解釈できる未割り当ての単一パスセグメントは照会として扱われます。",
+        "summary": "指定したIPアドレスを照会"
+      },
+      "ip_txt": {
+        "summary": "自分のIPをプレーンテキストで取得 (.txt)"
+      },
+      "json": {
+        "description": "GeoIP、ASN、逆引きDNS、脅威分類のフィールドを含む完全なIPレコードを返します。",
+        "summary": "IP情報一式をJSONで取得"
+      },
+      "llms_txt": {
+        "description": "自動化された言語モデルエージェントによる本サービスの利用方法を定めた llms.txt ポリシーを配信します。",
+        "summary": "自動化エージェント向け利用ポリシー"
+      },
+      "locales": {
+        "description": "要求された言語のJSON翻訳カタログを返します。ウェブUIがクライアント側で描画するテキストの翻訳に使用します。",
+        "summary": "翻訳カタログを取得"
+      },
+      "manifest": {
+        "description": "アプリ名、アイコン、テーマカラー、表示モードを含むプログレッシブウェブアプリのマニフェストを返します。",
+        "summary": "ウェブアプリマニフェスト"
+      },
+      "offline": {
+        "description": "ナビゲーションがネットワークに到達できないときに Service Worker が表示するページを配信します。",
+        "summary": "オフライン時の代替ページ"
+      },
+      "port_check": {
+        "description": "サーバーから呼び出し元のIPアドレスの指定ポートへTCP接続を試み、成功したかどうかを報告します。",
+        "summary": "ポートの到達性を確認"
+      },
+      "report_crash": {
+        "summary": "クラッシュレポート"
+      },
+      "report_csp": {
+        "summary": "コンテンツセキュリティポリシーのレポート"
+      },
+      "report_default": {
+        "summary": "既定のレポート受信エンドポイント"
+      },
+      "report_deprecation": {
+        "summary": "非推奨機能のレポート"
+      },
+      "report_error": {
+        "summary": "エラーレポート"
+      },
+      "report_intervention": {
+        "summary": "ブラウザー介入のレポート"
+      },
+      "report_nel": {
+        "summary": "ネットワークエラーログのレポート"
+      },
+      "robots_txt": {
+        "description": "このサーバーのクローラー向けポリシーを配信します。",
+        "summary": "ロボット排除ルール"
+      },
+      "root": {
+        "description": "呼び出し元のIPアドレスを返します。レスポンス形式はネゴシエーションされ、Accept: application/json ではJSON、ブラウザーにはHTML、コマンドラインクライアントにはプレーンテキストを返します。",
+        "summary": "自分のIPアドレスを取得"
+      },
+      "security_txt": {
+        "description": "セキュリティ窓口とPGP鍵の所在を含む RFC 9116 のセキュリティ開示ポリシーを配信します。",
+        "summary": "セキュリティ連絡先ポリシー"
+      },
+      "server_about": {
+        "description": "本サービス、そのバージョン、運営者を説明する情報ページを配信します。",
+        "summary": "このサーバーについて"
+      },
+      "server_ccpa": {
+        "description": "データ販売に対するCCPAオプトアウトの意思をブラウザーのCookieに保存します。",
+        "summary": "CCPAオプトアウトを記録"
+      },
+      "server_consent": {
+        "description": "訪問者のCookie同意の選択をブラウザーのCookieに保存します。同意はブラウザーごとに管理され、サーバー側には保存されません。",
+        "summary": "Cookie同意を記録"
+      },
+      "server_contact": {
+        "description": "サーバー運営者に連絡するためのお問い合わせフォームを配信します。",
+        "summary": "お問い合わせページ"
+      },
+      "server_contact_post": {
+        "description": "お問い合わせ内容を検証し、設定された運営者のアドレスへ送信します。",
+        "summary": "お問い合わせフォームを送信"
+      },
+      "server_help": {
+        "description": "各エンドポイントをコピーして使える例とともに説明する利用方法ページを配信します。",
+        "summary": "利用方法のヘルプ"
+      },
+      "server_index": {
+        "description": "サーバー情報ページへリダイレクトします。",
+        "summary": "サーバー情報の目次"
+      },
+      "server_preferences": {
+        "description": "テーマと言語を選択する設定ページを配信します。",
+        "summary": "設定ページ"
+      },
+      "server_preferences_export": {
+        "description": "現在のテーマと言語を、完全なインポートURLと短い base64url コードの両方の形式で返します。別のブラウザーへ設定を引き継ぐために使用します。",
+        "summary": "設定をエクスポート"
+      },
+      "server_preferences_import": {
+        "description": "渡された設定値をデコードして検証し、対応するCookieを設定したうえでリダイレクトします。コードが表示中のURLに残らないようにします。",
+        "summary": "設定をインポート"
+      },
+      "server_preferences_post": {
+        "description": "送信されたテーマと言語を検証し、ブラウザーのCookieとして保存します。",
+        "summary": "設定を更新"
+      },
+      "server_privacy": {
+        "description": "記録されるデータ、その保存期間、利用できるオプトアウト手段を含むプライバシーポリシーを配信します。",
+        "summary": "プライバシーポリシー"
+      },
+      "server_terms": {
+        "description": "本サービスの利用条件を配信します。",
+        "summary": "利用規約"
+      },
+      "service_worker": {
+        "description": "アセットをキャッシュし、ネットワークが利用できないときにオフラインページを表示するプログレッシブウェブアプリの Service Worker を配信します。",
+        "summary": "Service Worker スクリプト"
+      },
+      "static": {
+        "description": "組み込みの静的アセット (スタイルシート、スクリプト、アイコン、フォント、同梱の Swagger UI ファイル) を配信します。",
+        "summary": "静的アセットを配信"
+      },
+      "v1_about": {
+        "summary": "このサーバーについて (API v1)"
+      },
+      "v1_asn": {
+        "description": "呼び出し元のIPアドレスを広告している自律システム番号を返します。",
+        "summary": "ASNを取得 (API v1)"
+      },
+      "v1_city": {
+        "description": "呼び出し元のIPアドレスから判定された都市名を返します。",
+        "summary": "都市を取得 (API v1)"
+      },
+      "v1_contact": {
+        "description": "お問い合わせ内容を検証して送信し、結果をJSONで返します。",
+        "summary": "お問い合わせフォームを送信 (API v1)"
+      },
+      "v1_country": {
+        "description": "呼び出し元のIPアドレスから判定された国名を返します。",
+        "summary": "国を取得 (API v1)"
+      },
+      "v1_graphql_get": {
+        "summary": "GraphQLエクスプローラー (API v1)"
+      },
+      "v1_graphql_post": {
+        "summary": "GraphQLクエリの実行 (API v1)"
+      },
+      "v1_healthz": {
+        "description": "サーバーの完全なヘルスレポートをJSONで返します。コンテンツネゴシエーションを行わず、常にJSONです。",
+        "summary": "ヘルスチェック (API v1)"
+      },
+      "v1_healthz_txt": {
+        "summary": "ヘルスチェック (API v1、.txt)"
+      },
+      "v1_help": {
+        "summary": "利用方法のヘルプ (API v1)"
+      },
+      "v1_info": {
+        "description": "完全なIPレコードをJSONで返します。/json と同一です。",
+        "summary": "IP情報一式を取得 (API v1)"
+      },
+      "v1_ip": {
+        "description": "呼び出し元のIPアドレスのみを返します。",
+        "summary": "自分のIPを取得 (API v1)"
+      },
+      "v1_ip_lookup": {
+        "description": "任意のIPv4またはIPv6アドレスについて、GeoIP、ASN、逆引きDNSの情報を返します。",
+        "summary": "指定したIPを照会 (API v1)"
+      },
+      "v1_preferences": {
+        "description": "呼び出し元のCookieに現在保存されているテーマと言語を返します。",
+        "summary": "設定を取得 (API v1)"
+      },
+      "v1_preferences_export": {
+        "description": "現在のテーマと言語を、完全なインポートURLと短い base64url コードで返します。",
+        "summary": "設定をエクスポート (API v1)"
+      },
+      "v1_preferences_import": {
+        "description": "渡された設定値をデコードして検証し、対応するCookieを設定します。",
+        "summary": "設定をインポート (API v1)"
+      },
+      "v1_privacy": {
+        "summary": "プライバシーポリシー (API v1)"
+      },
+      "v1_swagger": {
+        "description": "バージョン付きAPIパス経由で、この OpenAPI 3.0 ドキュメントをJSONで返します。",
+        "summary": "OpenAPIドキュメント (API v1)"
+      },
+      "v1_terms": {
+        "summary": "利用規約 (API v1)"
+      },
+      "v1_version": {
+        "description": "実行中のバージョン、ソースコミット、ビルド日時を返します。",
+        "summary": "ビルドバージョンを取得"
+      },
+      "wk_llms_txt": {
+        "summary": "自動化エージェント向け利用ポリシー (well-known)"
+      },
+      "wk_pgp_key": {
+        "description": "セキュリティポリシーが参照するASCII形式のPGP公開鍵を配信します。",
+        "summary": "PGP公開鍵"
+      },
+      "wk_security_txt": {
+        "summary": "セキュリティ連絡先ポリシー (well-known)"
+      }
+    },
+    "responses": {
+      "accepted": "レポートを受け付けました",
+      "asset": "静的アセットの内容",
+      "bad_request": "不正なリクエスト",
+      "binary": "バイナリファイルのストリーム",
+      "graphql": "GraphQLの実行結果",
+      "health": "サーバーの稼働状態",
+      "html_page": "HTMLページ",
+      "invalid_ip": "無効なIPアドレス",
+      "invalid_port": "無効なポート番号",
+      "ip_info": "IPアドレスの情報",
+      "json_object": "JSONオブジェクト",
+      "manifest": "ウェブアプリマニフェスト",
+      "not_found": "リソースが見つかりません",
+      "ok": "成功",
+      "port_check": "ポート到達性の結果",
+      "redirect": "対象ページへのリダイレクト",
+      "script": "JavaScriptのソース",
+      "spec": "OpenAPI 3.0 仕様ドキュメント",
+      "text_value": "プレーンテキストの値",
+      "too_many_requests": "レート制限を超えました",
+      "unavailable": "サーバーが異常状態、メンテナンス中、または停止処理中です",
+      "version": "ビルドバージョンの情報"
+    },
+    "tags": {
+      "api_v1": "API v1",
+      "assets": "アセット",
+      "documentation": "ドキュメント",
+      "geoip": "GeoIP",
+      "ip_lookup": "IP照会",
+      "pages": "ページ",
+      "port_check": "ポート確認",
+      "reports": "レポート",
+      "system": "システム",
+      "well_known": "Well-Known"
+    },
+    "ui": {
+      "title": "IPGaze API - Swagger UI"
+    }
+  },
+
+  "graphql": {
+    "args": {
+      "checkPort": {
+        "port": "確認するポート番号 (1-65535)"
+      },
+      "lookupIP": {
+        "ip": "照会するIPアドレス (IPv4 または IPv6)"
+      }
+    },
+    "query": {
+      "checkPort": {
+        "description": "自分のIPアドレスでポートに到達できるか確認します"
+      },
+      "health": {
+        "description": "サーバーの完全なヘルスレポートを取得します"
+      },
+      "lookupIP": {
+        "description": "指定したIPアドレスを照会します"
+      },
+      "myIP": {
+        "description": "GeoIP情報付きで自分のIPアドレスを取得します"
+      }
+    },
+    "types": {
+      "BuildInfo": {
+        "description": "実行中の実行ファイルのビルドメタデータ",
+        "fields": {
+          "commit": "実行ファイルのビルド元となったソースコミット",
+          "date": "ビルドのタイムスタンプ"
+        }
+      },
+      "ChecksInfo": {
+        "description": "サブシステムごとのヘルスチェック結果",
+        "fields": {
+          "cache": "キャッシュのチェック結果",
+          "database": "データベースのチェック結果",
+          "disk": "ディスクのチェック結果",
+          "i2p": "I2Pサブシステムのチェック結果",
+          "scheduler": "スケジューラーのチェック結果",
+          "tor": "Torサブシステムのチェック結果"
+        }
+      },
+      "FeaturesInfo": {
+        "description": "任意機能の利用可否",
+        "fields": {
+          "geoip": "GeoIPデータベースが読み込まれているかどうか",
+          "i2p": "I2P eepsite の状態",
+          "tor": "Tor秘匿サービスの状態"
+        }
+      },
+      "HealthResponse": {
+        "description": "RESTのヘルスエンドポイントとフィールド単位で対応するサーバーのヘルスレポート",
+        "fields": {
+          "build": "ビルドのメタデータ",
+          "checks": "サブシステムごとのヘルスチェック結果",
+          "features": "任意機能の利用可否",
+          "goVersion": "実行ファイルのビルドに使用した Go ランタイムのバージョン",
+          "mode": "動作モード: production または development",
+          "pendingRestart": "再起動待ちの設定変更があるかどうか",
+          "project": "プロジェクト情報",
+          "restartReason": "再起動が保留されている理由",
+          "stats": "集計されたリクエストカウンター",
+          "status": "全体のステータス: healthy、degraded、restart_required、unhealthy、maintenance、shutting_down",
+          "timestamp": "このヘルスレポートを生成した時刻 (RFC 3339 形式)",
+          "uptime": "サーバー起動からの経過時間",
+          "version": "アプリケーションのバージョン"
+        }
+      },
+      "I2PInfo": {
+        "description": "I2P eepsite の状態",
+        "fields": {
+          "enabled": "設定で I2P eepsite が有効かどうか",
+          "hostname": "公開されている .i2p ホスト名",
+          "provider": "使用中の eepsite バックエンド: i2pd、sam、none",
+          "running": "I2P eepsite が現在稼働しているかどうか",
+          "status": "人が読める形式のI2Pステータス"
+        }
+      },
+      "IPResponse": {
+        "description": "GeoIP情報を含むIPアドレス照会のレスポンス",
+        "fields": {
+          "asn": "自律システム番号 (例: AS15169)",
+          "asnOrg": "自律システムの組織名",
+          "city": "都市名",
+          "country": "国名",
+          "countryEu": "その国が欧州連合に属するかどうか",
+          "countryIso": "ISO 3166-1 alpha-2 の国コード",
+          "hostname": "逆引きDNSによるホスト名",
+          "ip": "IPアドレス",
+          "ipDecimal": "十進数で表したIPアドレス",
+          "isProxy": "既知のオープンプロキシまたはデータセンタープロキシの場合は true",
+          "isTor": "既知のTor出口ノードの場合は true",
+          "isVpn": "既知のVPNまたはホスティング事業者に関連付けられている場合は true",
+          "latitude": "緯度",
+          "longitude": "経度",
+          "metroCode": "メトロコード",
+          "regionCode": "地域または州のコード",
+          "regionName": "地域または州の名称",
+          "timezone": "タイムゾーン (例: America/Los_Angeles)",
+          "userAgent": "解析されたユーザーエージェント情報",
+          "zipCode": "郵便番号"
+        }
+      },
+      "PortResponse": {
+        "description": "ポート到達性チェックのレスポンス",
+        "fields": {
+          "ip": "チェック対象のIPアドレス",
+          "port": "ポート番号",
+          "reachable": "ポートに到達できるかどうか"
+        }
+      },
+      "ProjectInfo": {
+        "description": "サーバーが報告するプロジェクト情報",
+        "fields": {
+          "description": "プロジェクトの詳しい説明",
+          "name": "プロジェクト名",
+          "tagline": "プロジェクトの短いキャッチフレーズ"
+        }
+      },
+      "StatsInfo": {
+        "description": "集計されたリクエストカウンター",
+        "fields": {
+          "activeConns": "現在アクティブな接続数",
+          "requests24h": "直近24時間に処理したリクエスト数",
+          "requestsTotal": "起動以降に処理したリクエスト数"
+        }
+      },
+      "TorInfo": {
+        "description": "Tor秘匿サービスの状態",
+        "fields": {
+          "enabled": "設定でTor秘匿サービスが有効かどうか",
+          "hostname": "公開されている .onion ホスト名",
+          "running": "Tor秘匿サービスが現在稼働しているかどうか",
+          "status": "人が読める形式のTorステータス"
+        }
+      },
+      "UserAgent": {
+        "description": "解析されたユーザーエージェント情報",
+        "fields": {
+          "product": "ユーザーエージェントの製品名 (例: curl、wget)",
+          "rawValue": "加工していないユーザーエージェント文字列",
+          "version": "ユーザーエージェントのバージョン"
+        }
+      }
+    },
+    "ui": {
+      "placeholder": "「実行」をクリックするとクエリを実行します。",
+      "query": "クエリ",
+      "response": "レスポンス",
+      "run": "実行",
+      "title": "IPGaze GraphQLエクスプローラー",
+      "variables": "変数 (JSON)"
+    }
+  },
+
+  "version": {
+    "name_version": "{project_name} {project_version}",
+    "built": "ビルド日時: {build_date}",
+    "go": "Go: {go_version}",
+    "os_arch": "OS/アーキテクチャ: {goos}/{goarch}"
+  },
+
+  "confirm": {
+    "delete_title": "削除の確認",
+    "delete_message": "この項目を削除してもよろしいですか？",
+    "action_irreversible": "この操作は元に戻せません。"
+  },
+
+  "form": {
+    "required_field": "(必須)",
+    "optional_field": "(任意)",
+    "hint_email": "メールアドレスを第三者と共有することはありません。",
+    "errors_count": "フォームに {count} 件のエラーがあります"
+  }
+}

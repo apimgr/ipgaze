@@ -1,0 +1,90 @@
+/* Light Theme for MkDocs Material */
+
+:root {
+  --md-primary-fg-color: #6366f1;
+  --md-primary-fg-color--light: #818cf8;
+  --md-primary-fg-color--dark: #4f46e5;
+  --md-primary-bg-color: #ffffff;
+  --md-primary-bg-color--light: #f8fafc;
+
+  --md-accent-fg-color: #ec4899;
+  --md-accent-fg-color--transparent: #ec48991a;
+  --md-accent-bg-color: #ffffff;
+  --md-accent-bg-color--light: #f8fafc;
+}
+
+/* Light Color Scheme */
+[data-md-color-scheme="default"] {
+  --md-default-fg-color: #1e293b;
+  --md-default-fg-color--light: #475569;
+  --md-default-fg-color--lighter: #64748b;
+  --md-default-fg-color--lightest: #94a3b8;
+  --md-default-bg-color: #ffffff;
+  --md-default-bg-color--light: #f8fafc;
+  --md-default-bg-color--lighter: #f1f5f9;
+  --md-default-bg-color--lightest: #e2e8f0;
+
+  --md-code-fg-color: #1e293b;
+  --md-code-bg-color: #f8fafc;
+  --md-code-hl-color: #e2e8f0;
+  --md-code-hl-number-color: #7c3aed;
+  --md-code-hl-special-color: #ec4899;
+  --md-code-hl-function-color: #059669;
+  --md-code-hl-constant-color: #7c3aed;
+  --md-code-hl-keyword-color: #ec4899;
+  --md-code-hl-string-color: #ca8a04;
+  --md-code-hl-name-color: #0891b2;
+  --md-code-hl-operator-color: #ec4899;
+  --md-code-hl-punctuation-color: #1e293b;
+  --md-code-hl-comment-color: #64748b;
+  --md-code-hl-generic-color: #1e293b;
+  --md-code-hl-variable-color: #1e293b;
+
+  --md-typeset-a-color: #0891b2;
+  --md-typeset-mark-color: #fef08a;
+
+  --md-admonition-fg-color: #1e293b;
+  --md-admonition-bg-color: #ffffff;
+
+  --md-footer-bg-color: #f8fafc;
+  --md-footer-bg-color--dark: #f1f5f9;
+}
+
+/* Custom scrollbar - Light style */
+[data-md-color-scheme="default"] ::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+[data-md-color-scheme="default"] ::-webkit-scrollbar-track {
+  background: #f8fafc;
+}
+
+[data-md-color-scheme="default"] ::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 5px;
+}
+
+[data-md-color-scheme="default"] ::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* Code blocks */
+[data-md-color-scheme="default"] .highlight pre {
+  background-color: #f8fafc !important;
+}
+
+[data-md-color-scheme="default"] .highlight code {
+  background-color: #f8fafc !important;
+  color: #1e293b !important;
+}
+
+/* Tables */
+[data-md-color-scheme="default"] table {
+  border-color: #e2e8f0 !important;
+}
+
+[data-md-color-scheme="default"] th {
+  background-color: #f1f5f9 !important;
+  color: #1e293b !important;
+}

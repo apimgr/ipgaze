@@ -1,0 +1,1347 @@
+{
+  "meta": {
+    "language": "zh",
+    "name": "Chinese",
+    "native_name": "中文",
+    "direction": "ltr",
+    "version": "1.0.0"
+  },
+
+  "common": {
+    "select_language": "选择语言",
+    "save": "保存",
+    "save_all": "全部保存",
+    "cancel": "取消",
+    "delete": "删除",
+    "edit": "编辑",
+    "create": "创建",
+    "update": "更新",
+    "close": "关闭",
+    "back": "返回",
+    "next": "下一步",
+    "previous": "上一步",
+    "submit": "提交",
+    "confirm": "确认",
+    "search": "搜索",
+    "search_placeholder": "搜索...",
+    "filter": "筛选",
+    "refresh": "刷新",
+    "download": "下载",
+    "upload": "上传",
+    "copy": "复制",
+    "copy_to_clipboard": "复制到剪贴板",
+    "copied": "已复制",
+    "copy_failed": "Copy failed",
+    "loading": "加载中...",
+    "error": "错误",
+    "error_prefix": "Error: ",
+    "success": "成功",
+    "warning": "警告",
+    "info": "信息",
+    "yes": "是",
+    "no": "否",
+    "on": "开",
+    "off": "关",
+    "enabled": "已启用",
+    "disabled": "已禁用",
+    "required": "必填",
+    "optional": "可选",
+    "none": "无",
+    "all": "全部",
+    "actions": "操作",
+    "details": "详情",
+    "settings": "设置",
+    "preferences": "偏好设置",
+    "view": "查看",
+    "expand": "展开",
+    "collapse": "折叠",
+    "show": "显示",
+    "hide": "隐藏",
+    "more": "更多",
+    "less": "更少",
+    "notifications": "通知",
+    "done": "完成",
+    "unsaved_changes": "未保存的更改",
+    "requires_restart": "需要重启",
+    "page_x_of_y": "第 {current} 页，共 {total} 页",
+    "showing_x_of_y": "显示 {count} / {total}",
+    "last_updated": "最后更新：{datetime}",
+    "made_with": "用心制作",
+    "copy_ip_aria": "复制 IP 地址",
+    "copy_command_aria": "复制命令",
+    "copy_onion_aria": "复制 onion 地址",
+    "copy_i2p_aria": "复制 I2P 地址",
+    "return_home": "返回首页",
+    "close_notification": "关闭通知",
+    "running": "运行中…"
+  },
+
+  "theme": {
+    "light": "浅色",
+    "dark": "深色",
+    "auto": "自动",
+    "toggle": "切换主题",
+    "toast_prefix": "Theme: ",
+    "toggle_aria": "切换主题（当前：{theme}）"
+  },
+
+  "auth": {
+    "login": "登录",
+    "logout": "登出",
+    "register": "注册",
+    "forgot_password": "忘记密码？",
+    "reset_password": "重置密码",
+    "remember_me": "记住我",
+    "username": "用户名",
+    "password": "密码",
+    "confirm_password": "确认密码",
+    "email": "电子邮件",
+    "already_have_account": "已有账户？登录",
+    "no_account": "没有账户？注册",
+    "show_password": "显示密码",
+    "hide_password": "隐藏密码",
+    "password_requirements": "密码要求",
+    "min_length": "至少 {min} 个字符",
+    "require_uppercase": "包含大写和小写字母",
+    "require_number": "包含数字",
+    "require_special": "包含特殊字符",
+    "2fa_required": "需要双因素认证",
+    "2fa_code": "验证码",
+    "2fa_enter_code": "输入您的身份验证器应用中的代码",
+    "2fa_enable": "启用双因素认证",
+    "2fa_disable": "禁用双因素认证",
+    "2fa_enabled": "双因素认证已启用",
+    "2fa_disabled": "双因素认证已禁用",
+    "recovery_key": "恢复密钥",
+    "session_timeout": "会话超时",
+    "extend_on_activity": "活动时延长"
+  },
+
+  "nav": {
+    "home": "首页",
+    "about": "关于",
+    "contact": "联系我们",
+    "help": "帮助",
+    "privacy": "隐私",
+    "terms": "服务条款",
+    "docs": "文档",
+    "api_docs": "API 文档",
+    "status": "状态",
+    "preferences": "偏好设置",
+    "skip_to_content": "跳转到主要内容",
+    "skip_to_navigation": "跳转到导航",
+    "main_navigation": "主导航",
+    "toggle_navigation": "切换导航",
+    "home_aria": "{app} 首页"
+  },
+
+  "health": {
+    "title": "系统状态",
+    "all_operational": "所有系统正常运行",
+    "degraded": "性能下降",
+    "unhealthy": "不健康",
+    "healthy": "健康",
+    "version": "版本",
+    "go_version": "Go 版本",
+    "build": "构建",
+    "uptime": "运行时间",
+    "mode": "模式",
+    "status": "状态",
+    "primary": "主要",
+    "role": "角色",
+    "nodes": "节点",
+    "cluster": "集群",
+    "features": "功能",
+    "component_status": "组件状态",
+    "server_statistics": "服务器统计",
+    "total_requests": "总请求数",
+    "requests_24h": "请求数（24小时）",
+    "active_connections": "活跃连接",
+    "last_checked": "最后检查：",
+    "auto_refresh": "{seconds}秒后自动刷新",
+    "ok": "正常",
+    "connected": "已连接",
+    "disconnected": "已断开",
+    "production": "生产",
+    "development": "开发"
+  },
+
+  "status_values": {
+    "online": "在线",
+    "offline": "离线",
+    "maintenance": "维护中",
+    "starting": "启动中",
+    "stopping": "停止中",
+    "error": "错误",
+    "good": "良好",
+    "warn": "警告"
+  },
+
+  "contact": {
+    "title": "联系我们",
+    "name": "姓名",
+    "email": "电子邮件",
+    "subject": "主题",
+    "message": "消息",
+    "send": "发送消息",
+    "sending": "发送中...",
+    "success": "感谢您的消息，我们将尽快回复。",
+    "support_intro": "如需支持或咨询有关 ipgaze 的问题：",
+    "security_issues": "安全问题",
+    "github": "GitHub",
+    "form_heading": "发送消息"
+  },
+
+  "help": {
+    "title": "帮助",
+    "getting_started": "入门指南",
+    "features": "功能",
+    "api_documentation": "API 文档",
+    "swagger_description": "Swagger UI - 交互式 REST API 浏览器",
+    "graphql_description": "交互式 GraphQL 浏览器",
+    "tor_access": "Tor 访问",
+    "i2p_access": "I2P 访问",
+    "onion_address": "洋葱地址",
+    "how_to_connect": "如何连接",
+    "download_tor": "下载 Tor 浏览器",
+    "open_tor": "打开 Tor 浏览器并等待连接",
+    "paste_onion": "复制上方的洋葱地址并粘贴到 Tor 浏览器地址栏",
+    "tor_privacy": "使用 Tor 提供额外的隐私保护...",
+    "faq": "常见问题",
+    "troubleshooting": "故障排除"
+  },
+
+  "privacy": {
+    "title": "隐私政策",
+    "last_updated": "最后更新：",
+    "summary": "摘要",
+    "data_stored": "您的数据存储在我们的服务器上",
+    "never_sell": "我们从不出售您的数据",
+    "may_sell": "您的数据可能被出售",
+    "you_control": "您控制您的数据",
+    "cookie_policy": "Cookie 政策",
+    "essential_cookies": "必要 Cookie",
+    "preference_cookies": "偏好 Cookie",
+    "analytics_cookies": "分析 Cookie",
+    "no_analytics": "我们不在本网站使用分析跟踪。",
+    "uses_analytics": "我们使用{provider}进行分析。",
+    "manage_cookies": "管理 Cookie 偏好",
+    "data_we_collect": "我们收集的数据",
+    "how_we_use": "我们如何使用您的数据",
+    "data_security": "数据安全",
+    "data_storage": "数据存储和第三方",
+    "all_data_stored": "您的所有数据都存储在我们的服务器上。",
+    "when_shared": "数据可能被共享的情况",
+    "data_retention": "数据保留",
+    "your_rights": "您的权利",
+    "right_access": "访问",
+    "right_export": "导出",
+    "right_deletion": "删除",
+    "right_correction": "更正",
+    "right_cookie_control": "Cookie 控制",
+    "third_party_services": "第三方服务",
+    "service": "服务",
+    "purpose": "目的",
+    "data_sent": "发送的数据",
+    "no_third_party": "我们目前不使用接收您数据的第三方服务。",
+    "view_policy": "查看政策",
+    "contact_us": "联系我们",
+    "privacy_inquiries": "如有隐私相关咨询，请联系我们。",
+    "ccpa_title": "加利福尼亚隐私权（CCPA）",
+    "ccpa_do_not_sell": "不出售我的个人信息",
+    "ccpa_opted_out": "您已选择退出数据销售。",
+    "ccpa_opt_back_in": "重新加入",
+    "data_body": "当您访问 ipgaze 时，我们处理您的 IP 地址以返回地理位置信息。除标准访问日志轮换外，我们不会存储您的 IP 地址。",
+    "access_logs_heading": "访问日志",
+    "access_logs_body": "标准 HTTP 访问日志出于运营目的而保留，并定期轮换。日志包含 IP 地址、请求路径和时间戳。",
+    "no_tracking_heading": "无跟踪",
+    "no_tracking_body": "我们不使用分析、跟踪像素或第三方 Cookie。我们不会向第三方出售或共享您的数据。",
+    "contact_body_pre": "如有隐私问题，请联系："
+  },
+
+  "terms": {
+    "title": "服务条款",
+    "acceptance": "接受",
+    "account_terms": "账户条款",
+    "acceptable_use": "可接受的使用",
+    "content": "内容",
+    "termination": "终止",
+    "liability": "责任",
+    "changes": "变更",
+    "governing_law": "适用法律",
+    "acceptable_use_body": "您只能将 ipgaze 用于合法目的。禁止进行会降低其他用户服务质量的自动化批量查询。",
+    "no_warranty_heading": "无担保",
+    "no_warranty_body": "本服务按“现状”提供，不提供任何形式的担保。我们不保证正常运行时间或地理位置数据的准确性。",
+    "rate_limiting_heading": "速率限制",
+    "rate_limiting_body": "API 限制为每分钟 120 个请求。超过此限制将导致临时封锁。",
+    "changes_body": "这些条款可能随时更改。继续使用本服务即表示接受更新后的条款。"
+  },
+
+  "cookie_consent": {
+    "message": "根据欧盟 GDPR 法律，显示此消息。",
+    "accept": "我接受",
+    "decline": "拒绝",
+    "manage_preferences": "管理偏好",
+    "blocked_content": "由于 Cookie 偏好，外部内容被阻止。",
+    "essential_description": "网站正常运行所必需。无法禁用。",
+    "preference_description": "记住您的设置，如主题（浅色/深色）、语言和界面偏好。禁用后每次访问将重置为默认设置。",
+    "analytics_description": "帮助我们了解网站的使用情况。",
+    "aria_label": "Cookie 同意",
+    "accepted_toast": "Cookies accepted",
+    "declined_toast": "Cookies declined"
+  },
+
+  "about": {
+    "title": "关于",
+    "features": "功能",
+    "version": "版本",
+    "links": "链接",
+    "heading": "关于 ipgaze",
+    "intro": "ipgaze 是一项快速、私密的 IP 地址查询服务。它返回您的公网 IP 地址和地理位置信息，不进行任何跟踪。",
+    "feature_ip_support": "支持 IPv4 和 IPv6",
+    "feature_geoip": "GeoIP 国家、城市和 ASN 查询",
+    "feature_rest_api": "支持 JSON、文本和 HTML 响应的 REST API",
+    "feature_no_tracking": "不跟踪，日志仅按访问日志轮转策略保留",
+    "feature_open_source": "开源，可自行部署",
+    "api_heading": "API",
+    "api_description_pre": "API 可通过以下地址访问：",
+    "api_description_post": "完整文档请访问：",
+    "attribution_heading": "署名"
+  },
+
+  "preferences": {
+    "title": "Preferences",
+    "heading": "Preferences",
+    "intro": "Your theme and language choices are stored in cookies on this device only. Use the link below to carry them to another browser or device.",
+    "current_theme_label": "Current theme",
+    "current_lang_label": "Current language",
+    "export_heading": "Export",
+    "export_intro": "Open this link on another device to apply the same theme and language, or copy the short code and paste it there instead.",
+    "export_url_label": "Import link",
+    "export_code_label": "Short code",
+    "copy_url_aria": "Copy import link",
+    "copy_code_aria": "Copy short code",
+    "import_heading": "Import",
+    "import_intro": "Paste a short code (or a full import link) from another device below.",
+    "import_paste_label": "Code or link",
+    "import_submit": "Apply"
+  },
+
+  "announcements": {
+    "warning": "警告",
+    "info": "信息",
+    "error": "错误",
+    "success": "成功",
+    "scheduled_maintenance": "计划维护",
+    "dismiss_aria": "关闭公告"
+  },
+
+  "pwa": {
+    "install": "安装应用",
+    "installed": "应用已安装",
+    "offline_message": "无网络连接。显示缓存内容。",
+    "offline_title": "您已离线",
+    "offline_description": "IPGaze 需要网络连接才能查询 IP 地址。请检查您的网络连接并重试。",
+    "offline_try_again": "重试",
+    "update_available": "有新版本可用。",
+    "update_later": "稍后",
+    "update_now": "立即更新"
+  },
+
+  "errors": {
+    "required": "此字段为必填项",
+    "invalid_email": "无效的电子邮件地址",
+    "too_short": "至少需要 {min} 个字符",
+    "too_long": "不能超过 {max} 个字符",
+    "passwords_dont_match": "密码不匹配",
+    "invalid_format": "格式无效",
+    "already_exists": "已存在",
+    "not_found": "未找到",
+    "bad_request": "无效的请求格式",
+    "validation_failed": "验证失败：{details}",
+    "unauthorized": "需要身份验证",
+    "token_expired": "令牌已过期",
+    "token_invalid": "无效的令牌",
+    "2fa_required": "需要双因素认证",
+    "2fa_invalid": "无效的 2FA 代码",
+    "forbidden": "权限被拒绝",
+    "blocked_by_blocklist": "访问被拒绝",
+    "blocked_by_country": "您所在地区无法访问",
+    "account_locked": "账户已锁定",
+    "method_not_allowed": "方法不允许",
+    "conflict": "资源已存在",
+    "rate_limited": "请求过多",
+    "server_error": "内部服务器错误",
+    "maintenance_mode": "服务不可用",
+    "request_id_label": "请求 ID"
+  },
+
+  "plurals": {
+    "items": {
+      "other": "{count} 个项目",
+      "zero": "{count} 个项目",
+      "one": "{count} 个项目"
+    },
+    "results": {
+      "other": "{count} 个结果",
+      "zero": "{count} 个结果",
+      "one": "{count} 个结果"
+    },
+    "users": {
+      "other": "{count} 个用户",
+      "zero": "{count} 个用户",
+      "one": "{count} 个用户"
+    },
+    "days": {
+      "other": "{count} 天",
+      "one": "{count} 天"
+    },
+    "hours": {
+      "one": "{count} 小时",
+      "other": "{count} 小时"
+    },
+    "minutes": {
+      "one": "{count} 分钟",
+      "other": "{count} 分钟"
+    }
+  },
+
+  "app": {
+    "name": "IPGaze",
+    "tagline": "IP 地址查询服务",
+    "description": "快速、精准的 IP 地理位置和网络信息查询",
+    "cache_resized": "缓存容量已更新"
+  },
+
+  "ip": {
+    "your": "您的 IP 地址",
+    "lookup": "IP 查询",
+    "address": "IP 地址",
+    "version": "IP 版本",
+    "decimal": "十进制",
+    "hostname": "主机名",
+    "is_eu": "欧盟成员",
+    "enter_ip": "输入要查询的 IP 地址"
+  },
+
+  "location": {
+    "country": "国家",
+    "country_code": "国家代码",
+    "city": "城市",
+    "region": "地区",
+    "region_code": "地区代码",
+    "timezone": "时区",
+    "coordinates": "坐标",
+    "latitude": "纬度",
+    "longitude": "经度",
+    "metro_code": "都市区代码",
+    "zip_code": "邮政编码"
+  },
+
+  "network": {
+    "asn": "ASN",
+    "org": "组织",
+    "isp": "互联网服务提供商"
+  },
+
+  "admin": {
+    "title": "管理面板",
+    "dashboard": "仪表盘",
+    "users": "用户",
+    "settings": "设置",
+    "logs": "日志",
+    "metrics": "指标",
+    "geoip": "GeoIP",
+    "scheduler": "调度器",
+    "maintenance": "维护",
+    "backup": "备份",
+    "restore": "恢复",
+    "update": "更新",
+    "reload": "重新加载配置"
+  },
+
+  "cli": {
+    "requires_privileges": "此操作需要提升的权限：{action}",
+    "escalate_prompt": "请以 sudo 或 root 身份重新运行。",
+    "daemon_started": "守护进程已启动，PID 为 {pid}",
+    "running_in_mode_label": "运行模式",
+    "listening_on": "正在监听 {proto}://{fqdn}:{port}",
+    "version_info": "版本：{version}（{commit}），构建于 {date}",
+    "help_flag": "显示此帮助信息",
+    "version_flag": "打印版本信息",
+    "port_flag": "服务器端口",
+    "address_flag": "服务器监听地址",
+    "config_flag": "配置目录",
+    "data_flag": "数据目录",
+    "reverse_lookup_flag": "启用反向主机名查询",
+    "port_lookup_flag": "启用端口可达性测试",
+    "cache_size_flag": "响应缓存大小（0=禁用）",
+    "profile_flag": "启用性能分析处理程序",
+    "header_flag": "信任此标头作为远程 IP（可重复）",
+    "status_flag": "健康检查（退出 0=健康，1=不健康）",
+    "service_flag": "服务管理",
+    "maintenance_flag": "维护操作"
+  },
+
+  "accessibility": {
+    "skip_to_content": "跳转到内容",
+    "menu": "菜单",
+    "search": "搜索",
+    "close_dialog": "关闭对话框",
+    "expand_section": "展开部分",
+    "collapse_section": "折叠部分",
+    "loading": "加载中，请稍候",
+    "required_field": "必填字段"
+  },
+
+  "api_help": {
+    "title": "帮助与 API 参考",
+    "basic_heading": "基本用法",
+    "basic_intro": "获取您的公网 IP 地址（纯文本 — 适用于 curl、wget、HTTPie 等）：",
+    "force_ip_version": "强制使用 IPv4 或 IPv6：",
+    "json_heading": "JSON 响应",
+    "json_intro": "返回完整的 GeoIP 数据，包括国家、城市、ASN 等：",
+    "force_json": "通过 Accept 标头强制返回 JSON：",
+    "fields_heading": "特定字段",
+    "fields_intro": "每个字段都可以作为纯文本端点访问：",
+    "lookup_heading": "查询其他 IP",
+    "lookup_intro": "查询任意 IP 地址的 GeoIP 数据：",
+    "port_heading": "端口可达性",
+    "port_intro": "检查请求方 IP 上的端口是否开放：",
+    "tor_access_intro": "本服务器也可通过 Tor 隐藏服务访问——没有出口节点，任何中间方都无法看到您的真实 IP：",
+    "tor_access_disabled": "本服务器当前未运行 Tor 隐藏服务。",
+    "i2p_access_intro": "本服务器也可通过 I2P eepsite 访问：",
+    "i2p_access_disabled": "本服务器当前未运行 I2P eepsite。",
+    "formats_heading": "API 格式",
+    "formats_plain_label": "纯文本",
+    "formats_plain_desc": "curl/wget/CLI 用户代理及空 User-Agent 的默认格式",
+    "formats_json_label": "JSON",
+    "formats_json_mid": "标头，或",
+    "formats_json_suffix": "后缀",
+    "formats_html_label": "HTML",
+    "formats_html_desc_pre": "浏览器用户代理，或",
+    "append_pre": "追加",
+    "append_post": "到任意字段端点以显式获取纯文本：",
+    "rate_heading": "速率限制",
+    "rate_body_pre": "允许自动化使用。请将请求限制为每分钟 1 次。超过此限制的请求可能会收到",
+    "rate_body_post": "响应。"
+  },
+
+  "index": {
+    "title": "我的 IP 地址是什么？— {host}",
+    "meta_description": "{host} • 我的 IP 地址是什么？— 查找您自己的 IP 地址及相关信息的最佳工具。完整支持 IPv4 和 IPv6。",
+    "heading": "我的 IP 地址是什么？",
+    "subtitle": "查找您自己的 IP 地址及相关信息的最佳工具。",
+    "ip_info_aria": "IP 信息",
+    "ip_details_heading": "IP 详情",
+    "field_postal_code": "邮政编码",
+    "api_usage_aria": "API 用法",
+    "column1_heading": "关于此 IP 地址我们知道什么？",
+    "column2_heading": "如何以编程方式获取这些信息？",
+    "column2_intro": "使用下方的小工具，您可以构建查询并查看结果的样式。",
+    "widget_select_group_aria": "选择要预览的API字段",
+    "field_ip_decimal": "IP 地址（十进制）",
+    "field_country_iso": "国家（ISO 代码）",
+    "field_in_eu": "是否在欧盟？",
+    "field_vpn_proxy": "VPN / 代理",
+    "field_tor_exit": "Tor 出口节点",
+    "field_tor_hidden_service": "Tor 隐藏服务",
+    "tor_hidden_service_notice": "您正在通过 Tor 访问此 .onion 地址。Tor 隐藏服务电路永远不会把您的真实 IP 地址传给服务器 —— 下方显示的地址只是本服务器自身的回环地址，并非您的地址。",
+    "field_user_agent": "用户代理",
+    "field_user_agent_comment": "用户代理：注释",
+    "field_user_agent_raw": "用户代理：原始值",
+    "field_asn_org": "ASN（组织）",
+    "geoip_attribution_pre": "GeoIP 数据由",
+    "sponsor_hosted_by": "本站点由以下机构托管",
+    "sponsor_logo_alt": "站点徽标",
+    "value_not_available": "不可用",
+    "map_title": "地图上的大致位置",
+    "map_view_larger": "查看更大的地图",
+    "widget_port_label": "端口号",
+    "widget_check_ip_label": "查询其他 IP（可选）",
+    "widget_ip_placeholder": "要查询的 IP",
+    "widget_open": "打开",
+    "faq_heading": "常见问题",
+    "faq_ipv4_ipv6_question": "如何强制使用 IPv4 或 IPv6 查询？",
+    "faq_ipv4_ipv6_intro": "通过向客户端传递相应参数来强制指定协议：",
+    "faq_ipv4_result": "返回您的 IPv4 地址",
+    "faq_ipv6_result": "返回您的 IPv6 地址",
+    "faq_json_question": "我可以强制获取 JSON 吗？",
+    "faq_json_answer_pre": "设置",
+    "faq_json_answer_post": "请求头即可按预期工作。",
+    "faq_automated_question": "是否允许自动化使用此服务？",
+    "faq_automated_answer": "可以，只要遵守速率限制。速率限制是为了确保对所有人都公平的服务。",
+    "faq_rate_limit_note": "请将自动化请求限制在每分钟 1 次",
+    "faq_rate_limit_guarantee": "超出此限制的请求不作任何保证。",
+    "faq_rate_limit_consequence": "这些请求可能会被限速并返回 429 状态码，或被完全丢弃。"
+  },
+
+  "healthz": {
+    "restart_pending": "重启待处理：",
+    "commit_label": "提交",
+    "build_date_label": "构建日期",
+    "runtime_heading": "运行时",
+    "timestamp_label": "时间戳",
+    "checks_heading": "健康检查",
+    "column_component": "组件",
+    "check_database": "数据库",
+    "check_cache": "缓存",
+    "check_disk": "磁盘",
+    "check_scheduler": "调度器",
+    "check_tor": "Tor",
+    "check_i2p": "I2P",
+    "refreshing_in_prefix": "将在以下时间后刷新",
+    "provider_label": "提供方"
+  },
+  "client": {
+    "help_flag": "显示此帮助信息并退出",
+    "version_flag": "显示版本信息并退出",
+    "debug_flag": "启用调试输出",
+    "server_flag": "要查询的服务器地址",
+    "output_flag": "输出格式",
+    "field_flag": "仅输出单个字段",
+    "lang_flag": "输出语言代码",
+    "color_flag": "颜色模式（auto、always、never）",
+    "shell_flag": "Shell 集成命令（completions、init、help）",
+    "token_flag": "用于身份验证的 API 令牌",
+    "token_file_flag": "从文件中读取 API 令牌",
+    "config_flag": "配置文件名称或路径",
+    "update_flag": "更新命令（check、yes）",
+    "usage_line": "用法：{binary} [选项] [ip]",
+    "description": "从 ipgaze 服务器查询 IP 地址和网络信息。",
+    "options_header": "选项：",
+    "formats_header": "格式：{formats}",
+    "fields_header": "字段：{fields}",
+    "shells_header": "Shell：{shells}",
+    "examples_header": "示例：",
+    "example_own_ip": "显示你自己的 IP 地址",
+    "example_lookup_ip": "查询指定的 IP 地址",
+    "example_json": "以 JSON 格式输出结果",
+    "example_field": "输出某个 IP 地址的单个字段",
+    "example_server": "查询其他服务器",
+    "example_config": "使用指定名称的配置文件",
+    "example_update_check": "检查是否有可用更新",
+    "example_update_install": "下载并安装更新",
+    "err_config_path": "无法解析配置文件路径：{error}",
+    "warn_create_config": "警告：无法创建配置文件：{error}",
+    "err_invalid_output": "无效的输出格式“{format}”。有效格式：{formats}",
+    "err_no_server": "未配置服务器。请使用 --server URL，或在配置文件中设置 server.primary。",
+    "version_server_label": "服务器",
+    "version_server_version_label": "服务器版本",
+    "version_build_info_label": "构建信息",
+    "err_update_check": "检查更新失败：{error}",
+    "err_cli_too_old": "此客户端低于服务器要求的最低版本 {version}。请运行 {binary} --update yes。",
+    "update_up_to_date": "已是最新版本。",
+    "update_available": "有可用更新：{current} 到 {available}",
+    "err_update_failed": "更新失败：{error}",
+    "err_unknown_update": "未知的更新命令“{command}”。有效命令：check、yes",
+    "update_prompt": "现在安装此更新吗？[y/N]",
+    "err_token_revoked": "服务器已吊销此令牌。请使用 --token 或 --token-file 重新进行身份验证。",
+    "shell_help_usage": "用法：{binary} --shell completions|init|help SHELL",
+    "err_unknown_shell_command": "未知的 shell 命令“{command}”。有效命令：completions、init、help",
+    "err_unsupported_shell": "不支持的 shell“{shell}”。支持的 shell：{shells}"
+  },
+  "tui": {
+    "title": "IP 地址信息",
+    "loading": "正在查询 IP 地址…",
+    "no_data": "无数据",
+    "field_hostname": "主机名",
+    "field_country": "国家/地区",
+    "field_city": "城市",
+    "field_region": "区域",
+    "field_postal_code": "邮政编码",
+    "field_timezone": "时区",
+    "field_asn": "ASN",
+    "field_coordinates": "坐标",
+    "abbrev_hostname": "主机",
+    "abbrev_country": "国家",
+    "abbrev_city": "城市",
+    "abbrev_region": "区域",
+    "abbrev_postal_code": "邮编",
+    "abbrev_timezone": "时区",
+    "abbrev_asn": "ASN",
+    "abbrev_coordinates": "坐标",
+    "help_title": "键盘快捷键",
+    "help_navigate": "在字段之间移动",
+    "help_jump": "跳到第一个或最后一个字段",
+    "help_expand": "显示所选字段的完整内容",
+    "help_back": "关闭帮助、收起或清除搜索",
+    "help_search": "搜索字段",
+    "help_help": "显示或隐藏此帮助",
+    "help_quit": "退出",
+    "hint_minimal": "?:帮助 q:退出",
+    "hint_compact": "↑↓:移动 │ enter:显示 │ ?:帮助 │ q:退出",
+    "hint_full": "↑/↓: 移动 │ Enter: 显示 │ /: 搜索 │ ?: 帮助 │ q: 退出",
+    "search_prompt": "搜索：{query}",
+    "search_active": "筛选：{query}",
+    "search_no_match": "没有字段匹配 {query}"
+  },
+  "setup": {
+    "title": "{app} CLI 设置",
+    "intro": "尚未配置服务器，现在来设置一个吧！",
+    "server_url_label": "服务器地址",
+    "token_label": "API 令牌（可选）",
+    "token_placeholder": "留空表示匿名访问",
+    "save_option": "保存到配置文件（推荐）",
+    "test_connection": "测试连接",
+    "testing": "正在测试与 {server} 的连接…",
+    "connected": "已连接到 {server}（版本 {version}）",
+    "failed": "连接失败：{error}",
+    "invalid_url": "请输入有效的 http(s) 服务器地址",
+    "hint": "tab: 下一个字段 │ space: 切换 │ enter: 测试并保存 │ esc: 取消",
+    "saved": "配置已保存到 {path}"
+  },
+
+  "notifications": {
+    "title": "通知",
+    "mark_all_read": "全部标记为已读",
+    "clear_all": "全部清除",
+    "ssl_expiring": "SSL 证书将在 {count} 天后过期",
+    "ssl_renewal_failed": "SSL 证书续期失败",
+    "backup_completed": "备份已完成",
+    "backup_failed": "备份失败",
+    "update_available": "有可用更新",
+    "disk_space_low": "磁盘空间不足",
+    "task_failed": "任务失败",
+    "task_triggered": "已手动触发任务",
+    "ssl_renewed": "SSL 证书已续期",
+    "blocklist_updated": "封锁列表已更新：{name}（{count} 条规则）",
+    "blocklist_update_failed": "封锁列表更新失败：{name}",
+    "geoip_updated": "GeoIP 数据库已更新",
+    "geoip_update_failed": "GeoIP 更新失败",
+    "ip_blocked": "已封锁 IP：{ip}（{reason}）",
+    "ip_allowlisted": "已将 IP 加入允许列表：{cidr}",
+    "country_blocked": "已按国家/地区封锁请求：{ip}（{country}）",
+    "preferences": {
+      "webui": "网页界面",
+      "email": "电子邮件",
+      "security_cannot_disable": "安全（无法停用）",
+      "server": "服务器",
+      "backup": "备份",
+      "scheduler": "调度器",
+      "other_admins": "其他管理员"
+    }
+  },
+
+  "email": {
+    "subjects": {
+      "security_alert": "安全警报 - {app_name}",
+      "backup_completed": "备份已完成 - {app_name}",
+      "backup_failed": "备份失败 - {app_name}",
+      "task_failed": "计划任务失败 - {app_name}",
+      "ssl_expiring": "SSL 证书即将过期 - {app_name}",
+      "ssl_renewed": "SSL 证书已续期 - {app_name}",
+      "ssl_renewal_failed": "SSL 续期失败 - {app_name}",
+      "update_available": "有可用更新 - {app_name}",
+      "update_installed": "更新已安装 - {app_name}",
+      "test_email": "测试邮件 - {app_name}"
+    },
+    "body": {
+      "from": "发件人：{app_name}（{fqdn}）",
+      "recommended_actions": "建议采取的措施",
+      "contact_information": "联系方式",
+      "security_alert_heading": "安全警报",
+      "backup_completed_heading": "备份完成",
+      "backup_failed_heading": "备份失败",
+      "task_failed_heading": "计划任务失败",
+      "ssl_expiring_heading": "SSL 证书即将过期",
+      "ssl_renewed_heading": "SSL 证书已续期",
+      "ssl_renewal_failed_heading": "SSL 续期失败",
+      "update_available_heading": "有可用更新",
+      "update_installed_heading": "更新已安装",
+      "test_heading": "测试邮件",
+      "label_time": "时间：",
+      "label_event": "事件：",
+      "label_ip": "IP 地址：",
+      "label_filename": "文件名：",
+      "label_size": "大小：",
+      "label_error": "错误：",
+      "label_task": "任务：",
+      "label_domain": "域名：",
+      "label_expires": "过期时间：",
+      "label_days_remaining": "剩余天数：",
+      "label_new_expiry": "新的过期时间：",
+      "label_days_until_expiry": "距过期天数：",
+      "label_next_retry": "下次重试：",
+      "label_current_version": "当前版本：",
+      "label_new_version": "新版本：",
+      "label_channel": "渠道：",
+      "label_previous_version": "先前版本：",
+      "security_alert_intro": "{app_name} 上记录到一起安全事件。",
+      "backup_completed_intro": "您的备份已成功完成。",
+      "backup_failed_intro": "一次备份尝试失败。",
+      "task_failed_intro": "一项计划任务失败。",
+      "ssl_expiring_intro": "此服务器的证书即将过期。",
+      "ssl_renewed_intro": "此服务器的证书已成功续期。",
+      "ssl_renewal_failed_intro": "证书自动续期失败。",
+      "update_available_intro": "{app_name} 有新版本可用。",
+      "update_installed_intro": "{app_name} 已更新至新版本。",
+      "test_intro": "这是一封来自 {app_name} 的测试邮件。",
+      "security_alert_action": "如果此活动出乎意料，请检查您的安全设置。",
+      "backup_completed_action": "备份存档保存在已配置的备份目录中。",
+      "backup_failed_action": "请检查存储配置和可用磁盘空间。",
+      "task_failed_action": "请查看应用日志以了解更多细节。",
+      "ssl_expiring_action": "系统会自动尝试续期。如果续期失败，请手动续期。",
+      "ssl_renewed_action": "无需任何操作。",
+      "ssl_renewal_failed_action": "如果自动续期持续失败，请排查原因并手动续期证书。",
+      "update_available_action": "更新前请先查看发行说明。",
+      "update_installed_action": "无需任何操作。",
+      "test_action": "收到此邮件表示外发邮件设置正确。"
+    }
+  },
+
+  "swagger": {
+    "bodies": {
+      "ccpa": "CCPA 退出选择",
+      "consent": "Cookie 同意选择",
+      "contact": "联系表单提交内容",
+      "dismiss": "要关闭的公告标识符",
+      "graphql": "GraphQL 查询、变量和操作名称",
+      "preferences": "主题与语言偏好设置的更新",
+      "report": "浏览器生成的报告数据"
+    },
+    "common": {
+      "api_mirror": "对应网页的 JSON 版本，遵循网页路由与 API 路由一一对应的规则。",
+      "report_intro": "接收浏览器生成的报告并写入服务器日志。",
+      "txt_variant": "对应端点的纯文本版本；.txt 后缀会强制返回 text/plain，无论 Accept 头如何。"
+    },
+    "info": {
+      "description": "带 GeoIP 信息的 IP 地址查询服务，通过 REST、GraphQL 以及适合命令行使用的纯文本接口提供。",
+      "server": "IPGaze API 服务器",
+      "title": "IPGaze API"
+    },
+    "params": {
+      "asset_path": "/static/ 下的资源路径",
+      "code_query": "来自导出端点的 base64url 编码偏好设置代码",
+      "filename_path": "命令行客户端的文件名，例如 ipgaze-linux-amd64",
+      "ip_path": "要查询的 IP 地址（IPv4 或 IPv6）",
+      "ip_query": "可选的待查询 IP 地址；默认为调用方的 IP",
+      "lang_path": "BCP 47 语言代码，例如 en、fr 或 ja",
+      "lang_query": "要应用的语言，使用 BCP 47 代码",
+      "port_path": "要检测的端口号（1-65535）",
+      "theme_query": "要应用的主题：dark、light 或 auto"
+    },
+    "paths": {
+      "announcements_dismiss": {
+        "description": "在此浏览器中将站点公告标记为已关闭。",
+        "summary": "关闭公告"
+      },
+      "api_graphql_get": {
+        "summary": "GraphQL 浏览器（无版本 API 别名）"
+      },
+      "api_graphql_post": {
+        "summary": "执行 GraphQL 查询（无版本 API 别名）"
+      },
+      "api_healthz": {
+        "description": "健康检查的无版本 API 别名。始终返回 JSON，不进行内容协商。",
+        "summary": "健康检查（无版本 API 别名）"
+      },
+      "api_healthz_txt": {
+        "summary": "健康检查（无版本 API 别名，.txt）"
+      },
+      "api_swagger": {
+        "description": "无条件以 JSON 返回此 OpenAPI 3.0 文档，不进行内容协商。",
+        "summary": "OpenAPI 文档"
+      },
+      "asn": {
+        "description": "返回通告调用方 IP 地址的自治系统编号。",
+        "summary": "获取 ASN"
+      },
+      "asn_org": {
+        "description": "返回拥有该自治系统（通告调用方 IP 地址）的组织名称。",
+        "summary": "获取 ASN 组织"
+      },
+      "asn_org_txt": {
+        "summary": "获取 ASN 组织（.txt）"
+      },
+      "asn_txt": {
+        "summary": "获取 ASN（.txt）"
+      },
+      "autodiscover": {
+        "description": "返回服务器身份信息、已发布的命令行客户端版本，以及此服务器接受的最低客户端版本。",
+        "summary": "客户端自动发现"
+      },
+      "branding_logo": {
+        "description": "提供已配置的站点标志；若配置为远程 URL，则在本地缓存。",
+        "summary": "提供站点标志"
+      },
+      "city": {
+        "description": "返回根据调用方 IP 地址判定的城市名称。",
+        "summary": "获取城市名称"
+      },
+      "city_txt": {
+        "summary": "获取城市名称（.txt）"
+      },
+      "cli_binary": {
+        "description": "传输所请求操作系统和架构对应的命令行客户端可执行文件。",
+        "summary": "下载命令行客户端可执行文件"
+      },
+      "coordinates": {
+        "description": "返回根据调用方 IP 地址判定的纬度和经度，以逗号分隔的十进制度表示。",
+        "summary": "获取坐标"
+      },
+      "coordinates_txt": {
+        "summary": "获取坐标（.txt）"
+      },
+      "country": {
+        "description": "返回根据调用方 IP 地址判定的国家/地区名称。",
+        "summary": "获取国家/地区名称"
+      },
+      "country_iso": {
+        "description": "返回根据调用方 IP 地址判定的两位 ISO 3166-1 alpha-2 国家/地区代码。",
+        "summary": "获取 ISO 国家/地区代码"
+      },
+      "country_iso_txt": {
+        "summary": "获取 ISO 国家/地区代码（.txt）"
+      },
+      "country_txt": {
+        "summary": "获取国家/地区名称（.txt）"
+      },
+      "docs_graphql_get": {
+        "description": "提供独立的 GraphQL 浏览器界面，用于编写和执行查询。",
+        "summary": "GraphQL 浏览器"
+      },
+      "docs_graphql_post": {
+        "description": "针对映射 REST API 的架构执行 GraphQL 查询。超过深度或别名限制的查询会以符合 GraphQL 规范的错误对象被拒绝。",
+        "summary": "执行 GraphQL 查询"
+      },
+      "docs_swagger": {
+        "description": "提供交互式 Swagger 界面；当通过 Accept 头请求 JSON 时，则返回此 OpenAPI 文档。",
+        "summary": "Swagger 界面"
+      },
+      "healthz": {
+        "description": "返回服务器的完整健康报告：总体状态、项目标识、构建元数据、运行时长、运行模式、已启用的功能、子系统检查结果和请求统计。格式经过协商：JSON、面向浏览器的 HTML，其余情况为纯文本。",
+        "summary": "健康检查"
+      },
+      "healthz_root": {
+        "description": "/server/healthz 的可选顶层别名；仅在 server.yml 中启用顶层健康别名时才注册。",
+        "summary": "健康检查（顶层别名）"
+      },
+      "ip": {
+        "description": "仅返回调用方的 IP 地址，不包含任何标记。",
+        "summary": "以纯文本获取你的 IP"
+      },
+      "ip_lookup": {
+        "description": "返回路径中给定的任意 IPv4 或 IPv6 地址的 GeoIP、ASN 和反向 DNS 信息。由通配路由处理，因此任何未被占用且可解析为 IP 地址的单段路径都会被视为一次查询。",
+        "summary": "查询指定 IP 地址"
+      },
+      "ip_txt": {
+        "summary": "以纯文本获取你的 IP（.txt）"
+      },
+      "json": {
+        "description": "返回完整的 IP 记录，包括 GeoIP、ASN、反向 DNS 和威胁分类字段。",
+        "summary": "以 JSON 获取完整 IP 信息"
+      },
+      "llms_txt": {
+        "description": "提供 llms.txt 策略，说明自动化语言模型代理如何使用本服务。",
+        "summary": "自动化代理使用策略"
+      },
+      "locales": {
+        "description": "返回所请求语言的 JSON 翻译目录，供网页界面本地化客户端渲染的文本。",
+        "summary": "获取翻译目录"
+      },
+      "manifest": {
+        "description": "返回渐进式网页应用清单，包含应用名称、图标、主题色和显示模式。",
+        "summary": "网页应用清单"
+      },
+      "offline": {
+        "description": "提供当导航无法连接网络时由 Service Worker 显示的页面。",
+        "summary": "离线后备页面"
+      },
+      "port_check": {
+        "description": "从服务器向调用方 IP 地址的指定端口发起 TCP 连接，并报告是否成功。",
+        "summary": "检测端口可达性"
+      },
+      "report_crash": {
+        "summary": "崩溃报告"
+      },
+      "report_csp": {
+        "summary": "内容安全策略报告"
+      },
+      "report_default": {
+        "summary": "默认报告端点"
+      },
+      "report_deprecation": {
+        "summary": "弃用报告"
+      },
+      "report_error": {
+        "summary": "错误报告"
+      },
+      "report_intervention": {
+        "summary": "浏览器干预报告"
+      },
+      "report_nel": {
+        "summary": "网络错误日志报告"
+      },
+      "robots_txt": {
+        "description": "提供此服务器的爬虫策略。",
+        "summary": "机器人排除规则"
+      },
+      "root": {
+        "description": "返回调用方的 IP 地址。响应格式经过协商：Accept: application/json 时返回 JSON，浏览器返回 HTML，命令行客户端返回纯文本。",
+        "summary": "获取你的 IP 地址"
+      },
+      "security_txt": {
+        "description": "提供 RFC 9116 安全披露策略，包括安全联系方式和 PGP 密钥位置。",
+        "summary": "安全联系策略"
+      },
+      "server_about": {
+        "description": "提供介绍本服务、其版本及运营者的信息页面。",
+        "summary": "关于此服务器"
+      },
+      "server_ccpa": {
+        "description": "将 CCPA 拒绝出售数据的选择保存到浏览器 Cookie 中。",
+        "summary": "记录 CCPA 退出选择"
+      },
+      "server_consent": {
+        "description": "将访问者的 Cookie 同意选择保存到浏览器 Cookie 中。同意按浏览器保存，绝不存储在服务器端。",
+        "summary": "记录 Cookie 同意"
+      },
+      "server_contact": {
+        "description": "提供用于联系服务器运营者的联系表单。",
+        "summary": "联系页面"
+      },
+      "server_contact_post": {
+        "description": "校验联系信息并投递到已配置的运营者地址。",
+        "summary": "提交联系表单"
+      },
+      "server_help": {
+        "description": "提供使用说明页面，用可直接复制的示例记录每个端点。",
+        "summary": "使用帮助"
+      },
+      "server_index": {
+        "description": "重定向到服务器信息页面。",
+        "summary": "服务器信息索引"
+      },
+      "server_preferences": {
+        "description": "提供用于选择主题和语言的偏好设置页面。",
+        "summary": "偏好设置页面"
+      },
+      "server_preferences_export": {
+        "description": "以完整导入 URL 和简短 base64url 代码两种形式返回当前主题和语言，便于将偏好设置迁移到另一个浏览器。",
+        "summary": "导出偏好设置"
+      },
+      "server_preferences_import": {
+        "description": "解码并校验所提供的偏好设置值，设置相应 Cookie 后重定向，使代码不会留在可见的 URL 中。",
+        "summary": "导入偏好设置"
+      },
+      "server_preferences_post": {
+        "description": "校验提交的主题和语言，并保存为浏览器 Cookie。",
+        "summary": "更新偏好设置"
+      },
+      "server_privacy": {
+        "description": "提供隐私政策，说明记录哪些数据、保留多久，以及可用的退出方式。",
+        "summary": "隐私政策"
+      },
+      "server_terms": {
+        "description": "提供本服务的使用条款。",
+        "summary": "服务条款"
+      },
+      "service_worker": {
+        "description": "提供渐进式网页应用的 Service Worker，用于缓存资源并在网络不可用时展示离线页面。",
+        "summary": "Service Worker 脚本"
+      },
+      "static": {
+        "description": "提供内置静态资源：样式表、脚本、图标、字体以及随附的 Swagger UI 文件。",
+        "summary": "提供静态资源"
+      },
+      "v1_about": {
+        "summary": "关于此服务器（API v1）"
+      },
+      "v1_asn": {
+        "description": "返回通告调用方 IP 地址的自治系统编号。",
+        "summary": "获取 ASN（API v1）"
+      },
+      "v1_city": {
+        "description": "返回根据调用方 IP 地址判定的城市名称。",
+        "summary": "获取城市（API v1）"
+      },
+      "v1_contact": {
+        "description": "校验联系信息、完成投递，并以 JSON 返回结果。",
+        "summary": "提交联系表单（API v1）"
+      },
+      "v1_country": {
+        "description": "返回根据调用方 IP 地址判定的国家/地区名称。",
+        "summary": "获取国家/地区（API v1）"
+      },
+      "v1_graphql_get": {
+        "summary": "GraphQL 浏览器（API v1）"
+      },
+      "v1_graphql_post": {
+        "summary": "执行 GraphQL 查询（API v1）"
+      },
+      "v1_healthz": {
+        "description": "以 JSON 返回服务器的完整健康报告。始终为 JSON，不进行内容协商。",
+        "summary": "健康检查（API v1）"
+      },
+      "v1_healthz_txt": {
+        "summary": "健康检查（API v1，.txt）"
+      },
+      "v1_help": {
+        "summary": "使用帮助（API v1）"
+      },
+      "v1_info": {
+        "description": "以 JSON 返回完整的 IP 记录，与 /json 相同。",
+        "summary": "获取完整 IP 信息（API v1）"
+      },
+      "v1_ip": {
+        "description": "仅返回调用方的 IP 地址。",
+        "summary": "获取你的 IP（API v1）"
+      },
+      "v1_ip_lookup": {
+        "description": "返回任意 IPv4 或 IPv6 地址的 GeoIP、ASN 和反向 DNS 信息。",
+        "summary": "查询指定 IP（API v1）"
+      },
+      "v1_preferences": {
+        "description": "返回当前保存在调用方 Cookie 中的主题和语言。",
+        "summary": "获取偏好设置（API v1）"
+      },
+      "v1_preferences_export": {
+        "description": "以完整导入 URL 和简短 base64url 代码返回当前主题和语言。",
+        "summary": "导出偏好设置（API v1）"
+      },
+      "v1_preferences_import": {
+        "description": "解码并校验所提供的偏好设置值，并设置相应的 Cookie。",
+        "summary": "导入偏好设置（API v1）"
+      },
+      "v1_privacy": {
+        "summary": "隐私政策（API v1）"
+      },
+      "v1_swagger": {
+        "description": "通过带版本的 API 路径以 JSON 返回此 OpenAPI 3.0 文档。",
+        "summary": "OpenAPI 文档（API v1）"
+      },
+      "v1_terms": {
+        "summary": "服务条款（API v1）"
+      },
+      "v1_version": {
+        "description": "返回正在运行的版本、源码提交和构建日期。",
+        "summary": "获取构建版本"
+      },
+      "wk_llms_txt": {
+        "summary": "自动化代理使用策略（well-known）"
+      },
+      "wk_pgp_key": {
+        "description": "提供安全策略所引用的 ASCII 编码 PGP 公钥。",
+        "summary": "PGP 公钥"
+      },
+      "wk_security_txt": {
+        "summary": "安全联系策略（well-known）"
+      }
+    },
+    "responses": {
+      "accepted": "报告已接受",
+      "asset": "静态资源内容",
+      "bad_request": "请求无效",
+      "binary": "二进制文件流",
+      "graphql": "GraphQL 执行结果",
+      "health": "服务器健康状况",
+      "html_page": "HTML 页面",
+      "invalid_ip": "IP 地址无效",
+      "invalid_port": "端口号无效",
+      "ip_info": "IP 地址信息",
+      "json_object": "JSON 对象",
+      "manifest": "网页应用清单",
+      "not_found": "未找到资源",
+      "ok": "成功",
+      "port_check": "端口可达性结果",
+      "redirect": "重定向到目标页面",
+      "script": "JavaScript 源码",
+      "spec": "OpenAPI 3.0 规范文档",
+      "text_value": "纯文本值",
+      "too_many_requests": "超出速率限制",
+      "unavailable": "服务器处于异常、维护或正在关闭状态",
+      "version": "构建版本信息"
+    },
+    "tags": {
+      "api_v1": "API v1",
+      "assets": "资源",
+      "documentation": "文档",
+      "geoip": "GeoIP",
+      "ip_lookup": "IP 查询",
+      "pages": "页面",
+      "port_check": "端口检测",
+      "reports": "报告",
+      "system": "系统",
+      "well_known": "Well-Known"
+    },
+    "ui": {
+      "title": "IPGaze API - Swagger 界面"
+    }
+  },
+
+  "graphql": {
+    "args": {
+      "checkPort": {
+        "port": "要检测的端口号（1-65535）"
+      },
+      "lookupIP": {
+        "ip": "要查询的 IP 地址（IPv4 或 IPv6）"
+      }
+    },
+    "query": {
+      "checkPort": {
+        "description": "检测你的 IP 地址上某个端口是否可达"
+      },
+      "health": {
+        "description": "获取服务器的完整健康报告"
+      },
+      "lookupIP": {
+        "description": "查询指定的 IP 地址"
+      },
+      "myIP": {
+        "description": "获取带 GeoIP 信息的你的 IP 地址"
+      }
+    },
+    "types": {
+      "BuildInfo": {
+        "description": "运行中可执行文件的构建元数据",
+        "fields": {
+          "commit": "构建该可执行文件所用的源码提交",
+          "date": "构建时间戳"
+        }
+      },
+      "ChecksInfo": {
+        "description": "各子系统的健康检查结果",
+        "fields": {
+          "cache": "缓存检查结果",
+          "database": "数据库检查结果",
+          "disk": "磁盘检查结果",
+          "i2p": "I2P 子系统检查结果",
+          "scheduler": "调度器检查结果",
+          "tor": "Tor 子系统检查结果"
+        }
+      },
+      "FeaturesInfo": {
+        "description": "可选功能的可用性",
+        "fields": {
+          "geoip": "GeoIP 数据库是否已加载",
+          "i2p": "I2P eepsite 状态",
+          "tor": "Tor 隐藏服务状态"
+        }
+      },
+      "HealthResponse": {
+        "description": "服务器健康报告，逐字段对应 REST 健康端点",
+        "fields": {
+          "build": "构建元数据",
+          "checks": "各子系统的健康检查结果",
+          "features": "可选功能的可用性",
+          "goVersion": "构建该可执行文件所用的 Go 运行时版本",
+          "mode": "运行模式：production 或 development",
+          "pendingRestart": "是否有等待重启生效的配置更改",
+          "project": "项目标识",
+          "restartReason": "待重启的原因",
+          "stats": "汇总的请求计数",
+          "status": "总体状态：healthy、degraded、restart_required、unhealthy、maintenance 或 shutting_down",
+          "timestamp": "生成此健康报告的时间，采用 RFC 3339 格式",
+          "uptime": "自服务器启动以来经过的时间",
+          "version": "应用版本"
+        }
+      },
+      "I2PInfo": {
+        "description": "I2P eepsite 状态",
+        "fields": {
+          "enabled": "配置中是否启用了 I2P eepsite",
+          "hostname": "已发布的 .i2p 主机名",
+          "provider": "所使用的 eepsite 后端：i2pd、sam 或 none",
+          "running": "I2P eepsite 当前是否正在运行",
+          "status": "便于阅读的 I2P 状态"
+        }
+      },
+      "IPResponse": {
+        "description": "带 GeoIP 信息的 IP 地址查询响应",
+        "fields": {
+          "asn": "自治系统编号，例如 AS15169",
+          "asnOrg": "自治系统的组织名称",
+          "city": "城市名称",
+          "country": "国家/地区名称",
+          "countryEu": "该国家/地区是否属于欧盟",
+          "countryIso": "ISO 3166-1 alpha-2 国家/地区代码",
+          "hostname": "反向 DNS 主机名",
+          "ip": "IP 地址",
+          "ipDecimal": "以十进制数表示的 IP 地址",
+          "isProxy": "若该 IP 是已知的开放代理或数据中心代理则为 true",
+          "isTor": "若该 IP 是已知的 Tor 出口节点则为 true",
+          "isVpn": "若该 IP 与已知的 VPN 或主机托管提供商相关则为 true",
+          "latitude": "纬度",
+          "longitude": "经度",
+          "metroCode": "都会区代码",
+          "regionCode": "地区或州代码",
+          "regionName": "地区或州名称",
+          "timezone": "时区，例如 America/Los_Angeles",
+          "userAgent": "解析后的用户代理信息",
+          "zipCode": "邮政编码"
+        }
+      },
+      "PortResponse": {
+        "description": "端口可达性检测的响应",
+        "fields": {
+          "ip": "被检测的 IP 地址",
+          "port": "端口号",
+          "reachable": "端口是否可达"
+        }
+      },
+      "ProjectInfo": {
+        "description": "服务器报告的项目标识",
+        "fields": {
+          "description": "更详细的项目说明",
+          "name": "项目名称",
+          "tagline": "简短的项目标语"
+        }
+      },
+      "StatsInfo": {
+        "description": "汇总的请求计数",
+        "fields": {
+          "activeConns": "当前活动连接数",
+          "requests24h": "过去 24 小时内处理的请求数",
+          "requestsTotal": "自启动以来处理的请求数"
+        }
+      },
+      "TorInfo": {
+        "description": "Tor 隐藏服务状态",
+        "fields": {
+          "enabled": "配置中是否启用了 Tor 隐藏服务",
+          "hostname": "已发布的 .onion 主机名",
+          "running": "Tor 隐藏服务当前是否正在运行",
+          "status": "便于阅读的 Tor 状态"
+        }
+      },
+      "UserAgent": {
+        "description": "解析后的用户代理信息",
+        "fields": {
+          "product": "用户代理的产品名，例如 curl 或 wget",
+          "rawValue": "未经处理的用户代理字符串",
+          "version": "用户代理版本"
+        }
+      }
+    },
+    "ui": {
+      "placeholder": "点击“运行”以执行查询。",
+      "query": "查询",
+      "response": "响应",
+      "run": "运行",
+      "title": "IPGaze GraphQL 浏览器",
+      "variables": "变量（JSON）"
+    }
+  },
+
+  "version": {
+    "name_version": "{project_name} {project_version}",
+    "built": "构建时间：{build_date}",
+    "go": "Go：{go_version}",
+    "os_arch": "操作系统/架构：{goos}/{goarch}"
+  },
+
+  "confirm": {
+    "delete_title": "确认删除",
+    "delete_message": "确定要删除此项吗？",
+    "action_irreversible": "此操作无法撤销。"
+  },
+
+  "form": {
+    "required_field": "（必填）",
+    "optional_field": "（选填）",
+    "hint_email": "我们绝不会分享您的电子邮件地址。",
+    "errors_count": "表单中有 {count} 处错误"
+  }
+}

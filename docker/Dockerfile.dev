@@ -1,0 +1,96 @@
+# =============================================================================
+# Build Stage - Compile Go binary (debug, no symbol stripping)
+# =============================================================================
+FROM casjaysdev/go:latest AS builder
+
+# Install git, bash, and delve debugger
+RUN apk add --no-cache git bash
+RUN go install github.com/go-delve/delve/cmd/dlv@latest
+
+ARG TARGETARCH
+ARG VERSION=dev
+# BUILD_EPOCH is the single embedded time source; BuildDate is derived from it at process start
+ARG BUILD_EPOCH
+ARG COMMIT_ID
+ARG OFFICIAL_SITE=
+
+WORKDIR /app
+
+# Copy go.mod first for layer caching
+COPY go.mod go.sum ./
+RUN go mod download
+
+# Copy source and build without stripping debug symbols
+COPY . .
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} go build -buildvcs=false \
+    -ldflags "-X 'main.Version=${VERSION}' -X 'main.CommitID=${COMMIT_ID}' -X 'main.BuildEpoch=${BUILD_EPOCH}' -X 'main.OfficialSite=${OFFICIAL_SITE}'" \
+    -o /app/binary/ipgaze ./src
+
+# =============================================================================
+# Runtime Stage - Alpine with debugging tools
+# =============================================================================
+FROM alpine:latest
+
+# ARGs for build-time values (set by docker build --build-arg)
+ARG VERSION=dev
+ARG BUILD_DATE
+ARG COMMIT_ID
+ARG LICENSE=MIT
+
+# No LABEL blocks — all image metadata is applied as OCI annotations at build time,
+# per AI.md PART 26 and docker-rules.md.
+
+# Upgrade base packages first so transitively-pulled libs (e.g. libcrypto3/
+# libssl3) get security fixes published after the alpine:latest layer was cut
+RUN apk update && apk upgrade --no-cache
+
+# Install runtime packages plus debugging tools
+RUN apk add --no-cache \
+    git \
+    curl \
+    bash \
+    tini \
+    tor
+
+# Copy binary from builder stage
+COPY --from=builder /app/binary/ipgaze /usr/local/bin/ipgaze
+
+# Copy delve debugger from builder stage
+# casjaysdev/go:latest sets GOBIN=/usr/local/bin, so `go install` places
+# dlv there rather than the default $GOPATH/bin (/root/go/bin)
+COPY --from=builder /usr/local/bin/dlv /usr/local/bin/dlv
+
+# Copy BUILD-TIME overlay (entrypoint.sh) from docker/rootfs/ into image
+COPY docker/rootfs/ /
+
+# Copy Dockerfile to image (for reference and backup)
+COPY docker/Dockerfile.dev /root/Dockerfile
+
+# Make all binaries/scripts in /usr/local/bin executable (755)
+RUN chmod 755 /usr/local/bin/*
+
+# NO directory creation, NO non-root user - binary handles ALL setup based
+# on env vars, including creating its own dedicated system user and
+# dropping privileges after binding privileged ports (see AI.md PART 23).
+# Docker volume mounts auto-create mount points.
+# Documented non-root exception (AI.md PART 26, "document exception in
+# IDEA.md" clause) — see IDEA.md "Docker non-root exception".
+# trivy:ignore:AVD-DS-0002
+
+# Development environment variables — debug symbols retained
+# MODE is never baked into the image — binary defaults to production; compose sets MODE explicitly
+ENV TZ=America/New_York \
+    DATABASE_DIR=/data/db/sqlite
+
+# Expose internal port (always 80)
+EXPOSE 80
+
+# Stop signal for graceful shutdown
+STOPSIGNAL SIGRTMIN+3
+
+# Health check — long start period for service initialization (matches production)
+HEALTHCHECK --start-period=10m --interval=5m --timeout=15s --retries=3 \
+    CMD /usr/local/bin/ipgaze --status || exit 1
+
+# Use tini as init with signal propagation
+ENTRYPOINT [ "tini", "-p", "SIGTERM", "--", "/usr/local/bin/entrypoint.sh" ]

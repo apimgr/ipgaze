@@ -1,0 +1,7 @@
+# AVD-DS-0002: "Specify at least 1 USER command" — intentionally not
+# followed. Per AI.md PART 26 Dockerfile Rules' documented exception
+# clause (binary manages a system service and its own directory
+# ownership), the container starts and stays root; the binary itself
+# creates its dedicated system user and drops privileges at runtime
+# (AI.md PART 23). See IDEA.md "Docker non-root exception".
+AVD-DS-0002

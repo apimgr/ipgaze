@@ -1,0 +1,17 @@
+Subject: {subject}
+---
+{heading}
+
+{from_line}
+{label_time} {time}
+
+{intro}
+
+{label_filename} {filename}
+{label_size} {size}
+
+{action}
+
+--
+{app_name}
+{app_url}

@@ -1,0 +1,19 @@
+Subject: {subject}
+---
+{heading}
+
+{from_line}
+{label_time} {time}
+
+{intro}
+
+{label_domain} {domain}
+{label_error} {error}
+{label_days_until_expiry} {days_until_expiry}
+{label_next_retry} {next_retry}
+
+{action}
+
+--
+{app_name}
+{app_url}

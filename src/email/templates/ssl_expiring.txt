@@ -1,0 +1,18 @@
+Subject: {subject}
+---
+{heading}
+
+{from_line}
+{label_time} {time}
+
+{intro}
+
+{label_domain} {fqdn}
+{label_expires} {expiry}
+{label_days_remaining} {days}
+
+{action}
+
+--
+{app_name}
+{app_url}

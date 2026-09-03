@@ -1,0 +1,867 @@
+/* ============================================================================
+   ipgaze - Modern CSS Framework
+   Based on AI.md PART 16/17 - Web UI / Frontend Standards
+   public.css: Public layout styles — page/layout-specific rules only.
+   Loaded last, after common.css and components.css.
+   ============================================================================ */
+
+/* ============================================================================
+   Grid Layouts
+   ============================================================================ */
+
+.features-grid,
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: var(--space-lg);
+  margin: var(--space-lg) 0;
+}
+
+.results-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: var(--space-lg);
+  margin: var(--space-lg) 0;
+}
+
+/* Header */
+#main-header {
+  background: var(--color-bg-secondary);
+  border-bottom: 2px solid var(--color-border);
+  padding: var(--space-md) 0;
+}
+
+.header-container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 var(--space-lg);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+}
+
+.logo {
+  font-size: 1.5rem;
+  font-weight: bold;
+  color: var(--color-text);
+  text-decoration: none;
+}
+
+.logo:hover {
+  color: var(--color-primary);
+}
+
+.mobile-menu-toggle {
+  display: none;
+  background: none;
+  border: none;
+  color: var(--color-text);
+  font-size: 1.5rem;
+  cursor: pointer;
+  padding: var(--space-sm);
+}
+
+.header-center {
+  display: flex;
+  gap: var(--space-lg);
+}
+
+.header-center a {
+  color: var(--color-muted);
+  text-decoration: none;
+  transition: color var(--transition-fast);
+  font-weight: 500;
+}
+
+.header-center a:hover {
+  color: var(--color-text);
+}
+
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+}
+
+.theme-toggle-form {
+  display: flex;
+}
+
+.header-link {
+  display: flex;
+  align-items: center;
+  color: var(--color-muted);
+  text-decoration: none;
+  font-size: 1.2rem;
+  padding: var(--space-xs);
+  border-radius: 4px;
+  transition: color 0.2s, background 0.2s;
+}
+
+.header-link:hover {
+  color: var(--color-text);
+  background: var(--color-bg-hover);
+  text-decoration: none;
+}
+
+.theme-button {
+  background: none;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  color: var(--color-muted);
+  cursor: pointer;
+  font-size: 1rem;
+  padding: var(--space-xs) var(--space-sm);
+  transition: color 0.2s, border-color 0.2s;
+}
+
+.theme-button:hover {
+  color: var(--color-text);
+  border-color: var(--color-primary);
+}
+
+.theme-icon {
+  font-size: 1.2rem;
+}
+
+/* Main Content */
+#main-content {
+  flex: 1;
+  max-width: 1200px;
+  width: 100%;
+  margin: 0 auto;
+  padding: var(--space-xl) var(--space-lg);
+}
+
+/* Footer styling lives in the dedicated "Footer" section below — it
+   targets the actual <footer class="footer"> markup from footer.tmpl. */
+
+/* IP Display */
+.ip-display {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-sm);
+  font-family: var(--font-code);
+  font-size: 2.5rem;
+  padding: var(--space-lg);
+  background: var(--color-bg-secondary);
+  border: 2px solid var(--color-border);
+  border-radius: 12px;
+  text-align: center;
+  max-width: 100%;
+  overflow-x: auto;
+  white-space: nowrap;
+  margin: var(--space-lg) 0;
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border) var(--color-bg-secondary);
+}
+
+.ip-display::-webkit-scrollbar {
+  height: 6px;
+}
+
+.ip-display::-webkit-scrollbar-track {
+  background: var(--color-bg-secondary);
+}
+
+.ip-display::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: 3px;
+}
+
+.ip-display::-webkit-scrollbar-thumb:hover {
+  background: var(--color-muted);
+}
+
+/* Info Table
+   Mobile-first: rows are divided by a single hairline (not a full grid of
+   heavy borders on every cell) so a long key/value list reads as a
+   compact, scannable list instead of a tall bordered spreadsheet. */
+.info-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: var(--space-md) 0;
+}
+
+.info-table tr {
+  border-bottom: 1px solid var(--color-border);
+}
+
+.info-table tr:last-child {
+  border-bottom: none;
+}
+
+.info-table th,
+.info-table td {
+  padding: var(--space-sm);
+  text-align: left;
+  vertical-align: top;
+}
+
+.info-table th {
+  width: 42%;
+  font-weight: 600;
+  color: var(--color-muted);
+}
+
+.info-table td {
+  overflow-wrap: break-word;
+  word-break: break-all;
+  font-family: var(--font-code);
+  font-size: 0.9rem;
+}
+
+/* IP display row: code + copy button side-by-side */
+.ip-display-row {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-sm);
+  max-width: 100%;
+  overflow: hidden;
+}
+
+/* IP code block with horizontal scrolling for long IPv6 addresses */
+.ip-scroll {
+  display: block;
+  font-family: var(--font-code);
+  font-size: 2rem;
+  font-weight: 600;
+  padding: var(--space-sm) var(--space-md);
+  background: var(--color-bg-secondary);
+  border: 2px solid var(--color-border);
+  border-radius: 8px;
+  overflow-x: auto;
+  white-space: nowrap;
+  max-width: 100%;
+  min-width: 0;
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border) var(--color-bg-secondary);
+}
+
+.ip-scroll::-webkit-scrollbar {
+  height: 4px;
+}
+
+.ip-scroll::-webkit-scrollbar-track {
+  background: var(--color-bg-secondary);
+}
+
+.ip-scroll::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: 2px;
+}
+
+/* ============================================================================
+   Navigation
+   ============================================================================ */
+
+.site-nav {
+  background: var(--color-bg-secondary);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.nav-inner {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  height: 56px;
+}
+
+.nav-logo {
+  text-decoration: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.nav-brand {
+  font-weight: 700;
+  font-size: 1.2rem;
+  color: var(--color-text);
+}
+
+.nav-links {
+  display: flex;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  gap: var(--space-sm);
+  /* Centers the link cluster in the space between the brand and the
+     header actions, instead of letting it sit flush against either edge
+     (AI.md PART 16 "Header Layout" - single row, 4 zones). */
+  flex: 1;
+  justify-content: center;
+}
+
+.nav-links a {
+  color: var(--color-muted);
+  text-decoration: none;
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: 4px;
+  transition: color 0.2s, background 0.2s;
+}
+
+.nav-links a:hover {
+  color: var(--color-text);
+  background: var(--color-bg-hover);
+}
+
+/* Visually hidden but still focusable/operable via keyboard (Tab + Space) —
+   `display: none` would remove it from the tab order entirely, making the
+   mobile nav toggle unreachable without a mouse (AI.md PART 16
+   "Accessibility" → Keyboard Navigation). */
+.nav-checkbox {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}
+
+.nav-checkbox:focus-visible ~ .nav-inner .nav-burger {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+.nav-burger {
+  display: none;
+  background: none;
+  border: none;
+  color: var(--color-text);
+  font-size: 1.4rem;
+  cursor: pointer;
+  padding: var(--space-xs);
+  line-height: 1;
+  user-select: none;
+}
+
+.nav-panel {
+  display: none;
+  background: var(--color-bg-secondary);
+  border-bottom: 1px solid var(--color-border);
+  padding: var(--space-sm);
+}
+
+.nav-panel ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.nav-panel a {
+  display: block;
+  color: var(--color-muted);
+  text-decoration: none;
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: 4px;
+}
+
+.nav-panel a:hover {
+  color: var(--color-text);
+  background: var(--color-bg-hover);
+}
+
+.nav-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  background: rgba(0, 0, 0, 0.4);
+}
+
+.nav-checkbox:checked ~ .nav-panel {
+  display: block;
+}
+
+.nav-checkbox:checked ~ .nav-overlay {
+  display: block;
+}
+
+/* Actions cluster: profile/preferences link, then theme toggle, always
+   right-aligned without pushing the centered nav links off-center. */
+.header-actions,
+.nav-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  flex: 0 0 auto;
+}
+
+/* ============================================================================
+   Hero Section
+   ============================================================================ */
+
+.hero {
+  text-align: center;
+  padding: var(--space-xl) 0;
+}
+
+.hero h1 {
+  font-size: 2rem;
+  margin-bottom: var(--space-md);
+  color: var(--color-text);
+}
+
+.subtitle {
+  color: var(--color-muted);
+  font-size: 1.05rem;
+}
+
+.tor-hidden-service-notice {
+  margin-top: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  border: 1px solid var(--color-warning);
+  border-radius: var(--radius-md, 6px);
+  background: var(--color-bg-secondary);
+  color: var(--color-text);
+  font-size: 0.9rem;
+}
+
+/* ============================================================================
+   Health Page Header
+   ============================================================================ */
+
+.health-header {
+  text-align: center;
+  margin-bottom: var(--space-lg);
+}
+
+.health-header h1 { font-size: 2rem; color: var(--color-text); }
+
+.tagline {
+  color: var(--color-muted);
+  font-size: 1.1rem;
+  font-style: italic;
+  margin: var(--space-xs) 0;
+}
+
+/* ============================================================================
+   Footer
+   ============================================================================ */
+
+/* AI.md PART 16 "Footer (Mobile-First)" / "Default Application Footer" —
+   matches the <footer class="footer"> markup in footer.tmpl. Always
+   centered, always at bottom (body/#main-content flex layout above
+   pushes it down); rows are consecutive <p> elements with tight
+   vertical rhythm, never <br /> spacers. */
+.footer {
+  background: var(--color-bg-secondary);
+  border-top: 1px solid var(--color-border);
+  text-align: center;
+  padding: 1rem;
+  font-size: 0.875rem;
+  color: var(--color-muted);
+}
+
+.footer a {
+  color: var(--color-muted);
+  text-decoration: none;
+}
+
+.footer a:hover {
+  color: var(--color-text);
+}
+
+.footer p {
+  margin: 0.25rem 0;
+}
+
+@media (min-width: 768px) {
+  .footer {
+    padding: 1.5rem;
+  }
+}
+
+/* ============================================================================
+   Error Page
+   ============================================================================ */
+
+.error-container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 60vh;
+}
+
+.error-card {
+  text-align: center;
+  padding: var(--space-xl);
+  max-width: 500px;
+}
+
+.error-icon { font-size: 3rem; }
+.error-title { font-size: 1.8rem; color: var(--color-text); }
+.error-message { color: var(--color-muted); font-size: 1.05rem; }
+.error-id { color: var(--color-muted); font-size: 0.9rem; margin-top: var(--space-md); }
+
+/* ============================================================================
+   Responsive Design - Mobile First (base = < 768px)
+   Page/layout-specific responsive overrides only — base typography lives
+   in common.css, component-level overrides live in components.css.
+   ============================================================================ */
+
+/* Mobile base styles (no min-width query — mobile-first default) */
+.mobile-menu-toggle {
+  display: block;
+}
+
+.header-center {
+  position: absolute;
+  top: 70px;
+  left: 0;
+  right: 0;
+  background: var(--color-bg-secondary);
+  flex-direction: column;
+  display: none;
+  padding: var(--space-md);
+  border-bottom: 2px solid var(--color-border);
+}
+
+.header-center.active {
+  display: flex;
+}
+
+.header-center a {
+  padding: var(--space-md);
+  border-bottom: 1px solid var(--color-border);
+}
+
+#main-content {
+  padding: var(--space-md);
+  width: 100%;
+}
+
+.ip-display {
+  font-size: 1.5rem;
+  padding: var(--space-md);
+}
+
+.features-grid,
+.stats-grid,
+.results-grid {
+  grid-template-columns: 1fr;
+}
+
+.nav-burger { display: flex; }
+.nav-links { display: none; }
+
+/* Tablet and up (768px+) */
+@media (min-width: 768px) {
+  .mobile-menu-toggle {
+    display: none;
+  }
+
+  .header-center {
+    position: static;
+    flex-direction: row;
+    display: flex;
+    padding: 0;
+    border-bottom: none;
+    background: transparent;
+  }
+
+  .header-center a {
+    padding: 0;
+    border-bottom: none;
+  }
+
+  #main-content {
+    width: 90%;
+    padding: var(--space-xl) var(--space-lg);
+  }
+
+  .ip-display {
+    font-size: 2.5rem;
+    padding: var(--space-lg);
+  }
+
+  .info-table th,
+  .info-table td {
+    padding: var(--space-md);
+    font-size: 1rem;
+  }
+
+  .nav-burger { display: none; }
+  .nav-links {
+    display: flex;
+    flex-direction: row;
+    position: static;
+    background: transparent;
+    border-bottom: none;
+    padding: 0;
+  }
+  .nav-panel { display: none; }
+  .nav-overlay { display: none; }
+  /* Beats `.nav-checkbox:checked ~ .nav-panel`/`.nav-overlay` (same
+     specificity, defined earlier in this file) by source order instead of
+     `!important` — the mobile nav toggle stays hidden on desktop even if
+     the checkbox is left checked from a narrower viewport. */
+  .nav-checkbox:checked ~ .nav-panel { display: none; }
+  .nav-checkbox:checked ~ .nav-overlay { display: none; }
+
+  .features-grid,
+  .stats-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+/* Desktop and up (1024px+) */
+@media (min-width: 1024px) {
+  .features-grid,
+  .stats-grid {
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  }
+
+  .results-grid {
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  }
+}
+
+/* ============================================================================
+   Landing Page (index.tmpl)
+   Page-specific layout only. Shared components (buttons, tables, cards,
+   widgetbox, IP display, form controls) live in components.css — see
+   AI.md PART 16 "One file per context".
+   Mobile-first: base rules below are the mobile (<768px) layout; the
+   min-width query enhances for tablet/desktop.
+   ============================================================================ */
+
+.landing-page {
+  padding: var(--space-lg) 0;
+}
+
+/* Hero row: IP display + optional sponsor box.
+   This is the primary panel on the page — an elevated card with an accent
+   top border sets it apart from the secondary .section-cards below, so
+   the page reads as "your IP" first, details second, instead of a stack
+   of equally-weighted boxes. Mobile: stacked, sponsor box below the hero. */
+.landing-hero-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+  margin-bottom: var(--space-lg);
+  padding: var(--space-lg);
+  background: var(--color-bg-card);
+  border: 1px solid var(--color-border);
+  border-top: 3px solid var(--color-primary);
+  border-radius: 12px;
+  box-shadow: var(--shadow-sm);
+}
+
+/* The hero panel itself now supplies the framing padding, so the inner
+   .hero (a shared component) shouldn't add its own — otherwise mobile
+   stacks two paddings and the hero reads even taller. */
+.landing-hero-row > .hero {
+  padding: 0;
+}
+
+/* Two-column content row (info table / API widget).
+   These are secondary panels: flat 1px borders, no shadow/accent, so
+   they visually sit below the hero rather than competing with it.
+   Mobile: stacked, single column. */
+.landing-columns {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+/* The flex gap above already spaces the cards; drop .section-card's own
+   margin-bottom here so mobile doesn't stack two gaps.
+   min-width: 0 is required at every breakpoint, not just desktop: a flex
+   item defaults to min-width: auto, so an unbreakable string inside the
+   widgetbox (e.g. a long JSON raw_value) forces this card — and the whole
+   page — wider than the viewport on mobile otherwise (AI.md PART 16
+   "Long Strings" — never let long strings overflow their container or
+   break mobile layouts). */
+.landing-columns > .section-card {
+  margin-bottom: 0;
+  min-width: 0;
+}
+
+@media (min-width: 768px) {
+  .landing-hero-row {
+    flex-direction: row;
+    align-items: center;
+  }
+
+  .landing-hero-row > .hero {
+    flex: 2;
+    text-align: left;
+  }
+}
+
+/* The info-table / API-widget row holds dense tabular values and
+   horizontally-scrolling JSON/curl output (AI.md PART 16 "Long Strings").
+   Splitting it into two half-width columns at the 768px tablet breakpoint
+   squeezes that content into columns too narrow to read comfortably, so
+   this row waits for the 1024px desktop breakpoint instead — tablets get
+   the full-width single column, matching real device feedback. */
+@media (min-width: 1024px) {
+  .landing-columns {
+    flex-direction: row;
+    align-items: flex-start;
+  }
+
+  .landing-columns > .section-card {
+    flex: 1;
+  }
+}
+
+/* Hosting sponsor box */
+.sponsor-box {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-sm);
+  text-align: center;
+}
+
+.sponsor-logo {
+  display: block;
+  height: 72px;
+  width: 72px;
+  border-radius: 50%;
+  border: 2px solid var(--color-border);
+  object-fit: cover;
+}
+
+.sponsor-text {
+  color: var(--color-muted);
+  font-size: 0.9rem;
+  margin: 0;
+}
+
+@media (min-width: 768px) {
+  .sponsor-box {
+    align-items: flex-end;
+    text-align: right;
+  }
+}
+
+/* GeoIP attribution line under the info table */
+.geoip-attribution {
+  color: var(--color-muted);
+  font-size: 0.85rem;
+}
+
+/* Scrollable table wrapper (PART 16 mobile table requirement) */
+.table-wrapper {
+  width: 100%;
+  overflow-x: auto;
+}
+
+/* Narrow numeric input inside the API widget (e.g. port) */
+.input-narrow {
+  width: 6em;
+  flex: 0 0 auto;
+}
+
+/* "Check another IP" control row */
+.ip-check-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-sm);
+}
+
+.ip-check-row label {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  font-size: 0.9rem;
+  color: var(--color-muted);
+  flex: 1 1 12rem;
+}
+
+/* Location map (bounding box derived from GeoIP lat/long) */
+.map-box {
+  margin-bottom: var(--space-lg);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  overflow: hidden;
+  background-color: var(--color-bg-card);
+}
+
+.location-map {
+  display: block;
+  width: 100%;
+  height: 280px;
+  border: 0;
+  filter: grayscale(0.15) contrast(1.05);
+}
+
+@media (prefers-color-scheme: dark) {
+  .location-map {
+    filter: grayscale(0.3) invert(0.92) contrast(0.9) hue-rotate(180deg);
+  }
+}
+
+html.theme-dark .location-map {
+  filter: grayscale(0.3) invert(0.92) contrast(0.9) hue-rotate(180deg);
+}
+
+html.theme-light .location-map {
+  filter: grayscale(0.15) contrast(1.05);
+}
+
+.map-large-link {
+  display: block;
+  padding: var(--space-sm) var(--space-md);
+  font-size: 0.85rem;
+  text-align: right;
+  color: var(--color-muted);
+}
+
+/* FAQ section */
+.faq h3 {
+  font-size: 1rem;
+  margin-top: var(--space-lg);
+  margin-bottom: var(--space-xs);
+}
+
+.faq p {
+  margin: var(--space-xs) 0 var(--space-md);
+}
+
+/* curl examples inside FAQ answers must scroll horizontally rather than
+   wrap mid-token (AI.md PART 16 "Long Strings" .code-block pattern) */
+.faq code {
+  display: inline-block;
+  max-width: 100%;
+  overflow-x: auto;
+  white-space: pre;
+  vertical-align: bottom;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Print Styles */
+@media print {
+  #main-header,
+  #main-footer,
+  .theme-toggle-form,
+  .mobile-menu-toggle {
+    display: none;
+  }
+
+  body {
+    background: white;
+    color: black;
+  }
+}
+
+time { font-style: normal; }
