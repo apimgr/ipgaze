@@ -76,10 +76,13 @@ ipgaze --port 8080 --daemon --pid /var/run/ipgaze.pid
 
 ```bash
 $ ipgaze --version
-ipgaze 1.0.0 (abc123)
+ipgaze 1.0.0
+Built: 2026-01-15T10:30:00Z
+Go: go1.24.0
+OS/Arch: linux/amd64
 ```
 
-Format: `{binary} {version} ({commit})`
+Format: `{binary} {version}`, then `Built:`, `Go:` and `OS/Arch:` lines.
 
 ### Shell Completions
 
@@ -175,12 +178,15 @@ ipgaze-cli --update check
 
 ### Client Environment Variables
 
-Both override `cli.yml` and are in turn overridden by the matching flag.
+Each overrides `cli.yml` and is in turn overridden by the matching flag.
 
 | Variable | Description |
 |----------|-------------|
 | `IPGAZE_DEBUG` | Enable client debug output; accepts any truthy value (`true`, `1`, `yes`, `on`). Overridden by `--debug` |
 | `IPGAZE_SERVER_TIMEOUT` | HTTP request timeout, as a Go duration (`5s`, `1m`) or a bare number of seconds (`12`). Invalid values fall back to the built-in default |
+| `IPGAZE_SERVER_PRIMARY` | Server base URL. Overridden by `--server`; falls back to `server.primary` in `cli.yml`, then the compiled-in official site |
+| `IPGAZE_TOKEN` | API token. Resolved after `--token`/`--token-file` and before `auth.token`/`auth.token_file` in `cli.yml` |
+| `IPGAZE_OUTPUT_FORMAT` | Output format. Overridden by `--output`; falls back to `output.format` in `cli.yml` |
 
 ### Configuration File
 
@@ -188,7 +194,7 @@ Client configuration is stored at `~/.config/apimgr/ipgaze/cli.yml`:
 
 ```yaml
 # Default server
-server: "https://ifconfig.co"
+server: "https://ifcfg.us"
 
 # Output settings
 output: auto

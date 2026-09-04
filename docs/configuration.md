@@ -94,10 +94,13 @@ These are re-read on every start and take priority over `server.yml`:
 | `SMTP_FROM_NAME` | Sender display name (default: app title; `SMTP_FROM` also accepted) |
 | `SMTP_FROM_EMAIL` | Sender email (default: `no-reply@{fqdn}`) |
 | `SMTP_TLS` | TLS mode: `auto`, `starttls`, `tls`, `none` (default: `auto`) |
+| `DEBUG` | Enable debug mode (truthy value); unlocks `/debug/*`, `/debug/pprof/*`, and `/debug/vars` only — never bypasses auth. Overridden by `--debug` |
 | `NO_COLOR` | Disable ANSI color output when set to any non-empty value |
 | `TERM` | Terminal type; `TERM=dumb` disables ANSI escapes and forces CLI mode |
 | `HOST_IPV4` | Host's public IPv4 address, reported instead of the container's internal address when the server runs behind Docker NAT |
 | `HOST_IPV6` | Host's public IPv6 address, same purpose as `HOST_IPV4` |
+| `LANG` / `LC_ALL` | Locale used to auto-detect the output language when `--lang` is not passed (`LC_ALL` wins) |
+| `TZ` | Timezone used for log timestamps and scheduler run times |
 
 Boolean-like values from any of these are parsed via the server's own
 truthy-value parser (`config.ParseBool` / `config.IsTruthy`), not Go's
@@ -229,7 +232,7 @@ Response/lookup caching is configured under `server.cache`:
 ```yaml
 server:
   cache:
-    # type: none, memory (default), valkey, or redis
+    # type: none, memory (default), valkey, redis, or memcache
     type: memory
     url: ""
     host: localhost
@@ -246,7 +249,8 @@ server:
     ttl: "1h"
 ```
 
-Set `type: none` to disable caching entirely.
+Set `type: none` to disable caching entirely. `memcache` uses `host`/`port`
+(default port `11211`) and ignores the Redis-only auth, TLS, and pool keys.
 
 ## Rate Limiting
 

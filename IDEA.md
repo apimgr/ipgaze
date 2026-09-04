@@ -253,8 +253,20 @@ documented per its own exception clause)
 - Driver selected in `server.yml` under `server.database.driver` (sqlite | libsql | turso)
 - Config aliases: sqlite2/sqlite3 → sqlite; turso → libsql
 
+**Cache Backends**
+- `none` (disabled), `memory` (default, in-process), `valkey`/`redis` (shared), `memcache`
+- Configured under `server.cache.type`; `CACHE_URL` overrides the connection
+  string and upgrades a `none`/`memory` type to `valkey`
+
 **Operator Commands** (server binary subcommands)
-- `--service start|stop|restart|status|--install|--uninstall` — systemd/launchd/Windows service management
-- `--maintenance backup|restore|update|mode|setup` — backup/restore, self-update, mode switch
+- `--service start|stop|restart|reload|status|--install|--uninstall|--disable` — systemd/launchd/Windows service management
+- `--maintenance backup|restore` — backup/restore (`--include-ssl`, `--include-data` widen the archive)
+- `--maintenance update|mode|setup` — self-update alias, maintenance-mode toggle, re-run first-run setup
+- `--maintenance pgp generate|rotate|publish|export|import|delete` — server PGP keypair lifecycle
+- `--maintenance secret rotate` — rotate `server.security.encryption_key` with a 30-day grace period
+- `--maintenance token list|revoke` — operator API token management
+- `--maintenance data export|delete` — data-subject export and erasure
+- `--maintenance compliance report` — compliance status report
+- `--shell completions|init [SHELL]` — shell completions and init snippet
 - `--update check|yes|branch {stable|beta|daily}` — binary self-update from GitHub Releases
 - Backup format: `.tar.gz` (or `.tar.gz.enc` when encryption password is set); includes DB, config, certs

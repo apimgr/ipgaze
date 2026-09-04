@@ -26,6 +26,14 @@ https://ifcfg.us
 - **Mobile-Friendly** - Responsive web interface
 - **Fast & Lightweight** - Single static binary <15MB
 - **No API Keys Required** - GeoIP databases auto-download
+- **VPN/Proxy & Tor Detection** - `is_vpn`, `is_proxy`, `is_tor` fields from daily-updated threat lists
+- **GraphQL Endpoint** - Flexible queries alongside the REST API
+- **OpenAPI/Swagger UI** - Interactive API documentation
+- **Prometheus Metrics** - Internal `/metrics` endpoint for operators
+- **PWA Support** - Web app manifest and service worker for offline use
+- **Tor Hidden Service** - Auto-enabled when the `tor` binary is present
+- **I2P Eepsite** - Opt-in via `server.i2p.enabled`
+- **Built-in Scheduler** - GeoIP, blocklist, threat, and CVE updates; cert renewal; backups; log rotation
 
 ## Production
 
@@ -150,6 +158,58 @@ docker run -d \
   --restart unless-stopped \
   ghcr.io/apimgr/ipgaze:latest
 ```
+
+## Server CLI
+
+`ipgaze --help` prints the full reference; `ipgaze <command> --help` prints
+per-command detail for `--service`, `--maintenance`, `--shell`, and `--update`.
+
+### Flags
+
+| Flag | Description |
+|------|-------------|
+| `-h`, `--help` | Show help |
+| `-v`, `--version` | Show version information |
+| `--status` | Show server status and health (used by the container healthcheck) |
+| `--mode {production\|development}` | Application mode (default: `production`) |
+| `--config DIR` | Configuration directory |
+| `--data DIR` | Data directory |
+| `--cache DIR` | Cache directory |
+| `--log DIR` | Log directory |
+| `--backup DIR` | Backup directory |
+| `--pid FILE` | PID file path |
+| `--address ADDR` | Listen address (default: `[::]`) |
+| `--port PORT` | Listen port (default: random `64xxx`, `80` in a container) |
+| `--baseurl PATH` | URL path prefix (default: `/`) |
+| `--daemon` | Run as a daemon (detach from the terminal) |
+| `--debug` | Enable debug mode (unlocks `/debug/*` only — never bypasses auth) |
+| `--color {auto\|yes\|no}` | Color output (default: `auto`; `NO_COLOR` honored) |
+| `--lang CODE` | Language for output (default: auto-detect from `LANG`) |
+| `--header HEADER` | Header to trust for the remote IP; repeatable. Replaces the default priority list when set |
+| `--include-ssl` | Include SSL/TLS private keys in a backup (default: excluded) |
+| `--include-data` | Include the full data directory in a backup (default: excluded) |
+
+### Subcommands
+
+| Command | Description |
+|---------|-------------|
+| `--service start\|stop\|restart\|reload\|status` | Control the installed OS service |
+| `--service --install\|--uninstall\|--disable` | Install, remove, or disable the systemd/launchd/Windows service |
+| `--maintenance backup [file]` | Create a `.tar.gz` backup archive (add `--include-ssl` / `--include-data` to widen it) |
+| `--maintenance restore <file>` | Restore from a backup archive |
+| `--maintenance update` | Alias for `--update yes` — install the newest binary |
+| `--maintenance mode` | Show or set maintenance mode |
+| `--maintenance setup` | Re-run first-run setup |
+| `--maintenance pgp generate\|rotate\|publish\|export\|import\|delete` | Manage the server PGP keypair |
+| `--maintenance secret rotate` | Rotate `server.security.encryption_key` (30-day grace period) |
+| `--maintenance token list\|revoke` | List or revoke operator API tokens |
+| `--maintenance data export\|delete` | Data-subject export/erasure for a given IP |
+| `--maintenance compliance report` | Print the compliance status report |
+| `--shell completions [SHELL]` | Print shell completions (bash, zsh, fish, powershell) |
+| `--shell init [SHELL]` | Print the shell init snippet |
+| `--update check` | Check GitHub Releases for a newer binary |
+| `--update yes` | Download and install the newer binary |
+| `--update branch {stable\|beta\|daily}` | Select the update channel |
 
 ## Client
 
@@ -282,7 +342,7 @@ For any value settable by flag, env var, and config file (highest wins):
 | `server.database` | `sqlite` (default) or `libsql`/Turso |
 | `server.geoip` | GeoIP database enable/disable, country allow/deny lists |
 | `server.rate_limit` | Per-class (read/write/health) request limits |
-| `server.cache` | `none`, `memory` (default), `valkey`, or `redis` |
+| `server.cache` | `none`, `memory` (default), `valkey`, `redis`, or `memcache` |
 | `server.logging` | Global + per-log level, rotation, retention |
 | `server.ssl` | TLS and Let's Encrypt (DNS-01/HTTP-01) |
 | `server.trusted_proxies` | Additional trusted proxy CIDRs (private ranges always trusted) |
@@ -369,7 +429,12 @@ curl -q -LSsf https://ifcfg.us/2001:4860:4860::8888
 
 ### Rate Limiting
 
-For automated use, please limit requests to **1 request per minute**.
+Rate limiting is enabled by default and bucketed by request class — 120 reads
+and 10 writes per 60-second window per client IP. Tune it under
+`server.rate_limit` in `server.yml`.
+
+On the public instance at https://ifcfg.us, please keep automated use to
+**1 request per minute**.
 
 ## Development
 
