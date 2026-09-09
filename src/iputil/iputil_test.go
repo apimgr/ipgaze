@@ -30,7 +30,8 @@ func TestToDecimal_IPv4Mapped(t *testing.T) {
 	// IPv4-mapped IPv6 address (::ffff:192.0.2.1) should decode as IPv4
 	ip := net.ParseIP("192.0.2.1")
 	result := ToDecimal(ip)
-	expected := big.NewInt(3221225985) // 192*16777216 + 0*65536 + 2*256 + 1
+	// 192*16777216 + 0*65536 + 2*256 + 1
+	expected := big.NewInt(3221225985)
 	if expected.Cmp(result) != 0 {
 		t.Errorf("ToDecimal(192.0.2.1) = %d, want %d", result, expected)
 	}

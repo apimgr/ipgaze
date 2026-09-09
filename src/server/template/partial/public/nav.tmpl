@@ -15,6 +15,14 @@
       <a href="/server/preferences" class="header-link" aria-label="{{t .Lang "nav.preferences"}}" title="{{t .Lang "nav.preferences"}}">
         <span class="icon-preferences" aria-hidden="true">⚙️</span>
       </a>
+      <form method="get" action="" class="lang-select-form">
+        <label for="lang-select" class="sr-only">{{t .Lang "common.select_language"}}</label>
+        <select id="lang-select" name="lang" class="lang-select">
+          {{range languages}}<option value="{{.Code}}"{{if eq .Code $.Lang}} selected{{end}}>{{.NativeName}}</option>
+          {{end}}
+        </select>
+        <button type="submit" class="btn btn-icon">{{t .Lang "common.submit"}}</button>
+      </form>
       <form action="/server/preferences" method="post" class="theme-toggle-form">
         {{ if .CSRFToken }}
         <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">

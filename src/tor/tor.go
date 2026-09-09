@@ -30,7 +30,9 @@ type TorServiceConfig struct {
 	Binary string
 	// UseNetwork routes outbound connections through Tor.
 	UseNetwork bool
-	// MaxCircuits is the maximum open circuits.
+	// MaxCircuits is the maximum open circuits. Accepted from server.yml for
+	// forward compatibility, but not emitted into torrc: Tor exposes no
+	// directive capping total open circuits, and AI.md PART 31.1 names none.
 	MaxCircuits int
 	// CircuitTimeout is circuit timeout in seconds.
 	CircuitTimeout int

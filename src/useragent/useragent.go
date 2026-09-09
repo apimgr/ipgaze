@@ -4,6 +4,8 @@ import (
 	"strings"
 )
 
+// UserAgent is a parsed User-Agent header, split into its product token,
+// version, trailing comment, and the original raw value.
 type UserAgent struct {
 	Product  string `json:"product,omitempty"`
 	Version  string `json:"version,omitempty"`
@@ -11,6 +13,8 @@ type UserAgent struct {
 	RawValue string `json:"raw_value,omitempty"`
 }
 
+// Parse splits a raw User-Agent header into its product, version, and comment
+// components. The original string is always preserved in RawValue.
 func Parse(s string) UserAgent {
 	parts := strings.SplitN(s, "/", 2)
 	var version, comment string

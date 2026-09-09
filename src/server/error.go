@@ -143,6 +143,12 @@ func (fn appHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if err == nil {
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
 			w.Header().Set("Cache-Control", "no-store")
+			// AI.md PART 9 "HTML is never cached": every HTML document pairs
+			// no-store with a build-stamp ETag so an intermediary that ignores
+			// no-store still revalidates rather than serving a stale error page.
+			if errorPageAssetStamp != "" {
+				w.Header().Set("ETag", `"`+errorPageAssetStamp+`"`)
+			}
 			// Version-change purge (AI.md PART 9 "Version-Change Purge
 			// (Clear-Site-Data)"): evict a stale browser cache/service worker
 			// in one shot when the client's build cookie disagrees with this

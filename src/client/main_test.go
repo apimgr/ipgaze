@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/apimgr/ipgaze/src/client/api"
-	paths "github.com/apimgr/ipgaze/src/client/path"
+	"github.com/apimgr/ipgaze/src/client/paths"
 	"github.com/apimgr/ipgaze/src/client/setup"
 )
 

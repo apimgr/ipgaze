@@ -500,6 +500,7 @@ curl -q -LSsf -X POST https://ifcfg.us/graphql \
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `GET /robots.txt` | GET | Robots file for crawlers |
+| `GET /favicon.ico` | GET | Site favicon (embedded default, or a redirect to `branding.favicon_url`) |
 | `GET /security.txt` | GET | Security contact information |
 | `GET /.well-known/security.txt` | GET | Security.txt (standard path) |
 | `GET /manifest.json` | GET | PWA web app manifest |

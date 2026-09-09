@@ -38,6 +38,7 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: casjaysdev/go:latest
+      options: "--user 0:0"
     strategy:
       matrix:
         include:
@@ -120,7 +121,7 @@ jobs:
 
       - name: Delete previous daily release
         run: |
-          curl -sf -X DELETE \
+          curl -q -LSsf -X DELETE \
             -H "Authorization: token ${{ secrets.GITEA_TOKEN }}" \
             "${{ gitea.server_url }}/api/v1/repos/${{ gitea.repository }}/releases/tags/daily" \
             2>/dev/null || true

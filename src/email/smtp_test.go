@@ -10,7 +10,7 @@ import (
 // --- smtpCandidates ---
 
 func TestSMTPCandidates_AlwaysIncludesLocalhost(t *testing.T) {
-	candidates := smtpCandidates("", "")
+	candidates := smtpCandidates("", "", "")
 	found := false
 	for _, c := range candidates {
 		if c == "127.0.0.1" {
@@ -24,7 +24,7 @@ func TestSMTPCandidates_AlwaysIncludesLocalhost(t *testing.T) {
 }
 
 func TestSMTPCandidates_AlwaysIncludesDockerGateway(t *testing.T) {
-	candidates := smtpCandidates("", "")
+	candidates := smtpCandidates("", "", "")
 	found := false
 	for _, c := range candidates {
 		if c == "172.17.0.1" {
@@ -38,7 +38,7 @@ func TestSMTPCandidates_AlwaysIncludesDockerGateway(t *testing.T) {
 }
 
 func TestSMTPCandidates_WithGatewayIP_IncludesIt(t *testing.T) {
-	candidates := smtpCandidates("10.0.0.1", "")
+	candidates := smtpCandidates("10.0.0.1", "", "")
 	found := false
 	for _, c := range candidates {
 		if c == "10.0.0.1" {
@@ -52,7 +52,7 @@ func TestSMTPCandidates_WithGatewayIP_IncludesIt(t *testing.T) {
 }
 
 func TestSMTPCandidates_WithFQDN_IncludesVariants(t *testing.T) {
-	candidates := smtpCandidates("", "example.com")
+	candidates := smtpCandidates("", "example.com", "")
 	wantVariants := []string{"example.com", "mail.example.com", "smtp.example.com"}
 	for _, want := range wantVariants {
 		found := false
@@ -69,7 +69,7 @@ func TestSMTPCandidates_WithFQDN_IncludesVariants(t *testing.T) {
 }
 
 func TestSMTPCandidates_LocalhostFQDN_Excluded(t *testing.T) {
-	candidates := smtpCandidates("", "localhost")
+	candidates := smtpCandidates("", "localhost", "")
 	for _, c := range candidates {
 		if c == "localhost" || c == "mail.localhost" || c == "smtp.localhost" {
 			t.Errorf("smtpCandidates() should exclude localhost variants; found %q in %v", c, candidates)
@@ -233,7 +233,7 @@ func TestTestConnection_Unreachable(t *testing.T) {
 func TestAutoDetectSMTP_NoneReachable(t *testing.T) {
 	// In a test environment no SMTP server should be listening on default ports.
 	// This test verifies the function returns an error when nothing is found.
-	_, err := AutoDetectSMTP("192.0.2.1", "test.invalid")
+	_, err := AutoDetectSMTP("192.0.2.1", "test.invalid", "")
 	if err == nil {
 		t.Log("AutoDetectSMTP unexpectedly found a server (acceptable in some environments)")
 	}

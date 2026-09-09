@@ -188,7 +188,8 @@ func TestTelegramNotifier_Send_Without_URL_NoTrailingNewline(t *testing.T) {
 	if strings.HasSuffix(text, "\n") {
 		t.Errorf("text has trailing newline when URL is empty: %q", text)
 	}
-	_ = n.Name() // silence unused variable warning
+	// silence unused variable warning
+	_ = n.Name()
 }
 
 // --- DiscordNotifier ---

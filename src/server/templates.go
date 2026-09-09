@@ -42,6 +42,10 @@ func templateFuncMap(assetStamp string) template.FuncMap {
 		"tp": func(lang, key string, count int) string {
 			return i18n.TranslatePlural(lang, key, count)
 		},
+		// languages backs the header language selector (AI.md PART 30
+		// "Language Selection via Query Parameter"): a plain GET form
+		// posting ?lang=, so switching locale needs zero JavaScript.
+		"languages": i18n.AvailableLanguages,
 		// nextTheme renders the theme toggle's POST target as the next mode
 		// after the one actually in effect for this request (AI.md PART 16
 		// "Theme Toggle" -> "Theme Cycle Logic"). A hardcoded target would
@@ -61,7 +65,7 @@ func templateFuncMap(assetStamp string) template.FuncMap {
 		// instead of a hardcoded literal (AI.md PART 16 "Themes
 		// (NON-NEGOTIABLE)": never hardcode colors).
 		"themeColor": func(name string) string {
-			return theme.Palette(theme.Name(name)).Background
+			return theme.GetThemePalette(name).Background
 		},
 		// asset appends the build stamp as a "?v=" query param (or "&v=" if
 		// the path already has a query string) so the static handler can

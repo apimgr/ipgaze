@@ -34,6 +34,7 @@ FROM alpine:latest
 # ARGs for build-time values (set by docker build --build-arg)
 ARG VERSION=dev
 ARG BUILD_DATE
+ARG BUILD_EPOCH
 ARG COMMIT_ID
 ARG LICENSE=MIT
 

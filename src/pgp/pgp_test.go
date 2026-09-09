@@ -138,7 +138,7 @@ func TestStore_SaveLoadDelete(t *testing.T) {
 		t.Fatal("Exists should be false before Save")
 	}
 
-	if err := Save(dir, kp, secret); err != nil {
+	if err := SaveKeypair(dir, kp, secret); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
 
@@ -176,7 +176,7 @@ func TestStore_SaveLoadDelete(t *testing.T) {
 		t.Fatalf("private key file mode = %v, want 0600", info.Mode().Perm())
 	}
 
-	if err := Delete(dir); err != nil {
+	if err := DeleteKeypair(dir); err != nil {
 		t.Fatalf("Delete: %v", err)
 	}
 	if Exists(dir) {
@@ -184,7 +184,7 @@ func TestStore_SaveLoadDelete(t *testing.T) {
 	}
 
 	// Delete on an already-empty dir must not error.
-	if err := Delete(dir); err != nil {
+	if err := DeleteKeypair(dir); err != nil {
 		t.Fatalf("Delete on empty dir: %v", err)
 	}
 }

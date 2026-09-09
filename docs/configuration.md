@@ -65,14 +65,16 @@ For values that can come from a CLI flag, an environment variable, and
 `server.yml`, the precedence (highest wins) is:
 
 1. CLI flag (e.g. `--port`, `--address`)
-2. Project-prefixed environment variable (e.g. `IPGAZE_PORT`, `IPGAZE_LISTEN`)
-3. Generic environment variable (e.g. `PORT`, `LISTEN`, `ADDRESS`)
-4. `server.yml`
-5. Built-in default
+2. `server.yml` (once a value has been persisted there)
+3. Environment variable — for `PORT`/`LISTEN` this only applies on first
+   run (see "Init-Only Variables" below); for the Runtime variables it
+   is re-checked every start
+4. Built-in default
 
 Once a value is resolved (e.g. the port on first run), it is written back
 into `server.yml` and persists across restarts — later runs read it from
-the file unless a flag or env var overrides it again.
+the file unless a flag overrides it (or, for Runtime variables, the
+matching env var overrides it again every start).
 
 ## Environment Variables
 
@@ -122,25 +124,24 @@ persisted config:
 | `PID_FILE` | PID file path |
 | `DATABASE_DIR` | SQLite database directory (changeable) |
 | `BACKUP_DIR` | Backup directory (changeable) |
-| `PORT` | Server port (generic alias; `IPGAZE_PORT` takes priority) |
-| `LISTEN` | Listen address (generic alias; `IPGAZE_LISTEN` takes priority) |
+| `PORT` | Server port |
+| `LISTEN` | Listen address |
 | `APPLICATION_NAME` | Application title |
 | `APPLICATION_TAGLINE` | Application description |
 
-### Port and Address Aliases
+### Port and Address Resolution
 
-The `--port`/`--address` CLI flags and their env-var aliases resolve in
-this order:
+The `--port`/`--address` CLI flags resolve in this order:
 
-- Port: `--port` flag → `IPGAZE_PORT` → `PORT` → `server.port` in config → random `64xxx` default
-- Address: `--address` flag → `IPGAZE_LISTEN` → `LISTEN` → `IPGAZE_ADDRESS` → `ADDRESS` → `server.address` in config → default `[::]`
+- Port: `--port` flag → `server.port` in config (once persisted) → `PORT` env (first run only) → random `64xxx` default
+- Address: `--address` flag → `server.address` in config (once persisted, seeded from `LISTEN` on first run) → default `[::]`
 
 ### Docker Environment
 
 ```yaml
 environment:
   - PORT=80
-  - ADDRESS=::
+  - LISTEN=::
   - DATA_DIR=/data
 ```
 

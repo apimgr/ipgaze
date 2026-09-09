@@ -12,16 +12,17 @@ permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ gitea.workflow }}-${{ gitea.ref }}
   cancel-in-progress: true
 
 jobs:
   lint:
     name: Lint
-    if: github.event_name != 'schedule'
+    if: gitea.event_name != 'schedule'
     runs-on: ubuntu-latest
     container:
       image: casjaysdev/go:latest
+      options: "--user 0:0"
     env:
       CGO_ENABLED: "0"
       GOFLAGS: "-buildvcs=false"
@@ -34,10 +35,11 @@ jobs:
 
   test:
     name: Test
-    if: github.event_name != 'schedule'
+    if: gitea.event_name != 'schedule'
     runs-on: ubuntu-latest
     container:
       image: casjaysdev/go:latest
+      options: "--user 0:0"
     env:
       CGO_ENABLED: "0"
       GOFLAGS: "-buildvcs=false"
@@ -45,9 +47,9 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - name: Run tests with coverage
         run: |
-          mkdir -p "/tmp/${{ github.repository_owner }}"
-          COVDIR=$(mktemp -d "/tmp/${{ github.repository_owner }}/$(basename "${{ github.repository }}")-XXXXXX")
-          echo "COVDIR=$COVDIR" >> "$GITHUB_ENV"
+          mkdir -p "/tmp/${{ gitea.repository_owner }}"
+          COVDIR=$(mktemp -d "/tmp/${{ gitea.repository_owner }}/$(basename "${{ gitea.repository }}")-XXXXXX")
+          echo "COVDIR=$COVDIR" >> "$GITEA_ENV"
           go test -cover -coverprofile="$COVDIR/coverage.out" ./...
       - name: Enforce coverage threshold
         run: |
@@ -60,11 +62,12 @@ jobs:
 
   build:
     name: Build
-    if: github.event_name != 'schedule'
+    if: gitea.event_name != 'schedule'
     needs: [lint, test]
     runs-on: ubuntu-latest
     container:
       image: casjaysdev/go:latest
+      options: "--user 0:0"
     env:
       CGO_ENABLED: "0"
       GOFLAGS: "-buildvcs=false"
@@ -78,6 +81,7 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: casjaysdev/go:latest
+      options: "--user 0:0"
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - name: Run govulncheck
@@ -97,13 +101,13 @@ jobs:
         id: range
         run: |
           BASE=""; HEAD=""
-          if [ "${{ github.event_name }}" = "push" ] && [ "${{ github.event.before }}" != "0000000000000000000000000000000000000000" ]; then
-            BASE="${{ github.event.before }}"; HEAD="${{ github.sha }}"
-          elif [ "${{ github.event_name }}" = "pull_request" ]; then
-            BASE="${{ github.event.pull_request.base.sha }}"; HEAD="${{ github.event.pull_request.head.sha }}"
+          if [ "${{ gitea.event_name }}" = "push" ] && [ "${{ gitea.event.before }}" != "0000000000000000000000000000000000000000" ]; then
+            BASE="${{ gitea.event.before }}"; HEAD="${{ gitea.sha }}"
+          elif [ "${{ gitea.event_name }}" = "pull_request" ]; then
+            BASE="${{ gitea.event.pull_request.base.sha }}"; HEAD="${{ gitea.event.pull_request.head.sha }}"
           fi
-          echo "base=$BASE" >> "$GITHUB_OUTPUT"
-          echo "head=$HEAD" >> "$GITHUB_OUTPUT"
+          echo "base=$BASE" >> "$GITEA_OUTPUT"
+          echo "head=$HEAD" >> "$GITEA_OUTPUT"
       - name: Scan for secrets (truffleHog)
         uses: trufflesecurity/trufflehog@27b0417c16317ca9a472a9a8092acce143b49c55 # v3.95.9
         with:

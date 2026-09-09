@@ -198,8 +198,8 @@ func openWriter(logDir string, cfg LogFileConfig, defaultFormat string, compress
 	return w, nil
 }
 
-// Config holds per-file config for all log types.
-type Config struct {
+// LoggerConfig holds per-file config for all log types.
+type LoggerConfig struct {
 	Level string
 	// Program is the process name recorded in syslog and CEF lines.
 	Program string
@@ -215,9 +215,9 @@ type Config struct {
 	Debug    LogFileConfig
 }
 
-// DefaultConfig returns a Config with sane defaults per AI.md PART 11.
-func DefaultConfig() Config {
-	return Config{
+// DefaultConfig returns a LoggerConfig with sane defaults per AI.md PART 11.
+func DefaultConfig() LoggerConfig {
+	return LoggerConfig{
 		Level:   "warn",
 		Program: "ipgaze",
 		Access: LogFileConfig{
@@ -290,7 +290,7 @@ func DefaultConfig() Config {
 
 // NewManager opens all configured log files under logDir.
 // logDir must be the resolved, absolute log directory path.
-func NewManager(logDir string, cfg Config) (*Manager, error) {
+func NewManager(logDir string, cfg LoggerConfig) (*Manager, error) {
 	program := cfg.Program
 	if program == "" {
 		program = "ipgaze"

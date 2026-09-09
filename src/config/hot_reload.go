@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/apimgr/ipgaze/src/common/display"
 	"gopkg.in/yaml.v3"
 )
 
@@ -145,6 +146,9 @@ func applyHotReloadSettings(newCfg *AppConfig) {
 	mu.Lock()
 	current = newCfg
 	mu.Unlock()
+	// output.color / output.emoji are hot-reloadable: terminal output must
+	// follow the new server.yml values without a restart (AI.md PART 8).
+	display.SetOutputPreferences(newCfg.Output.Color, newCfg.Output.Emoji)
 }
 
 // compareConfigs returns dot-notation keys for settings that differ between

@@ -32,11 +32,25 @@ type TorIdentityConfig struct {
 	ContactEmail string `yaml:"contact_email"`
 }
 
+// AppConfig is the root of server.yml — the sole source of truth for all
+// operator configuration, grouping the server, Tor identity, web, and data
+// sections.
 type AppConfig struct {
 	Server ServerConfig      `yaml:"server"`
 	Tor    TorIdentityConfig `yaml:"tor"`
 	Web    WebConfig         `yaml:"web"`
 	Data   DataConfig        `yaml:"data"`
+	Output OutputConfig      `yaml:"output,omitempty"`
+}
+
+// OutputConfig controls terminal color and emoji output per AI.md PART 8
+// "NO_COLOR Support" priority table: the CLI flag wins, then these config
+// values, then the NO_COLOR environment variable, then autodetection.
+// Both fields are optional — an unset value leaves the decision to NO_COLOR
+// and autodetection, while `emoji: true` keeps emojis on even under NO_COLOR.
+type OutputConfig struct {
+	Color *bool `yaml:"color,omitempty"`
+	Emoji *bool `yaml:"emoji,omitempty"`
 }
 
 // DataConfig contains data source configuration per AI.md PART 20
@@ -1154,6 +1168,16 @@ type DatabaseConfig struct {
 	Token string `yaml:"token"`
 	// Pool holds the connection pool settings applied by src/db.
 	Pool DatabasePoolConfig `yaml:"pool"`
+	// SlowQueryThreshold is the minimum query duration, as a Go duration
+	// string, that triggers a slow-query warning log. Applies regardless of
+	// debug.log_queries. Empty or unparseable falls back to 1s.
+	SlowQueryThreshold string `yaml:"slow_query_threshold"`
+}
+
+// ResolvedSlowQueryThreshold parses SlowQueryThreshold, falling back to the
+// 1s default when unset or unparseable.
+func (d DatabaseConfig) ResolvedSlowQueryThreshold() time.Duration {
+	return parsePoolDuration(d.SlowQueryThreshold, time.Second)
 }
 
 // DatabasePoolConfig holds connection pool settings per AI.md PART 10
@@ -1823,8 +1847,9 @@ func DefaultConfig() *AppConfig {
 			UpdateBranch:  "stable",
 			CLIMinVersion: "1.0.0",
 			Database: DatabaseConfig{
-				Driver: "sqlite",
-				Pool:   DefaultDatabasePoolConfig(),
+				Driver:             "sqlite",
+				Pool:               DefaultDatabasePoolConfig(),
+				SlowQueryThreshold: "1s",
 			},
 			Schedule: ScheduleConfig{
 				Enabled:       true,
@@ -1886,28 +1911,28 @@ func DefaultConfig() *AppConfig {
 					Enabled:  true,
 					Filename: "server.log",
 					Format:   "text",
-					Rotate:   "weekly",
+					Rotate:   "weekly,50MB",
 					Keep:     "none",
 				},
 				Error: LogFileConfig{
 					Enabled:  true,
 					Filename: "error.log",
 					Format:   "text",
-					Rotate:   "weekly",
+					Rotate:   "weekly,50MB",
 					Keep:     "none",
 				},
 				App: LogFileConfig{
 					Enabled:  true,
 					Filename: "app.log",
 					Format:   "logfmt",
-					Rotate:   "weekly",
+					Rotate:   "weekly,50MB",
 					Keep:     "none",
 				},
 				Auth: LogFileConfig{
 					Enabled:  true,
 					Filename: "auth.log",
 					Format:   "syslog",
-					Rotate:   "weekly",
+					Rotate:   "weekly,50MB",
 					Keep:     "none",
 				},
 				Audit: AuditLogFileConfig{
@@ -1930,14 +1955,14 @@ func DefaultConfig() *AppConfig {
 					Enabled:  true,
 					Filename: "security.log",
 					Format:   "fail2ban",
-					Rotate:   "weekly",
+					Rotate:   "weekly,50MB",
 					Keep:     "none",
 				},
 				Debug: LogFileConfig{
 					Enabled:  false,
 					Filename: "debug.log",
 					Format:   "text",
-					Rotate:   "weekly",
+					Rotate:   "weekly,50MB",
 					Keep:     "none",
 				},
 			},
@@ -2192,13 +2217,21 @@ func LoadConfigFromFile(path string) (*AppConfig, error) {
 
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		cfg := DefaultConfig()
-		// APPLICATION_NAME/APPLICATION_TAGLINE are Init-Only env vars (PART 12):
-		// they seed server.yml on first run only and are never re-read afterward.
+		// APPLICATION_NAME/APPLICATION_TAGLINE/PORT/LISTEN are Init-Only env vars
+		// (PART 5): they seed server.yml on first run only and are never
+		// re-read afterward — once persisted here, only the file (or an
+		// explicit per-run flag) governs these settings.
 		if envName := os.Getenv("APPLICATION_NAME"); envName != "" {
 			cfg.Server.Branding.Title = envName
 		}
 		if envTagline := os.Getenv("APPLICATION_TAGLINE"); envTagline != "" {
 			cfg.Server.Branding.Tagline = envTagline
+		}
+		if envPort := os.Getenv("PORT"); envPort != "" {
+			cfg.Server.Port = envPort
+		}
+		if envListen := os.Getenv("LISTEN"); envListen != "" {
+			cfg.Server.Address = envListen
 		}
 		if err := saveConfig(cfg, path); err != nil {
 			return nil, fmt.Errorf("failed to create default config: %w", err)

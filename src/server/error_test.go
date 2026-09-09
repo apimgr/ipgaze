@@ -162,7 +162,7 @@ func TestNotFoundHandler(t *testing.T) {
 
 	t.Run("api path defaults to json with no accept header", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/api/v1/nonexistent", nil)
-		req.Header.Set("User-Agent", "python-requests/2.31.0")
+		req.Header.Set("User-Agent", "ipgaze-cli/1.0")
 		rec := httptest.NewRecorder()
 		appHandler(NotFoundHandler).ServeHTTP(rec, req)
 		if rec.Code != http.StatusNotFound {
@@ -171,6 +171,20 @@ func TestNotFoundHandler(t *testing.T) {
 		body := rec.Body.String()
 		if !strings.Contains(body, `"NOT_FOUND"`) {
 			t.Errorf("api path with non-tool UA should default to JSON, got: %s", body)
+		}
+	})
+
+	t.Run("api path with python-requests UA stays text", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/nonexistent", nil)
+		req.Header.Set("User-Agent", "python-requests/2.31.0")
+		rec := httptest.NewRecorder()
+		appHandler(NotFoundHandler).ServeHTTP(rec, req)
+		if rec.Code != http.StatusNotFound {
+			t.Errorf("status = %d, want 404", rec.Code)
+		}
+		body := rec.Body.String()
+		if strings.Contains(body, `"NOT_FOUND"`) {
+			t.Errorf("api path with python-requests UA should stay plain text, got: %s", body)
 		}
 	})
 

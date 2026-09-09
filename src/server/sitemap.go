@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/apimgr/ipgaze/src/common/i18n"
 	"github.com/apimgr/ipgaze/src/netutil"
 )
 
@@ -91,7 +92,7 @@ func (s *Server) sitemapHandler() http.HandlerFunc {
 		}
 		body, err := xml.MarshalIndent(set, "", "  ")
 		if err != nil {
-			http.Error(w, "sitemap unavailable", http.StatusInternalServerError)
+			http.Error(w, i18n.T(r.Context(), "errors.server_error"), http.StatusInternalServerError)
 			return
 		}
 		w.Header().Set("Content-Type", "application/xml; charset=utf-8")

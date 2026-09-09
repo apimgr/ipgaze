@@ -40,9 +40,9 @@ func SecurityDir(configDir string) (string, error) {
 	return dir, nil
 }
 
-// Save writes the public key (plaintext) and private key (AES-256-GCM
+// SaveKeypair writes the public key (plaintext) and private key (AES-256-GCM
 // encrypted with a key derived from installationSecret) to disk.
-func Save(configDir string, kp *Keypair, installationSecret []byte) error {
+func SaveKeypair(configDir string, kp *Keypair, installationSecret []byte) error {
 	dir, err := SecurityDir(configDir)
 	if err != nil {
 		return err
@@ -119,8 +119,8 @@ func Exists(configDir string) bool {
 	return err == nil
 }
 
-// Delete removes both key files from disk. Missing files are not an error.
-func Delete(configDir string) error {
+// DeleteKeypair removes both key files from disk. Missing files are not an error.
+func DeleteKeypair(configDir string) error {
 	dir := filepath.Join(configDir, SecurityDirName)
 	for _, name := range []string{publicKeyFile, privateKeyFile} {
 		if err := os.Remove(filepath.Join(dir, name)); err != nil && !errors.Is(err, os.ErrNotExist) {

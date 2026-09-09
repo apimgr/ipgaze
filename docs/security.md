@@ -40,6 +40,7 @@ The following endpoints are accessible without authentication:
 | `GET /api/v1/healthz` | Health check (always JSON) |
 | `GET /metrics` | Prometheus metrics (if enabled) |
 | `GET /robots.txt` | Robots policy |
+| `GET /favicon.ico` | Site favicon |
 | `GET /manifest.json` | PWA manifest |
 | `GET /sw.js` | Service worker |
 | `GET /openapi` | OpenAPI documentation (HTML) |

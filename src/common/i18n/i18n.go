@@ -128,6 +128,29 @@ func IsSupported(code string) bool {
 	return false
 }
 
+// LanguageOption describes one selectable locale for the language selector
+// rendered in the site header (AI.md PART 30 "Language Selection via Query
+// Parameter"). NativeName is the locale's own "meta.native_name" value, so
+// each option reads in its own language rather than in the active one.
+type LanguageOption struct {
+	Code       string
+	NativeName string
+}
+
+// AvailableLanguages returns every compiled-in locale with its native name,
+// in SupportedLocales order, for rendering the language selector.
+func AvailableLanguages() []LanguageOption {
+	opts := make([]LanguageOption, 0, len(SupportedLocales))
+	for _, code := range SupportedLocales {
+		name := Translate(code, "meta.native_name")
+		if name == "meta.native_name" {
+			name = code
+		}
+		opts = append(opts, LanguageOption{Code: code, NativeName: name})
+	}
+	return opts
+}
+
 // ParseLocale parses an Accept-Language header or language tag and returns
 // the best matching supported locale, defaulting to "en".
 func ParseLocale(s string) string {

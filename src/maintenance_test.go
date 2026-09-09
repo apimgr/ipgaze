@@ -14,7 +14,7 @@ import (
 
 	"github.com/apimgr/ipgaze/src/config"
 	"github.com/apimgr/ipgaze/src/db"
-	paths "github.com/apimgr/ipgaze/src/path"
+	"github.com/apimgr/ipgaze/src/paths"
 	"github.com/apimgr/ipgaze/src/pgp"
 	"github.com/apimgr/ipgaze/src/security"
 )
@@ -283,7 +283,7 @@ func TestRotateInstallationSecret_ReencryptsPGPKey(t *testing.T) {
 
 	const wantArmor = "-----BEGIN PGP PRIVATE KEY BLOCK-----\ntest\n-----END PGP PRIVATE KEY BLOCK-----\n"
 	kp := &pgp.Keypair{PublicArmor: "pub", PrivateArmor: wantArmor}
-	if err := pgp.Save(configDir, kp, oldSecret); err != nil {
+	if err := pgp.SaveKeypair(configDir, kp, oldSecret); err != nil {
 		t.Fatalf("pgp.Save: %v", err)
 	}
 

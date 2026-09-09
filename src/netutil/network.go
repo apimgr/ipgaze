@@ -6,6 +6,8 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"runtime"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -55,6 +57,39 @@ func getOutboundIP() string {
 		return localAddr.IP.String()
 	}
 
+	return ""
+}
+
+// DefaultGatewayIP returns this machine's default IPv4 gateway, or "" if it
+// cannot be determined. Used by SMTP auto-detection (AI.md PART 17, priority
+// 3: {gateway_ip}) as a best-effort hint — never an error if unavailable.
+func DefaultGatewayIP() string {
+	if runtime.GOOS != "linux" {
+		return ""
+	}
+	data, err := os.ReadFile("/proc/net/route")
+	if err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 3 || fields[1] != "00000000" {
+			continue
+		}
+		gwHex := fields[2]
+		if len(gwHex) != 8 {
+			continue
+		}
+		bytes := make([]byte, 4)
+		for i := 0; i < 4; i++ {
+			b, err := strconv.ParseUint(gwHex[i*2:i*2+2], 16, 8)
+			if err != nil {
+				return ""
+			}
+			bytes[3-i] = byte(b)
+		}
+		return net.IPv4(bytes[0], bytes[1], bytes[2], bytes[3]).String()
+	}
 	return ""
 }
 

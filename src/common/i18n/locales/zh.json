@@ -909,6 +909,10 @@
         "description": "提供交互式 Swagger 界面；当通过 Accept 头请求 JSON 时，则返回此 OpenAPI 文档。",
         "summary": "Swagger 界面"
       },
+      "favicon": {
+      "description": "返回站点图标；如果已配置品牌图标，则重定向到该图标。",
+      "summary": "站点图标"
+      },
       "healthz": {
         "description": "返回服务器的完整健康报告：总体状态、项目标识、构建元数据、运行时长、运行模式、已启用的功能、子系统检查结果和请求统计。格式经过协商：JSON、面向浏览器的 HTML，其余情况为纯文本。",
         "summary": "健康检查"

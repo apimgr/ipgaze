@@ -909,6 +909,10 @@
         "description": "Liefert die interaktive Swagger-Oberfläche oder dieses OpenAPI-Dokument, wenn über den Accept-Header JSON angefordert wird.",
         "summary": "Swagger-Oberfläche"
       },
+      "favicon": {
+      "description": "Gibt das Favicon der Website zurück und leitet auf das konfigurierte Marken-Favicon weiter, sofern eines festgelegt ist.",
+      "summary": "Website-Favicon"
+      },
       "healthz": {
         "description": "Liefert den vollständigen Zustandsbericht des Servers: Gesamtstatus, Projektidentität, Build-Metadaten, Laufzeit, Modus, aktivierte Funktionen, Teilsystemprüfungen und Anfragestatistiken. Das Format wird ausgehandelt: JSON, HTML für Browser, sonst Klartext.",
         "summary": "Zustandsprüfung"

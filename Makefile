@@ -43,7 +43,7 @@ RELDIR := releases
 PLATFORMS := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64 freebsd/amd64 freebsd/arm64
 
 # Docker - Set REGISTRY based on your platform (ghcr.io, registry.gitlab.com, git.example.com)
-REGISTRY ?= ghcr.io/$(PROJECTORG)/$(PROJECTNAME)
+REGISTRY ?= ghcr.io/$(PROJECTORG)/$(INTERNALNAME)
 
 # Go cache directories (persistent across builds, bind-mounted into Docker)
 GO_CACHE  ?= $(HOME)/go/pkg/mod

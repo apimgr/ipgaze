@@ -406,27 +406,77 @@ func (m *EmailManager) SendTemplate(templateName string, to []string, vars map[s
 	})
 }
 
-// localizedVarKeys are the template variables every email template draws
-// from the locale files rather than from caller-supplied data.
-var localizedVarKeys = []string{
-	"subject", "heading", "from_line", "intro", "action",
+// localizedLabelKeys are the field labels every email template draws from the
+// email.body.* locale namespace rather than from caller-supplied data.
+var localizedLabelKeys = []string{
 	"label_time", "label_filename", "label_size", "label_error",
 	"label_task", "label_event", "label_ip", "label_domain",
 	"label_expires", "label_days_remaining", "label_new_expiry",
-	"label_days_until_expiry", "label_next_retry", "label_channel",
-	"label_current_version", "label_new_version", "label_previous_version",
+	"label_days_until_expiry", "label_next_retry", "label_next_run",
+	"label_channel", "label_current_version", "label_new_version",
+	"label_previous_version",
+}
+
+// emailLocaleStem maps a template file name to the stem the locale files use
+// for its subject/heading/intro/action keys. The two namespaces were named
+// independently, so the mapping is explicit rather than derived.
+var emailLocaleStem = map[string]string{
+	"security_alert":     "security_alert",
+	"backup_complete":    "backup_completed",
+	"backup_failed":      "backup_failed",
+	"ssl_expiring":       "ssl_expiring",
+	"ssl_renewed":        "ssl_renewed",
+	"ssl_renewal_failed": "ssl_renewal_failed",
+	"scheduler_error":    "task_failed",
+	"update_available":   "update_available",
+	"update_installed":   "update_installed",
+	"test":               "test",
+}
+
+// expandLocalizedVars substitutes {name} placeholders inside a translated
+// string from the caller's data values. Render walks its map in random order,
+// so a nested placeholder must be resolved before the value is merged in.
+func expandLocalizedVars(s string, vars map[string]string) string {
+	if !strings.Contains(s, "{") {
+		return s
+	}
+	for k, v := range vars {
+		s = strings.ReplaceAll(s, "{"+k+"}", v)
+	}
+	return s
 }
 
 // SendLocalizedTemplate renders templateName in lang, resolving every
-// localized variable from the email.* locale namespace before falling
-// through to the caller's data vars.
+// localized variable from the email.subjects.* / email.body.* locale
+// namespaces before falling through to the caller's data vars.
 func (m *EmailManager) SendLocalizedTemplate(templateName, lang string, to []string, vars map[string]string) error {
-	merged := make(map[string]string, len(vars)+len(localizedVarKeys))
-	for _, k := range localizedVarKeys {
-		key := "email." + templateName + "." + k
-		if v := i18n.Translate(lang, key); v != "" && v != key {
-			merged[k] = v
+	stem := emailLocaleStem[templateName]
+	if stem == "" {
+		stem = templateName
+	}
+	subjectStem := stem
+	if stem == "test" {
+		subjectStem = "test_email"
+	}
+
+	keys := map[string]string{
+		"subject":   "email.subjects." + subjectStem,
+		"heading":   "email.body." + stem + "_heading",
+		"intro":     "email.body." + stem + "_intro",
+		"action":    "email.body." + stem + "_action",
+		"from_line": "email.body.from",
+	}
+	for _, k := range localizedLabelKeys {
+		keys[k] = "email.body." + k
+	}
+
+	merged := make(map[string]string, len(vars)+len(keys))
+	for name, key := range keys {
+		v := i18n.Translate(lang, key)
+		if v == "" || v == key {
+			continue
 		}
+		merged[name] = expandLocalizedVars(v, vars)
 	}
 	for k, v := range vars {
 		merged[k] = v

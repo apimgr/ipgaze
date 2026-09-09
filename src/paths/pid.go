@@ -1,5 +1,5 @@
 // Package paths PID file management — cross-platform process ID tracking.
-package path
+package paths
 
 import (
 	"fmt"

@@ -19,6 +19,7 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: casjaysdev/go:latest
+      options: "--user 0:0"
     env:
       CGO_ENABLED: "0"
       GOFLAGS: "-buildvcs=false"

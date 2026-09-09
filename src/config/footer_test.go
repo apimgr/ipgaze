@@ -21,7 +21,8 @@ func TestSanitizeFooterHTML_Allowed(t *testing.T) {
 	cases := []struct {
 		name  string
 		input string
-		want  []string // substrings that must be present
+		// substrings that must be present
+		want []string
 	}{
 		{"paragraph+strong", "<p>Powered by <strong>MyCompany</strong></p>", []string{"<p>", "Powered by", "<strong>MyCompany</strong>"}},
 		{"headings+list", "<h3>Team</h3><ul><li>One</li></ul>", []string{"<h3>Team</h3>", "<ul>", "<li>One</li>"}},

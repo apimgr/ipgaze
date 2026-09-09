@@ -141,11 +141,7 @@ func serveGraphiQL(w http.ResponseWriter, r *http.Request, cfg GraphQLHandlerCon
 	// Palette per AI.md PART 16 "Themes (NON-NEGOTIABLE)": the same
 	// src/common/theme palette used by the web UI and Swagger UI, not a
 	// GraphQL-specific color set.
-	paletteName := theme.NameDark
-	if themeName == "light" {
-		paletteName = theme.NameLight
-	}
-	p := theme.Palette(paletteName)
+	p := theme.GetThemePalette(themeName)
 	bg, fg, border, btnBg, btnHover, resBg, resFg := p.Background, p.Foreground, p.Border, p.Primary, p.Accent, p.SurfaceAlt, p.Foreground
 	errColor := p.Error
 	btnText := theme.ReadableTextOn(btnBg)

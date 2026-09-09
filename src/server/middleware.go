@@ -14,7 +14,7 @@ import (
 	"github.com/apimgr/ipgaze/src/common/i18n"
 	applog "github.com/apimgr/ipgaze/src/log"
 	"github.com/apimgr/ipgaze/src/netutil"
-	paths "github.com/apimgr/ipgaze/src/path"
+	"github.com/apimgr/ipgaze/src/paths"
 	"github.com/google/uuid"
 )
 

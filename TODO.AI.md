@@ -944,3 +944,26 @@ Reconciliation items from the AI.md bootstrap/compliance passes.
 42. **`.trivyignore` at the repo root is not in AI.md's allowed root-files
     list** — left in place per the user's ruling to leave this as an open
     TODO rather than resolve now.
+
+43. **`.claude/rules/*.md` are stale and 10 of 13 are stubs** — AI.md 2635-2648
+    and 3163-3171 require each rule file to carry a key-rules summary
+    extracted from its PARTs, and require regeneration whenever AI.md is
+    newer than the rule files ("This is NOT optional"). All 13 files are
+    dated 2026-08-29 while AI.md is dated 2026-09-03, and ten of them still
+    say "**NOT YET FULLY POPULATED**". Regenerating them means re-reading
+    most of the 49k-line spec, so it needs its own dedicated pass.
+
+44. **`.claude/settings.json` is missing** — AI.md 1234 lists it as
+    committed team config (not gitignored, and the repo's `.gitignore`
+    correctly ignores only `settings.local.json`). Creating it was blocked
+    by the permission classifier because it is a permissions file; the user
+    needs to create it or approve its creation.
+
+45. **`.forgejo/` is at the repo root but is not in AI.md's allowed
+    root-directories list** (AI.md 1949) even though AI.md 816, 6226, 6265
+    and 34120 all treat Forgejo as a supported provider — a spec-internal
+    inconsistency, not a code defect. Left in place.
+
+46. **`.claude/rules/backend-rules.md` header names PART 31 "Tor Hidden
+    Service"** — AI.md 1258 and 5980 now call it "Overlay Networks (Tor &
+    I2P)". Fold into the item 43 regeneration pass.

@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"time"
 
-	paths "github.com/apimgr/ipgaze/src/client/path"
+	"github.com/apimgr/ipgaze/src/client/paths"
 	"github.com/apimgr/ipgaze/src/config"
 	"gopkg.in/yaml.v3"
 )

@@ -223,9 +223,10 @@ func TestHealthzHandler(t *testing.T) {
 		t.Errorf("Expected mode 'development', got %q", health.Mode)
 	}
 
-	// Test /api/v1/server/healthz (JSON by default per PART 14: empty UA + empty Accept
-	// is not a detected HTTP tool, so the canonical versioned path returns JSON)
-	out, status, err = httpGet(s.URL+"/api/v1/server/healthz", "", "")
+	// Test /api/v1/server/healthz (JSON by default per PART 14 with a non-tool UA;
+	// AI.md's isHttpTool() treats an empty User-Agent as a non-interactive tool,
+	// so a real client UA is used here to hit the JSON default branch)
+	out, status, err = httpGet(s.URL+"/api/v1/server/healthz", "", "ipgaze-cli/1.0")
 	if err != nil {
 		t.Fatal(err)
 	}

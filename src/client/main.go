@@ -15,7 +15,7 @@ import (
 
 	"github.com/apimgr/ipgaze/src/client/api"
 	cliout "github.com/apimgr/ipgaze/src/client/cli"
-	paths "github.com/apimgr/ipgaze/src/client/path"
+	"github.com/apimgr/ipgaze/src/client/paths"
 	"github.com/apimgr/ipgaze/src/client/setup"
 	"github.com/apimgr/ipgaze/src/client/updater"
 	"github.com/apimgr/ipgaze/src/common/display"

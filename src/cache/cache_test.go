@@ -59,75 +59,75 @@ func TestKey_NoPrefix(t *testing.T) {
 // --- New factory ---
 
 func TestNew_EmptyType_UsesMemory(t *testing.T) {
-	c, err := New(config.CacheConfig{})
+	c, err := NewCache(config.CacheConfig{})
 	if err != nil {
-		t.Fatalf("New(empty) error: %v", err)
+		t.Fatalf("NewCache(empty) error: %v", err)
 	}
 	defer c.Close()
 	if _, ok := c.(*memoryCache); !ok {
-		t.Errorf("New(empty) type = %T; want *memoryCache", c)
+		t.Errorf("NewCache(empty) type = %T; want *memoryCache", c)
 	}
 }
 
 func TestNew_TypeMemory(t *testing.T) {
-	c, err := New(config.CacheConfig{Type: "memory"})
+	c, err := NewCache(config.CacheConfig{Type: "memory"})
 	if err != nil {
-		t.Fatalf("New(memory) error: %v", err)
+		t.Fatalf("NewCache(memory) error: %v", err)
 	}
 	defer c.Close()
 	if _, ok := c.(*memoryCache); !ok {
-		t.Errorf("New(memory) type = %T; want *memoryCache", c)
+		t.Errorf("NewCache(memory) type = %T; want *memoryCache", c)
 	}
 }
 
 func TestNew_TypeNone(t *testing.T) {
-	c, err := New(config.CacheConfig{Type: "none"})
+	c, err := NewCache(config.CacheConfig{Type: "none"})
 	if err != nil {
-		t.Fatalf("New(none) error: %v", err)
+		t.Fatalf("NewCache(none) error: %v", err)
 	}
 	defer c.Close()
 	if _, ok := c.(*noopCache); !ok {
-		t.Errorf("New(none) type = %T; want *noopCache", c)
+		t.Errorf("NewCache(none) type = %T; want *noopCache", c)
 	}
 }
 
 func TestNew_TypeRedis_ReturnsClient(t *testing.T) {
-	c, err := New(config.CacheConfig{Type: "redis", Host: "localhost", Port: 6379})
+	c, err := NewCache(config.CacheConfig{Type: "redis", Host: "localhost", Port: 6379})
 	if err != nil {
-		t.Fatalf("New(redis) error: %v", err)
+		t.Fatalf("NewCache(redis) error: %v", err)
 	}
 	defer c.Close()
 	if _, ok := c.(*redisCache); !ok {
-		t.Errorf("New(redis) type = %T; want *redisCache", c)
+		t.Errorf("NewCache(redis) type = %T; want *redisCache", c)
 	}
 }
 
 func TestNew_TypeValkey_ReturnsRedisClient(t *testing.T) {
-	c, err := New(config.CacheConfig{Type: "valkey", Host: "localhost", Port: 6379})
+	c, err := NewCache(config.CacheConfig{Type: "valkey", Host: "localhost", Port: 6379})
 	if err != nil {
-		t.Fatalf("New(valkey) error: %v", err)
+		t.Fatalf("NewCache(valkey) error: %v", err)
 	}
 	defer c.Close()
 	if _, ok := c.(*redisCache); !ok {
-		t.Errorf("New(valkey) type = %T; want *redisCache", c)
+		t.Errorf("NewCache(valkey) type = %T; want *redisCache", c)
 	}
 }
 
 func TestNew_TypeMemcache_ReturnsClient(t *testing.T) {
-	c, err := New(config.CacheConfig{Type: "memcache", Host: "localhost", Port: 11211})
+	c, err := NewCache(config.CacheConfig{Type: "memcache", Host: "localhost", Port: 11211})
 	if err != nil {
-		t.Fatalf("New(memcache) error: %v", err)
+		t.Fatalf("NewCache(memcache) error: %v", err)
 	}
 	defer c.Close()
 	if _, ok := c.(*memcacheCache); !ok {
-		t.Errorf("New(memcache) type = %T; want *memcacheCache", c)
+		t.Errorf("NewCache(memcache) type = %T; want *memcacheCache", c)
 	}
 }
 
 func TestNew_InvalidRedisURL_ReturnsError(t *testing.T) {
-	_, err := New(config.CacheConfig{Type: "redis", URL: "://bad-url"})
+	_, err := NewCache(config.CacheConfig{Type: "redis", URL: "://bad-url"})
 	if err == nil {
-		t.Error("New(redis, bad URL) expected error, got nil")
+		t.Error("NewCache(redis, bad URL) expected error, got nil")
 	}
 }
 
@@ -262,7 +262,8 @@ func TestMemoryCache_ValueIsolation(t *testing.T) {
 	ctx := context.Background()
 	original := []byte("data")
 	c.Set(ctx, "k", original, 0) //nolint:errcheck
-	original[0] = 'X'            // mutate original after Set
+	// mutate original after Set
+	original[0] = 'X'
 
 	got, _ := c.Get(ctx, "k")
 	if string(got) != "data" {

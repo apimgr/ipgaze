@@ -93,6 +93,24 @@
   display: flex;
 }
 
+/* Language selector (AI.md PART 30): a plain GET form, so it works with
+   JavaScript disabled just like the theme toggle beside it. */
+.lang-select-form {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+.lang-select {
+  font-family: inherit;
+  font-size: 0.85rem;
+  padding: 2px var(--space-xs);
+  color: var(--color-text);
+  background: var(--color-bg-card);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-base);
+}
+
 .header-link {
   display: flex;
   align-items: center;
@@ -200,7 +218,7 @@
 .info-table th,
 .info-table td {
   padding: var(--space-sm);
-  text-align: left;
+  text-align: start;
   vertical-align: top;
 }
 
@@ -424,7 +442,7 @@
   margin-top: var(--space-sm);
   padding: var(--space-sm) var(--space-md);
   border: 1px solid var(--color-warning);
-  border-radius: var(--radius-md, 6px);
+  border-radius: var(--radius-md);
   background: var(--color-bg-secondary);
   color: var(--color-text);
   font-size: 0.9rem;
@@ -699,7 +717,7 @@
 
   .landing-hero-row > .hero {
     flex: 2;
-    text-align: left;
+    text-align: start;
   }
 }
 
@@ -749,7 +767,7 @@
 @media (min-width: 768px) {
   .sponsor-box {
     align-items: flex-end;
-    text-align: right;
+    text-align: end;
   }
 }
 
@@ -823,7 +841,7 @@ html.theme-light .location-map {
   display: block;
   padding: var(--space-sm) var(--space-md);
   font-size: 0.85rem;
-  text-align: right;
+  text-align: end;
   color: var(--color-muted);
 }
 
@@ -854,6 +872,7 @@ html.theme-light .location-map {
   #main-header,
   #main-footer,
   .theme-toggle-form,
+  .lang-select-form,
   .mobile-menu-toggle {
     display: none;
   }

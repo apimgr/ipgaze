@@ -36,6 +36,10 @@ services:
       CACHE_URL: valkey://ipgaze-cache:6379
       # DOMAIN (optional - auto-detects from reverse proxy headers)
       # DOMAIN: myapp.com,www.myapp.com
+      # HOST_IPV4 / HOST_IPV6 (optional - the host's public addresses, shown in
+      # the web UI curl examples instead of the container's internal address)
+      # HOST_IPV4: 203.0.113.42
+      # HOST_IPV6: 2001:db8::42
       # SMTP (optional - autodetects if not set)
       # SMTP_HOST: smtp.example.com
       # SMTP_PORT: 587

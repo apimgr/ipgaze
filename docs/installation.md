@@ -104,6 +104,11 @@ chmod +x ipgaze
 
 For production Linux deployments, use systemd.
 
+> **Run on the host yourself — not by AI.** Every command in this section
+> changes system state (creates a system account, installs a unit file,
+> enables and starts a service). Run them yourself on the target machine;
+> an AI assistant must not execute them on your behalf.
+
 ### Create User
 
 ```bash

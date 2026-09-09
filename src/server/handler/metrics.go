@@ -267,7 +267,7 @@ func grafanaPanelSpecs(prefix string) []grafanaPanelSpec {
 		{"Database Connections Open", prefix + "_db_connections_open", "open connections", "short"},
 		{"Cache Hit Ratio", "sum(rate(" + prefix + "_cache_hits_total[5m])) / clamp_min(sum(rate(" + prefix + "_cache_hits_total[5m])) + sum(rate(" + prefix + "_cache_misses_total[5m])), 1)", "hit ratio", "percentunit"},
 		{"Scheduler Task Runs", "sum(rate(" + prefix + "_scheduler_tasks_total[5m])) by (task)", "{{task}}", "ops"},
-		{"Scheduler Task Failures", "sum(rate(" + prefix + "_scheduler_task_failures_total[5m])) by (task)", "{{task}}", "ops"},
+		{"Scheduler Task Failures", "sum(rate(" + prefix + "_scheduler_tasks_total{status=\"error\"}[5m])) by (task)", "{{task}}", "ops"},
 		{"System CPU Usage", prefix + "_system_cpu_usage_percent", "cpu", "percent"},
 		{"System Memory Used", prefix + "_system_memory_used_bytes", "memory used", "bytes"},
 		{"System Disk Usage", prefix + "_system_disk_usage_percent", "{{path}}", "percent"},

@@ -9,7 +9,7 @@ import (
 	"runtime"
 	"strings"
 
-	paths "github.com/apimgr/ipgaze/src/path"
+	"github.com/apimgr/ipgaze/src/paths"
 )
 
 const (

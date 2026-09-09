@@ -328,10 +328,10 @@ web:
 For any value settable by flag, env var, and config file (highest wins):
 
 1. CLI flag (e.g. `--port`, `--address`)
-2. Project-prefixed environment variable (e.g. `IPGAZE_PORT`)
-3. Generic environment variable (e.g. `PORT`)
-4. `server.yml`
-5. Built-in default
+2. `server.yml` (once a value has been persisted there)
+3. Environment variable — for `PORT`/`LISTEN` this only applies on first
+   run (Init-Only); Runtime variables are re-checked every start
+4. Built-in default
 
 ### Key Settings
 

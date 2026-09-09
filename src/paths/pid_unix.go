@@ -1,8 +1,9 @@
 //go:build !windows
 
-package path
+package paths
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -23,7 +24,12 @@ func isProcessRunning(pid int) bool {
 		return false
 	}
 	err = p.Signal(syscall.Signal(0))
-	return err == nil
+	if err == nil {
+		return true
+	}
+	// EPERM means the process exists but belongs to another user — that is
+	// still a running process, so the PID file must not be treated as stale.
+	return errors.Is(err, syscall.EPERM)
 }
 
 // isOurProcess verifies the process with the given PID is actually our binary (Unix).
@@ -45,6 +51,7 @@ func isOurProcessDarwin(pid int) bool {
 	if err != nil {
 		return false
 	}
-	// Exact match: substring matching would also match ipgaze-cli.
-	return strings.TrimSpace(string(output)) == "ipgaze"
+	// Exact match on the basename: ps prints a full path for some processes,
+	// and substring matching would also match ipgaze-cli.
+	return filepath.Base(strings.TrimSpace(string(output))) == "ipgaze"
 }

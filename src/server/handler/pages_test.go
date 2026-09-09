@@ -6,8 +6,10 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/apimgr/ipgaze/src/config"
 	"github.com/apimgr/ipgaze/src/netutil"
@@ -1037,4 +1039,36 @@ func TestNextTheme(t *testing.T) {
 			t.Errorf("NextTheme(%q) = %q, want %q", in, got, want)
 		}
 	}
+}
+
+// TestAllowContactSubmissionPrunesExpiredEntries verifies the per-IP throttle
+// map is bounded: once it reaches contactThrottleMaxEntries, entries older
+// than the cooldown window are swept instead of accumulating forever.
+func TestAllowContactSubmissionPrunesExpiredEntries(t *testing.T) {
+	contactThrottle.mu.Lock()
+	contactThrottle.last = make(map[string]time.Time)
+	stale := time.Now().Add(-2 * contactThrottleWindow)
+	for i := 0; i < contactThrottleMaxEntries; i++ {
+		contactThrottle.last["10.0."+strconv.Itoa(i/256)+"."+strconv.Itoa(i%256)] = stale
+	}
+	contactThrottle.mu.Unlock()
+
+	if !allowContactSubmission("203.0.113.7") {
+		t.Fatal("first submission from a fresh IP should be allowed")
+	}
+
+	contactThrottle.mu.Lock()
+	size := len(contactThrottle.last)
+	contactThrottle.mu.Unlock()
+	if size != 1 {
+		t.Errorf("expected stale entries pruned leaving 1 entry, got %d", size)
+	}
+
+	if allowContactSubmission("203.0.113.7") {
+		t.Error("second submission inside the cooldown window should be rejected")
+	}
+
+	contactThrottle.mu.Lock()
+	contactThrottle.last = make(map[string]time.Time)
+	contactThrottle.mu.Unlock()
 }

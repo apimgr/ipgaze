@@ -12,8 +12,10 @@ import (
 // in src/server/metrics, these are recorded unconditionally regardless of
 // whether the /metrics endpoint is enabled.
 type requestStats struct {
-	total  int64 // atomic: lifetime request count
-	active int64 // atomic: currently in-flight requests
+	// atomic: lifetime request count
+	total int64
+	// atomic: currently in-flight requests
+	active int64
 
 	mu          sync.Mutex
 	hourBuckets [24]int64

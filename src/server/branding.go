@@ -135,7 +135,11 @@ func fetchAndCacheBrandingLogo(ctx context.Context, dataDir, logoURL string) (da
 	}
 	tmp := path + ".tmp"
 	if writeErr := os.WriteFile(tmp, data, 0o644); writeErr == nil {
-		_ = os.Rename(tmp, path)
+		// A failed rename would otherwise leave the .tmp file behind on every
+		// refresh, so remove it rather than accumulating orphans.
+		if renameErr := os.Rename(tmp, path); renameErr != nil {
+			_ = os.Remove(tmp)
+		}
 	}
 	return data, contentType, nil
 }

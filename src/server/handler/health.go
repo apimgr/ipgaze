@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/apimgr/ipgaze/src/common/httputil"
+	"github.com/apimgr/ipgaze/src/common/i18n"
 	"github.com/apimgr/ipgaze/src/scheduler"
 	"github.com/apimgr/ipgaze/src/server/model"
 )
@@ -447,7 +448,15 @@ func (h *HealthHandler) HealthzHandler(w http.ResponseWriter, r *http.Request) {
 
 	// JSON response for Accept: application/json
 	if strings.Contains(accept, jsonMediaType) {
-		writeHealthJSON(w, health, code)
+		writeHealthJSON(r.Context(), w, health, code)
+		return
+	}
+
+	// Our own CLI client is INTERACTIVE per AI.md PART 14's frontend rules —
+	// it receives JSON and renders its own TUI, the same as every other
+	// frontend route, even without an explicit Accept: application/json.
+	if httputil.IsOurCliClient(r.Header.Get("User-Agent")) {
+		writeHealthJSON(r.Context(), w, health, code)
 		return
 	}
 
@@ -469,7 +478,7 @@ func (h *HealthHandler) HealthzHandler(w http.ResponseWriter, r *http.Request) {
 		// actually rendered.
 		buf := newBufferedResponse()
 		if err := h.Render(buf, r, "healthz.tmpl", data); err != nil {
-			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+			http.Error(w, i18n.T(r.Context(), "errors.server_error"), http.StatusInternalServerError)
 			return
 		}
 		buf.flushTo(w, code)
@@ -488,9 +497,13 @@ func (h *HealthHandler) HealthzHandler(w http.ResponseWriter, r *http.Request) {
 	if health.Checks.I2P != "" {
 		i2pRow = fmt.Sprintf("<li><strong>checks.i2p:</strong> %s</li>", health.Checks.I2P)
 	}
+	// Resolve the request language so the fallback page carries the same
+	// lang/dir contract as the templated pages.
+	fallbackLang := i18n.DetectLocale(r)
+	fallbackDir := string(i18n.LocaleDirection(fallbackLang))
 	w.WriteHeader(code)
 	fmt.Fprintf(w, `<!DOCTYPE html>
-<html lang="en">
+<html lang="%s" dir="%s">
   <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -538,6 +551,8 @@ func (h *HealthHandler) HealthzHandler(w http.ResponseWriter, r *http.Request) {
   </body>
 </html>
 `,
+		fallbackLang,
+		fallbackDir,
 		health.Project.Name,
 		health.Project.Name,
 		health.Project.Tagline,
@@ -628,33 +643,36 @@ func writeHealthText(w http.ResponseWriter, health model.HealthResponse, code in
 // Follows the AI.md PART 14 API content-negotiation priority order exactly:
 //  1. `.txt` extension on the path -> text (always wins)
 //  2. `Accept: text/plain` header -> text
-//  3. Non-interactive HTTP tool detected (curl, wget, httpie) -> text
-//  4. Default (browsers, API clients, `Accept: application/json`, empty UA) -> JSON
+//  3. Non-interactive HTTP tool detected (curl, wget, httpie, libcurl,
+//     python-requests, go-http-client, axios, node-fetch, empty UA) -> text
+//  4. Default (browsers, our CLI, `Accept: application/json`) -> JSON
 func apiHealthWantsText(r *http.Request) bool {
 	if strings.HasSuffix(r.URL.Path, ".txt") {
 		return true
 	}
-	if strings.Contains(r.Header.Get("Accept"), textMediaType) {
+	accept := r.Header.Get("Accept")
+	if strings.Contains(accept, textMediaType) {
 		return true
+	}
+	// An explicit Accept: text/html or application/json overrides the
+	// non-interactive-tool heuristic below — the client told us what it
+	// wants, so an absent/tool-like User-Agent must not force text.
+	if strings.Contains(accept, "text/html") || strings.Contains(accept, jsonMediaType) {
+		return false
 	}
 	return IsNonInteractiveHTTPTool(r.Header.Get("User-Agent"))
 }
 
 // IsNonInteractiveHTTPTool reports whether the User-Agent is one of the
-// non-interactive HTTP tools (curl, wget, httpie) that AI.md PART 14/16 says
-// must receive pre-formatted text. It deliberately excludes our own client
-// ({project_name}-cli, which handles JSON itself) and programmatic API clients
-// (python-requests, node-fetch, raw Go-http-client), which default to JSON.
-// Exported so other packages needing the same content-negotiation rule
-// (e.g. server.NotFoundHandler's catch-all) reuse this list instead of
-// duplicating it.
+// non-interactive HTTP tools (curl, wget, httpie, libcurl, python-requests,
+// go-http-client, axios, node-fetch, or an empty UA) that AI.md PART 14
+// says must receive pre-formatted text. It delegates to httputil.IsHttpTool
+// so this list never drifts out of sync with the canonical detector used by
+// the rest of the content-negotiation stack. Exported so other packages
+// needing the same rule (e.g. server.NotFoundHandler's catch-all) reuse it
+// instead of duplicating it.
 func IsNonInteractiveHTTPTool(ua string) bool {
-	for _, t := range []string{"curl/", "Wget/", "HTTPie/", "httpie-go/", "xh/"} {
-		if strings.Contains(ua, t) {
-			return true
-		}
-	}
-	return false
+	return httputil.IsHttpTool(ua)
 }
 
 // APIV1HealthzHandler serves /api/v1/server/healthz and /api/healthz.
@@ -671,15 +689,15 @@ func (h *HealthHandler) APIV1HealthzHandler(w http.ResponseWriter, r *http.Reque
 		writeHealthText(w, health, code)
 		return
 	}
-	writeHealthJSON(w, health, code)
+	writeHealthJSON(r.Context(), w, health, code)
 }
 
 // writeHealthJSON writes the bare (unwrapped) health document with the PART 13
 // status code. Two-space indent per AI.md PART 14 JSON formatting rules.
-func writeHealthJSON(w http.ResponseWriter, health model.HealthResponse, code int) {
+func writeHealthJSON(ctx context.Context, w http.ResponseWriter, health model.HealthResponse, code int) {
 	b, err := json.MarshalIndent(health, "", "  ")
 	if err != nil {
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		http.Error(w, i18n.T(ctx, "errors.server_error"), http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", jsonMediaType)
@@ -691,11 +709,14 @@ func writeHealthJSON(w http.ResponseWriter, health model.HealthResponse, code in
 
 // healthWantsText reports whether a frontend health request should receive the
 // plain-text representation. AI.md PART 13 defers to the PART 14 frontend
-// negotiation ladder, whose default is HTML:
+// negotiation ladder, whose default is HTML. Our own CLI client is handled
+// earlier in HealthzHandler (it always gets JSON), so by the time this runs
+// only text browsers, graphical browsers, and non-interactive HTTP tools
+// remain:
 //  1. Accept: text/html -> HTML
 //  2. Accept: text/plain -> text
-//  3. Browser User-Agent -> HTML
-//  4. CLI/HTTP tool with no browser UA -> text
+//  3. Text browser User-Agent -> HTML (renders it themselves)
+//  4. Non-interactive HTTP tool -> text
 //  5. Default -> HTML
 //
 // A `.txt` path is also honoured so the root alias behaves like the API route
@@ -712,11 +733,6 @@ func healthWantsText(r *http.Request) bool {
 		return true
 	}
 	ua := r.Header.Get("User-Agent")
-	// Our own CLI renders plain text in a terminal; text browsers render HTML
-	// themselves, so only they and graphical browsers fall through to HTML.
-	if httputil.IsOurCliClient(ua) {
-		return true
-	}
 	if httputil.IsTextBrowser(ua) {
 		return false
 	}

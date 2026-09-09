@@ -3,6 +3,8 @@
 // and consumed everywhere — never duplicated.
 package theme
 
+import "strings"
+
 // ThemePalette holds all semantic color values for a single color scheme.
 // Colors are hex strings (e.g. "#1a1b26") compatible with CSS, lipgloss, and
 // native widget toolkits.
@@ -85,6 +87,21 @@ func Palette(name Name) ThemePalette {
 	default:
 		return ThemePaletteDark
 	}
+}
+
+// GetThemePalette returns the palette for a theme mode string: "light" and
+// "dark" select their palette directly, "auto" resolves against the detected
+// system theme, and anything unrecognised falls back to dark.
+func GetThemePalette(themeMode string) ThemePalette {
+	name := Name(strings.ToLower(strings.TrimSpace(themeMode)))
+	if name == NameAuto {
+		if IsSystemDarkTheme() {
+			name = NameDark
+		} else {
+			name = NameLight
+		}
+	}
+	return Palette(name)
 }
 
 // TerminalPalette holds ANSI 16-color indices (0-15) for CLI/TUI — never

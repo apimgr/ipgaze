@@ -12,7 +12,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	paths "github.com/apimgr/ipgaze/src/client/path"
+	"github.com/apimgr/ipgaze/src/client/paths"
 	"github.com/apimgr/ipgaze/src/common/display"
 	"github.com/apimgr/ipgaze/src/common/i18n"
 	"github.com/apimgr/ipgaze/src/common/terminal"

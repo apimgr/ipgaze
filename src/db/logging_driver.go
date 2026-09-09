@@ -19,8 +19,9 @@ import (
 )
 
 var (
-	queryLogEnabled atomic.Bool
-	registerOnce    sync.Once
+	queryLogEnabled      atomic.Bool
+	slowQueryThresholdNs atomic.Int64
+	registerOnce         sync.Once
 )
 
 // SetQueryLogging enables or disables SQL query logging for all connections
@@ -29,6 +30,15 @@ var (
 // cfg.Server.Debug.LogQueries per AI.md PART 6.
 func SetQueryLogging(enabled bool) {
 	queryLogEnabled.Store(enabled)
+}
+
+// SetSlowQueryThreshold sets the minimum query duration that triggers a
+// slow-query warning log, independent of SetQueryLogging/debug mode. Callers
+// should set this once at startup from cfg.Database.ResolvedSlowQueryThreshold()
+// per AI.md PART 10's FINAL CHECKPOINT "slow query logging" item. A
+// non-positive threshold disables slow-query logging.
+func SetSlowQueryThreshold(d time.Duration) {
+	slowQueryThresholdNs.Store(int64(d))
 }
 
 // registerLoggingDrivers registers the "sqlite+logged" and "libsql+logged"
@@ -57,15 +67,21 @@ func OpenLibSQLDriver(url string) (*sql.DB, error) {
 }
 
 // logQuery emits a slog.Debug entry for query with args, duration, and
-// error, when queryLogEnabled is true. No-op otherwise (checked first so
-// disabled logging costs a single atomic load).
+// error, when queryLogEnabled is true. It also independently emits a
+// slog.Warn slow-query entry when duration meets or exceeds the configured
+// SetSlowQueryThreshold, regardless of the debug gate. Args are deliberately
+// omitted from the slow-query log (unlike the debug log) since it runs
+// unconditionally in production and args may carry secrets/PII.
 func logQuery(query string, args []driver.NamedValue, start time.Time, err error) {
+	duration := time.Since(start)
+	logSlowQuery(query, duration, err)
+
 	if !queryLogEnabled.Load() {
 		return
 	}
 	attrs := []any{
 		"query", query,
-		"duration_ms", time.Since(start).Milliseconds(),
+		"duration_ms", duration.Milliseconds(),
 	}
 	if len(args) > 0 {
 		vals := make([]any, len(args))
@@ -80,6 +96,25 @@ func logQuery(query string, args []driver.NamedValue, start time.Time, err error
 		return
 	}
 	slog.Debug("db query", attrs...)
+}
+
+// logSlowQuery emits a slog.Warn entry when duration meets or exceeds the
+// threshold set via SetSlowQueryThreshold. No-op when the threshold is
+// non-positive (disabled) or duration is below it.
+func logSlowQuery(query string, duration time.Duration, err error) {
+	threshold := time.Duration(slowQueryThresholdNs.Load())
+	if threshold <= 0 || duration < threshold {
+		return
+	}
+	attrs := []any{
+		"query", query,
+		"duration_ms", duration.Milliseconds(),
+		"threshold_ms", threshold.Milliseconds(),
+	}
+	if err != nil {
+		attrs = append(attrs, "error", err.Error())
+	}
+	slog.Warn("slow db query", attrs...)
 }
 
 // loggingDriver wraps a database/sql driver.Driver so every connection it

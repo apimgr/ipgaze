@@ -45,7 +45,7 @@ import (
 	applog "github.com/apimgr/ipgaze/src/log"
 	appmode "github.com/apimgr/ipgaze/src/mode"
 	"github.com/apimgr/ipgaze/src/netutil"
-	paths "github.com/apimgr/ipgaze/src/path"
+	"github.com/apimgr/ipgaze/src/paths"
 	"github.com/apimgr/ipgaze/src/pgp"
 	"github.com/apimgr/ipgaze/src/scheduler"
 	"github.com/apimgr/ipgaze/src/security"
@@ -244,7 +244,7 @@ func main() {
 	shellCmd := flag.String("shell", "", "Shell integration: completions, init, --help")
 
 	// Mode and update flags
-	modeFlag := flag.String("mode", "", "Application mode: production, development")
+	modeFlag := flag.String("mode", "", "Application mode: production, development, debug")
 	updateCmd := flag.String("update", "", "Update commands: check, yes, branch {stable|beta|daily}")
 
 	var headers multiValueFlag
@@ -278,9 +278,13 @@ func main() {
 		return
 	}
 
-	// Handle -v/--version - format: "ipgaze 1.0.0 (abc123)"
+	// Handle -v/--version. AI.md PART 13 "--version Output" fixes the exact
+	// four-line shape: name+version, build date, Go version, OS/arch.
 	if *showVersion || *showVersionShort {
-		fmt.Printf("%s %s (%s)\n", binaryName, Version, CommitID)
+		fmt.Printf("%s %s\n", binaryName, Version)
+		fmt.Printf("Built: %s\n", BuildDate)
+		fmt.Printf("Go: %s\n", runtime.Version())
+		fmt.Printf("OS/Arch: %s/%s\n", runtime.GOOS, runtime.GOARCH)
 		return
 	}
 
@@ -289,10 +293,6 @@ func main() {
 		handleShellCommand(*shellCmd, binaryName)
 		return
 	}
-
-	// Check NO_COLOR and --color flag per AI.md PART 8 — use shared display package
-	colorEnabled := display.ColorEnabled(*colorMode)
-	_ = colorEnabled
 
 	// Resolve output language per AI.md PART 30 priority chain
 	lang := getLanguage(*langFlag)
@@ -308,9 +308,21 @@ func main() {
 	}
 
 	// Handle --debug flag: propagate to env so s.config.IsDebug() works everywhere.
+	// An explicitly passed --debug=false must also be recorded (via DEBUG=false)
+	// so later MODE=debug processing (applyModeString) sees DEBUG as already
+	// explicitly set and does not override it with the mode's implied default —
+	// per AI.md PART 6, --debug is the highest-priority signal in the chain.
+	debugFlagSet := false
+	flag.Visit(func(f *flag.Flag) {
+		if f.Name == "debug" {
+			debugFlagSet = true
+		}
+	})
 	if *debugMode {
 		os.Setenv("DEBUG", "true")
 		log.Println("Debug mode enabled")
+	} else if debugFlagSet {
+		os.Setenv("DEBUG", "false")
 	}
 
 	// Handle directory overrides from flags per AI.md PART 8.
@@ -366,6 +378,11 @@ func main() {
 		cfg = config.DefaultConfig()
 	}
 
+	// Config-file tier of the NO_COLOR priority table (AI.md PART 8): the
+	// --color flag still wins, but output.color / output.emoji rank above
+	// the NO_COLOR env var and autodetection.
+	display.SetOutputPreferences(cfg.Output.Color, cfg.Output.Emoji)
+
 	// Resolve MODE env var per AI.md PART 5 (Runtime env vars re-checked
 	// every start, MODE listed explicitly) and PART 6 mode priority
 	// (--mode flag > MODE env > default production). MODE must override
@@ -391,6 +408,10 @@ func main() {
 	// SQL query logging per AI.md PART 6 server.debug.log_queries — gated by
 	// the debug flag, never by mode alone. Must be set before any DB opens.
 	db.SetQueryLogging(cfg.IsDebug() && cfg.Server.Debug.LogQueries)
+	// Slow-query warning logging per AI.md PART 10 FINAL CHECKPOINT — runs
+	// unconditionally (not gated by debug mode). Must be set before any DB
+	// opens.
+	db.SetSlowQueryThreshold(cfg.Server.Database.ResolvedSlowQueryThreshold())
 
 	// Handle --mode flag: an ephemeral per-run override, highest priority in
 	// the AI.md PART 6 mode detection chain (flag > MODE env > default). It
@@ -560,8 +581,7 @@ func main() {
 		}
 	}
 
-	// Determine port (flag > IPGAZE_PORT > PORT > config).
-	// Per AI.md: check {PROJECT_NAME}_PORT (IPGAZE_PORT) first, then generic PORT for container compat.
+	// Determine port (flag > persisted config > PORT env, see resolveServerPort).
 	serverPort := resolveServerPort(*port, cfg)
 	portWasConfigured := serverPort != ""
 	if serverPort == "" {
@@ -574,20 +594,14 @@ func main() {
 		}
 	}
 
-	// Determine address (flag > IPGAZE_LISTEN > LISTEN > IPGAZE_ADDRESS > ADDRESS > config > default)
-	// Per AI.md PART 5: LISTEN is the canonical env var for listen address.
-	// IPGAZE_ADDRESS/ADDRESS are kept as backward-compatible aliases with lower priority.
+	// Determine address (flag > config). LISTEN is an Init-Only env var
+	// (AI.md PART 5): config.LoadConfigFromFile already seeds
+	// cfg.Server.Address from LISTEN on first run only, so it must not be
+	// re-read here on every start — only the persisted config (or an
+	// explicit per-run --address flag) governs this after first run.
 	serverAddress := cfg.Server.Address
 	if *address != "" {
 		serverAddress = *address
-	} else if envAddr := os.Getenv("IPGAZE_LISTEN"); envAddr != "" {
-		serverAddress = envAddr
-	} else if envAddr := os.Getenv("LISTEN"); envAddr != "" {
-		serverAddress = envAddr
-	} else if envAddr := os.Getenv("IPGAZE_ADDRESS"); envAddr != "" {
-		serverAddress = envAddr
-	} else if envAddr := os.Getenv("ADDRESS"); envAddr != "" {
-		serverAddress = envAddr
 	}
 	if serverAddress == "" {
 		serverAddress = "[::]"
@@ -788,7 +802,8 @@ func main() {
 	}
 	email.ApplyEnvOverrides(&smtpCfg)
 	if smtpCfg.Host == "" {
-		if probe, probErr := email.AutoDetectSMTP("", cfg.Server.FQDN); probErr == nil {
+		globalIPv4, _ := netutil.FetchPublicIP()
+		if probe, probErr := email.AutoDetectSMTP(netutil.DefaultGatewayIP(), cfg.Server.FQDN, globalIPv4); probErr == nil {
 			smtpCfg.Host = probe.Host
 			smtpCfg.Port = probe.Port
 			log.Printf("email: auto-detected SMTP at %s:%d", probe.Host, probe.Port)
@@ -827,12 +842,21 @@ func main() {
 				log.Printf("scheduler: %s failed — scheduler_error suppressed, a critical event email already went out", task.ID)
 				return
 			}
+			// AI.md PART 17 requires {next_run} in the scheduler_error body so
+			// the operator knows when the task retries without opening the UI.
+			nextRun := "unknown"
+			if state, ok := sched.Status()[task.ID]; ok && state.NextRun != nil {
+				nextRun = state.NextRun.Format(time.RFC3339)
+			}
 			sendOperatorEmail(cfg, emailMgr, "scheduler_error", map[string]string{
-				"app_name": projectName,
-				"app_url":  cfg.Server.BaseURL,
-				"task":     task.Name,
-				"error":    taskErr.Error(),
-				"time":     time.Now().Format(time.RFC3339),
+				"app_name":  projectName,
+				"app_url":   cfg.Server.BaseURL,
+				"fqdn":      cfg.Server.FQDN,
+				"task":      task.Name,
+				"task_name": task.Name,
+				"error":     taskErr.Error(),
+				"next_run":  nextRun,
+				"time":      time.Now().Format(time.RFC3339),
 			})
 		}
 
@@ -1161,14 +1185,15 @@ func main() {
 	// warning if the sanitizer modified the operator-supplied markup.
 	config.LogFooterSanitizationPreview(cfg.Web.Footer.CustomHTML)
 
-	// tor_health per AI.md PART 31.1: probe the live control connection every
-	// 30 seconds and restart Tor when the probe fails. Registered here rather
-	// than at spawn time because the scheduler is created after the drop.
+	// tor_health per AI.md PART 18 Built-in Tasks: probe the live control
+	// connection every 10 minutes and restart Tor when the probe fails.
+	// Registered here rather than at spawn time because the scheduler is
+	// created after the drop.
 	if torAvailable && sched != nil {
 		if err := sched.AddTask(&scheduler.Task{
 			ID:       "tor_health",
 			Name:     "Tor Health Check",
-			Schedule: scheduleFor("@every 30s", cfg.Server.Schedule.Tasks.TorHealth),
+			Schedule: scheduleFor("@every 10m", cfg.Server.Schedule.Tasks.TorHealth),
 			Enabled:  enabledFor(true, cfg.Server.Schedule.Tasks.TorHealth),
 			Fn: func() error {
 				if healthErr := torMgr.HealthCheck(); healthErr != nil {
@@ -1240,9 +1265,10 @@ func main() {
 	}
 
 	// Setup signal handling
-	// Per AI.md PART 27: Handle SIGRTMIN+3 (signal 37) for Docker STOPSIGNAL
+	// Per AI.md PART 8 signal table: SIGTERM, SIGINT, and SIGQUIT all trigger
+	// a graceful shutdown; SIGRTMIN+3 (signal 37) is Docker's STOPSIGNAL.
 	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM, syscall.Signal(37))
+	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM, syscall.SIGQUIT, syscall.Signal(37))
 	// SIGHUP is ignored per AI.md PART 27 — config auto-reloads via the
 	// ConfigManager file watcher below, not via a one-shot signal reload.
 	signal.Ignore(syscall.SIGHUP)
@@ -1257,10 +1283,10 @@ func main() {
 	// CACHE_URL (Runtime env var, e.g. from docker-compose.yml's valkey sidecar)
 	// overrides server.yml's cache.url per AI.md PART 12.
 	cache.ApplyEnvOverrides(&cfg.Server.Cache)
-	appCache, cacheErr := cache.New(cfg.Server.Cache)
+	appCache, cacheErr := cache.NewCache(cfg.Server.Cache)
 	if cacheErr != nil {
 		log.Printf("warn: cache init failed (%v); falling back to memory cache", cacheErr)
-		appCache, _ = cache.New(config.CacheConfig{Type: "memory"})
+		appCache, _ = cache.NewCache(config.CacheConfig{Type: "memory"})
 	}
 	// Cache operation logging per AI.md PART 6 server.debug.log_cache —
 	// gated by the debug flag, never by mode alone.
@@ -1596,11 +1622,14 @@ func main() {
 		bannerURL = netutil.GetDisplayURL(projectName, bannerPort, bannerProto == "https")
 	}
 	bannerURLs := []string{bannerURL}
+	// ColorFlag carries the --color value so it keeps AI.md PART 8 priority 1,
+	// above NO_COLOR and TTY auto-detection (see display.ColorEnabled).
 	banner.PrintStartupBanner(banner.BannerPrintConfig{
 		AppName:   binaryName,
 		Version:   Version,
 		AppMode:   cfg.Server.Mode,
 		Debug:     *debugMode,
+		ColorFlag: *colorMode,
 		URLs:      bannerURLs,
 		StartedAt: time.Now(),
 	})
@@ -1722,7 +1751,7 @@ func main() {
 		case sig := <-sigChan:
 			// Graceful shutdown per AI.md spec — 30-second drain timeout.
 			// SIGHUP never reaches here (ignored above); every other notified
-			// signal (SIGTERM, SIGINT, SIGRTMIN+3) shuts down gracefully.
+			// signal (SIGTERM, SIGINT, SIGQUIT, SIGRTMIN+3) shuts down gracefully.
 			log.Printf("Received signal %v, shutting down gracefully...", sig)
 			if logMgr != nil {
 				logMgr.WriteServer("info", fmt.Sprintf("received signal %v, shutting down gracefully", sig))
@@ -1846,7 +1875,7 @@ Shell Integration:
       --shell --help                Show shell help
 
 Server Configuration:
-      --mode {production|development}  Application mode (default: production)
+      --mode {production|development|debug}  Application mode (default: production)
       --config DIR                  Config directory
       --data DIR                    Data directory
       --cache DIR                   Cache directory
@@ -2108,12 +2137,12 @@ func resolveRateBucket(cfgBucket config.RateLimitBucketConfig, fallback server.R
 	return bucket
 }
 
-// buildLogConfig converts cfg.Server.Logging into an applog.Config, ready to
+// buildLogConfig converts cfg.Server.Logging into an applog.LoggerConfig, ready to
 // pass to applog.NewManager. Shared by the normal server-start path and by
 // maintenance subcommands (e.g. `--maintenance pgp`) that need their own
 // audit-log manager before the main server's log manager exists.
-func buildLogConfig(cfg *config.AppConfig) applog.Config {
-	return applog.Config{
+func buildLogConfig(cfg *config.AppConfig) applog.LoggerConfig {
+	return applog.LoggerConfig{
 		Level: cfg.Server.Logging.Level,
 		// Syslog and CEF lines carry the process identity (AI.md PART 11).
 		Program: projectName,
@@ -2279,7 +2308,7 @@ func pgpMarkExportTimestamp(configDir string) {
 // per AI.md PART 11 "GPG Keypair Management". Every action requires operator
 // authorization (server.token OR root/elevated); export private, import, and
 // delete additionally require typed confirmation and are audit-logged.
-func handlePGPMaintenance(args []string, configDir, logsDir, configPath string, cfg *config.AppConfig) {
+func handlePGPMaintenance(args []string, configDir, logsDir string, cfg *config.AppConfig) {
 	if len(args) == 0 {
 		fmt.Println("Usage: ipgaze --maintenance pgp <generate|rotate|publish|export|import|delete>")
 		os.Exit(exUsage)
@@ -2355,7 +2384,6 @@ func handlePGPMaintenance(args []string, configDir, logsDir, configPath string, 
 		fmt.Println("Available: generate, rotate, publish, export, import, delete")
 		os.Exit(exUsage)
 	}
-	_ = configPath
 }
 
 // pgpGenerate implements `--maintenance pgp generate` (AI.md PART 11 "Generate").
@@ -2370,7 +2398,7 @@ func pgpGenerate(conn *sql.DB, configDir, appName, securityContact string, cfg *
 		log.Printf("pgp generate: %v", err)
 		os.Exit(exSoftware)
 	}
-	if err := pgp.Save(configDir, kp, secret); err != nil {
+	if err := pgp.SaveKeypair(configDir, kp, secret); err != nil {
 		log.Printf("pgp generate: save: %v", err)
 		os.Exit(exIoErr)
 	}
@@ -2420,7 +2448,7 @@ func pgpRotate(conn *sql.DB, configDir, appName, securityContact string, cfg *co
 		log.Printf("pgp rotate: %v", err)
 		os.Exit(exSoftware)
 	}
-	if err := pgp.Save(configDir, kp, secret); err != nil {
+	if err := pgp.SaveKeypair(configDir, kp, secret); err != nil {
 		log.Printf("pgp rotate: save: %v", err)
 		os.Exit(exIoErr)
 	}
@@ -2638,7 +2666,7 @@ func pgpImport(conn *sql.DB, configDir, file, appName, securityContact string, l
 		CreatedAt:    createdAt,
 		ExpiresAt:    createdAt.Add(pgp.KeyLifetime),
 	}
-	if err := pgp.Save(configDir, kp, secret); err != nil {
+	if err := pgp.SaveKeypair(configDir, kp, secret); err != nil {
 		log.Printf("pgp import: save: %v", err)
 		os.Exit(exIoErr)
 	}
@@ -2668,7 +2696,7 @@ func pgpDelete(conn *sql.DB, configDir string, cfg *config.AppConfig, logMgr *ap
 	}
 
 	rec, _ := pgp.ActiveRecord(conn)
-	if err := pgp.Delete(configDir); err != nil {
+	if err := pgp.DeleteKeypair(configDir); err != nil {
 		log.Printf("pgp delete: %v", err)
 		os.Exit(exIoErr)
 	}
@@ -2918,7 +2946,7 @@ Restore:
 	case "setup":
 		maintenanceSetup(configPath, cfg, dirs)
 	case "pgp":
-		handlePGPMaintenance(args, configDir, logsDir, configPath, cfg)
+		handlePGPMaintenance(args, configDir, logsDir, cfg)
 	case "secret":
 		handleSecretMaintenance(args, configDir, logsDir, cfg)
 	case "token":
@@ -3814,18 +3842,24 @@ func parsePortSpec(spec string) (string, string) {
 }
 
 // resolveServerPort returns the port setting from the highest-priority source
-// that supplies one: the --port flag, then the PORT env var, then server.yml.
-// An empty result means no port has ever been chosen and the caller must pick
-// one (container default or a random unused port).
+// that supplies one: the --port flag, then a previously persisted server.yml
+// value, then the PORT env var. PORT is an Init-Only env var (AI.md PART 5):
+// it seeds the port on first run only and MUST be ignored on every later run
+// once a port has been persisted to server.yml — checking the persisted
+// config before PORT (rather than after) is what enforces that. An empty
+// result means no port has ever been chosen and the caller must pick one
+// (container default or a random unused port).
 func resolveServerPort(flagPort string, cfg *config.AppConfig) string {
 	if strings.TrimSpace(flagPort) != "" {
 		return strings.TrimSpace(flagPort)
 	}
+	if cfg != nil {
+		if persisted := strings.TrimSpace(cfg.Server.Port); persisted != "" {
+			return persisted
+		}
+	}
 	if envPort := strings.TrimSpace(os.Getenv("PORT")); envPort != "" {
 		return envPort
-	}
-	if cfg != nil {
-		return strings.TrimSpace(cfg.Server.Port)
 	}
 	return ""
 }

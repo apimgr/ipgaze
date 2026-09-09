@@ -5,6 +5,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 
 	"golang.org/x/term"
 )
@@ -188,8 +189,8 @@ func (e *DisplayEnv) detectWindowsDisplay() {
 	// Check for service mode (session 0)
 	sessionIDStr := os.Getenv("SESSIONID")
 	if sessionIDStr != "" {
-		sessionID, _ := strconv.Atoi(sessionIDStr)
-		if sessionID == 0 {
+		sessionID, err := strconv.Atoi(sessionIDStr)
+		if err == nil && sessionID == 0 {
 			// Running as a service (session 0) - no interactive desktop
 			e.HasDisplay = false
 			e.DisplayType = "none"
@@ -266,15 +267,44 @@ func (e *DisplayEnv) SupportsColor() bool {
 	return e.IsTerminal
 }
 
+// outputPrefs holds the config-file `output.color` / `output.emoji` values,
+// the second tier of AI.md PART 8's NO_COLOR priority table. A nil value means
+// the key is absent from server.yml. The mutex guards against config hot
+// reload racing with output written from request handlers.
+var outputPrefs struct {
+	mu    sync.RWMutex
+	color *bool
+	emoji *bool
+}
+
+// SetOutputPreferences records the config-file color/emoji values. Called at
+// startup and again on every config reload; nil disables that tier.
+func SetOutputPreferences(color, emoji *bool) {
+	outputPrefs.mu.Lock()
+	defer outputPrefs.mu.Unlock()
+	outputPrefs.color = color
+	outputPrefs.emoji = emoji
+}
+
+// configPrefs returns the current config-file color/emoji values.
+func configPrefs() (color, emoji *bool) {
+	outputPrefs.mu.RLock()
+	defer outputPrefs.mu.RUnlock()
+	return outputPrefs.color, outputPrefs.emoji
+}
+
 // ColorEnabled returns true when ANSI color output should be used.
 // colorFlag is the value of the --color CLI flag: "yes", "no", or "auto" (default).
-// Priority order: CLI flag > NO_COLOR env > auto-detect.
+// Priority order: CLI flag > config file > NO_COLOR env > auto-detect.
 func ColorEnabled(colorFlag string) bool {
 	switch colorFlag {
 	case "yes", "always":
 		return true
 	case "no", "never":
 		return false
+	}
+	if cfgColor, _ := configPrefs(); cfgColor != nil {
+		return *cfgColor
 	}
 	// NO_COLOR (any non-empty value) and TERM=dumb disable color output
 	if os.Getenv("NO_COLOR") != "" {
@@ -289,10 +319,14 @@ func ColorEnabled(colorFlag string) bool {
 
 // EmojiEnabled returns true when emoji/Unicode extended characters should be used.
 // Emoji is disabled whenever NO_COLOR is set, TERM=dumb, color is disabled,
-// or the terminal does not support it.  NO_COLOR is checked unconditionally
-// here — it applies even when --color=yes is set — because NO_COLOR governs
-// decorative output beyond just ANSI escapes.
+// or the terminal does not support it.  NO_COLOR is checked before the CLI
+// color flag — it governs decorative output beyond just ANSI escapes — but
+// after the config file, where `output.emoji: true` deliberately keeps emojis
+// on under NO_COLOR (AI.md PART 8 "Config override").
 func EmojiEnabled(colorFlag string) bool {
+	if _, cfgEmoji := configPrefs(); cfgEmoji != nil {
+		return *cfgEmoji
+	}
 	// NO_COLOR always wins for decorative output including emoji
 	if os.Getenv("NO_COLOR") != "" {
 		return false

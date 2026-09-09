@@ -382,9 +382,10 @@ func TestHealthzHandler_PlainTextWithTor(t *testing.T) {
 }
 
 // TestHealthzHandler_FrontendNegotiation covers the AI.md PART 14 frontend
-// ladder that PART 13 defers to for /server/healthz: HTML is the default and
-// plain text is reserved for Accept: text/plain, a .txt path, our own CLI, and
-// non-interactive HTTP tools.
+// ladder that PART 13 defers to for /server/healthz: HTML is the default,
+// plain text is reserved for Accept: text/plain, a .txt path, and
+// non-interactive HTTP tools, and our own CLI always gets JSON like every
+// other frontend route.
 func TestHealthzHandler_FrontendNegotiation(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -399,7 +400,7 @@ func TestHealthzHandler_FrontendNegotiation(t *testing.T) {
 		{"text browser gets HTML", "/healthz", "", "Lynx/2.9.0", "text/html"},
 		{"accept text/plain", "/healthz", "text/plain", "", "text/plain"},
 		{"txt path", "/healthz.txt", "", "Mozilla/5.0 (X11; Linux x86_64) Chrome/120.0", "text/plain"},
-		{"our cli", "/healthz", "", "ipgaze-cli/1.0", "text/plain"},
+		{"our cli", "/healthz", "", "ipgaze-cli/1.0", "application/json"},
 		{"curl", "/healthz", "", "curl/8.5.0", "text/plain"},
 		{"empty UA", "/healthz", "", "", "text/plain"},
 		{"accept json", "/healthz", "application/json", "", "application/json"},
@@ -608,10 +609,11 @@ func TestHealthStatusCodes_OK(t *testing.T) {
 }
 
 // TestAPIV1HealthzHandler_JSONDefault verifies the /api/{api_version}/server/healthz
-// content-negotiation JSON default per AI.md PART 14 priority order: browsers, API
-// clients, Accept: application/json, and an empty User-Agent all receive JSON
-// (priority 4). Only .txt, Accept: text/plain, or a detected HTTP tool
-// (curl/wget/httpie) get plain text — covered by TestAPIV1HealthzHandler_TextNegotiation.
+// content-negotiation JSON default per AI.md PART 14 priority order: browsers,
+// our CLI, and Accept: application/json all receive JSON (priority 4). Only
+// .txt, Accept: text/plain, or a detected non-interactive HTTP tool (which
+// includes an empty User-Agent per AI.md's isHttpTool()) get plain text —
+// covered by TestAPIV1HealthzHandler_TextNegotiation.
 // The body is BARE, not enveloped: AI.md PART 13 exempts health from the PART 14
 // {"ok":...,"data":...} wrapper on every health route in every state.
 func TestAPIV1HealthzHandler_JSONDefault(t *testing.T) {
@@ -622,7 +624,6 @@ func TestAPIV1HealthzHandler_JSONDefault(t *testing.T) {
 		accept    string
 		userAgent string
 	}{
-		{"no accept header, no UA", "", ""},
 		{"text/html", "text/html", ""},
 		{"application/json", "application/json", ""},
 		{"browser UA", "", "Mozilla/5.0 (X11; Linux x86_64) Chrome/120.0"},
@@ -680,7 +681,10 @@ func TestAPIV1HealthzHandler_JSONDefault(t *testing.T) {
 
 // TestAPIV1HealthzHandler_TextNegotiation verifies the plain-text triggers on the
 // API healthz route per the AI.md PART 14 priority order: .txt extension, an
-// Accept: text/plain header, or a detected non-interactive HTTP tool (curl/wget/httpie).
+// Accept: text/plain header, or a detected non-interactive HTTP tool — the full
+// isHttpTool() list (curl/wget/httpie/libcurl/python-requests/go-http-client/
+// axios/node-fetch) plus an empty User-Agent, which AI.md's isHttpTool() also
+// treats as a non-interactive tool.
 func TestAPIV1HealthzHandler_TextNegotiation(t *testing.T) {
 	h := newTestHandler()
 
@@ -695,6 +699,12 @@ func TestAPIV1HealthzHandler_TextNegotiation(t *testing.T) {
 		{"curl user-agent", "/api/v1/server/healthz", "", "curl/8.5.0"},
 		{"wget user-agent", "/api/v1/server/healthz", "", "Wget/1.21.4"},
 		{"httpie user-agent", "/api/v1/server/healthz", "", "HTTPie/3.2.2"},
+		{"libcurl user-agent", "/api/v1/server/healthz", "", "libcurl/8.5.0"},
+		{"python-requests user-agent", "/api/v1/server/healthz", "", "python-requests/2.31.0"},
+		{"go-http-client user-agent", "/api/v1/server/healthz", "", "Go-http-client/1.1"},
+		{"axios user-agent", "/api/v1/server/healthz", "", "axios/1.6.0"},
+		{"node-fetch user-agent", "/api/v1/server/healthz", "", "node-fetch/3.3.0"},
+		{"empty user-agent", "/api/v1/server/healthz", "", ""},
 	}
 
 	for _, tt := range tests {

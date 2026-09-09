@@ -2,7 +2,7 @@
 // Paths follow the AI.md PART 32 client directory tables: Linux and macOS share
 // the same `~/.config` / `~/.local/share` / `~/.cache` / `~/.local/log` layout,
 // Windows uses %APPDATA% and %LOCALAPPDATA%.
-package path
+package paths
 
 import (
 	"os"

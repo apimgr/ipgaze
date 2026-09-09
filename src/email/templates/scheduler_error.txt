@@ -9,6 +9,7 @@ Subject: {subject}
 
 {label_task} {task}
 {label_error} {error}
+{label_next_run} {next_run}
 
 {action}
 

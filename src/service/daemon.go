@@ -4,7 +4,7 @@ import (
 	"os"
 	"runtime"
 
-	paths "github.com/apimgr/ipgaze/src/path"
+	"github.com/apimgr/ipgaze/src/paths"
 )
 
 // daemonServiceManagerString returns the active service manager as a short

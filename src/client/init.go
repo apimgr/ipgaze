@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 
-	paths "github.com/apimgr/ipgaze/src/client/path"
+	"github.com/apimgr/ipgaze/src/client/paths"
 )
 
 // ensureDirectories creates all required client directories on startup and

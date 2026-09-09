@@ -34,13 +34,15 @@ import (
 const (
 	backupSaltLen  = 16
 	backupNonceLen = 12
-	backupKeyLen   = 32 // AES-256
+	// AES-256
+	backupKeyLen = 32
 )
 
 // Argon2id tuning per OWASP minimum recommendations for interactive use.
 const (
-	backupArgonTime    = 1
-	backupArgonMemory  = 64 * 1024 // 64 MiB
+	backupArgonTime = 1
+	// 64 MiB
+	backupArgonMemory  = 64 * 1024
 	backupArgonThreads = 4
 )
 

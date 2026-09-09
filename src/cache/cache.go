@@ -54,10 +54,10 @@ func ApplyEnvOverrides(cfg *config.CacheConfig) {
 	}
 }
 
-// New constructs the appropriate Cache backend from cfg.
+// NewCache constructs the appropriate Cache backend from cfg.
 // Supported types: "none", "memory", "valkey", "redis", "memcache".
 // An empty or unrecognised type falls back to the memory backend.
-func New(cfg config.CacheConfig) (Cache, error) {
+func NewCache(cfg config.CacheConfig) (Cache, error) {
 	defaultTTL := parseDuration(cfg.TTL, time.Hour)
 	prefix := cfg.Prefix
 

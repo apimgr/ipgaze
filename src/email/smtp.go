@@ -16,8 +16,8 @@ type ProbeResult struct {
 }
 
 // smtpCandidates returns the ordered list of hosts to probe per AI.md PART 17.
-// Gateway and FQDN candidates are filled in by the caller.
-func smtpCandidates(gatewayIP, fqdn string) []string {
+// Gateway, FQDN, and global IPv4 candidates are filled in by the caller.
+func smtpCandidates(gatewayIP, fqdn, globalIPv4 string) []string {
 	candidates := []string{
 		"127.0.0.1",
 		"172.17.0.1",
@@ -26,7 +26,13 @@ func smtpCandidates(gatewayIP, fqdn string) []string {
 		candidates = append(candidates, gatewayIP)
 	}
 	if fqdn != "" && fqdn != "localhost" {
-		candidates = append(candidates, fqdn, "mail."+fqdn, "smtp."+fqdn)
+		candidates = append(candidates, fqdn)
+	}
+	if globalIPv4 != "" {
+		candidates = append(candidates, globalIPv4)
+	}
+	if fqdn != "" && fqdn != "localhost" {
+		candidates = append(candidates, "mail."+fqdn, "smtp."+fqdn)
 	}
 	return candidates
 }
@@ -49,11 +55,12 @@ func probeSMTPPort(host string, port int) error {
 }
 
 // AutoDetectSMTP probes candidate hosts for a reachable SMTP server.
-// gatewayIP and fqdn are optional hints from the runtime environment.
-// Returns the first reachable host+port, or an error if none found.
-func AutoDetectSMTP(gatewayIP, fqdn string) (*ProbeResult, error) {
-	ports := []int{587, 465, 25}
-	for _, host := range smtpCandidates(gatewayIP, fqdn) {
+// gatewayIP, fqdn, and globalIPv4 are optional hints from the runtime
+// environment. Returns the first reachable host+port, or an error if none
+// found.
+func AutoDetectSMTP(gatewayIP, fqdn, globalIPv4 string) (*ProbeResult, error) {
+	ports := []int{25, 465, 587}
+	for _, host := range smtpCandidates(gatewayIP, fqdn, globalIPv4) {
 		for _, port := range ports {
 			if err := probeSMTPPort(host, port); err == nil {
 				return &ProbeResult{Host: host, Port: port}, nil

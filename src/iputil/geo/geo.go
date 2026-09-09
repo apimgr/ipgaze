@@ -7,6 +7,9 @@ import (
 	maxminddb "github.com/oschwald/maxminddb-golang"
 )
 
+// Reader is the GeoIP lookup surface used by the server: country, city, and
+// ASN records for a single address, plus a check for whether any database is
+// loaded at all.
 type Reader interface {
 	Country(net.IP) (Country, error)
 	City(net.IP) (City, error)
@@ -14,12 +17,15 @@ type Reader interface {
 	IsEmpty() bool
 }
 
+// Country holds the country-level GeoIP record for an address.
 type Country struct {
 	Name string
 	ISO  string
 	IsEU *bool
 }
 
+// City holds the city-level GeoIP record for an address, including
+// coordinates, postal/metro codes, region, and IANA timezone.
 type City struct {
 	Name       string
 	Latitude   float64
@@ -31,6 +37,7 @@ type City struct {
 	RegionCode string
 }
 
+// ASN holds the autonomous-system GeoIP record for an address.
 type ASN struct {
 	AutonomousSystemNumber       uint
 	AutonomousSystemOrganization string

@@ -10,7 +10,7 @@ import (
 
 // writeAndRead builds a Manager whose config has been adjusted by mutate,
 // runs emit against it, and returns the contents of the named log file.
-func writeAndRead(t *testing.T, name string, mutate func(*Config), emit func(*Manager)) string {
+func writeAndRead(t *testing.T, name string, mutate func(*LoggerConfig), emit func(*Manager)) string {
 	t.Helper()
 	dir := t.TempDir()
 	cfg := DefaultConfig()
@@ -38,14 +38,14 @@ func TestAccessFormats(t *testing.T) {
 	emit := func(m *Manager) { m.WriteAccessRequest(entry) }
 
 	t.Run("apache", func(t *testing.T) {
-		line := writeAndRead(t, "access.log", func(c *Config) { c.Access.Format = "apache" }, emit)
+		line := writeAndRead(t, "access.log", func(c *LoggerConfig) { c.Access.Format = "apache" }, emit)
 		if !strings.Contains(line, `"GET /api/v1/ip HTTP/1.1" 200 42 "-" "curl/7.0" req-1`) {
 			t.Errorf("apache line = %q", line)
 		}
 	})
 
 	t.Run("nginx", func(t *testing.T) {
-		line := writeAndRead(t, "access.log", func(c *Config) { c.Access.Format = "nginx" }, emit)
+		line := writeAndRead(t, "access.log", func(c *LoggerConfig) { c.Access.Format = "nginx" }, emit)
 		if !strings.HasPrefix(line, "1.2.3.4 - - [") {
 			t.Errorf("nginx line = %q", line)
 		}
@@ -55,7 +55,7 @@ func TestAccessFormats(t *testing.T) {
 	})
 
 	t.Run("json", func(t *testing.T) {
-		line := writeAndRead(t, "access.log", func(c *Config) { c.Access.Format = "json" }, emit)
+		line := writeAndRead(t, "access.log", func(c *LoggerConfig) { c.Access.Format = "json" }, emit)
 		var got map[string]any
 		if err := json.Unmarshal([]byte(line), &got); err != nil {
 			t.Fatalf("not JSON: %v (%q)", err, line)
@@ -72,14 +72,14 @@ func TestLeveledFormats(t *testing.T) {
 	emit := func(m *Manager) { m.WriteServer("INFO", "started") }
 
 	t.Run("text", func(t *testing.T) {
-		line := writeAndRead(t, "server.log", func(c *Config) { c.Server.Format = "text" }, emit)
+		line := writeAndRead(t, "server.log", func(c *LoggerConfig) { c.Server.Format = "text" }, emit)
 		if !strings.Contains(line, "[INFO] started") {
 			t.Errorf("text line = %q", line)
 		}
 	})
 
 	t.Run("json", func(t *testing.T) {
-		line := writeAndRead(t, "server.log", func(c *Config) { c.Server.Format = "json" }, emit)
+		line := writeAndRead(t, "server.log", func(c *LoggerConfig) { c.Server.Format = "json" }, emit)
 		var got map[string]any
 		if err := json.Unmarshal([]byte(line), &got); err != nil {
 			t.Fatalf("not JSON: %v (%q)", err, line)
@@ -94,14 +94,14 @@ func TestAppFormats(t *testing.T) {
 	emit := func(m *Manager) { m.WriteApp("INFO", "cache warm", "items", "12") }
 
 	t.Run("logfmt", func(t *testing.T) {
-		line := writeAndRead(t, "app.log", func(c *Config) { c.App.Format = "logfmt" }, emit)
+		line := writeAndRead(t, "app.log", func(c *LoggerConfig) { c.App.Format = "logfmt" }, emit)
 		if !strings.Contains(line, `level=INFO`) || !strings.Contains(line, `items=12`) {
 			t.Errorf("logfmt line = %q", line)
 		}
 	})
 
 	t.Run("json", func(t *testing.T) {
-		line := writeAndRead(t, "app.log", func(c *Config) { c.App.Format = "json" }, emit)
+		line := writeAndRead(t, "app.log", func(c *LoggerConfig) { c.App.Format = "json" }, emit)
 		var got map[string]any
 		if err := json.Unmarshal([]byte(line), &got); err != nil {
 			t.Fatalf("not JSON: %v (%q)", err, line)
@@ -116,14 +116,14 @@ func TestAuthFormats(t *testing.T) {
 	emit := func(m *Manager) { m.WriteAuthFailure("1.2.3.4", "/api/v1/server/config", "invalid_token") }
 
 	t.Run("syslog", func(t *testing.T) {
-		line := writeAndRead(t, "auth.log", func(c *Config) { c.Auth.Format = "syslog" }, emit)
+		line := writeAndRead(t, "auth.log", func(c *LoggerConfig) { c.Auth.Format = "syslog" }, emit)
 		if !strings.Contains(line, "ipgaze[") || !strings.Contains(line, "result=fail") {
 			t.Errorf("syslog auth line = %q", line)
 		}
 	})
 
 	t.Run("json", func(t *testing.T) {
-		line := writeAndRead(t, "auth.log", func(c *Config) { c.Auth.Format = "json" }, emit)
+		line := writeAndRead(t, "auth.log", func(c *LoggerConfig) { c.Auth.Format = "json" }, emit)
 		var got map[string]any
 		if err := json.Unmarshal([]byte(line), &got); err != nil {
 			t.Fatalf("not JSON: %v (%q)", err, line)
@@ -149,7 +149,7 @@ func TestSecurityFormats(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.format, func(t *testing.T) {
 			format := tt.format
-			line := writeAndRead(t, "security.log", func(c *Config) { c.Security.Format = format }, emit)
+			line := writeAndRead(t, "security.log", func(c *LoggerConfig) { c.Security.Format = format }, emit)
 			if !strings.Contains(line, tt.want) {
 				t.Errorf("%s line = %q, want it to contain %q", format, line, tt.want)
 			}
@@ -157,7 +157,7 @@ func TestSecurityFormats(t *testing.T) {
 	}
 
 	t.Run("json", func(t *testing.T) {
-		line := writeAndRead(t, "security.log", func(c *Config) { c.Security.Format = "json" }, emit)
+		line := writeAndRead(t, "security.log", func(c *LoggerConfig) { c.Security.Format = "json" }, emit)
 		var got map[string]any
 		if err := json.Unmarshal([]byte(line), &got); err != nil {
 			t.Fatalf("not JSON: %v (%q)", err, line)
@@ -172,7 +172,7 @@ func TestSecurityFormats(t *testing.T) {
 // second log record (AI.md PART 11: raw text only, one event per line).
 func TestSanitizeLineStripsCRLF(t *testing.T) {
 	line := writeAndRead(t, "security.log",
-		func(c *Config) { c.Security.Format = "fail2ban" },
+		func(c *LoggerConfig) { c.Security.Format = "fail2ban" },
 		func(m *Manager) { m.WriteSecurity("Blocked", "1.2.3.4\r\nFAKE [security] injected from 9.9.9.9") })
 	if strings.Count(line, "\n") != 0 {
 		t.Errorf("sanitized line still spans multiple records: %q", line)

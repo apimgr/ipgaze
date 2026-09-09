@@ -50,6 +50,9 @@ type cliVersionEntry struct {
 	SHA256  string `json:"sha256"`
 }
 
+// Server holds the HTTP server's request-scoped dependencies: the trusted
+// IP header list, reverse-DNS and port-probe hooks, GeoIP reader, response
+// cache, templates, and the resolved runtime configuration.
 type Server struct {
 	IPHeaders  []string
 	LookupAddr func(net.IP) (string, error)
@@ -473,6 +476,8 @@ func (s *Server) newPortResponse(r *http.Request) (model.PortResponse, error) {
 	}, nil
 }
 
+// CLIHandler writes the requester's IP address as a single plain-text line,
+// the echoip-compatible response for CLI user agents.
 func (s *Server) CLIHandler(w http.ResponseWriter, r *http.Request) *appError {
 	ip, err := ipFromRequest(s.IPHeaders, r, true, s.getTrust().IsTrustedPeer(r))
 	if err != nil {
@@ -482,6 +487,7 @@ func (s *Server) CLIHandler(w http.ResponseWriter, r *http.Request) *appError {
 	return nil
 }
 
+// CLICountryHandler writes the requester's country name as plain text.
 func (s *Server) CLICountryHandler(w http.ResponseWriter, r *http.Request) *appError {
 	response, err := s.newResponse(r)
 	if err != nil {
@@ -491,6 +497,8 @@ func (s *Server) CLICountryHandler(w http.ResponseWriter, r *http.Request) *appE
 	return nil
 }
 
+// CLICountryISOHandler writes the requester's ISO 3166-1 country code as
+// plain text.
 func (s *Server) CLICountryISOHandler(w http.ResponseWriter, r *http.Request) *appError {
 	response, err := s.newResponse(r)
 	if err != nil {
@@ -500,6 +508,7 @@ func (s *Server) CLICountryISOHandler(w http.ResponseWriter, r *http.Request) *a
 	return nil
 }
 
+// CLICityHandler writes the requester's city name as plain text.
 func (s *Server) CLICityHandler(w http.ResponseWriter, r *http.Request) *appError {
 	response, err := s.newResponse(r)
 	if err != nil {
@@ -509,6 +518,8 @@ func (s *Server) CLICityHandler(w http.ResponseWriter, r *http.Request) *appErro
 	return nil
 }
 
+// CLICoordinatesHandler writes the requester's latitude,longitude pair as
+// plain text.
 func (s *Server) CLICoordinatesHandler(w http.ResponseWriter, r *http.Request) *appError {
 	response, err := s.newResponse(r)
 	if err != nil {
@@ -518,6 +529,8 @@ func (s *Server) CLICoordinatesHandler(w http.ResponseWriter, r *http.Request) *
 	return nil
 }
 
+// CLIASNHandler writes the requester's autonomous system number as plain
+// text.
 func (s *Server) CLIASNHandler(w http.ResponseWriter, r *http.Request) *appError {
 	response, err := s.newResponse(r)
 	if err != nil {
@@ -527,6 +540,8 @@ func (s *Server) CLIASNHandler(w http.ResponseWriter, r *http.Request) *appError
 	return nil
 }
 
+// CLIASNOrgHandler writes the requester's autonomous system organization as
+// plain text.
 func (s *Server) CLIASNOrgHandler(w http.ResponseWriter, r *http.Request) *appError {
 	response, err := s.newResponse(r)
 	if err != nil {
@@ -536,6 +551,7 @@ func (s *Server) CLIASNOrgHandler(w http.ResponseWriter, r *http.Request) *appEr
 	return nil
 }
 
+// JSONHandler writes the full IP lookup response as indented JSON.
 func (s *Server) JSONHandler(w http.ResponseWriter, r *http.Request) *appError {
 	response, err := s.newResponse(r)
 	if err != nil {
@@ -552,6 +568,8 @@ func (s *Server) JSONHandler(w http.ResponseWriter, r *http.Request) *appError {
 	return nil
 }
 
+// PortHandler probes a TCP port on the requester's address and writes the
+// reachability result as JSON.
 func (s *Server) PortHandler(w http.ResponseWriter, r *http.Request) *appError {
 	response, err := s.newPortResponse(r)
 	if err != nil {
@@ -568,6 +586,8 @@ func (s *Server) PortHandler(w http.ResponseWriter, r *http.Request) *appError {
 	return nil
 }
 
+// DefaultHandler serves the landing page, content-negotiating between the
+// rendered HTML page and the plain-text CLI response.
 func (s *Server) DefaultHandler(w http.ResponseWriter, r *http.Request) *appError {
 	response, err := s.newResponse(r)
 	if err != nil {
@@ -686,10 +706,14 @@ func (s *Server) APIV1InfoHandler(w http.ResponseWriter, r *http.Request) *appEr
 	return s.JSONHandler(w, r)
 }
 
+// APIV1IPHandler serves GET /api/v1/ip, the JSON-route mirror of the
+// plain-text CLI IP response.
 func (s *Server) APIV1IPHandler(w http.ResponseWriter, r *http.Request) *appError {
 	return s.CLIHandler(w, r)
 }
 
+// APIV1IPLookupHandler serves GET /api/v1/ip/{ip}, returning the full lookup
+// response for an explicitly supplied address.
 func (s *Server) APIV1IPLookupHandler(w http.ResponseWriter, r *http.Request) *appError {
 	// Extract IP from /api/v1/ip/{ip}
 	ipStr := strings.TrimPrefix(r.URL.Path, "/api/v1/ip/")
@@ -803,6 +827,8 @@ func (s *Server) SetTrust(tr *netutil.TrustResolver) {
 	s.trust = tr
 }
 
+// Handler builds the fully wired chi router — middleware chain, web routes,
+// and their /api/{version} JSON mirrors — and returns it as an http.Handler.
 func (s *Server) Handler() http.Handler {
 	r := NewChiRouter()
 
@@ -913,6 +939,10 @@ func (s *Server) Handler() http.Handler {
 	// "Sitemap.xml"); HEAD is registered so crawlers can probe it cheaply.
 	r.Get("/sitemap.xml", s.sitemapHandler())
 	r.Head("/sitemap.xml", s.sitemapHandler())
+	// Browsers probe /favicon.ico unconditionally, so it must be served rather
+	// than fall through to the 404 page (AI.md PART 24 "Static Files").
+	r.Get("/favicon.ico", s.faviconHandler())
+	r.Head("/favicon.ico", s.faviconHandler())
 	r.Get("/security.txt", s.SpecialHandler.SecurityTxtHandler)
 	r.Get("/.well-known/security.txt", s.SpecialHandler.SecurityTxtHandler)
 	r.Get("/.well-known/pgp-key.asc", s.SpecialHandler.PGPKeyHandler)
@@ -1133,6 +1163,8 @@ func (s *Server) Handler() http.Handler {
 		r.Post("/server/contact", s.PagesHandler.APIV1ServerContactHandler)
 		r.Get("/server/terms", s.PagesHandler.APIV1ServerTermsHandler)
 		r.Get("/server/preferences", s.PagesHandler.APIV1ServerPreferencesHandler)
+		// JSON mirror of the web form POST /server/preferences.
+		r.Post("/server/preferences", s.PagesHandler.APIV1ServerPreferencesUpdateHandler)
 		r.Get("/server/preferences/export", s.PagesHandler.APIV1ServerPreferencesExportHandler)
 		r.Get("/server/preferences/import", s.PagesHandler.APIV1ServerPreferencesImportHandler)
 
@@ -1424,13 +1456,13 @@ func (s *Server) cliBinaryDownloadHandler() http.HandlerFunc {
 		// Extract filename from URL (chi wildcard is everything after /cli/binaries/)
 		filename := filepath.Base(r.URL.Path)
 		if filename == "" || filename == "." || filename == "/" {
-			http.Error(w, "not found", http.StatusNotFound)
+			http.Error(w, i18n.T(r.Context(), "errors.not_found"), http.StatusNotFound)
 			return
 		}
 
 		// Reject path traversal
 		if strings.Contains(filename, "..") || strings.ContainsAny(filename, "/\\") {
-			http.Error(w, "invalid filename", http.StatusBadRequest)
+			http.Error(w, i18n.T(r.Context(), "errors.invalid_format"), http.StatusBadRequest)
 			return
 		}
 
@@ -1440,22 +1472,24 @@ func (s *Server) cliBinaryDownloadHandler() http.HandlerFunc {
 		f, err := os.Open(binPath)
 		if err != nil {
 			if os.IsNotExist(err) {
-				http.Error(w, "binary not found", http.StatusNotFound)
+				http.Error(w, i18n.T(r.Context(), "errors.not_found"), http.StatusNotFound)
 				return
 			}
-			http.Error(w, "internal server error", http.StatusInternalServerError)
+			http.Error(w, i18n.T(r.Context(), "errors.server_error"), http.StatusInternalServerError)
 			return
 		}
 		defer f.Close()
 
 		fi, err := f.Stat()
 		if err != nil {
-			http.Error(w, "internal server error", http.StatusInternalServerError)
+			http.Error(w, i18n.T(r.Context(), "errors.server_error"), http.StatusInternalServerError)
 			return
 		}
 
 		w.Header().Set("Content-Type", "application/octet-stream")
-		w.Header().Set("Content-Disposition", "attachment; filename="+filename)
+		// Quote the filename so a name containing a quote or separator cannot
+		// break out of the header parameter.
+		w.Header().Set("Content-Disposition", "attachment; filename="+strconv.Quote(filename))
 		w.Header().Set("Content-Length", fmt.Sprintf("%d", fi.Size()))
 		// Detect OS from filename suffix to set correct MIME
 		if strings.HasSuffix(filename, ".exe") {

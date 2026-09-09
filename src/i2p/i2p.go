@@ -64,6 +64,7 @@ const (
 	ProviderSAM
 )
 
+// String returns the provider's config-file name ("i2pd", "sam", or "none").
 func (p Provider) String() string {
 	switch p {
 	case ProviderI2PD:
@@ -104,6 +105,8 @@ type service struct {
 // ("No Provider") rather than a plain failure.
 var ErrNoProvider = errors.New("i2p enabled but no provider available")
 
+// I2PManager owns the lifecycle of the I2P eepsite backend — provider
+// detection, start/stop, and the status reported to operators.
 type I2PManager struct {
 	cfg     I2PServiceConfig
 	mu      sync.RWMutex

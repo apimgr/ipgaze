@@ -909,6 +909,10 @@
         "description": "Sert l'interface interactive Swagger, ou ce document OpenAPI lorsque du JSON est demandé via l'en-tête Accept.",
         "summary": "Interface Swagger"
       },
+      "favicon": {
+      "description": "Renvoie le favicon du site et redirige vers le favicon de marque configuré lorsqu'il en existe un.",
+      "summary": "Favicon du site"
+      },
       "healthz": {
         "description": "Renvoie le rapport d'état complet du serveur : état global, identité du projet, métadonnées de compilation, durée de fonctionnement, mode, fonctionnalités activées, vérifications des sous-systèmes et statistiques de requêtes. Le format est négocié : JSON, HTML pour les navigateurs, texte brut sinon.",
         "summary": "Vérification d'état"

@@ -22,6 +22,7 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: casjaysdev/go:latest
+      options: "--user 0:0"
     strategy:
       matrix:
         include:

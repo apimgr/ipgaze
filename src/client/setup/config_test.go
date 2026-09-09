@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	paths "github.com/apimgr/ipgaze/src/client/path"
+	"github.com/apimgr/ipgaze/src/client/paths"
 )
 
 // saveDefault writes cfg to the default config path, the behaviour the

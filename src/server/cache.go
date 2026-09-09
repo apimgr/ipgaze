@@ -10,6 +10,8 @@ import (
 	"github.com/apimgr/ipgaze/src/server/model"
 )
 
+// Cache is a bounded, concurrency-safe LRU-style cache of IP lookup
+// responses keyed by a hash of the address. A zero capacity disables it.
 type Cache struct {
 	capacity  int
 	mu        sync.RWMutex
@@ -18,12 +20,16 @@ type Cache struct {
 	evictions uint64
 }
 
+// CacheStats is a point-in-time snapshot of a Cache's capacity, entry count,
+// and cumulative eviction total.
 type CacheStats struct {
 	Capacity  int
 	Size      int
 	Evictions uint64
 }
 
+// NewCache returns a Cache holding at most capacity entries. A negative
+// capacity is clamped to zero, which disables caching.
 func NewCache(capacity int) *Cache {
 	if capacity < 0 {
 		capacity = 0
@@ -41,6 +47,8 @@ func key(ip net.IP) uint64 {
 	return h.Sum64()
 }
 
+// Set stores resp under ip, evicting the oldest entries first when the cache
+// is at capacity. It is a no-op when the cache is disabled.
 func (c *Cache) Set(ip net.IP, resp model.IPLookupResponse) {
 	if c.capacity == 0 {
 		return
@@ -69,6 +77,7 @@ func (c *Cache) Set(ip net.IP, resp model.IPLookupResponse) {
 	c.entries[k] = c.values.PushBack(resp)
 }
 
+// Get returns the cached response for ip and whether one was present.
 func (c *Cache) Get(ip net.IP) (model.IPLookupResponse, bool) {
 	k := key(ip)
 	c.mu.RLock()
@@ -80,6 +89,8 @@ func (c *Cache) Get(ip net.IP) (model.IPLookupResponse, bool) {
 	return r.Value.(model.IPLookupResponse), true
 }
 
+// Resize changes the cache's capacity and resets its eviction counter.
+// A negative capacity is rejected.
 func (c *Cache) Resize(capacity int) error {
 	if capacity < 0 {
 		return fmt.Errorf("invalid capacity: %d", capacity)
@@ -91,6 +102,8 @@ func (c *Cache) Resize(capacity int) error {
 	return nil
 }
 
+// Stats returns a snapshot of the cache's current size, capacity, and
+// cumulative evictions.
 func (c *Cache) Stats() CacheStats {
 	c.mu.RLock()
 	defer c.mu.RUnlock()

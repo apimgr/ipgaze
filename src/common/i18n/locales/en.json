@@ -909,6 +909,10 @@
         "description": "Serves the interactive Swagger user interface, or this OpenAPI document when JSON is requested through the Accept header.",
         "summary": "Swagger UI"
       },
+      "favicon": {
+      "description": "Returns the site favicon, redirecting to the configured branding favicon when one is set.",
+      "summary": "Site favicon"
+      },
       "healthz": {
         "description": "Returns the full server health record: overall status, project identity, build metadata, uptime, mode, enabled features, subsystem checks and request statistics. The format is negotiated: JSON, HTML for browsers, plain text otherwise.",
         "summary": "Health check"

@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/apimgr/ipgaze/src/config"
-	paths "github.com/apimgr/ipgaze/src/path"
+	"github.com/apimgr/ipgaze/src/paths"
 )
 
 func TestMultiValueFlagString(t *testing.T) {

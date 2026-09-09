@@ -90,6 +90,11 @@ var contactThrottle = struct {
 // from the same client IP.
 const contactThrottleWindow = 60 * time.Second
 
+// contactThrottleMaxEntries bounds the per-IP timestamp map. The endpoint is
+// unauthenticated, so without a ceiling a spoofed-source flood would grow the
+// map without limit; past this size expired entries are swept before insert.
+const contactThrottleMaxEntries = 4096
+
 // allowContactSubmission reports whether a submission from ip should be
 // accepted, recording the attempt either way.
 func allowContactSubmission(ip string) bool {
@@ -97,6 +102,13 @@ func allowContactSubmission(ip string) bool {
 	defer contactThrottle.mu.Unlock()
 	if t, ok := contactThrottle.last[ip]; ok && time.Since(t) < contactThrottleWindow {
 		return false
+	}
+	if len(contactThrottle.last) >= contactThrottleMaxEntries {
+		for k, t := range contactThrottle.last {
+			if time.Since(t) >= contactThrottleWindow {
+				delete(contactThrottle.last, k)
+			}
+		}
 	}
 	contactThrottle.last[ip] = time.Now()
 	return true
@@ -518,7 +530,7 @@ func (h *PagesHandler) buildAboutResponse() AboutResponse {
 // ServerAboutHandler serves /server/about (HTML)
 func (h *PagesHandler) ServerAboutHandler(w http.ResponseWriter, r *http.Request) {
 	if err := h.Render(w, r, "about.tmpl", h.NewPageData(r)); err != nil {
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "errors.server_error"), http.StatusInternalServerError)
 	}
 }
 
@@ -535,7 +547,7 @@ func (h *PagesHandler) APIV1ServerAboutHandler(w http.ResponseWriter, r *http.Re
 // ServerHelpHandler serves /server/help (HTML)
 func (h *PagesHandler) ServerHelpHandler(w http.ResponseWriter, r *http.Request) {
 	if err := h.Render(w, r, "help.tmpl", h.NewPageData(r)); err != nil {
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "errors.server_error"), http.StatusInternalServerError)
 	}
 }
 
@@ -571,7 +583,7 @@ func (h *PagesHandler) APIV1ServerHelpHandler(w http.ResponseWriter, r *http.Req
 // ServerPrivacyHandler serves /server/privacy (HTML)
 func (h *PagesHandler) ServerPrivacyHandler(w http.ResponseWriter, r *http.Request) {
 	if err := h.Render(w, r, "privacy.tmpl", h.NewPageData(r)); err != nil {
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "errors.server_error"), http.StatusInternalServerError)
 	}
 }
 
@@ -698,7 +710,7 @@ func (h *PagesHandler) ServerContactHandler(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	if err := h.Render(w, r, "contact.tmpl", h.NewPageData(r)); err != nil {
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "errors.server_error"), http.StatusInternalServerError)
 	}
 }
 
@@ -824,7 +836,7 @@ func (h *PagesHandler) dispatchContactSubmission(req ContactRequest) {
 // ServerTermsHandler serves /server/terms (HTML)
 func (h *PagesHandler) ServerTermsHandler(w http.ResponseWriter, r *http.Request) {
 	if err := h.Render(w, r, "terms.tmpl", h.NewPageData(r)); err != nil {
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "errors.server_error"), http.StatusInternalServerError)
 	}
 }
 
@@ -899,7 +911,7 @@ func safeRedirectTarget(r *http.Request, target string) string {
 // (1-year expiry, SameSite=Lax). HttpOnly is false so the same client-side JS can also read it.
 func (h *PagesHandler) ConsentHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		http.Error(w, i18n.T(r.Context(), "errors.method_not_allowed"), http.StatusMethodNotAllowed)
 		return
 	}
 	choice := r.FormValue("choice")
@@ -920,7 +932,7 @@ func (h *PagesHandler) ConsentHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	value, err := json.Marshal(consent)
 	if err != nil {
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "errors.server_error"), http.StatusInternalServerError)
 		return
 	}
 	// URL-encode the JSON so it satisfies RFC 6265 cookie-value grammar (no raw
@@ -954,7 +966,7 @@ func (h *PagesHandler) ConsentHandler(w http.ResponseWriter, r *http.Request) {
 // (PRG pattern) back to referrer, mirroring ConsentHandler/ServerPreferencesUpdateHandler.
 func (h *PagesHandler) CCPAHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		http.Error(w, i18n.T(r.Context(), "errors.method_not_allowed"), http.StatusMethodNotAllowed)
 		return
 	}
 	choice := r.FormValue("choice")
@@ -1002,16 +1014,29 @@ func NextTheme(current string) string {
 // a full page reload.
 func (h *PagesHandler) ServerPreferencesUpdateHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		http.Error(w, i18n.T(r.Context(), "errors.method_not_allowed"), http.StatusMethodNotAllowed)
 		return
 	}
-	theme := r.FormValue("theme")
+	setThemeCookie(w, r, normalizeThemeValue(r.FormValue("theme")))
+	ref := safeRedirectTarget(r, r.Referer())
+	http.Redirect(w, r, ref, http.StatusSeeOther)
+}
+
+// normalizeThemeValue validates a submitted theme against the allowed enum
+// (AI.md PART 16 "Client-Side Preferences"), falling back to the project
+// default for anything unknown or malformed.
+func normalizeThemeValue(theme string) string {
 	switch theme {
 	case "light", "dark", "auto":
-		// valid
+		return theme
 	default:
-		theme = "dark"
+		return "dark"
 	}
+}
+
+// setThemeCookie writes the visitor's theme cookie. Shared by the web form
+// handler and its JSON API mirror so both persist the preference identically.
+func setThemeCookie(w http.ResponseWriter, r *http.Request, theme string) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     "theme",
 		Value:    theme,
@@ -1021,8 +1046,6 @@ func (h *PagesHandler) ServerPreferencesUpdateHandler(w http.ResponseWriter, r *
 		SameSite: http.SameSiteLaxMode,
 		Secure:   r.TLS != nil,
 	})
-	ref := safeRedirectTarget(r, r.Referer())
-	http.Redirect(w, r, ref, http.StatusSeeOther)
 }
 
 // =============================================================================
@@ -1067,7 +1090,7 @@ func (h *PagesHandler) ServerPreferencesHandler(w http.ResponseWriter, r *http.R
 		PreferencesExportCode: export.Code,
 	}
 	if err := h.Render(w, r, "preferences.tmpl", data); err != nil {
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "errors.server_error"), http.StatusInternalServerError)
 	}
 }
 
@@ -1091,6 +1114,34 @@ func (h *PagesHandler) APIV1ServerPreferencesHandler(w http.ResponseWriter, r *h
 	}, nil)
 }
 
+// APIV1ServerPreferencesUpdateHandler serves POST
+// /api/{api_version}/server/preferences — the JSON mirror of the web form
+// POST /server/preferences (AI.md PART 14 "Frontend Must Match Backend").
+// It accepts either a JSON body or a form-encoded body, persists the theme
+// cookie exactly as the web handler does, and answers with the updated
+// preferences instead of a redirect.
+func (h *PagesHandler) APIV1ServerPreferencesUpdateHandler(w http.ResponseWriter, r *http.Request) {
+	var submitted struct {
+		Theme string `json:"theme"`
+	}
+	if strings.HasPrefix(r.Header.Get("Content-Type"), "application/json") {
+		// A malformed/empty body just yields a zero-value struct, which
+		// normalizeThemeValue resolves to the default theme.
+		_ = json.NewDecoder(r.Body).Decode(&submitted)
+	} else {
+		submitted.Theme = r.FormValue("theme")
+	}
+	theme := normalizeThemeValue(submitted.Theme)
+	setThemeCookie(w, r, theme)
+	export := h.buildPreferencesExportFor(r, theme, i18n.DetectLocale(r))
+	SendAPIResponseOK(w, PreferencesResponse{
+		Theme:      export.Theme,
+		Lang:       export.Lang,
+		ExportURL:  export.URL,
+		ExportCode: export.Code,
+	}, nil)
+}
+
 // preferencesExport holds the two representations of the visitor's
 // exportable preferences (theme + lang only), shared by the web export page
 // and its JSON API mirror.
@@ -1105,8 +1156,14 @@ type preferencesExport struct {
 // renders both the full import URL and its base64url-encoded short code
 // (AI.md PART 16 "Cross-device preference sync").
 func (h *PagesHandler) buildPreferencesExport(r *http.Request) preferencesExport {
-	theme := h.currentTheme(r)
-	lang := i18n.DetectLocale(r)
+	return h.buildPreferencesExportFor(r, h.currentTheme(r), i18n.DetectLocale(r))
+}
+
+// buildPreferencesExportFor renders the export representations for an
+// explicit theme/lang pair rather than the request's current cookies. The
+// preference-update API mirror needs this: the cookie it just set is on the
+// response, so re-reading the request would still report the old value.
+func (h *PagesHandler) buildPreferencesExportFor(r *http.Request, theme, lang string) preferencesExport {
 	query := url.Values{"theme": {theme}, "lang": {lang}}.Encode()
 	fullURL := netutil.BuildURL(r, h.Trust, "/server/preferences/import?"+query)
 	code := base64.RawURLEncoding.EncodeToString([]byte(query))
@@ -1255,12 +1312,12 @@ func (h *PagesHandler) APIV1ServerPreferencesImportHandler(w http.ResponseWriter
 // No-JS path: detects text/html Accept header and redirects (PRG pattern) back to referrer.
 func (h *PagesHandler) DismissAnnouncementHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		http.Error(w, i18n.T(r.Context(), "errors.method_not_allowed"), http.StatusMethodNotAllowed)
 		return
 	}
 	id := strings.TrimSpace(r.FormValue("id"))
 	if id == "" {
-		http.Error(w, "Bad Request", http.StatusBadRequest)
+		http.Error(w, i18n.T(r.Context(), "errors.bad_request"), http.StatusBadRequest)
 		return
 	}
 	existing := dismissedAnnouncements(r)

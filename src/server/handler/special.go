@@ -403,6 +403,9 @@ func (h *SpecialHandler) OfflineHandler(w http.ResponseWriter, r *http.Request) 
   <title>IPGaze — %s</title>
   <style>
     :root { --bg: %s; --fg: %s; --muted: %s; --accent: %s; --accent-text: %s; }
+    @media (prefers-color-scheme: light) {
+      :root { --bg: %s; --fg: %s; --muted: %s; --accent: %s; --accent-text: %s; }
+    }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { background: var(--bg); color: var(--fg); font-family: system-ui, sans-serif;
            display: flex; align-items: center; justify-content: center; min-height: 100vh; text-align: center; padding: 1rem; }
@@ -429,6 +432,11 @@ func (h *SpecialHandler) OfflineHandler(w http.ResponseWriter, r *http.Request) 
 		theme.ThemePaletteDark.Muted,
 		theme.ThemePaletteDark.Primary,
 		theme.ReadableTextOn(theme.ThemePaletteDark.Primary),
+		theme.ThemePaletteLight.Background,
+		theme.ThemePaletteLight.Foreground,
+		theme.ThemePaletteLight.Muted,
+		theme.ThemePaletteLight.Primary,
+		theme.ReadableTextOn(theme.ThemePaletteLight.Primary),
 		i18n.T(ctx, "pwa.offline_title"),
 		i18n.T(ctx, "pwa.offline_description"),
 		i18n.T(ctx, "pwa.offline_try_again"),

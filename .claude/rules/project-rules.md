@@ -20,6 +20,9 @@
 - NEVER assume current working directory is project root — always resolve
   explicitly (`git rev-parse --show-toplevel` or equivalent)
 - NEVER pin/hardcode a specific Go patch version — always latest stable
+- NEVER name a package `path` — it shadows Go's stdlib `path` package;
+  the path-resolution package is `src/paths/paths.go` (and
+  `src/client/paths/paths.go`), package name `paths`
 
 ## CRITICAL - ALWAYS DO
 
@@ -40,6 +43,8 @@
 - ALWAYS use OS-specific paths per PART 4 tables — config/data/cache/log
   differ by OS and privilege level; Docker uses `/config` + `/data` only
   inside containers, never on native OS
+- ALWAYS keep `.claude/settings.json` committed (shared team settings) —
+  currently missing in this repo; OPEN item, see report
 
 ## Key Rules Summary
 
