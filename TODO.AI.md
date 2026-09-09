@@ -967,3 +967,15 @@ Reconciliation items from the AI.md bootstrap/compliance passes.
 46. **`.claude/rules/backend-rules.md` header names PART 31 "Tor Hidden
     Service"** — AI.md 1258 and 5980 now call it "Overlay Networks (Tor &
     I2P)". Fold into the item 43 regeneration pass.
+
+47. **Three forbidden/deprecated transitive dependencies still reachable
+    via go.sum** — `github.com/mattn/go-sqlite3` (CGO, forbidden;
+    project's own driver usage correctly uses `modernc.org/sqlite`),
+    `github.com/gorilla/mux` (forbidden; project's own routing correctly
+    uses `go-chi/chi/v5`), and `github.com/dgrijalva/jwt-go` (deprecated).
+    None are direct imports — flagged by `go-lint` while reviewing the
+    `google.golang.org/grpc` v1.83.2 CVE-2026-84445 security bump as
+    pre-existing, not introduced by that change. Needs a dependency-tree
+    audit (`go mod graph` or `go mod why`) to identify which direct
+    dependency pulls each one in, and whether an upstream update or
+    dependency swap removes it.
