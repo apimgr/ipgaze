@@ -57,9 +57,17 @@
   same-origin GET, let API/cross-origin/non-GET fall through untouched
 - Precache the PWA shell (`manifest.json`, `offline.html`, core CSS/JS) via the service worker's
   `PRECACHE_ASSETS` list
+- Make `/server/preferences` EDITABLE, never read-only — every cookie in the preferences table needs a
+  control the visitor can act on in place: a theme selector, a language selector, cookie-consent category
+  toggles (reachable here, not only from the first-visit banner), a CCPA opt-out toggle, and a control for
+  every app-specific `{project_name}_pref_*` setting; rendering current values as plain text turns the
+  preferences page into a status page
+- Name app-specific guest preferences `{project_name}_pref_{key}` and hold them to the same rules as
+  `theme`/`lang` — cookie-only, read per request, never persisted server-side, no second storage mechanism
 - Preference export (`GET /server/preferences/export`, API-mirrored) returns both a full URL
   (`https://{host}/server/preferences/import?theme=dark&lang=fr`) and a short code
-  (`base64url(theme=dark&lang=fr)`) built from the current `theme`/`lang` cookies only
+  (`base64url(theme=dark&lang=fr)`) built from the current `theme`, `lang`, and every
+  `{project_name}_pref_*` cookie — the full guest preference set, not just theme/lang
 - Preference import (`GET /server/preferences/import?theme=…&lang=…`, API-mirrored) decodes, validates,
   sets the matching cookies, then `303 See Other`s to `/` (or referrer) in one request — code must never
   linger in the visible URL/history

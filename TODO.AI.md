@@ -945,13 +945,15 @@ Reconciliation items from the AI.md bootstrap/compliance passes.
     list** — left in place per the user's ruling to leave this as an open
     TODO rather than resolve now.
 
-43. **`.claude/rules/*.md` are stale and 10 of 13 are stubs** — AI.md 2635-2648
-    and 3163-3171 require each rule file to carry a key-rules summary
-    extracted from its PARTs, and require regeneration whenever AI.md is
-    newer than the rule files ("This is NOT optional"). All 13 files are
-    dated 2026-08-29 while AI.md is dated 2026-09-03, and ten of them still
-    say "**NOT YET FULLY POPULATED**". Regenerating them means re-reading
-    most of the 49k-line spec, so it needs its own dedicated pass.
+43. ~~**`.claude/rules/*.md` are stale and 10 of 13 are stubs**~~ — RESOLVED.
+    No stub remains: all 13 files carry a populated key-rules summary for
+    their PARTs, and the 2026-09-10 spec delta has been folded in —
+    `api-rules.md` (PART 14 `MAINTENANCE` code + maintenance headers),
+    `backend-rules.md` (PART 9 outermost `RecoverMiddleware`, PART 10 query
+    and 30-second transaction timeouts), `frontend-rules.md` (PART 16
+    editable `/server/preferences`, `{project_name}_pref_*` naming and
+    export scope), `features-rules.md` (PART 18 Task Execution Panic
+    Safety). All 13 mtimes are now newer than AI.md's.
 
 44. **`.claude/settings.json` is missing** — AI.md 1234 lists it as
     committed team config (not gitignored, and the repo's `.gitignore`
@@ -964,18 +966,18 @@ Reconciliation items from the AI.md bootstrap/compliance passes.
     and 34120 all treat Forgejo as a supported provider — a spec-internal
     inconsistency, not a code defect. Left in place.
 
-46. **`.claude/rules/backend-rules.md` header names PART 31 "Tor Hidden
-    Service"** — AI.md 1258 and 5980 now call it "Overlay Networks (Tor &
-    I2P)". Fold into the item 43 regeneration pass.
+46. ~~**`.claude/rules/backend-rules.md` header names PART 31 "Tor Hidden
+    Service"**~~ — RESOLVED. The file's header now reads "Backend Rules
+    (PART 9, 10, 11, 31)" and its section heading reads "PART 31 — Overlay
+    Networks (Tor & I2P)", matching AI.md 1258 and 5980.
 
-47. **Three forbidden/deprecated transitive dependencies still reachable
-    via go.sum** — `github.com/mattn/go-sqlite3` (CGO, forbidden;
-    project's own driver usage correctly uses `modernc.org/sqlite`),
-    `github.com/gorilla/mux` (forbidden; project's own routing correctly
-    uses `go-chi/chi/v5`), and `github.com/dgrijalva/jwt-go` (deprecated).
-    None are direct imports — flagged by `go-lint` while reviewing the
-    `google.golang.org/grpc` v1.83.2 CVE-2026-84445 security bump as
-    pre-existing, not introduced by that change. Needs a dependency-tree
-    audit (`go mod graph` or `go mod why`) to identify which direct
-    dependency pulls each one in, and whether an upstream update or
-    dependency swap removes it.
+47. ~~**Three forbidden/deprecated transitive dependencies still reachable
+    via go.sum**~~ — RESOLVED, no change needed. `github.com/mattn/
+    go-sqlite3 v1.14.14`, `github.com/gorilla/mux v1.6.2/v1.7.3/v1.8.0`
+    and `github.com/dgrijalva/jwt-go v3.2.0+incompatible` each appear in
+    `go.sum` with a `/go.mod` hash line ONLY and no module-zip `h1:` line.
+    A module whose source zip was never downloaded cannot be compiled into
+    the binary — those entries exist purely so MVS can read the transitive
+    go.mod files during graph resolution. None is a direct import, none is
+    linked, and `go mod tidy` keeps the `/go.mod` lines by design, so
+    there is nothing to swap or update.

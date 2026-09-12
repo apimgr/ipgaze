@@ -24,10 +24,20 @@ const maintenanceProbeInterval = 30 * time.Second
 type maintenanceState struct {
 	active   atomic.Bool
 	mu       sync.RWMutex
+	code     string
 	reason   string
 	guidance string
 	monitor  sync.Once
 }
+
+// Maintenance reason codes are the stable, operator-facing tokens emitted in
+// the `X-Maintenance-Reason` header and the error body's `details.reason`
+// (AI.md PART 12 "API Responses in Maintenance Mode"). They are deliberately
+// coarse: the full reason text names internal subsystems and stays in the logs.
+const (
+	maintenanceCodeDatabase = "database_connection"
+	maintenanceCodeDataDir  = "data_directory_write"
+)
 
 // MaintenanceActive reports whether the server is currently in maintenance mode.
 func (s *Server) MaintenanceActive() bool {
@@ -43,13 +53,23 @@ func (s *Server) MaintenanceReason() (string, string) {
 	return s.maintenance.reason, s.maintenance.guidance
 }
 
+// MaintenanceCode returns the coarse reason code for the current maintenance
+// state, empty when the server is healthy. Unlike MaintenanceReason it carries
+// no internal detail, so it is safe to expose to anonymous clients.
+func (s *Server) MaintenanceCode() string {
+	s.maintenance.mu.RLock()
+	defer s.maintenance.mu.RUnlock()
+	return s.maintenance.code
+}
+
 // EnterMaintenance puts the server into read-only maintenance mode after one of
 // the two critical errors of AI.md PART 12 — a database connection failure or a
 // file-write failure. It never terminates the process: the whole point of
 // maintenance mode is that a critical error degrades the server to read-only
 // instead of taking it down, while the self-healing loop keeps retrying.
-func (s *Server) EnterMaintenance(reason, guidance string) {
+func (s *Server) EnterMaintenance(code, reason, guidance string) {
 	s.maintenance.mu.Lock()
+	s.maintenance.code = code
 	s.maintenance.reason = reason
 	s.maintenance.guidance = guidance
 	s.maintenance.mu.Unlock()
@@ -71,6 +91,7 @@ func (s *Server) ExitMaintenance() {
 		return
 	}
 	s.maintenance.mu.Lock()
+	s.maintenance.code = ""
 	s.maintenance.reason = ""
 	s.maintenance.guidance = ""
 	s.maintenance.mu.Unlock()
@@ -96,9 +117,9 @@ func (s *Server) maintenanceMonitorLoop() {
 	ticker := time.NewTicker(maintenanceProbeInterval)
 	defer ticker.Stop()
 	for range ticker.C {
-		reason, guidance, err := s.probeCriticalSubsystems()
+		code, reason, guidance, err := s.probeCriticalSubsystems()
 		if err != nil {
-			s.EnterMaintenance(reason, guidance)
+			s.EnterMaintenance(code, reason, guidance)
 			if s.logManager != nil {
 				s.logManager.WriteError("error", "self-healing attempt failed: "+
 					sanitizeLogValue(reason)+" - "+sanitizeLogValue(guidance))
@@ -111,25 +132,27 @@ func (s *Server) maintenanceMonitorLoop() {
 
 // probeCriticalSubsystems tests database connectivity and data-directory
 // writability — the only two critical error classes in AI.md PART 12. It
-// returns the reason and the operator guidance alongside the error so both the
-// log line and the maintenance status carry actionable text.
-func (s *Server) probeCriticalSubsystems() (string, string, error) {
+// returns the reason code, the reason and the operator guidance alongside the
+// error so both the log line and the maintenance status carry actionable text.
+func (s *Server) probeCriticalSubsystems() (string, string, string, error) {
 	if s.sqlDB != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		err := s.sqlDB.PingContext(ctx)
 		cancel()
 		if err != nil {
-			return "database connection failed: " + err.Error(),
+			return maintenanceCodeDatabase,
+				"database connection failed: " + err.Error(),
 				"Verify the database is reachable and that server.yml's database credentials are correct.",
 				err
 		}
 	}
 	if err := s.probeDataDirWritable(); err != nil {
-		return "data directory is not writable: " + err.Error(),
+		return maintenanceCodeDataDir,
+			"data directory is not writable: " + err.Error(),
 			"Check free disk space and the ownership and permissions of the data directory.",
 			err
 	}
-	return "", "", nil
+	return "", "", "", nil
 }
 
 // probeDataDirWritable creates and removes a probe file so a full disk or a
@@ -160,7 +183,12 @@ func (s *Server) MaintenanceMiddleware(next http.Handler) http.Handler {
 			return
 		}
 		w.Header().Set("Retry-After", "30")
-		writeMaintenanceRejection(w, r)
+		w.Header().Set("X-Maintenance-Mode", "true")
+		code := s.MaintenanceCode()
+		if code != "" {
+			w.Header().Set("X-Maintenance-Reason", code)
+		}
+		writeMaintenanceRejection(w, r, code)
 	})
 }
 
@@ -178,9 +206,10 @@ func isReadOnlyMethod(method string) bool {
 // writeMaintenanceRejection emits the content-negotiated 503 body. It never
 // renders a template: the maintenance path must not be able to fail for the
 // same reason the server is already degraded (AI.md PART 9 guaranteed response).
-// The reason string is deliberately omitted — it names internal subsystems and
-// belongs in the logs and the authenticated status endpoint only.
-func writeMaintenanceRejection(w http.ResponseWriter, r *http.Request) {
+// The full reason string is deliberately omitted — it names internal subsystems
+// and belongs in the logs and the authenticated status endpoint only; only the
+// coarse reason code reaches the client, per AI.md PART 12.
+func writeMaintenanceRejection(w http.ResponseWriter, r *http.Request, code string) {
 	if detectClientType(r) == "html" {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.WriteHeader(http.StatusServiceUnavailable)
@@ -191,6 +220,10 @@ func writeMaintenanceRejection(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", jsonMediaType)
 	w.WriteHeader(http.StatusServiceUnavailable)
-	fmt.Fprint(w, `{"ok":false,"error":"MAINTENANCE_MODE",`+
-		`"message":"Server is in read-only maintenance mode","retry_in_seconds":30}`+"\n")
+	body := `{"ok":false,"error":"MAINTENANCE",` +
+		`"message":"Server is in read-only maintenance mode"`
+	if code != "" {
+		body += fmt.Sprintf(`,"details":{"reason":%q,"self_healing":true}`, code)
+	}
+	fmt.Fprint(w, body+"}\n")
 }

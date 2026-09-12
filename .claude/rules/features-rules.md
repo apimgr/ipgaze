@@ -56,6 +56,10 @@
   `backup_hourly` `@hourly` (disabled by default); `healthcheck_self` `@every 5m`;
   `tor_health` `@every 10m`; `i2p_health` `@every 10m`
 - Every task schedule/enabled state is overridable via `server.schedule.tasks.{id}` in `server.yml`
+- Task execution panic safety (MUST): every task invocation runs behind its own `defer`+`recover`
+  boundary — a panicking task is logged, marked `failed` for that run, and its next occurrence still
+  fires; the scheduler loop survives and no other task is skipped, delayed, or corrupted. Same
+  non-negotiable guarantee as the per-request panic/`recover` rule for HTTP handlers
 
 ### PART 19 — GeoIP
 - Source: sapics/ip-location-db via jsDelivr CDN (`@ip-location-db` npm scope), no API key/account

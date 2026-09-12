@@ -914,11 +914,22 @@ func (h *PagesHandler) ConsentHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, i18n.T(r.Context(), "errors.method_not_allowed"), http.StatusMethodNotAllowed)
 		return
 	}
-	choice := r.FormValue("choice")
-	if choice != "accept" && choice != "decline" {
-		choice = "decline"
+	// The preferences page submits granular=1 with one checkbox per category
+	// (AI.md PART 16: consent categories must be changeable from
+	// /server/preferences, not only from the first-visit banner). The banner
+	// itself keeps submitting the coarse accept/decline choice.
+	var preferences, analytics bool
+	if r.FormValue("granular") != "" {
+		preferences = isCheckboxChecked(r.FormValue("preferences"))
+		analytics = isCheckboxChecked(r.FormValue("analytics"))
+	} else {
+		choice := r.FormValue("choice")
+		if choice != "accept" && choice != "decline" {
+			choice = "decline"
+		}
+		accepted := choice == "accept"
+		preferences, analytics = accepted, accepted
 	}
-	accepted := choice == "accept"
 	consent := struct {
 		Essential   bool  `json:"essential"`
 		Preferences bool  `json:"preferences"`
@@ -926,8 +937,8 @@ func (h *PagesHandler) ConsentHandler(w http.ResponseWriter, r *http.Request) {
 		Timestamp   int64 `json:"timestamp"`
 	}{
 		Essential:   true,
-		Preferences: accepted,
-		Analytics:   accepted,
+		Preferences: preferences,
+		Analytics:   analytics,
 		Timestamp:   time.Now().UnixMilli(),
 	}
 	value, err := json.Marshal(consent)
@@ -1007,17 +1018,25 @@ func NextTheme(current string) string {
 	}
 }
 
-// ServerPreferencesUpdateHandler handles POST /server/preferences — the theme
-// toggle's form target (AI.md PART 16 "Theme Toggle" -> "HTML Structure").
-// The toggle is a real form submit, so switching works identically with and
-// without JavaScript; the JS enhancement intercepts the submit only to avoid
-// a full page reload.
+// ServerPreferencesUpdateHandler handles POST /server/preferences — the target
+// of both the theme toggle (AI.md PART 16 "Theme Toggle" -> "HTML Structure")
+// and the preferences page's theme/language selectors (AI.md PART 16
+// "Client-Side Preferences": the page must be editable, not read-only). Both
+// are real form submits, so switching works identically with and without
+// JavaScript; the JS enhancement intercepts the submit only to avoid a full
+// page reload. A field that was not submitted is left untouched, so the theme
+// toggle never resets the visitor's language and vice versa.
 func (h *PagesHandler) ServerPreferencesUpdateHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, i18n.T(r.Context(), "errors.method_not_allowed"), http.StatusMethodNotAllowed)
 		return
 	}
-	setThemeCookie(w, r, normalizeThemeValue(r.FormValue("theme")))
+	if submitted := r.FormValue("theme"); submitted != "" {
+		setThemeCookie(w, r, normalizeThemeValue(submitted))
+	}
+	if submitted := r.FormValue("lang"); submitted != "" && i18n.IsSupported(submitted) {
+		i18n.SetLangCookie(w, r, submitted)
+	}
 	ref := safeRedirectTarget(r, r.Referer())
 	http.Redirect(w, r, ref, http.StatusSeeOther)
 }
@@ -1075,6 +1094,47 @@ type PreferencesPageData struct {
 	PageData
 	PreferencesExportURL  string
 	PreferencesExportCode string
+	// ConsentPreferences and ConsentAnalytics are the visitor's current
+	// cookie-consent category choices, so the page can render them as
+	// pre-checked toggles the visitor can change here rather than only from
+	// the first-visit banner (AI.md PART 16 "Client-Side Preferences").
+	ConsentPreferences bool
+	ConsentAnalytics   bool
+}
+
+// isCheckboxChecked reports whether a submitted checkbox field means "on".
+// An unchecked box is omitted from the form body entirely, so the empty string
+// is the normal "off" case; anything else goes through the project's shared
+// truthy parser, and an unrecognized value fails closed.
+func isCheckboxChecked(value string) bool {
+	if value == "" {
+		return false
+	}
+	checked, err := config.ParseBool(value, false)
+	return err == nil && checked
+}
+
+// consentCategories reads the granular category flags out of the
+// cookie_consent cookie. A missing, malformed, or URL-escaped-but-unparseable
+// cookie reports both categories as off — the fail-closed default the consent
+// banner itself starts from.
+func consentCategories(r *http.Request) (preferences, analytics bool) {
+	c, err := r.Cookie("cookie_consent")
+	if err != nil || c.Value == "" {
+		return false, false
+	}
+	raw, err := url.QueryUnescape(c.Value)
+	if err != nil {
+		return false, false
+	}
+	var stored struct {
+		Preferences bool `json:"preferences"`
+		Analytics   bool `json:"analytics"`
+	}
+	if err := json.Unmarshal([]byte(raw), &stored); err != nil {
+		return false, false
+	}
+	return stored.Preferences, stored.Analytics
 }
 
 // ServerPreferencesHandler serves GET /server/preferences — a minimal
@@ -1084,10 +1144,13 @@ type PreferencesPageData struct {
 func (h *PagesHandler) ServerPreferencesHandler(w http.ResponseWriter, r *http.Request) {
 	base := h.NewPageData(r)
 	export := h.buildPreferencesExport(r)
+	consentPreferences, consentAnalytics := consentCategories(r)
 	data := PreferencesPageData{
 		PageData:              base,
 		PreferencesExportURL:  export.URL,
 		PreferencesExportCode: export.Code,
+		ConsentPreferences:    consentPreferences,
+		ConsentAnalytics:      consentAnalytics,
 	}
 	if err := h.Render(w, r, "preferences.tmpl", data); err != nil {
 		http.Error(w, i18n.T(r.Context(), "errors.server_error"), http.StatusInternalServerError)
@@ -1123,6 +1186,7 @@ func (h *PagesHandler) APIV1ServerPreferencesHandler(w http.ResponseWriter, r *h
 func (h *PagesHandler) APIV1ServerPreferencesUpdateHandler(w http.ResponseWriter, r *http.Request) {
 	var submitted struct {
 		Theme string `json:"theme"`
+		Lang  string `json:"lang"`
 	}
 	if strings.HasPrefix(r.Header.Get("Content-Type"), "application/json") {
 		// A malformed/empty body just yields a zero-value struct, which
@@ -1130,10 +1194,16 @@ func (h *PagesHandler) APIV1ServerPreferencesUpdateHandler(w http.ResponseWriter
 		_ = json.NewDecoder(r.Body).Decode(&submitted)
 	} else {
 		submitted.Theme = r.FormValue("theme")
+		submitted.Lang = r.FormValue("lang")
 	}
 	theme := normalizeThemeValue(submitted.Theme)
 	setThemeCookie(w, r, theme)
-	export := h.buildPreferencesExportFor(r, theme, i18n.DetectLocale(r))
+	lang := i18n.DetectLocale(r)
+	if submitted.Lang != "" && i18n.IsSupported(submitted.Lang) {
+		i18n.SetLangCookie(w, r, submitted.Lang)
+		lang = submitted.Lang
+	}
+	export := h.buildPreferencesExportFor(r, theme, lang)
 	SendAPIResponseOK(w, PreferencesResponse{
 		Theme:      export.Theme,
 		Lang:       export.Lang,

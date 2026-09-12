@@ -4,16 +4,85 @@
 <h1>{{t .Lang "preferences.heading"}}</h1>
 <section class="section-card">
   <p>{{t .Lang "preferences.intro"}}</p>
-  <table class="info-table">
-    <tr>
-      <th scope="row">{{t .Lang "preferences.current_theme_label"}}</th>
-      <td>{{.Theme}}</td>
-    </tr>
-    <tr>
-      <th scope="row">{{t .Lang "preferences.current_lang_label"}}</th>
-      <td>{{.Lang}}</td>
-    </tr>
-  </table>
+  <!-- One POST sets both cookies; works with zero JS via the PRG redirect back to this page -->
+  <form method="post" action="/server/preferences">
+    {{ if .CSRFToken }}
+    <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+    {{ end }}
+    <div class="form-group">
+      <label for="preferences-theme">{{t .Lang "preferences.current_theme_label"}}</label>
+      <select id="preferences-theme" name="theme" class="form-control">
+        <option value="dark"{{if eq .Theme "dark"}} selected{{end}}>{{t .Lang "theme.dark"}}</option>
+        <option value="light"{{if eq .Theme "light"}} selected{{end}}>{{t .Lang "theme.light"}}</option>
+        <option value="auto"{{if eq .Theme "auto"}} selected{{end}}>{{t .Lang "theme.auto"}}</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label for="preferences-lang">{{t .Lang "preferences.current_lang_label"}}</label>
+      <select id="preferences-lang" name="lang" class="form-control">
+        {{range languages}}<option value="{{.Code}}"{{if eq .Code $.Lang}} selected{{end}}>{{.NativeName}}</option>
+        {{end}}
+      </select>
+    </div>
+    <button type="submit" class="btn btn-primary">{{t .Lang "preferences.save"}}</button>
+  </form>
+</section>
+
+<section class="section-card">
+  <h2>{{t .Lang "preferences.consent_heading"}}</h2>
+  <p>{{t .Lang "preferences.consent_intro"}}</p>
+  <form method="post" action="/server/consent">
+    {{ if .CSRFToken }}
+    <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+    {{ end }}
+    <!-- Marks the submission as granular so the handler reads the per-category checkboxes instead of the banner's accept/decline choice -->
+    <input type="hidden" name="granular" value="1">
+    <div class="form-group">
+      <label>
+        <input type="checkbox" checked disabled>
+        {{t .Lang "preferences.consent_essential_label"}}
+      </label>
+      <p class="form-hint">{{t .Lang "cookie_consent.essential_description"}}</p>
+    </div>
+    <div class="form-group">
+      <label for="consent-preferences">
+        <input type="checkbox" id="consent-preferences" name="preferences" value="on"{{if .ConsentPreferences}} checked{{end}}>
+        {{t .Lang "preferences.consent_preferences_label"}}
+      </label>
+      <p class="form-hint">{{t .Lang "cookie_consent.preference_description"}}</p>
+    </div>
+    <div class="form-group">
+      <label for="consent-analytics">
+        <input type="checkbox" id="consent-analytics" name="analytics" value="on"{{if .ConsentAnalytics}} checked{{end}}>
+        {{t .Lang "preferences.consent_analytics_label"}}
+      </label>
+      <p class="form-hint">{{t .Lang "cookie_consent.analytics_description"}}</p>
+    </div>
+    <button type="submit" class="btn btn-primary">{{t .Lang "preferences.save"}}</button>
+  </form>
+</section>
+
+<section class="section-card">
+  <h2>{{t .Lang "preferences.ccpa_heading"}}</h2>
+  <p>{{t .Lang "preferences.ccpa_intro"}}</p>
+  {{ if .CCPAOptedOut }}
+  <p class="ccpa-status opted-out">{{t .Lang "privacy.ccpa_opted_out"}}</p>
+  <form method="post" action="/server/ccpa">
+    {{ if .CSRFToken }}
+    <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+    {{ end }}
+    <input type="hidden" name="choice" value="opt-in">
+    <button type="submit" class="btn btn-secondary">{{t .Lang "privacy.ccpa_opt_back_in"}}</button>
+  </form>
+  {{ else }}
+  <form method="post" action="/server/ccpa">
+    {{ if .CSRFToken }}
+    <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+    {{ end }}
+    <input type="hidden" name="choice" value="opt-out">
+    <button type="submit" class="btn btn-primary">{{t .Lang "privacy.ccpa_do_not_sell"}}</button>
+  </form>
+  {{ end }}
 </section>
 
 <section class="section-card">

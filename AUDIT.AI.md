@@ -1,7 +1,8 @@
 # Project Audit
 
 Started: 2026-08-29
-Spec version: AI.md, 48520 lines
+Spec version: AI.md, 49114 lines (re-walked 2026-09-11 after the
+2026-09-10 spec update)
 
 Full line-by-line AI.md compliance audit (PARTs 0-33). Every finding from
 Passes 1-6 has been fixed and deleted from this file. Only items blocked on a
@@ -31,6 +32,23 @@ user ruling remain. This file is deleted entirely once they are resolved.
       "maximum circuits to keep open" — `MaxClientCircuitsPending` has
       different semantics, and emitting a wrong directive aborts Tor startup.
       Left unemitted rather than guessed.
+- [ ] AI.md PART 16 requires a control on `/server/preferences` "for every
+      app-specific `{project_name}_pref_*` setting" and says to "document each
+      one in this project's own AI.md preferences table" — but AI.md is
+      read-only and IDEA.md names no `ipgaze_pref_*` key. The editable page now
+      ships theme, language, cookie-consent categories, and CCPA opt-out; no
+      `ipgaze_pref_*` cookie was invented, and no empty registry was built
+      (that would be dead code). Which app-specific guest preferences, if any,
+      should ipgaze expose (default view mode, results-per-page, sort order,
+      unit system, …)? Also blocks whether export/import needs to grow
+      `{project_name}_pref_*` round-tripping, which today has nothing to carry.
+- [ ] AI.md PART 25 vs the FINAL CHECKPOINT checklist contradict each other on
+      the Makefile target set: PART 25's body and reference `.PHONY` line
+      mandate exactly `dev local build test release docker` plus `clean` and
+      say "Six core targets. DO NOT ADD MORE", while the FINAL CHECKPOINT
+      separately lists `make all`. No `all` target was added — resolving the
+      contradiction that way would violate PART 25's explicit rule. Which side
+      wins?
 - [x] AI.md 8708-8709/9223-9252 ("Six Operational States") vs AI.md 8788
       (`--mode debug` = development + debug) debug-mode contradiction —
       RESOLVED. The user ruled to follow 8708-9252: `debug` is its own

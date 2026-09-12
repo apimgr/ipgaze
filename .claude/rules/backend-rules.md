@@ -54,6 +54,9 @@
   Clear-Site-Data purge so intermediaries that ignore `no-store` still revalidate
 - A panic anywhere in a handler must be recovered by dedicated middleware, logged to `error.log` with full
   context, and answered with the guaranteed fallback response — never a dropped connection
+- `RecoverMiddleware` is the OUTERMOST middleware, registered before routing, logging, or any other layer
+  that could itself panic; its fallback uses plain strings only (no template engine, no theme system, no
+  state that can panic) and is skipped only when the handler already wrote a status line
 
 ### PART 10 — Database
 - Driver: `modernc.org/sqlite` (local, `CGO_ENABLED=0`) or `tursodatabase/libsql-client-go` (remote/libsql);
@@ -66,6 +69,9 @@
   EXISTS` / `CREATE INDEX IF NOT EXISTS` / additive `ALTER TABLE ADD COLUMN`, safe to run on every startup
   against a database that may already have the object; "already exists" errors are swallowed, not fatal
 - Parameterized queries only, explicit column lists always — no `SELECT *`, no string-built SQL
+- Every query carries a context timeout, sized by class: simple SELECT 5s, JOIN-heavy SELECT 15s,
+  INSERT/UPDATE/DELETE 10s, bulk 60s, reports 2m; a multi-statement transaction is bounded at 30s across
+  the whole `BeginTx`…`Commit`/`Rollback` span, not per statement — always the `*Context` call variants
 - Core self-managed tables include `config`/`config_meta` (with version-bump triggers), `rate_limits`,
   `audit_log`, `scheduler_tasks`/`scheduler_history`, `backups`, `api_tokens`, `app_secrets`, `pgp_keypairs`
   — `server.yml` remains the sole source of truth for configuration; the DB never stores user credentials
