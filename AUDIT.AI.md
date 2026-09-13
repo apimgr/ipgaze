@@ -49,6 +49,18 @@ user ruling remain. This file is deleted entirely once they are resolved.
       separately lists `make all`. No `all` target was added — resolving the
       contradiction that way would violate PART 25's explicit rule. Which side
       wins?
+- [ ] AI.md 32611/32657/32663's reference Makefile builds the local binary with
+      `GOOS=$(go env GOOS) GOARCH=$(go env GOARCH)`. Make expands `$(go env ...)`
+      on the HOST before the Docker build container starts, so on a machine that
+      correctly has no host Go toolchain it emits
+      `/bin/sh: line 1: go: command not found` twice per `make build` and the
+      variables come through empty. The effect is benign (empty GOOS/GOARCH
+      means the container's own native target, which is the intended result),
+      but the line still invokes `go` on the host, which PART 1/PART 28
+      forbid outright. The repo's Makefile reproduces the spec's reference
+      implementation verbatim and was deliberately NOT changed. Should the
+      local-build line move inside the container invocation (e.g. resolve
+      GOOS/GOARCH in the `sh -c` body), or does the verbatim spec text win?
 - [ ] AI.md 18478/18503 vs IDEA.md line 34 conflict on the HTTP-tool (curl,
       wget, HTTPie) response body for the echoip data routes `/`, `/{ip}`,
       and `/{ip}/{field}`. AI.md mandates the frontend page rendered through
@@ -70,6 +82,27 @@ user ruling remain. This file is deleted entirely once they are resolved.
       `src/mode/mode.go` (`AppModeDebug`, `ParseModeWithDebugAlias` now
       returns it), propagated to `src/main.go`'s self-signed-cert dev
       fallback and `src/common/banner/banner.go`'s `modeEmoji()`.
+
+- [ ] AI.md 10871-10876 vs AI.md 38312-38317 contradict each other on service
+      install inside a container. PART 8's reference `detectServiceManager()`
+      checks `isContainer()` FIRST and returns `"container"`, and its
+      `isContainer()` matches LXC/Incus explicitly (`/dev/lxc`, `$container`,
+      `lxc` in `/proc/1/cgroup`) — so in an Incus system container the binary
+      correctly refuses `--service --install` with "unsupported service
+      manager". PART 28's mandated test workflow, however, launches
+      `images:debian/trixie` and then runs `{project_name} --service --install`
+      followed by `systemctl status {project_name}` as the preferred way to
+      validate systemd support. Both cannot hold. `src/service/service.go`
+      was left matching PART 8's reference implementation verbatim (container
+      check first); `tests/incus.sh` was made to fall back to starting the
+      binary directly when install is refused, so the endpoint suite still
+      runs, rather than silently changing the detection order. Should
+      `DetectServiceManager()` probe for a live init system (`/run/systemd/
+      system` + PID 1) BEFORE the container check, so system containers
+      (Incus/LXC, which do run systemd) get real service support while
+      application containers (Docker/Podman, PID 1 = the app or tini) keep
+      returning `container`? Or does PART 8's order win and PART 28's incus
+      service steps are simply unreachable?
 
 `manifest.json.version` and `.trivyignore` moved to TODO.AI.md's Open
 section per the user's ruling to leave both as open TODOs rather than
