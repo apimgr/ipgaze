@@ -94,7 +94,7 @@ func GeoIPMiddleware(gr geo.Reader, denyCountries, allowCountries []string) func
 			if blocked {
 				log.Printf("geoip: blocked request from %s (country %s) %s", ip, code, sanitizeLogValue(r.URL.Path))
 				lang := i18n.DetectLocale(r)
-				http.Error(w, i18n.T(i18n.WithLang(r.Context(), lang), "errors.blocked_by_country"), http.StatusForbidden)
+				writeForbidden(w, r, i18n.T(i18n.WithLang(r.Context(), lang), "errors.blocked_by_country"))
 				return
 			}
 

@@ -48,10 +48,14 @@ func IsHttpTool(ua string) bool {
 	}
 	lower := strings.ToLower(ua)
 	for _, t := range []string{
-		"curl/", "wget/", "httpie/",
+		"curl/", "wget", "httpie/", "httpie-go/",
 		"libcurl/", "python-requests/",
 		"go-http-client/", "axios/", "node-fetch/",
 		"xh/",
+		// IDEA.md "CLI user-agent detection" — echoip-compatible agents that
+		// poll the service for a plain-text address. "go 1." matches the Go
+		// standard library's older "Go 1.1 package http" User-Agent.
+		"mikrotik/", "ddclient/", "fetch libfetch/", "go 1.",
 	} {
 		if strings.Contains(lower, t) {
 			return true

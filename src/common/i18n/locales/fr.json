@@ -188,6 +188,11 @@
     "success": "Merci pour votre message. Nous vous répondrons rapidement.",
     "support_intro": "Pour toute assistance ou question concernant ipgaze :",
     "security_issues": "Problèmes de sécurité",
+    "security_issues_body": "Pour signaler une vulnérabilité de sécurité, consultez notre politique de sécurité.",
+    "security_policy_link": "politique de sécurité",
+    "abuse_reports": "Signalements d'abus",
+    "abuse_reports_body": "Pour signaler un contenu abusif ou une violation des règles, utilisez ce formulaire de contact.",
+    "abuse_reports_body_email": "Pour signaler un contenu abusif ou une violation des règles, utilisez ce formulaire de contact ou écrivez à {email}.",
     "github": "GitHub",
     "form_heading": "Envoyer un message"
   },
@@ -270,11 +275,23 @@
     "changes": "Modifications",
     "governing_law": "Droit applicable",
     "acceptable_use_body": "Vous ne pouvez utiliser ipgaze qu'à des fins légales. Les recherches automatisées en masse qui dégradent le service pour les autres utilisateurs sont interdites.",
+    "acceptance_body": "En accédant à ipgaze ou en l'utilisant, vous acceptez d'être lié par ces conditions. Si vous n'êtes pas d'accord, n'utilisez pas le service.",
     "no_warranty_heading": "Aucune garantie",
     "no_warranty_body": "Ce service est fourni \"tel quel\" sans garantie d'aucune sorte. Nous ne garantissons ni la disponibilité ni l'exactitude des données de géolocalisation.",
     "rate_limiting_heading": "Limitation du débit",
     "rate_limiting_body": "L'API est limitée à 120 requêtes par minute. Le dépassement de cette limite entraînera des blocages temporaires.",
-    "changes_body": "Ces conditions peuvent changer à tout moment. L'utilisation continue du service vaut acceptation des conditions mises à jour."
+    "changes_body": "Ces conditions peuvent changer à tout moment. L'utilisation continue du service vaut acceptation des conditions mises à jour.",
+    "governing_law_body": "Ces conditions sont régies par les lois de la juridiction dans laquelle réside l'opérateur du service, sans égard aux principes de conflit de lois."
+  },
+
+  "security": {
+    "title": "Politique de sécurité",
+    "intro": "Nous prenons la sécurité d'ipgaze au sérieux. Si vous découvrez une vulnérabilité de sécurité, veuillez la signaler de manière responsable.",
+    "report_email": "Signalez les vulnérabilités par e-mail à {email}.",
+    "report_github": "Vous pouvez également signaler une vulnérabilité en privé via",
+    "report_github_link": "GitHub Security Advisories",
+    "txt_heading": "Politique lisible par machine",
+    "txt_body": "Les outils automatisés peuvent récupérer cette politique au format RFC 9116 à"
   },
 
   "cookie_consent": {
@@ -347,6 +364,10 @@
   "pwa": {
     "install": "Installer l'application",
     "installed": "Application installée",
+    "ios_install_title": "Installer {app}",
+    "ios_install_step1": "Appuyez sur le bouton Partager dans la barre d'outils de Safari.",
+    "ios_install_step2": "Faites défiler vers le bas et appuyez sur « Sur l'écran d'accueil ».",
+    "ios_install_step3": "Appuyez sur « Ajouter » en haut à droite.",
     "offline_message": "Pas de connexion internet. Affichage du contenu mis en cache.",
     "offline_title": "Vous êtes hors ligne",
     "offline_description": "IPGaze nécessite une connexion réseau pour rechercher des adresses IP. Veuillez vérifier votre connexion et réessayer.",
@@ -518,8 +539,25 @@
     "port_intro": "Vérifiez si un port est ouvert sur l'IP demandeuse :",
     "tor_access_intro": "Ce serveur est également accessible en tant que service caché Tor — aucun nœud de sortie, et aucun intermédiaire ne voit jamais votre véritable IP :",
     "tor_access_disabled": "Ce serveur n'exécute actuellement aucun service caché Tor.",
+    "tor_address_heading": "Adresse Onion",
+    "tor_connect_heading": "Comment se connecter",
+    "tor_step1_pre": "Téléchargez",
+    "tor_step1_link": "Tor Browser",
+    "tor_step2": "Ouvrez Tor Browser et attendez qu'il se connecte",
+    "tor_step3": "Copiez l'adresse onion ci-dessus et collez-la dans la barre d'adresse de Tor Browser",
+    "tor_note": "L'utilisation de Tor offre une confidentialité supplémentaire en masquant votre adresse IP et en chiffrant votre connexion via le réseau Tor.",
     "i2p_access_intro": "Ce serveur est également accessible en tant qu'eepsite I2P :",
     "i2p_access_disabled": "Ce serveur n'exécute actuellement aucun eepsite I2P.",
+    "i2p_address_heading": "Adresse I2P",
+    "i2p_connect_heading": "Comment se connecter",
+    "i2p_step1_pre": "Installez",
+    "i2p_step1_link_i2p": "I2P",
+    "i2p_step1_or": "ou",
+    "i2p_step1_link_i2pd": "i2pd",
+    "i2p_step1_post": "et attendez son intégration au réseau",
+    "i2p_step2": "Configurez votre navigateur pour utiliser le proxy HTTP I2P (par défaut {proxy})",
+    "i2p_step3": "Copiez l'adresse .b32.i2p ci-dessus et collez-la dans la barre d'adresse de votre navigateur",
+    "i2p_note": "L'utilisation d'I2P offre une confidentialité supplémentaire en acheminant votre connexion via le réseau I2P. Les eepsites sont servis en http:// — le tunnel I2P assure le chiffrement du transport, aucun certificat TLS n'est donc utilisé.",
     "formats_heading": "Formats de l'API",
     "formats_plain_label": "Texte brut",
     "formats_plain_desc": "par défaut pour les user-agents curl/wget/CLI et un User-Agent vide",
@@ -1045,6 +1083,10 @@
         "description": "Sert la politique de confidentialité, indiquant les données journalisées, leur durée de conservation et les options de refus disponibles.",
         "summary": "Politique de confidentialité"
       },
+      "server_security": {
+        "description": "Sert la politique de sécurité, l’adresse de contact et les instructions de signalement de vulnérabilités de ce service.",
+        "summary": "Politique de sécurité"
+      },
       "server_terms": {
         "description": "Sert les conditions d'utilisation de ce service.",
         "summary": "Conditions d'utilisation"
@@ -1122,6 +1164,9 @@
       "v1_swagger": {
         "description": "Renvoie ce document OpenAPI 3.0 en JSON via le chemin d'API versionné.",
         "summary": "Document OpenAPI (API v1)"
+      },
+      "v1_security": {
+        "summary": "Politique de sécurité (API v1)"
       },
       "v1_terms": {
         "summary": "Conditions d'utilisation (API v1)"

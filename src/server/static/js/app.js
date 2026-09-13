@@ -523,11 +523,42 @@ window.addEventListener('online', hideOfflineIndicator);
 
 var deferredInstallPrompt = null;
 
+// AI.md PART 16 "isInstalledPWA": standalone display-mode covers desktop/
+// Android; navigator.standalone covers iOS Safari, which never fires
+// beforeinstallprompt at all.
+function isInstalledPWA() {
+  return window.matchMedia('(display-mode: standalone)').matches
+    || window.navigator.standalone === true;
+}
+
+function hideInstallButton() {
+  const btn = document.getElementById('pwa-install-btn');
+  if (btn) { btn.classList.add('hidden'); }
+}
+
 window.addEventListener('beforeinstallprompt', function(e) {
   e.preventDefault();
   deferredInstallPrompt = e;
+  if (isInstalledPWA()) { return; }
   const btn = document.getElementById('pwa-install-btn');
   if (btn) { btn.classList.remove('hidden'); }
+});
+
+window.addEventListener('appinstalled', function() {
+  deferredInstallPrompt = null;
+  hideInstallButton();
+});
+
+// AI.md PART 16 "iOS-Specific Considerations": iOS Safari never fires
+// beforeinstallprompt, so the install button must be revealed manually and
+// its click routed to the instructions modal instead of prompt().
+var isIOSDevice = /iPad|iPhone|iPod/.test(navigator.userAgent);
+
+document.addEventListener('DOMContentLoaded', function() {
+  if (isIOSDevice && !isInstalledPWA()) {
+    const btn = document.getElementById('pwa-install-btn');
+    if (btn) { btn.classList.remove('hidden'); }
+  }
 });
 
 // ============================================================================
@@ -588,7 +619,9 @@ function initSwaggerUI() {
 }
 
 // ============================================================================
-// GraphQL explorer init — /graphql page only (element absent elsewhere, no-op).
+// GraphQL explorer init — /server/docs/graphql page only (element absent
+// elsewhere, no-op). Queries POST to /api/graphql per AI.md PART 14; the root
+// /graphql path was removed and is never served.
 // ============================================================================
 
 function initGraphQLExplorer() {
@@ -603,7 +636,7 @@ function initGraphQLExplorer() {
     try { vars = JSON.parse(v || '{}'); } catch (e) { vars = {}; }
     const result = document.getElementById('result');
     result.textContent = i18nStr('i18nRunning', 'Running…');
-    fetch('/graphql', {
+    fetch('/api/graphql', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
       body: JSON.stringify({ query: q, variables: vars })
@@ -650,7 +683,12 @@ document.addEventListener('DOMContentLoaded', function() {
       e.preventDefault();
       if (deferredInstallPrompt) {
         deferredInstallPrompt.prompt();
-        deferredInstallPrompt.userChoice.then(function() { deferredInstallPrompt = null; });
+        deferredInstallPrompt.userChoice.then(function() {
+          deferredInstallPrompt = null;
+          hideInstallButton();
+        });
+      } else if (isIOSDevice) {
+        openModal('pwa-ios-install-modal');
       }
       break;
     case 'back':

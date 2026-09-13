@@ -31,7 +31,7 @@ services:
       PORT: 80
       DEBUG: true
       MODE: development
-      TZ: America/New_York
+      TZ: ${TZ:-America/New_York}
       CACHE_URL: valkey://ipgaze-cache-test:6379
     volumes:
       # CRITICAL: ./volumes/ must resolve to $TEMP_DIR/volumes/, NOT project directory

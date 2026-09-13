@@ -147,9 +147,31 @@ func (m *GeoIPManager) Initialize() error {
 		return fmt.Errorf("failed to load GeoIP databases: %w", err)
 	}
 
-	m.lastUpdate = time.Now()
+	// Per AI.md PART 19's weekly-refresh requirement: base the staleness
+	// clock on the databases' actual download time (file mtime), not on
+	// process start time. Resetting to time.Now() here would make
+	// ShouldUpdate() report "fresh" after every restart even when the
+	// files are weeks old, silently skipping the weekly geoip_update job.
+	m.lastUpdate = m.oldestDatabaseMtime()
 	log.Println("GeoIP databases loaded successfully")
 	return nil
+}
+
+// oldestDatabaseMtime returns the oldest mtime among the existing database
+// files, or the zero time if none exist (forcing an immediate update).
+func (m *GeoIPManager) oldestDatabaseMtime() time.Time {
+	files := []string{m.asnFile, m.countryFile, m.cityV4File, m.cityV6File}
+	var oldest time.Time
+	for _, file := range files {
+		info, err := os.Stat(file)
+		if err != nil {
+			continue
+		}
+		if oldest.IsZero() || info.ModTime().Before(oldest) {
+			oldest = info.ModTime()
+		}
+	}
+	return oldest
 }
 
 // databasesExist checks if all required databases exist.

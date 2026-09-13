@@ -15,6 +15,20 @@ import (
 	"github.com/apimgr/ipgaze/src/netutil"
 )
 
+// browserUserAgent is a graphical-browser User-Agent. Frontend page tests that
+// assert on rendered HTML must send one: under AI.md PART 14 a request with no
+// User-Agent is classified as an HTTP tool and receives HTML2TextConverter
+// output instead of the HTML document.
+const browserUserAgent = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"
+
+// newBrowserRequest builds a GET request that the PART 14 dispatch classifies
+// as a graphical browser.
+func newBrowserRequest(target string) *http.Request {
+	req := httptest.NewRequest(http.MethodGet, target, nil)
+	req.Header.Set("User-Agent", browserUserAgent)
+	return req
+}
+
 func newTestPagesHandler() *PagesHandler {
 	return NewPagesHandler("1.0.0", "2024-01-01", netutil.NewTrustResolver(config.TrustedProxiesConfig{}, ""), func(w http.ResponseWriter, _ *http.Request, page string, data interface{}) error {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -80,7 +94,7 @@ func TestBuildAboutResponse_Fields(t *testing.T) {
 
 func TestServerAboutHandler_HTML(t *testing.T) {
 	h := newTestPagesHandler()
-	req := httptest.NewRequest(http.MethodGet, "/server/about", nil)
+	req := newBrowserRequest("/server/about")
 	w := httptest.NewRecorder()
 
 	h.ServerAboutHandler(w, req)
@@ -144,7 +158,7 @@ func TestAPIV1ServerAboutHandler(t *testing.T) {
 
 func TestServerHelpHandler(t *testing.T) {
 	h := newTestPagesHandler()
-	req := httptest.NewRequest(http.MethodGet, "/server/help", nil)
+	req := newBrowserRequest("/server/help")
 	w := httptest.NewRecorder()
 
 	h.ServerHelpHandler(w, req)
@@ -177,7 +191,7 @@ func TestAPIV1ServerHelpHandler(t *testing.T) {
 
 func TestServerPrivacyHandler(t *testing.T) {
 	h := newTestPagesHandler()
-	req := httptest.NewRequest(http.MethodGet, "/server/privacy", nil)
+	req := newBrowserRequest("/server/privacy")
 	w := httptest.NewRecorder()
 
 	h.ServerPrivacyHandler(w, req)
@@ -216,7 +230,7 @@ func TestAPIV1ServerPrivacyHandler(t *testing.T) {
 
 func TestServerContactHandler_GET(t *testing.T) {
 	h := newTestPagesHandler()
-	req := httptest.NewRequest(http.MethodGet, "/server/contact", nil)
+	req := newBrowserRequest("/server/contact")
 	w := httptest.NewRecorder()
 
 	h.ServerContactHandler(w, req)
@@ -291,7 +305,7 @@ func TestAPIV1ServerContactHandler_MethodNotAllowed(t *testing.T) {
 
 func TestServerTermsHandler(t *testing.T) {
 	h := newTestPagesHandler()
-	req := httptest.NewRequest(http.MethodGet, "/server/terms", nil)
+	req := newBrowserRequest("/server/terms")
 	w := httptest.NewRecorder()
 
 	h.ServerTermsHandler(w, req)
@@ -804,7 +818,7 @@ func testValidateTheme(theme string) string {
 
 func TestServerPreferencesHandler_RendersCurrentValues(t *testing.T) {
 	h := newTestPagesHandler()
-	req := httptest.NewRequest(http.MethodGet, "/server/preferences", nil)
+	req := newBrowserRequest("/server/preferences")
 	req.AddCookie(&http.Cookie{Name: "lang", Value: "fr"})
 	w := httptest.NewRecorder()
 
@@ -1071,4 +1085,69 @@ func TestAllowContactSubmissionPrunesExpiredEntries(t *testing.T) {
 	contactThrottle.mu.Lock()
 	contactThrottle.last = make(map[string]time.Time)
 	contactThrottle.mu.Unlock()
+}
+
+func TestRenderNegotiated_OurCLIGetsJSON(t *testing.T) {
+	h := newTestPagesHandler()
+	req := httptest.NewRequest(http.MethodGet, "/server/about", nil)
+	req.Header.Set("User-Agent", "ipgaze-cli/1.2.3")
+	w := httptest.NewRecorder()
+
+	h.ServerAboutHandler(w, req)
+
+	res := w.Result()
+	if ct := res.Header.Get("Content-Type"); ct != "application/json" {
+		t.Errorf("Content-Type = %q, want %q", ct, "application/json")
+	}
+	var body AboutResponse
+	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
+		t.Fatalf("decode error: %v", err)
+	}
+	if body.Name != "IPGaze" {
+		t.Errorf("Name = %q, want %q", body.Name, "IPGaze")
+	}
+}
+
+func TestRenderNegotiated_HTTPToolGetsPlainText(t *testing.T) {
+	h := NewPagesHandler("1.0.0", "2024-01-01", netutil.NewTrustResolver(config.TrustedProxiesConfig{}, ""), func(w http.ResponseWriter, _ *http.Request, page string, data interface{}) error {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Write([]byte("<html><body><h1>" + page + "</h1></body></html>")) //nolint:errcheck
+		return nil
+	})
+	req := httptest.NewRequest(http.MethodGet, "/server/about", nil)
+	req.Header.Set("User-Agent", "curl/8.5.0")
+	w := httptest.NewRecorder()
+
+	h.ServerAboutHandler(w, req)
+
+	res := w.Result()
+	if ct := res.Header.Get("Content-Type"); !strings.HasPrefix(ct, "text/plain") {
+		t.Errorf("Content-Type = %q, want text/plain", ct)
+	}
+	body := w.Body.String()
+	if strings.Contains(body, "<h1>") {
+		t.Errorf("body still contains HTML markup: %q", body)
+	}
+	// HTML2TextConverter renders an <h1> as an uppercase banner heading, so
+	// match case-insensitively rather than on the raw template name.
+	if !strings.Contains(strings.ToLower(body), "about.tmpl") {
+		t.Errorf("body lost its content: %q", body)
+	}
+}
+
+func TestRenderNegotiated_TextBrowserGetsHTML(t *testing.T) {
+	h := newTestPagesHandler()
+	req := httptest.NewRequest(http.MethodGet, "/server/about", nil)
+	req.Header.Set("User-Agent", "Lynx/2.9.0dev.10 libwww-FM/2.14")
+	w := httptest.NewRecorder()
+
+	h.ServerAboutHandler(w, req)
+
+	res := w.Result()
+	if ct := res.Header.Get("Content-Type"); !strings.HasPrefix(ct, "text/html") {
+		t.Errorf("Content-Type = %q, want text/html", ct)
+	}
+	if !strings.Contains(w.Body.String(), "about.tmpl") {
+		t.Errorf("body does not reference about.tmpl: %q", w.Body.String())
+	}
 }

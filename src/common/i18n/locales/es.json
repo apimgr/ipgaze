@@ -188,6 +188,11 @@
     "success": "Gracias por su mensaje. Responderemos en breve.",
     "support_intro": "Para soporte o preguntas sobre ipgaze:",
     "security_issues": "Problemas de seguridad",
+    "security_issues_body": "Para reportar una vulnerabilidad de seguridad, consulte nuestra política de seguridad.",
+    "security_policy_link": "política de seguridad",
+    "abuse_reports": "Reportes de abuso",
+    "abuse_reports_body": "Para reportar contenido abusivo o infracciones de las normas, utilice este formulario de contacto.",
+    "abuse_reports_body_email": "Para reportar contenido abusivo o infracciones de las normas, utilice este formulario de contacto o escriba a {email}.",
     "github": "GitHub",
     "form_heading": "Enviar un mensaje"
   },
@@ -270,11 +275,23 @@
     "changes": "Cambios",
     "governing_law": "Ley aplicable",
     "acceptable_use_body": "Puedes usar ipgaze solo para fines lícitos. Se prohíben las búsquedas masivas automatizadas que degraden el servicio para otros usuarios.",
+    "acceptance_body": "Al acceder o usar ipgaze, aceptas quedar vinculado por estos términos. Si no estás de acuerdo, no uses el servicio.",
     "no_warranty_heading": "Sin garantía",
     "no_warranty_body": "Este servicio se proporciona \"tal cual\" sin garantía de ningún tipo. No garantizamos el tiempo de actividad ni la precisión de los datos de geolocalización.",
     "rate_limiting_heading": "Límite de solicitudes",
     "rate_limiting_body": "La API está limitada a 120 solicitudes por minuto. Exceder este límite resultará en bloqueos temporales.",
-    "changes_body": "Estos términos pueden cambiar en cualquier momento. El uso continuado del servicio constituye la aceptación de los términos actualizados."
+    "changes_body": "Estos términos pueden cambiar en cualquier momento. El uso continuado del servicio constituye la aceptación de los términos actualizados.",
+    "governing_law_body": "Estos términos se rigen por las leyes de la jurisdicción en la que reside el operador del servicio, sin tener en cuenta los principios de conflicto de leyes."
+  },
+
+  "security": {
+    "title": "Política de seguridad",
+    "intro": "Nos tomamos en serio la seguridad de ipgaze. Si descubre una vulnerabilidad de seguridad, repórtela de manera responsable.",
+    "report_email": "Reporte vulnerabilidades enviando un correo a {email}.",
+    "report_github": "También puede reportar una vulnerabilidad de forma privada a través de",
+    "report_github_link": "GitHub Security Advisories",
+    "txt_heading": "Política legible por máquina",
+    "txt_body": "Las herramientas automatizadas pueden obtener esta política en formato RFC 9116 en"
   },
 
   "cookie_consent": {
@@ -347,6 +364,10 @@
   "pwa": {
     "install": "Instalar aplicación",
     "installed": "Aplicación instalada",
+    "ios_install_title": "Instalar {app}",
+    "ios_install_step1": "Toca el botón Compartir en la barra de herramientas de Safari.",
+    "ios_install_step2": "Desplázate hacia abajo y toca \"Añadir a pantalla de inicio\".",
+    "ios_install_step3": "Toca \"Añadir\" en la esquina superior derecha.",
     "offline_message": "Sin conexión a internet. Mostrando contenido en caché.",
     "offline_title": "Estás sin conexión",
     "offline_description": "IPGaze requiere una conexión de red para buscar direcciones IP. Por favor, comprueba tu conexión e inténtalo de nuevo.",
@@ -518,8 +539,25 @@
     "port_intro": "Comprueba si un puerto está abierto en la IP solicitante:",
     "tor_access_intro": "Este servidor también es accesible como servicio oculto de Tor — sin nodo de salida, y ningún intermediario ve nunca tu IP real:",
     "tor_access_disabled": "Este servidor no ejecuta actualmente un servicio oculto de Tor.",
+    "tor_address_heading": "Dirección Onion",
+    "tor_connect_heading": "Cómo conectar",
+    "tor_step1_pre": "Descarga",
+    "tor_step1_link": "Tor Browser",
+    "tor_step2": "Abre Tor Browser y espera a que se conecte",
+    "tor_step3": "Copia la dirección onion de arriba y pégala en la barra de direcciones de Tor Browser",
+    "tor_note": "Usar Tor proporciona privacidad adicional al ocultar tu dirección IP y cifrar tu conexión a través de la red Tor.",
     "i2p_access_intro": "Este servidor también es accesible como eepsite de I2P:",
     "i2p_access_disabled": "Este servidor no ejecuta actualmente un eepsite de I2P.",
+    "i2p_address_heading": "Dirección I2P",
+    "i2p_connect_heading": "Cómo conectar",
+    "i2p_step1_pre": "Instala",
+    "i2p_step1_link_i2p": "I2P",
+    "i2p_step1_or": "o",
+    "i2p_step1_link_i2pd": "i2pd",
+    "i2p_step1_post": "y espera a que se integre con la red",
+    "i2p_step2": "Configura tu navegador para usar el proxy HTTP de I2P (predeterminado {proxy})",
+    "i2p_step3": "Copia la dirección .b32.i2p de arriba y pégala en la barra de direcciones de tu navegador",
+    "i2p_note": "Usar I2P proporciona privacidad adicional al enrutar tu conexión a través de la red I2P. Los eepsites se sirven por http:// — el túnel de I2P proporciona el cifrado de transporte, por lo que no se usa ningún certificado TLS.",
     "formats_heading": "Formatos de la API",
     "formats_plain_label": "Texto plano",
     "formats_plain_desc": "predeterminado para user-agents de curl/wget/CLI y User-Agent vacío",
@@ -1045,6 +1083,10 @@
         "description": "Sirve la política de privacidad, incluidos los datos que se registran, durante cuánto tiempo se conservan y las opciones de exclusión disponibles.",
         "summary": "Política de privacidad"
       },
+      "server_security": {
+        "description": "Sirve la política de seguridad, la dirección de contacto y las instrucciones para notificar vulnerabilidades de este servicio.",
+        "summary": "Política de seguridad"
+      },
       "server_terms": {
         "description": "Sirve las condiciones de uso de este servicio.",
         "summary": "Condiciones del servicio"
@@ -1122,6 +1164,9 @@
       "v1_swagger": {
         "description": "Devuelve este documento OpenAPI 3.0 en JSON a través de la ruta de API versionada.",
         "summary": "Documento OpenAPI (API v1)"
+      },
+      "v1_security": {
+        "summary": "Política de seguridad (API v1)"
       },
       "v1_terms": {
         "summary": "Condiciones del servicio (API v1)"

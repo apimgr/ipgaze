@@ -32,7 +32,7 @@ services:
       # Production: strict security, minimal logging, caching enabled
       # NO DEBUG/MODE - debug must be explicitly set via CLI if needed
       PORT: 80
-      TZ: America/New_York
+      TZ: ${TZ:-America/New_York}
       CACHE_URL: valkey://ipgaze-cache:6379
       # DOMAIN (optional - auto-detects from reverse proxy headers)
       # DOMAIN: myapp.com,www.myapp.com

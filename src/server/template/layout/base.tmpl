@@ -8,6 +8,27 @@
   {{template "announcement_banner" .}}
   {{template "header" .}}
   <div id="offline-indicator" aria-live="polite" class="offline-indicator hidden"></div>
+  <!-- iOS Safari never fires beforeinstallprompt (AI.md PART 16 "iOS-Specific
+       Considerations"), so #pwa-install-btn opens this native <dialog> with
+       manual instructions there instead of calling prompt(). -->
+  <dialog id="pwa-ios-install-modal" aria-labelledby="pwa-ios-install-title" class="modal">
+    <form method="dialog">
+      <div class="modal-header">
+        <h2 id="pwa-ios-install-title">{{tf .Lang "pwa.ios_install_title" "app" .ProjectName}}</h2>
+        <button type="submit" class="modal-close" aria-label="{{t .Lang "common.close"}}">&times;</button>
+      </div>
+      <div class="modal-body">
+        <ol>
+          <li>{{t .Lang "pwa.ios_install_step1"}}</li>
+          <li>{{t .Lang "pwa.ios_install_step2"}}</li>
+          <li>{{t .Lang "pwa.ios_install_step3"}}</li>
+        </ol>
+      </div>
+      <div class="modal-footer">
+        <button type="submit" class="btn btn-primary">{{t .Lang "common.close"}}</button>
+      </div>
+    </form>
+  </dialog>
   <main id="main-content" class="container" role="main">
     {{block "content" .}}{{end}}
   </main>

@@ -188,6 +188,11 @@
     "success": "メッセージをお送りいただきありがとうございます。近日中にご返答いたします。",
     "support_intro": "ipgazeに関するサポートやご質問は：",
     "security_issues": "セキュリティに関する問題",
+    "security_issues_body": "セキュリティ上の脆弱性を報告するには、当社のセキュリティポリシーをご確認ください。",
+    "security_policy_link": "セキュリティポリシー",
+    "abuse_reports": "不正利用の報告",
+    "abuse_reports_body": "不正なコンテンツやポリシー違反を報告するには、このお問い合わせフォームをご利用ください。",
+    "abuse_reports_body_email": "不正なコンテンツやポリシー違反を報告するには、このお問い合わせフォームをご利用いただくか、{email} までメールでご連絡ください。",
     "github": "GitHub",
     "form_heading": "メッセージを送信"
   },
@@ -270,11 +275,23 @@
     "changes": "変更",
     "governing_law": "準拠法",
     "acceptable_use_body": "ipgazeは合法的な目的でのみご利用いただけます。他のユーザーへのサービスを低下させる自動化された大量の検索は禁止されています。",
+    "acceptance_body": "ipgazeにアクセスまたは使用することにより、これらの規約に拘束されることに同意したものとみなされます。同意しない場合は本サービスを使用しないでください。",
     "no_warranty_heading": "保証なし",
     "no_warranty_body": "本サービスは「現状のまま」提供され、いかなる保証もありません。稼働時間や位置情報データの正確性は保証されません。",
     "rate_limiting_heading": "レート制限",
     "rate_limiting_body": "APIは1分あたり120リクエストに制限されています。この制限を超えると、一時的にブロックされます。",
-    "changes_body": "これらの規約はいつでも変更される可能性があります。本サービスの継続利用は、更新された規約への同意とみなされます。"
+    "changes_body": "これらの規約はいつでも変更される可能性があります。本サービスの継続利用は、更新された規約への同意とみなされます。",
+    "governing_law_body": "これらの規約は、サービス運営者が所在する法域の法律に準拠し、法の抵触に関する原則は適用されません。"
+  },
+
+  "security": {
+    "title": "セキュリティポリシー",
+    "intro": "ipgazeでは、セキュリティを重視しています。セキュリティ上の脆弱性を発見した場合は、責任を持ってご報告ください。",
+    "report_email": "脆弱性を報告するには、{email} までメールでご連絡ください。",
+    "report_github": "以下からも非公開で脆弱性を報告できます：",
+    "report_github_link": "GitHub Security Advisories",
+    "txt_heading": "機械可読ポリシー",
+    "txt_body": "自動化ツールは、RFC 9116形式でこのポリシーを次の場所から取得できます："
   },
 
   "cookie_consent": {
@@ -347,6 +364,10 @@
   "pwa": {
     "install": "アプリをインストール",
     "installed": "アプリがインストールされました",
+    "ios_install_title": "{app}をインストール",
+    "ios_install_step1": "Safariのツールバーにある共有ボタンをタップします。",
+    "ios_install_step2": "下にスクロールして「ホーム画面に追加」をタップします。",
+    "ios_install_step3": "右上の「追加」をタップします。",
     "offline_message": "インターネット接続がありません。キャッシュされたコンテンツを表示しています。",
     "offline_title": "オフラインです",
     "offline_description": "IPGazeでIPアドレスを検索するにはネットワーク接続が必要です。接続を確認してもう一度お試しください。",
@@ -518,8 +539,25 @@
     "port_intro": "リクエスト元のIPでポートが開いているか確認します：",
     "tor_access_intro": "このサーバーはTorの隠しサービスとしてもアクセスできます — 出口ノードはなく、仲介者があなたの実際のIPを見ることはありません：",
     "tor_access_disabled": "このサーバーは現在Torの隠しサービスを実行していません。",
+    "tor_address_heading": "Onionアドレス",
+    "tor_connect_heading": "接続方法",
+    "tor_step1_pre": "ダウンロード：",
+    "tor_step1_link": "Tor Browser",
+    "tor_step2": "Tor Browserを開いて接続が完了するまで待ちます",
+    "tor_step3": "上記のonionアドレスをコピーし、Tor Browserのアドレスバーに貼り付けます",
+    "tor_note": "Torを使用すると、IPアドレスを隠し、Torネットワークを通じて接続を暗号化することで、追加のプライバシーが提供されます。",
     "i2p_access_intro": "このサーバーはI2Pのeepsiteとしてもアクセスできます：",
     "i2p_access_disabled": "このサーバーは現在I2Pのeepsiteを実行していません。",
+    "i2p_address_heading": "I2Pアドレス",
+    "i2p_connect_heading": "接続方法",
+    "i2p_step1_pre": "インストール：",
+    "i2p_step1_link_i2p": "I2P",
+    "i2p_step1_or": "または",
+    "i2p_step1_link_i2pd": "i2pd",
+    "i2p_step1_post": "をインストールし、ネットワークへの統合が完了するまで待ちます",
+    "i2p_step2": "ブラウザでI2PのHTTPプロキシを使用するように設定します（デフォルト {proxy}）",
+    "i2p_step3": "上記の.b32.i2pアドレスをコピーし、ブラウザのアドレスバーに貼り付けます",
+    "i2p_note": "I2Pを使用すると、接続をI2Pネットワーク経由でルーティングすることで、追加のプライバシーが提供されます。eepsiteはhttp://で提供されます — I2Pトンネルがトランスポート層の暗号化を提供するため、TLS証明書は使用されません。",
     "formats_heading": "APIフォーマット",
     "formats_plain_label": "プレーンテキスト",
     "formats_plain_desc": "curl/wget/CLIのユーザーエージェントおよび空のUser-Agentのデフォルト",
@@ -575,7 +613,7 @@
     "faq_ipv4_result": "IPv4アドレスを返します",
     "faq_ipv6_result": "IPv6アドレスを返します",
     "faq_json_question": "JSONの取得を強制できますか？",
-    "faq_json_answer_pre": "",
+    "faq_json_answer_pre": "はい、",
     "faq_json_answer_post": "ヘッダーを設定すると期待どおりに動作します。",
     "faq_automated_question": "このサービスの自動利用は許可されていますか？",
     "faq_automated_answer": "はい、レート制限を守っていただければ可能です。レート制限はすべてのユーザーに公平なサービスを提供するためのものです。",
@@ -1045,6 +1083,10 @@
         "description": "記録されるデータ、その保存期間、利用できるオプトアウト手段を含むプライバシーポリシーを配信します。",
         "summary": "プライバシーポリシー"
       },
+      "server_security": {
+        "description": "本サービスのセキュリティポリシー、連絡先、脆弱性報告方法を配信します。",
+        "summary": "セキュリティポリシー"
+      },
       "server_terms": {
         "description": "本サービスの利用条件を配信します。",
         "summary": "利用規約"
@@ -1122,6 +1164,9 @@
       "v1_swagger": {
         "description": "バージョン付きAPIパス経由で、この OpenAPI 3.0 ドキュメントをJSONで返します。",
         "summary": "OpenAPIドキュメント (API v1)"
+      },
+      "v1_security": {
+        "summary": "セキュリティポリシー (API v1)"
       },
       "v1_terms": {
         "summary": "利用規約 (API v1)"

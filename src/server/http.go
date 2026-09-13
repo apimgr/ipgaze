@@ -32,6 +32,7 @@ import (
 	"github.com/apimgr/ipgaze/src/server/service"
 	"github.com/apimgr/ipgaze/src/threat"
 	"github.com/go-chi/chi/v5"
+	chimiddleware "github.com/go-chi/chi/v5/middleware"
 	"github.com/rs/cors"
 )
 
@@ -525,7 +526,7 @@ func (s *Server) CLICoordinatesHandler(w http.ResponseWriter, r *http.Request) *
 	if err != nil {
 		return badRequest(err).WithMessage(i18n.T(r.Context(), "errors.bad_request")).AsJSON()
 	}
-	fmt.Fprintf(w, "%s,%s\n", formatCoordinate(response.Latitude), formatCoordinate(response.Longitude))
+	fmt.Fprintf(w, "%s\n", formatCoordinatePair(response.Latitude, response.Longitude))
 	return nil
 }
 
@@ -586,8 +587,8 @@ func (s *Server) PortHandler(w http.ResponseWriter, r *http.Request) *appError {
 	return nil
 }
 
-// DefaultHandler serves the landing page, content-negotiating between the
-// rendered HTML page and the plain-text CLI response.
+// DefaultHandler renders the landing page as HTML. Client-type dispatch happens
+// before it, in rootHandler and ipLookupNegotiated.
 func (s *Server) DefaultHandler(w http.ResponseWriter, r *http.Request) *appError {
 	response, err := s.newResponse(r)
 	if err != nil {
@@ -670,7 +671,33 @@ func (s *Server) DefaultHandler(w http.ResponseWriter, r *http.Request) *appErro
 	return nil
 }
 
-// IPLookupHandler handles /{ip} and /{ip}/json requests.
+// ipLookupNegotiated serves GET /{ip} as a frontend route under the AI.md
+// PART 14 "Smart Content Negotiation" rules: our CLI client receives JSON so it
+// can render its own TUI, browsers (graphical and text-mode) receive the
+// rendered page, and non-interactive HTTP tools receive the echoip-compatible
+// plain-text address.
+func (s *Server) ipLookupNegotiated(ip net.IP) appHandler {
+	return func(w http.ResponseWriter, r *http.Request) *appError {
+		// Pin the lookup to the requested address — both newResponse and
+		// ipFromRequest resolve an explicit target from the `ip` query
+		// parameter, so the downstream handlers need no other change.
+		q := r.URL.Query()
+		q.Set("ip", ip.String())
+		r.URL.RawQuery = q.Encode()
+
+		switch detectClientType(r) {
+		case "json":
+			return s.JSONHandler(w, r)
+		case "text":
+			return s.CLIHandler(w, r)
+		default:
+			return s.DefaultHandler(w, r)
+		}
+	}
+}
+
+// IPLookupHandler handles /{ip}/json requests, which always answer JSON
+// regardless of client type because the format is named in the path.
 // Only the first path segment is parsed as the IP; any suffix is ignored.
 func (s *Server) IPLookupHandler(w http.ResponseWriter, r *http.Request) *appError {
 	// Extract the first path segment; strip brackets for IPv6 literals.
@@ -762,7 +789,7 @@ func (s *Server) APIV1ASNHandler(w http.ResponseWriter, r *http.Request) *appErr
 // PART 14: JSON by default, raw text for a `.txt` request, an Accept of
 // text/plain, or a non-interactive client.
 func writeAPIScalar(w http.ResponseWriter, r *http.Request, field, value string) *appError {
-	if detectClientType(r) == "text" {
+	if apiResponseFormat(r) == "text" {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		fmt.Fprintln(w, value)
 		return nil
@@ -793,8 +820,7 @@ func (s *Server) APIV1CoordinatesHandler(w http.ResponseWriter, r *http.Request)
 	if err != nil {
 		return badRequest(err).WithMessage(i18n.T(r.Context(), "errors.bad_request")).AsJSON()
 	}
-	coordinates := formatCoordinate(response.Latitude) + "," + formatCoordinate(response.Longitude)
-	return writeAPIScalar(w, r, "coordinates", coordinates)
+	return writeAPIScalar(w, r, "coordinates", formatCoordinatePair(response.Latitude, response.Longitude))
 }
 
 // APIV1ASNOrgHandler is the API mirror of the web /asn-org route.
@@ -844,9 +870,19 @@ func (s *Server) Handler() http.Handler {
 	// PART 9 backend guaranteed-response rule — the mirror of the service
 	// worker's guaranteed-Response rule).
 	r.Use(RecoverMiddleware(s.logManager))
+	// AI.md PART 11 classifies GET and HEAD together as the read endpoint class,
+	// and RFC 9110 requires every general-purpose server to answer HEAD wherever
+	// it answers GET. chi matches methods exactly, so without this a HEAD on a
+	// GET-only route returns 405 instead of the GET response's headers.
+	r.Use(chimiddleware.GetHead)
 	r.Use(URLNormalizeMiddleware)
 	r.Use(RequestIDMiddleware)
 	r.Use(PathSecurityMiddleware)
+	if s.config != nil {
+		if maxBody := parseByteSize(s.config.Server.Limits.MaxBodySize); maxBody > 0 {
+			r.Use(BodyLimitMiddleware(maxBody))
+		}
+	}
 	r.Use(SecurityHeadersMiddleware(SecurityHeaderConfigFromApp(s.config), s.SSLEnabled, s.config != nil && s.config.IsDebug()))
 	r.Use(OnionLocationMiddleware(s.resolveOnionAddress))
 	r.Use(ClientIPMiddleware(s.getTrust()))
@@ -868,6 +904,9 @@ func (s *Server) Handler() http.Handler {
 		csrfCfg = csrfConfigFrom(s.config.Web.CSRF)
 	}
 	r.Use(CSRFMiddleware(csrfCfg, s.SSLEnabled, s.logManager))
+	if s.config != nil {
+		r.Use(CompressionMiddleware(s.config.Server.Compression))
+	}
 
 	// Static files (embedded) - serve under /static/ prefix.
 	// Cache-Control per AI.md PART 9 "Asset Version-Busting (REQUIRED)":
@@ -967,7 +1006,9 @@ func (s *Server) Handler() http.Handler {
 		data, err := i18n.LocaleJSON(lang)
 		if err != nil {
 			detectedLang := i18n.DetectLocale(req)
-			http.Error(w, i18n.T(i18n.WithLang(req.Context(), detectedLang), "errors.not_found"), http.StatusNotFound)
+			// AI.md 24407/24414: 404 is a theme-required error page, so the
+			// response is content-negotiated instead of a bare http.Error body.
+			writeNegotiatedError(w, req, http.StatusNotFound, "", i18n.T(i18n.WithLang(req.Context(), detectedLang), "errors.not_found"))
 			return
 		}
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
@@ -1097,6 +1138,7 @@ func (s *Server) Handler() http.Handler {
 	r.Get("/server/contact", s.PagesHandler.ServerContactHandler)
 	r.Post("/server/contact", s.PagesHandler.ServerContactHandler)
 	r.Get("/server/terms", s.PagesHandler.ServerTermsHandler)
+	r.Get("/server/security", s.PagesHandler.ServerSecurityHandler)
 	r.Post("/server/consent", s.PagesHandler.ConsentHandler)
 	r.Post("/server/ccpa", s.PagesHandler.CCPAHandler)
 	r.Post("/server/preferences", s.PagesHandler.ServerPreferencesUpdateHandler)
@@ -1139,21 +1181,18 @@ func (s *Server) Handler() http.Handler {
 		r.Get("/server/healthz", s.HealthHandler.APIV1HealthzHandler)
 
 		r.Get("/version", func(w http.ResponseWriter, r *http.Request) {
-			type versionResponse struct {
+			type versionData struct {
 				Version string `json:"version"`
 				Commit  string `json:"commit"`
 				Date    string `json:"date"`
 			}
-			resp := versionResponse{
+			// AI.md PART 14: every success response uses the canonical
+			// {"ok":true,"data":...} envelope — no endpoint may invent its own shape.
+			handler.SendAPIResponseOK(w, versionData{
 				Version: s.Version,
 				Commit:  s.CommitID,
 				Date:    s.BuildDate,
-			}
-			data, _ := json.MarshalIndent(resp, "", "  ")
-			w.Header().Set("Content-Type", "application/json")
-			// Write errors are unrecoverable once headers are sent; log is not actionable here.
-			w.Write(data)         //nolint:errcheck
-			w.Write([]byte("\n")) //nolint:errcheck
+			}, nil)
 		})
 
 		// JSON versions of public pages
@@ -1162,6 +1201,7 @@ func (s *Server) Handler() http.Handler {
 		r.Get("/server/privacy", s.PagesHandler.APIV1ServerPrivacyHandler)
 		r.Post("/server/contact", s.PagesHandler.APIV1ServerContactHandler)
 		r.Get("/server/terms", s.PagesHandler.APIV1ServerTermsHandler)
+		r.Get("/server/security", s.PagesHandler.APIV1ServerSecurityHandler)
 		r.Get("/server/preferences", s.PagesHandler.APIV1ServerPreferencesHandler)
 		// JSON mirror of the web form POST /server/preferences.
 		r.Post("/server/preferences", s.PagesHandler.APIV1ServerPreferencesUpdateHandler)
@@ -1307,8 +1347,10 @@ func (s *Server) Handler() http.Handler {
 	return h
 }
 
-// rootHandler handles content negotiation for the root path per AI.md PART 16.
-// Uses detectClientType to dispatch to JSON, plain-text, or HTML handler.
+// rootHandler dispatches GET / under the AI.md PART 14 "Smart Content
+// Negotiation" rules: our CLI client receives JSON, browsers (graphical and
+// text-mode) receive the rendered page, and non-interactive HTTP tools receive
+// the echoip-compatible plain-text address.
 func (s *Server) rootHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		switch detectClientType(r) {
@@ -1434,7 +1476,8 @@ func (s *Server) autodiscoverHandler() http.HandlerFunc {
 		data, err := json.MarshalIndent(resp, "", "  ")
 		if err != nil {
 			detectedLang := i18n.DetectLocale(r)
-			http.Error(w, i18n.T(i18n.WithLang(r.Context(), detectedLang), "errors.server_error"), http.StatusInternalServerError)
+			// AI.md 24407/24415: 500 is a theme-required error page.
+			writeNegotiatedError(w, r, http.StatusInternalServerError, "", i18n.T(i18n.WithLang(r.Context(), detectedLang), "errors.server_error"))
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -1455,14 +1498,18 @@ func (s *Server) cliBinaryDownloadHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// Extract filename from URL (chi wildcard is everything after /cli/binaries/)
 		filename := filepath.Base(r.URL.Path)
+		// Every rejection below is content-negotiated: this route is reachable by
+		// ordinary browser navigation, and AI.md 24407 requires the themed error
+		// page for 400/404/500 (24411/24414/24415) rather than http.Error's bare
+		// unstyled body.
 		if filename == "" || filename == "." || filename == "/" {
-			http.Error(w, i18n.T(r.Context(), "errors.not_found"), http.StatusNotFound)
+			writeNegotiatedError(w, r, http.StatusNotFound, "", i18n.T(r.Context(), "errors.not_found"))
 			return
 		}
 
 		// Reject path traversal
 		if strings.Contains(filename, "..") || strings.ContainsAny(filename, "/\\") {
-			http.Error(w, i18n.T(r.Context(), "errors.invalid_format"), http.StatusBadRequest)
+			writeNegotiatedError(w, r, http.StatusBadRequest, "", i18n.T(r.Context(), "errors.invalid_format"))
 			return
 		}
 
@@ -1472,17 +1519,17 @@ func (s *Server) cliBinaryDownloadHandler() http.HandlerFunc {
 		f, err := os.Open(binPath)
 		if err != nil {
 			if os.IsNotExist(err) {
-				http.Error(w, i18n.T(r.Context(), "errors.not_found"), http.StatusNotFound)
+				writeNegotiatedError(w, r, http.StatusNotFound, "", i18n.T(r.Context(), "errors.not_found"))
 				return
 			}
-			http.Error(w, i18n.T(r.Context(), "errors.server_error"), http.StatusInternalServerError)
+			writeNegotiatedError(w, r, http.StatusInternalServerError, "", i18n.T(r.Context(), "errors.server_error"))
 			return
 		}
 		defer f.Close()
 
 		fi, err := f.Stat()
 		if err != nil {
-			http.Error(w, i18n.T(r.Context(), "errors.server_error"), http.StatusInternalServerError)
+			writeNegotiatedError(w, r, http.StatusInternalServerError, "", i18n.T(r.Context(), "errors.server_error"))
 			return
 		}
 
@@ -1582,9 +1629,12 @@ func (s *Server) ipLookupOrNotFound() http.HandlerFunc {
 		}
 
 		switch suffix {
-		case "", "json":
-			// /{ip} or /{ip}/json → full JSON response
+		case "json":
+			// /{ip}/json → full JSON response, format named in the path
 			appHandlerToHTTP(s.IPLookupHandler)(w, r)
+		case "":
+			// /{ip} → frontend route, AI.md PART 14 smart detection
+			appHandlerToHTTP(s.ipLookupNegotiated(ip))(w, r)
 		default:
 			// /{ip}/{field} → specific field as plain text
 			appHandlerToHTTP(s.ipLookupFieldHandler(ip, suffix))(w, r)

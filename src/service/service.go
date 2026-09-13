@@ -318,51 +318,120 @@ func (s *Service) Reload() error {
 	}
 }
 
-// Status prints current service status to stdout.
+// Status prints current service status to stdout in the canonical format
+// from AI.md PART 23 "Service Help Output": Service/State/Auto-start/PID.
 func (s *Service) Status() error {
 	serviceType := DetectServiceManager()
 
+	var installed bool
+	state := "stopped"
+	autostart := "disabled"
+	pid := ""
+
 	switch serviceType {
 	case ServiceSystemd:
-		cmd := exec.Command("systemctl", "status", appName)
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		// intentionally ignore exit code — systemctl status prints even when stopped
-		cmd.Run() //nolint:errcheck
-		return nil
+		installed = isStatOK(fmt.Sprintf("/etc/systemd/system/%s.service", appName))
+		if out, err := exec.Command("systemctl", "is-active", appName).Output(); err == nil && strings.TrimSpace(string(out)) == "active" {
+			state = "running"
+		}
+		if out, err := exec.Command("systemctl", "is-enabled", appName).Output(); err == nil && strings.TrimSpace(string(out)) == "enabled" {
+			autostart = "enabled"
+		}
+		if out, err := exec.Command("systemctl", "show", appName, "--property=MainPID", "--value").Output(); err == nil {
+			if p := strings.TrimSpace(string(out)); p != "" && p != "0" {
+				pid = p
+			}
+		}
 	case ServiceOpenRC:
-		cmd := exec.Command("rc-service", appName, "status")
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		return cmd.Run()
+		installed = isStatOK(fmt.Sprintf("/etc/init.d/%s", appName))
+		if exec.Command("rc-service", appName, "status").Run() == nil {
+			state = "running"
+		}
+		if out, err := exec.Command("rc-update", "show", "default").Output(); err == nil && strings.Contains(string(out), appName) {
+			autostart = "enabled"
+		}
+		pid = readPIDFile(fmt.Sprintf("/var/run/%s/%s.pid", orgName, appName))
 	case ServiceSysVinit:
-		cmd := exec.Command("service", appName, "status")
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		return cmd.Run()
+		installed = isStatOK(fmt.Sprintf("/etc/init.d/%s", appName))
+		if exec.Command("service", appName, "status").Run() == nil {
+			state = "running"
+		}
+		if _, err := exec.LookPath("update-rc.d"); err == nil {
+			// update-rc.d has no direct query flag; presence of rc*.d symlinks implies enabled.
+			if matches, _ := filepath.Glob("/etc/rc*.d/S??" + appName); len(matches) > 0 {
+				autostart = "enabled"
+			}
+		}
+		pid = readPIDFile(fmt.Sprintf("/var/run/%s/%s.pid", orgName, appName))
 	case ServiceRunit:
-		cmd := exec.Command("sv", "status", appName)
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		return cmd.Run()
+		svDir := fmt.Sprintf("/etc/sv/%s", appName)
+		installed = isStatOK(svDir)
+		if out, err := exec.Command("sv", "status", appName).Output(); err == nil && strings.HasPrefix(strings.TrimSpace(string(out)), "run:") {
+			state = "running"
+		}
+		if isStatOK(fmt.Sprintf("/var/service/%s", appName)) {
+			autostart = "enabled"
+		}
 	case ServiceLaunchd:
-		cmd := exec.Command("launchctl", "list", launchdLabel())
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		return cmd.Run()
+		installed = isStatOK(launchdPlistPath())
+		if out, err := exec.Command("launchctl", "list", launchdLabel()).Output(); err == nil {
+			state = "running"
+			autostart = "enabled"
+			for _, line := range strings.Split(string(out), "\n") {
+				line = strings.TrimSpace(line)
+				if strings.HasPrefix(line, `"PID"`) {
+					parts := strings.SplitN(line, "=", 2)
+					if len(parts) == 2 {
+						pid = strings.Trim(strings.TrimSpace(parts[1]), ";")
+					}
+				}
+			}
+		} else if installed {
+			autostart = "enabled"
+		}
 	case ServiceWindows:
-		cmd := exec.Command("sc.exe", "query", appName)
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		return cmd.Run()
+		out, err := exec.Command("sc.exe", "query", appName).Output()
+		installed = err == nil
+		if err == nil && strings.Contains(string(out), "RUNNING") {
+			state = "running"
+		}
+		if cfgOut, err := exec.Command("sc.exe", "qc", appName).Output(); err == nil && strings.Contains(string(cfgOut), "AUTO_START") {
+			autostart = "enabled"
+		}
 	case ServiceBSDRC:
-		cmd := exec.Command("service", appName, "status")
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		return cmd.Run()
+		installed = isStatOK(fmt.Sprintf("/usr/local/etc/rc.d/%s", appName))
+		if exec.Command("service", appName, "status").Run() == nil {
+			state = "running"
+		}
+		if out, err := exec.Command("sysrc", "-n", appName+"_enable").Output(); err == nil && strings.EqualFold(strings.TrimSpace(string(out)), "yes") {
+			autostart = "enabled"
+		}
+		pid = readPIDFile(fmt.Sprintf("/var/run/%s/%s.pid", orgName, appName))
 	default:
 		return fmt.Errorf("unsupported service manager")
 	}
+
+	installedText := "not installed"
+	if installed {
+		installedText = "installed"
+	}
+	fmt.Printf("Service:    %s\n", installedText)
+	fmt.Printf("State:      %s\n", state)
+	fmt.Printf("Auto-start: %s\n", autostart)
+	if pid != "" {
+		fmt.Printf("PID:        %s\n", pid)
+	}
+	return nil
+}
+
+// readPIDFile reads and trims a PID file's content, returning "" if the file
+// is absent or unreadable.
+func readPIDFile(path string) string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(data))
 }
 
 // GetBinaryPath returns the installation path for the binary.
@@ -375,30 +444,42 @@ func GetBinaryPath() string {
 	}
 }
 
-// deleteAllData removes all runtime data dirs left by the service.
+// deleteAllData removes all runtime data dirs, the system backup directory,
+// and the PID file left by the service, per AI.md PART 23 "Service Uninstall
+// Logic" (config/data/cache/log/backup dirs + PID file).
 func deleteAllData() {
 	dirs := []string{
 		fmt.Sprintf("/etc/%s/%s", orgName, appName),
 		fmt.Sprintf("/var/lib/%s/%s", orgName, appName),
 		fmt.Sprintf("/var/cache/%s/%s", orgName, appName),
 		fmt.Sprintf("/var/log/%s/%s", orgName, appName),
+		fmt.Sprintf("/var/backups/%s/%s", orgName, appName),
 	}
 	for _, d := range dirs {
 		if err := os.RemoveAll(d); err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: failed to remove %s: %v\n", d, err)
 		}
 	}
+
+	pidFile := fmt.Sprintf("/var/run/%s/%s.pid", orgName, appName)
+	if err := os.Remove(pidFile); err != nil && !os.IsNotExist(err) {
+		fmt.Fprintf(os.Stderr, "Warning: failed to remove %s: %v\n", pidFile, err)
+	}
 }
 
-// removeSystemUser removes the OS user created during installation.
+// removeSystemUser removes the OS user and group created during
+// installation, per AI.md PART 23 "Service Uninstall Logic" step 5
+// ("Delete system user and group").
 func removeSystemUser() {
 	switch runtime.GOOS {
 	case "darwin":
-		// Best-effort user removal; missing user is not an error during uninstall.
-		exec.Command("dscl", ".", "-delete", "/Users/"+appName).Run() //nolint:errcheck
+		// Best-effort removal; missing user/group is not an error during uninstall.
+		exec.Command("dscl", ".", "-delete", "/Users/"+appName).Run()  //nolint:errcheck
+		exec.Command("dscl", ".", "-delete", "/Groups/"+appName).Run() //nolint:errcheck
 	default:
-		// Best-effort user removal; missing user is not an error during uninstall.
+		// Best-effort removal; missing user/group is not an error during uninstall.
 		exec.Command("userdel", "-r", appName).Run() //nolint:errcheck
+		exec.Command("groupdel", appName).Run()      //nolint:errcheck
 	}
 }
 

@@ -112,8 +112,10 @@ docker run --rm \
     curl -q -LSsf -A 'ipgaze-cli/1.0.0' http://localhost:64580/ | grep -qvi -- '<html' || echo 'FAILED: CLI UA plain text'
 
     echo '=== Open API Smoke Test ==='
-    # No auth required — all endpoints are publicly accessible
-    curl -q -LSsf http://localhost:64580/server/healthz | grep -q -- '\"ok\":true' \
+    # No auth required — all endpoints are publicly accessible.
+    # Health responses are BARE (AI.md PART 13: no {ok,data} envelope on any
+    # health route, in any state) — the top-level status field carries the state.
+    curl -q -LSsf -H 'Accept: application/json' http://localhost:64580/server/healthz | grep -q -- '\"status\": \"healthy\"' \
         && echo '✓ Health endpoint works' \
         || echo '✗ FAILED: Health endpoint'
 
@@ -143,13 +145,19 @@ docker run --rm \
 
         # Full CLI functionality tests against server
         echo '--- CLI Full Functionality Tests ---'
+        # The CLI's only positional argument is an IP address (AI.md PART 32) —
+        # there is no 'status' subcommand to call here.
         if [ -n \"\${API_TOKEN:-}\" ]; then
             # Test with API token
-            /app/${DOCKER_PROJECT_NAME}-cli --server http://localhost:64580 --token \"\$API_TOKEN\" status || echo 'CLI status failed'
+            /app/${DOCKER_PROJECT_NAME}-cli --server http://localhost:64580 --token \"\$API_TOKEN\" --output json \
+                || echo 'FAILED: CLI self lookup with token'
         else
             # Test without token (open API — anonymous allowed)
-            /app/${DOCKER_PROJECT_NAME}-cli --server http://localhost:64580 status || echo 'CLI status (no token) failed or not applicable'
+            /app/${DOCKER_PROJECT_NAME}-cli --server http://localhost:64580 --output json \
+                || echo 'FAILED: CLI self lookup without token'
         fi
+        /app/${DOCKER_PROJECT_NAME}-cli --server http://localhost:64580 --field ip 8.8.8.8 \
+            || echo 'FAILED: CLI single-field IP lookup'
     else
         echo 'client not built - skipping'
     fi

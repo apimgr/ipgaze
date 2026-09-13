@@ -61,7 +61,10 @@ func MetricsAuth(cfg config.MetricsConfig, token string, h http.Handler) http.Ha
 		if len(auth) != len(want) || subtle.ConstantTimeCompare([]byte(auth), []byte(want)) != 1 {
 			padMetricsAuth(start)
 			lang := i18n.DetectLocale(r)
-			http.Error(w, i18n.T(i18n.WithLang(r.Context(), lang), "errors.unauthorized"), http.StatusUnauthorized)
+			// Metrics clients are scrapers, never browsers, so the rejection is
+			// the canonical AI.md PART 9 JSON envelope rather than http.Error's
+			// bare text/plain body.
+			WriteAPIError(w, http.StatusUnauthorized, "", i18n.T(i18n.WithLang(r.Context(), lang), "errors.unauthorized"))
 			return
 		}
 		h.ServeHTTP(w, r)

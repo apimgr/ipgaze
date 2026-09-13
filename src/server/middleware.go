@@ -195,16 +195,20 @@ func URLNormalizeMiddleware(next http.Handler) http.Handler {
 func PathSecurityMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Check for path traversal patterns
+		// A rejected path is reached by ordinary browser navigation, so the
+		// response is content-negotiated rather than a bare http.Error body:
+		// AI.md 24407 requires the themed page and 24411 lists 400 Bad Request
+		// as theme-required.
 		if !paths.IsPathSafe(r.URL.Path) {
 			lang := i18n.DetectLocale(r)
-			http.Error(w, i18n.T(i18n.WithLang(r.Context(), lang), "errors.bad_request"), http.StatusBadRequest)
+			writeNegotiatedError(w, r, http.StatusBadRequest, "", i18n.T(i18n.WithLang(r.Context(), lang), "errors.bad_request"))
 			return
 		}
 
 		// Also check raw URI for encoded attacks
 		if !paths.IsPathSafe(r.URL.RawPath) && r.URL.RawPath != "" {
 			lang := i18n.DetectLocale(r)
-			http.Error(w, i18n.T(i18n.WithLang(r.Context(), lang), "errors.bad_request"), http.StatusBadRequest)
+			writeNegotiatedError(w, r, http.StatusBadRequest, "", i18n.T(i18n.WithLang(r.Context(), lang), "errors.bad_request"))
 			return
 		}
 

@@ -18,6 +18,11 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// brandingDefaultTitle is the fallback value for server.branding.title, which
+// AI.md PART 16 defines as `{project_name}` both as the shipped default and as
+// the fallback whenever an operator leaves the field empty.
+const brandingDefaultTitle = "ipgaze"
+
 // Config represents the complete server configuration
 // TorIdentityConfig holds the public-facing Tor hidden service identity per AI.md PART 12.
 // These are separate from the operational Tor settings under server.tor.
@@ -2042,6 +2047,10 @@ func DefaultConfig() *AppConfig {
 				},
 			},
 			Branding: BrandingConfig{
+				// AI.md PART 16 Branding Defaults: title defaults to the project
+				// name and falls back to it whenever it is left empty; tagline,
+				// description and the rest stay empty until an operator sets them.
+				Title:      brandingDefaultTitle,
 				ThemeColor: "#bd93f9",
 			},
 			SEO: DefaultSEOConfig(),
@@ -2273,6 +2282,13 @@ func applyRuntimeDatabaseEnv(cfg *AppConfig) {
 // It logs warnings but never returns an error — the server must start regardless.
 func validateConfig(cfg *AppConfig) {
 	def := DefaultConfig()
+
+	// AI.md PART 16 Branding Defaults: "If title is empty, fall back to
+	// {project_name}." A persisted server.yml with a blank title must still
+	// report a name on /server/healthz, in page titles, and in the User-Agent.
+	if strings.TrimSpace(cfg.Server.Branding.Title) == "" {
+		cfg.Server.Branding.Title = brandingDefaultTitle
+	}
 
 	// The sitemap protocol caps a single file at 50000 URLs; anything outside
 	// 1..50000 is meaningless (AI.md PART 24 "Sitemap Configuration").

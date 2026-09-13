@@ -188,6 +188,11 @@
     "success": "感谢您的消息，我们将尽快回复。",
     "support_intro": "如需支持或咨询有关 ipgaze 的问题：",
     "security_issues": "安全问题",
+    "security_issues_body": "如需报告安全漏洞，请查阅我们的安全政策。",
+    "security_policy_link": "安全政策",
+    "abuse_reports": "滥用举报",
+    "abuse_reports_body": "如需举报滥用内容或违规行为，请使用此联系表单。",
+    "abuse_reports_body_email": "如需举报滥用内容或违规行为，请使用此联系表单或发送邮件至 {email}。",
     "github": "GitHub",
     "form_heading": "发送消息"
   },
@@ -270,11 +275,23 @@
     "changes": "变更",
     "governing_law": "适用法律",
     "acceptable_use_body": "您只能将 ipgaze 用于合法目的。禁止进行会降低其他用户服务质量的自动化批量查询。",
+    "acceptance_body": "访问或使用 ipgaze 即表示您同意受本条款约束。如果您不同意，请勿使用本服务。",
     "no_warranty_heading": "无担保",
     "no_warranty_body": "本服务按“现状”提供，不提供任何形式的担保。我们不保证正常运行时间或地理位置数据的准确性。",
     "rate_limiting_heading": "速率限制",
     "rate_limiting_body": "API 限制为每分钟 120 个请求。超过此限制将导致临时封锁。",
-    "changes_body": "这些条款可能随时更改。继续使用本服务即表示接受更新后的条款。"
+    "changes_body": "这些条款可能随时更改。继续使用本服务即表示接受更新后的条款。",
+    "governing_law_body": "本条款受服务运营方所在司法管辖区的法律管辖，不适用法律冲突原则。"
+  },
+
+  "security": {
+    "title": "安全政策",
+    "intro": "我们非常重视 ipgaze 的安全。如果您发现安全漏洞，请负责任地报告。",
+    "report_email": "如需报告漏洞，请发送邮件至 {email}。",
+    "report_github": "您也可以通过以下方式私下报告漏洞：",
+    "report_github_link": "GitHub 安全公告",
+    "txt_heading": "机器可读的政策",
+    "txt_body": "自动化工具可以在以下位置获取 RFC 9116 格式的此政策："
   },
 
   "cookie_consent": {
@@ -347,6 +364,10 @@
   "pwa": {
     "install": "安装应用",
     "installed": "应用已安装",
+    "ios_install_title": "安装 {app}",
+    "ios_install_step1": "点击 Safari 工具栏中的“共享”按钮。",
+    "ios_install_step2": "向下滚动并点击“添加到主屏幕”。",
+    "ios_install_step3": "点击右上角的“添加”。",
     "offline_message": "无网络连接。显示缓存内容。",
     "offline_title": "您已离线",
     "offline_description": "IPGaze 需要网络连接才能查询 IP 地址。请检查您的网络连接并重试。",
@@ -518,8 +539,25 @@
     "port_intro": "检查请求方 IP 上的端口是否开放：",
     "tor_access_intro": "本服务器也可通过 Tor 隐藏服务访问——没有出口节点，任何中间方都无法看到您的真实 IP：",
     "tor_access_disabled": "本服务器当前未运行 Tor 隐藏服务。",
+    "tor_address_heading": "洋葱地址",
+    "tor_connect_heading": "如何连接",
+    "tor_step1_pre": "下载",
+    "tor_step1_link": "Tor 浏览器",
+    "tor_step2": "打开 Tor 浏览器并等待其连接",
+    "tor_step3": "复制上面的洋葱地址并粘贴到 Tor 浏览器的地址栏中",
+    "tor_note": "使用 Tor 可通过隐藏您的 IP 地址并对连接进行加密，通过 Tor 网络提供额外的隐私保护。",
     "i2p_access_intro": "本服务器也可通过 I2P eepsite 访问：",
     "i2p_access_disabled": "本服务器当前未运行 I2P eepsite。",
+    "i2p_address_heading": "I2P 地址",
+    "i2p_connect_heading": "如何连接",
+    "i2p_step1_pre": "安装",
+    "i2p_step1_link_i2p": "I2P",
+    "i2p_step1_or": "或",
+    "i2p_step1_link_i2pd": "i2pd",
+    "i2p_step1_post": "并等待其接入网络",
+    "i2p_step2": "将浏览器配置为使用 I2P HTTP 代理（默认 {proxy}）",
+    "i2p_step3": "复制上面的 .b32.i2p 地址并粘贴到浏览器地址栏中",
+    "i2p_note": "使用 I2P 可通过将连接路由经过 I2P 网络提供额外的隐私保护。Eepsite 通过 http:// 提供服务——I2P 隧道提供传输层加密，因此不使用 TLS 证书。",
     "formats_heading": "API 格式",
     "formats_plain_label": "纯文本",
     "formats_plain_desc": "curl/wget/CLI 用户代理及空 User-Agent 的默认格式",
@@ -1045,6 +1083,10 @@
         "description": "提供隐私政策，说明记录哪些数据、保留多久，以及可用的退出方式。",
         "summary": "隐私政策"
       },
+      "server_security": {
+        "description": "提供本服务的安全策略、联系地址和漏洞报告说明。",
+        "summary": "安全策略"
+      },
       "server_terms": {
         "description": "提供本服务的使用条款。",
         "summary": "服务条款"
@@ -1122,6 +1164,9 @@
       "v1_swagger": {
         "description": "通过带版本的 API 路径以 JSON 返回此 OpenAPI 3.0 文档。",
         "summary": "OpenAPI 文档（API v1）"
+      },
+      "v1_security": {
+        "summary": "安全策略（API v1）"
       },
       "v1_terms": {
         "summary": "服务条款（API v1）"

@@ -92,7 +92,9 @@ func (s *Server) sitemapHandler() http.HandlerFunc {
 		}
 		body, err := xml.MarshalIndent(set, "", "  ")
 		if err != nil {
-			http.Error(w, i18n.T(r.Context(), "errors.server_error"), http.StatusInternalServerError)
+			// AI.md 24407/24415: a 500 is a theme-required error page, so the
+			// response is negotiated rather than a bare http.Error body.
+			writeNegotiatedError(w, r, http.StatusInternalServerError, "", i18n.T(r.Context(), "errors.server_error"))
 			return
 		}
 		w.Header().Set("Content-Type", "application/xml; charset=utf-8")

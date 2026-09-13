@@ -30,21 +30,25 @@ func NewCacheHandler(cache CacheManager) *CacheHandler {
 // CacheResizeHandler handles cache resize requests
 func (h *CacheHandler) CacheResizeHandler(w http.ResponseWriter, r *http.Request) {
 	// Cap at 64 bytes — a valid capacity integer is at most a few digits.
+	// This endpoint only ever answers JSON, so its rejections use the canonical
+	// AI.md PART 9 envelope rather than http.Error's bare text/plain body
+	// (AI.md 24426: the error path honors content negotiation — JSON for API
+	// clients).
 	body, err := io.ReadAll(io.LimitReader(r.Body, 64))
 	if err != nil {
 		lang := i18n.DetectLocale(r)
-		http.Error(w, i18n.T(i18n.WithLang(r.Context(), lang), "errors.bad_request"), http.StatusBadRequest)
+		WriteAPIError(w, http.StatusBadRequest, "", i18n.T(i18n.WithLang(r.Context(), lang), "errors.bad_request"))
 		return
 	}
 	capacity, err := strconv.Atoi(string(body))
 	if err != nil {
 		lang := i18n.DetectLocale(r)
-		http.Error(w, i18n.T(i18n.WithLang(r.Context(), lang), "errors.bad_request"), http.StatusBadRequest)
+		WriteAPIError(w, http.StatusBadRequest, "", i18n.T(i18n.WithLang(r.Context(), lang), "errors.bad_request"))
 		return
 	}
 	if err := h.cache.Resize(capacity); err != nil {
 		lang := i18n.DetectLocale(r)
-		http.Error(w, i18n.T(i18n.WithLang(r.Context(), lang), "errors.bad_request"), http.StatusBadRequest)
+		WriteAPIError(w, http.StatusBadRequest, "", i18n.T(i18n.WithLang(r.Context(), lang), "errors.bad_request"))
 		return
 	}
 	data := struct {

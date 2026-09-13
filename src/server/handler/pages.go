@@ -189,6 +189,13 @@ type PageData struct {
 	// surfaced as the secondary/CC channel next to GitHub private
 	// vulnerability reporting (AI.md PART 12).
 	SecurityEmail string
+	// AbuseEmail is server.contact.abuse.email, falling back only to
+	// server.contact.general.email — never to admin (AI.md PART 16
+	// "/server/contact" Abuse Reports section explicitly forbids ever
+	// rendering server.contact.admin.email on this page, so this field is
+	// resolved directly here rather than via ResolveContactRole("abuse"),
+	// whose fallback chain also includes admin). Empty when neither is set.
+	AbuseEmail string
 	// FooterCustomHTML is the operator's sanitized footer branding HTML,
 	// rendered above the Application Footer (AI.md PART 16 "Footer
 	// Customization"). Empty when custom_html is unset ("") or disabled (" ").
@@ -410,6 +417,11 @@ func (h *PagesHandler) NewPageData(r *http.Request) PageData {
 	if h.Config != nil {
 		data.ContactEmail = config.ResolveContactRole(h.Config, "general").Email
 		data.SecurityEmail = config.ResolveContactRole(h.Config, "security").Email
+		abuse := h.Config.Server.Contact.Abuse.Email
+		if abuse == "" {
+			abuse = h.Config.Server.Contact.General.Email
+		}
+		data.AbuseEmail = abuse
 	}
 	data.FooterCustomHTML, data.FooterShowDefaultBranding = ResolveFooterBranding(h.Config, data)
 	return data
@@ -527,11 +539,9 @@ func (h *PagesHandler) buildAboutResponse() AboutResponse {
 	}
 }
 
-// ServerAboutHandler serves /server/about (HTML)
+// ServerAboutHandler serves /server/about under the PART 14 frontend dispatch.
 func (h *PagesHandler) ServerAboutHandler(w http.ResponseWriter, r *http.Request) {
-	if err := h.Render(w, r, "about.tmpl", h.NewPageData(r)); err != nil {
-		http.Error(w, i18n.T(r.Context(), "errors.server_error"), http.StatusInternalServerError)
-	}
+	h.renderNegotiated(w, r, "about.tmpl", h.NewPageData(r), h.buildAboutResponse())
 }
 
 // APIV1ServerAboutHandler serves /api/v1/server/about (JSON)
@@ -544,11 +554,9 @@ func (h *PagesHandler) APIV1ServerAboutHandler(w http.ResponseWriter, r *http.Re
 	w.Write([]byte("\n")) //nolint:errcheck
 }
 
-// ServerHelpHandler serves /server/help (HTML)
+// ServerHelpHandler serves /server/help under the PART 14 frontend dispatch.
 func (h *PagesHandler) ServerHelpHandler(w http.ResponseWriter, r *http.Request) {
-	if err := h.Render(w, r, "help.tmpl", h.NewPageData(r)); err != nil {
-		http.Error(w, i18n.T(r.Context(), "errors.server_error"), http.StatusInternalServerError)
-	}
+	h.renderNegotiated(w, r, "help.tmpl", h.NewPageData(r), buildHelpResponse())
 }
 
 // HelpResponse for JSON API
@@ -563,9 +571,10 @@ type HelpSection struct {
 	Content string `json:"content"`
 }
 
-// APIV1ServerHelpHandler serves /api/v1/server/help (JSON)
-func (h *PagesHandler) APIV1ServerHelpHandler(w http.ResponseWriter, r *http.Request) {
-	help := HelpResponse{
+// buildHelpResponse returns the help sections shared by the /server/help page
+// dispatch and its /api/{api_version}/server/help JSON twin.
+func buildHelpResponse() HelpResponse {
+	return HelpResponse{
 		Sections: []HelpSection{
 			{ID: "getting-started", Title: "Getting Started", Content: "Get your public IP with: curl https://ifcfg.us"},
 			{ID: "endpoints", Title: "Endpoints", Content: "Main: /, /json, /ip, /{ip}. GeoIP: /country, /city, /asn, /coordinates. API: /api/v1/*"},
@@ -573,6 +582,11 @@ func (h *PagesHandler) APIV1ServerHelpHandler(w http.ResponseWriter, r *http.Req
 			{ID: "faq", Title: "FAQ", Content: "No API key required. Supports IPv4 and IPv6. GeoIP data updated regularly."},
 		},
 	}
+}
+
+// APIV1ServerHelpHandler serves /api/v1/server/help (JSON)
+func (h *PagesHandler) APIV1ServerHelpHandler(w http.ResponseWriter, r *http.Request) {
+	help := buildHelpResponse()
 	w.Header().Set("Content-Type", jsonMediaType)
 	b, _ := json.MarshalIndent(help, "", "  ")
 	// Write errors are unrecoverable once headers are sent; log is not actionable here.
@@ -580,11 +594,9 @@ func (h *PagesHandler) APIV1ServerHelpHandler(w http.ResponseWriter, r *http.Req
 	w.Write([]byte("\n")) //nolint:errcheck
 }
 
-// ServerPrivacyHandler serves /server/privacy (HTML)
+// ServerPrivacyHandler serves /server/privacy under the PART 14 frontend dispatch.
 func (h *PagesHandler) ServerPrivacyHandler(w http.ResponseWriter, r *http.Request) {
-	if err := h.Render(w, r, "privacy.tmpl", h.NewPageData(r)); err != nil {
-		http.Error(w, i18n.T(r.Context(), "errors.server_error"), http.StatusInternalServerError)
-	}
+	h.renderNegotiated(w, r, "privacy.tmpl", h.NewPageData(r), h.buildPrivacyResponse(r))
 }
 
 // PrivacyResponse mirrors the AI.md PART 16 "/server/privacy" API example —
@@ -636,8 +648,9 @@ type privacyCookieCategory struct {
 	Description string `json:"description"`
 }
 
-// APIV1ServerPrivacyHandler serves /api/{api_version}/server/privacy (JSON).
-func (h *PagesHandler) APIV1ServerPrivacyHandler(w http.ResponseWriter, r *http.Request) {
+// buildPrivacyResponse assembles the live privacy/tracking view shared by the
+// /server/privacy page dispatch and its /api/{api_version}/server/privacy twin.
+func (h *PagesHandler) buildPrivacyResponse(r *http.Request) PrivacyResponse {
 	var privacy PrivacyResponse
 	privacy.Summary.UserControl = true
 	if h.Privacy != nil {
@@ -682,6 +695,12 @@ func (h *PagesHandler) APIV1ServerPrivacyHandler(w http.ResponseWriter, r *http.
 		privacy.Tracking.Type = t.Type
 		privacy.Tracking.TypeName = t.TypeName()
 	}
+	return privacy
+}
+
+// APIV1ServerPrivacyHandler serves /api/{api_version}/server/privacy (JSON).
+func (h *PagesHandler) APIV1ServerPrivacyHandler(w http.ResponseWriter, r *http.Request) {
+	privacy := h.buildPrivacyResponse(r)
 
 	w.Header().Set("Content-Type", jsonMediaType)
 	b, _ := json.MarshalIndent(privacy, "", "  ")
@@ -709,8 +728,25 @@ func (h *PagesHandler) ServerContactHandler(w http.ResponseWriter, r *http.Reque
 		http.Redirect(w, r, "/server/contact", http.StatusSeeOther)
 		return
 	}
-	if err := h.Render(w, r, "contact.tmpl", h.NewPageData(r)); err != nil {
-		http.Error(w, i18n.T(r.Context(), "errors.server_error"), http.StatusInternalServerError)
+	h.renderNegotiated(w, r, "contact.tmpl", h.NewPageData(r), buildContactFormResponse())
+}
+
+// ContactFormResponse describes the contact form to a non-browser client, so
+// our CLI can render the same submission form the HTML page offers. The field
+// list mirrors the form fields ServerContactHandler's POST branch reads.
+type ContactFormResponse struct {
+	Method string   `json:"method"`
+	Action string   `json:"action"`
+	Fields []string `json:"fields"`
+}
+
+// buildContactFormResponse returns the contact form description served to
+// non-browser clients on GET /server/contact.
+func buildContactFormResponse() ContactFormResponse {
+	return ContactFormResponse{
+		Method: http.MethodPost,
+		Action: "/api/v1/server/contact",
+		Fields: []string{"name", "email", "subject", "message"},
 	}
 }
 
@@ -833,11 +869,9 @@ func (h *PagesHandler) dispatchContactSubmission(req ContactRequest) {
 	}
 }
 
-// ServerTermsHandler serves /server/terms (HTML)
+// ServerTermsHandler serves /server/terms under the PART 14 frontend dispatch.
 func (h *PagesHandler) ServerTermsHandler(w http.ResponseWriter, r *http.Request) {
-	if err := h.Render(w, r, "terms.tmpl", h.NewPageData(r)); err != nil {
-		http.Error(w, i18n.T(r.Context(), "errors.server_error"), http.StatusInternalServerError)
-	}
+	h.renderNegotiated(w, r, "terms.tmpl", h.NewPageData(r), buildTermsResponse())
 }
 
 // TermsResponse for JSON API
@@ -849,9 +883,10 @@ type TermsResponse struct {
 	LastUpdated string `json:"last_updated"`
 }
 
-// APIV1ServerTermsHandler serves /api/v1/server/terms (JSON)
-func (h *PagesHandler) APIV1ServerTermsHandler(w http.ResponseWriter, r *http.Request) {
-	terms := TermsResponse{
+// buildTermsResponse returns the terms sections shared by the /server/terms
+// page dispatch and its /api/{api_version}/server/terms JSON twin.
+func buildTermsResponse() TermsResponse {
+	return TermsResponse{
 		LastUpdated: "2024",
 		Sections: []struct {
 			Title   string `json:"title"`
@@ -867,9 +902,52 @@ func (h *PagesHandler) APIV1ServerTermsHandler(w http.ResponseWriter, r *http.Re
 			{Title: "Open Source", Content: "Released under MIT license."},
 		},
 	}
+}
+
+// APIV1ServerTermsHandler serves /api/v1/server/terms (JSON)
+func (h *PagesHandler) APIV1ServerTermsHandler(w http.ResponseWriter, r *http.Request) {
+	terms := buildTermsResponse()
 
 	w.Header().Set("Content-Type", jsonMediaType)
 	b, _ := json.MarshalIndent(terms, "", "  ")
+	// Write errors are unrecoverable once headers are sent; log is not actionable here.
+	w.Write(b)            //nolint:errcheck
+	w.Write([]byte("\n")) //nolint:errcheck
+}
+
+// ServerSecurityHandler serves /server/security under the PART 14 frontend dispatch.
+func (h *PagesHandler) ServerSecurityHandler(w http.ResponseWriter, r *http.Request) {
+	h.renderNegotiated(w, r, "security.tmpl", h.NewPageData(r), h.buildSecurityResponse(r))
+}
+
+// SecurityResponse for JSON API
+type SecurityResponse struct {
+	SecurityEmail string `json:"security_email,omitempty"`
+	PolicyURL     string `json:"policy_url"`
+	SecurityTxt   string `json:"security_txt"`
+}
+
+// buildSecurityResponse assembles the security-contact view shared by the
+// /server/security page dispatch and its /api/{api_version}/server/security twin.
+func (h *PagesHandler) buildSecurityResponse(r *http.Request) SecurityResponse {
+	data := h.NewPageData(r)
+	var appURL string
+	if h.Config != nil {
+		appURL = "https://" + h.Config.Server.FQDN
+	}
+	return SecurityResponse{
+		SecurityEmail: data.SecurityEmail,
+		PolicyURL:     appURL + "/server/security",
+		SecurityTxt:   appURL + "/.well-known/security.txt",
+	}
+}
+
+// APIV1ServerSecurityHandler serves /api/v1/server/security (JSON)
+func (h *PagesHandler) APIV1ServerSecurityHandler(w http.ResponseWriter, r *http.Request) {
+	resp := h.buildSecurityResponse(r)
+
+	w.Header().Set("Content-Type", jsonMediaType)
+	b, _ := json.MarshalIndent(resp, "", "  ")
 	// Write errors are unrecoverable once headers are sent; log is not actionable here.
 	w.Write(b)            //nolint:errcheck
 	w.Write([]byte("\n")) //nolint:errcheck
@@ -943,7 +1021,7 @@ func (h *PagesHandler) ConsentHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	value, err := json.Marshal(consent)
 	if err != nil {
-		http.Error(w, i18n.T(r.Context(), "errors.server_error"), http.StatusInternalServerError)
+		h.renderErrorPage(w, r, http.StatusInternalServerError, i18n.T(r.Context(), "errors.server_error"))
 		return
 	}
 	// URL-encode the JSON so it satisfies RFC 6265 cookie-value grammar (no raw
@@ -1152,9 +1230,12 @@ func (h *PagesHandler) ServerPreferencesHandler(w http.ResponseWriter, r *http.R
 		ConsentPreferences:    consentPreferences,
 		ConsentAnalytics:      consentAnalytics,
 	}
-	if err := h.Render(w, r, "preferences.tmpl", data); err != nil {
-		http.Error(w, i18n.T(r.Context(), "errors.server_error"), http.StatusInternalServerError)
-	}
+	h.renderNegotiated(w, r, "preferences.tmpl", data, PreferencesResponse{
+		Theme:      export.Theme,
+		Lang:       export.Lang,
+		ExportURL:  export.URL,
+		ExportCode: export.Code,
+	})
 }
 
 // PreferencesResponse is the JSON shape for GET
@@ -1387,7 +1468,7 @@ func (h *PagesHandler) DismissAnnouncementHandler(w http.ResponseWriter, r *http
 	}
 	id := strings.TrimSpace(r.FormValue("id"))
 	if id == "" {
-		http.Error(w, i18n.T(r.Context(), "errors.bad_request"), http.StatusBadRequest)
+		h.renderErrorPage(w, r, http.StatusBadRequest, i18n.T(r.Context(), "errors.bad_request"))
 		return
 	}
 	existing := dismissedAnnouncements(r)

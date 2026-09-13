@@ -268,12 +268,18 @@ func TestVersionEndpoint(t *testing.T) {
 	if status != http.StatusOK {
 		t.Errorf("status = %d, want 200", status)
 	}
-	var resp map[string]interface{}
+	var resp struct {
+		OK   bool                   `json:"ok"`
+		Data map[string]interface{} `json:"data"`
+	}
 	if err := json.Unmarshal([]byte(out), &resp); err != nil {
 		t.Fatalf("invalid JSON: %v", err)
 	}
-	if _, ok := resp["version"]; !ok {
-		t.Error("response missing version field")
+	if !resp.OK {
+		t.Error("response ok field is false")
+	}
+	if _, ok := resp.Data["version"]; !ok {
+		t.Error("response data missing version field")
 	}
 }
 

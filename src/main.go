@@ -19,13 +19,11 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
-	"os/signal"
 	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/ProtonMail/go-crypto/openpgp"
@@ -1267,11 +1265,12 @@ func main() {
 	// Setup signal handling
 	// Per AI.md PART 8 signal table: SIGTERM, SIGINT, and SIGQUIT all trigger
 	// a graceful shutdown; SIGRTMIN+3 (signal 37) is Docker's STOPSIGNAL.
+	// The platform's signal set (and the SIGHUP ignore, which only exists on
+	// Unix) lives behind a build tag per AI.md 11140 — Windows has no SIGHUP,
+	// SIGUSR1, SIGUSR2 or SIGQUIT, so naming those constants here would break
+	// the windows/amd64 and windows/arm64 release builds.
 	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM, syscall.SIGQUIT, syscall.Signal(37))
-	// SIGHUP is ignored per AI.md PART 27 — config auto-reloads via the
-	// ConfigManager file watcher below, not via a one-shot signal reload.
-	signal.Ignore(syscall.SIGHUP)
+	notifyServerSignals(sigChan)
 
 	// Watch server.yml for external edits and hot-reload or flag
 	// restart-required settings per AI.md PART 12.
@@ -1749,6 +1748,32 @@ func main() {
 			}
 			os.Exit(exSoftware)
 		case sig := <-sigChan:
+			// SIGUSR1 (reopen logs) and SIGUSR2 (status dump) per AI.md PART 8
+			// signal table do not shut down the server — handle and keep looping.
+			if isLogReopenSignal(sig) {
+				log.Println("Received SIGUSR1, reopening logs...")
+				if logMgr != nil {
+					if err := logMgr.Rotate(); err != nil {
+						log.Printf("log reopen error: %v", err)
+					}
+					logMgr.WriteServer("info", "logs reopened (SIGUSR1)")
+				}
+				continue
+			}
+			if isStatusDumpSignal(sig) {
+				log.Println("Received SIGUSR2, dumping status...")
+				if srv.HealthHandler != nil {
+					h := srv.HealthHandler.HealthSnapshot()
+					log.Printf("status: status=%s mode=%s uptime=%s requests_total=%d",
+						h.Status, h.Mode, h.Uptime, h.Stats.RequestsTotal)
+					if logMgr != nil {
+						logMgr.WriteServer("info", fmt.Sprintf(
+							"status dump (SIGUSR2): status=%s mode=%s uptime=%s requests_total=%d",
+							h.Status, h.Mode, h.Uptime, h.Stats.RequestsTotal))
+					}
+				}
+				continue
+			}
 			// Graceful shutdown per AI.md spec — 30-second drain timeout.
 			// SIGHUP never reaches here (ignored above); every other notified
 			// signal (SIGTERM, SIGINT, SIGQUIT, SIGRTMIN+3) shuts down gracefully.

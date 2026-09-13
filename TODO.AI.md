@@ -981,3 +981,15 @@ Reconciliation items from the AI.md bootstrap/compliance passes.
     go.mod files during graph resolution. None is a direct import, none is
     linked, and `go mod tidy` keeps the `/go.mod` lines by design, so
     there is nothing to swap or update.
+
+48. **`src/server/error.go` line 189 `panic(err)` in the JSON error-envelope
+    fallback** — found by the go-lint agent during the round-2 diff review
+    (pre-existing, not touched by this round's changes). Inside
+    `appHandler.ServeHTTP`'s JSON-branch, if `json.MarshalIndent` on the
+    three-field `{ok,error,message}` struct ever fails, the handler panics
+    instead of falling through to a guaranteed plain-text body — AI.md PART 9
+    requires every error path, including this one, to degrade to a minimal
+    hardcoded response rather than rely on the outer recover middleware.
+    Practically unreachable (marshaling three plain strings cannot fail), but
+    should be replaced with a hardcoded plain-text fallback for spec
+    correctness.

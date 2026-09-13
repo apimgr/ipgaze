@@ -64,8 +64,10 @@ if [ -f "binaries/${INCUS_PROJECT_NAME}-cli" ]; then
     incus exec "$INCUS_CONTAINER_NAME" -- chmod +x "/usr/local/bin/${INCUS_PROJECT_NAME}-cli"
 fi
 
-# Ensure curl is available for testing
-incus exec "$INCUS_CONTAINER_NAME" -- bash -c "command -v curl || apt-get update && apt-get install -y curl" >/dev/null 2>&1
+# Ensure the tools the test body calls are present. The Debian image ships none of
+# curl/file/jq, and the test body runs under `set -e`, so a missing tool aborts the
+# whole run at its first use instead of failing a single assertion.
+incus exec "$INCUS_CONTAINER_NAME" -- bash -c "apt-get update && apt-get install -y curl file jq" >/dev/null 2>&1
 
 echo "Running tests in Incus..."
 incus exec "$INCUS_CONTAINER_NAME" -- bash -c "
@@ -82,18 +84,34 @@ incus exec "$INCUS_CONTAINER_NAME" -- bash -c "
     file /usr/local/bin/${INCUS_PROJECT_NAME}
 
     echo '=== Service Install Test ==='
-    ${INCUS_PROJECT_NAME} --service --install
+    # AI.md PART 8's reference detectServiceManager() returns \"container\" before
+    # any init-system probe, and an Incus system container trips that check via
+    # \$container / /proc/1/cgroup, so service install is refused by design here.
+    # The endpoint suite below is the point of this run, so fall back to starting
+    # the binary directly rather than aborting under set -e.
+    SERVICE_MODE=systemd
+    if ! ${INCUS_PROJECT_NAME} --service --install; then
+        echo 'NOTE: service install refused (container-mode detection) — running binary directly'
+        SERVICE_MODE=direct
+    fi
 
-    echo '=== Service Status ==='
-    # inside VM — not a host-service mutation
-    systemctl status ${INCUS_PROJECT_NAME} || true
+    if [ \"\$SERVICE_MODE\" = systemd ]; then
+        echo '=== Service Status ==='
+        # inside container — not a host-service mutation
+        systemctl status ${INCUS_PROJECT_NAME} || true
 
-    echo '=== Service Start Test ==='
-    # inside VM — not a host-service mutation
-    systemctl start ${INCUS_PROJECT_NAME}
-    sleep 2
-    # inside VM — not a host-service mutation
-    systemctl status ${INCUS_PROJECT_NAME}
+        echo '=== Service Start Test ==='
+        # inside container — not a host-service mutation
+        systemctl start ${INCUS_PROJECT_NAME}
+        sleep 2
+        # inside container — not a host-service mutation
+        systemctl status ${INCUS_PROJECT_NAME}
+    else
+        echo '=== Direct Start (no service manager) ==='
+        ${INCUS_PROJECT_NAME} --port 80 >/tmp/server.log 2>&1 &
+        SERVER_PID=\$!
+        sleep 3
+    fi
 
     echo '=== API Endpoint Tests ==='
     # Test JSON response (default)
@@ -125,8 +143,10 @@ incus exec "$INCUS_CONTAINER_NAME" -- bash -c "
     curl -q -LSsf -A 'curl/8.0.0' http://localhost:80/ | grep -qvi -- '<html' || echo 'FAILED: curl UA plain text'
 
     echo '=== Open API Smoke Test ==='
-    # No auth required — all endpoints are publicly accessible
-    curl -q -LSsf http://localhost:80/server/healthz | grep -q -- '\"ok\":true' \
+    # No auth required — all endpoints are publicly accessible.
+    # Health responses are BARE (AI.md PART 13: no {ok,data} envelope on any
+    # health route, in any state) — the top-level status field carries the state.
+    curl -q -LSsf -H 'Accept: application/json' http://localhost:80/server/healthz | grep -q -- '\"status\": \"healthy\"' \
         && echo '✓ Health endpoint works' \
         || echo '✗ FAILED: Health endpoint'
 
@@ -156,20 +176,31 @@ incus exec "$INCUS_CONTAINER_NAME" -- bash -c "
 
         # Full CLI functionality tests against server
         echo '--- CLI Full Functionality Tests ---'
+        # The CLI's only positional argument is an IP address (AI.md PART 32) —
+        # there is no 'status' subcommand to call here.
         if [ -n \"\${API_TOKEN:-}\" ]; then
             # Test with API token
-            ${INCUS_PROJECT_NAME}-cli --server http://localhost:80 --token \"\$API_TOKEN\" status || echo 'CLI status failed'
+            ${INCUS_PROJECT_NAME}-cli --server http://localhost:80 --token \"\$API_TOKEN\" --output json \
+                || echo 'FAILED: CLI self lookup with token'
         else
             # Test without token (open API — anonymous allowed)
-            ${INCUS_PROJECT_NAME}-cli --server http://localhost:80 status || echo 'CLI status (no token) failed or not applicable'
+            ${INCUS_PROJECT_NAME}-cli --server http://localhost:80 --output json \
+                || echo 'FAILED: CLI self lookup without token'
         fi
+        ${INCUS_PROJECT_NAME}-cli --server http://localhost:80 --field ip 8.8.8.8 \
+            || echo 'FAILED: CLI single-field IP lookup'
     else
         echo 'client not installed - skipping'
     fi
 
     echo '=== Service Stop Test ==='
-    # inside VM — not a host-service mutation
-    systemctl stop ${INCUS_PROJECT_NAME}
+    if [ \"\$SERVICE_MODE\" = systemd ]; then
+        # inside container — not a host-service mutation
+        systemctl stop ${INCUS_PROJECT_NAME}
+    else
+        kill \$SERVER_PID
+        wait \$SERVER_PID 2>/dev/null || true
+    fi
 
     echo '=== All tests passed ==='
 "

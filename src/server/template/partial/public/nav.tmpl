@@ -32,6 +32,11 @@
           <span class="theme-icon">{{ if eq .Theme "light" }}☀️{{ else if eq .Theme "auto" }}🔄{{ else }}🌙{{ end }}</span>
         </button>
       </form>
+      <!-- Hidden until app.js's beforeinstallprompt handler reveals it; hidden again by
+           appinstalled/isInstalledPWA() (AI.md PART 16 "Install button visibility rules") -->
+      <button type="button" id="pwa-install-btn" class="btn btn-icon hidden" data-action="pwa-install" aria-label="{{t .Lang "pwa.install"}}" title="{{t .Lang "pwa.install"}}">
+        <span class="icon-install" aria-hidden="true">⬇️</span>
+      </button>
     </div>
   </div>
   <div class="nav-panel" id="nav-panel">

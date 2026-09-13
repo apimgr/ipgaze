@@ -101,15 +101,32 @@ func (m *SSLManager) GetTLSConfig(domains []string) (*tls.Config, error) {
 
 	// Walk the 4-step priority lookup before requesting a new cert.
 	if cert, key := m.findCertByPriority(domains); cert != "" && key != "" {
-		log.Printf("Using existing certificate: %s", cert)
 		tlsCert, err := tls.LoadX509KeyPair(cert, key)
 		if err != nil {
 			return nil, fmt.Errorf("failed to load certificate: %w", err)
 		}
-		return &tls.Config{
-			Certificates: []tls.Certificate{tlsCert},
-			MinVersion:   tls.VersionTLS12,
-		}, nil
+		leaf, err := x509.ParseCertificate(tlsCert.Certificate[0])
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse certificate: %w", err)
+		}
+		fqdn := ""
+		if len(domains) > 0 {
+			fqdn = domains[0]
+		}
+		// AI.md PART 15 "Certificate Validation": CN/SAN must match the
+		// configured FQDN and the certificate must not be expired. A cert
+		// failing either check is not usable even though it was found on
+		// disk, so fall through to Let's Encrypt issuance below instead of
+		// serving it.
+		if verr := validateCertForFQDN(leaf, fqdn); verr != nil {
+			log.Printf("Ignoring certificate at %s: %v", cert, verr)
+		} else {
+			log.Printf("Using existing certificate: %s", cert)
+			return &tls.Config{
+				Certificates: []tls.Certificate{tlsCert},
+				MinVersion:   tls.VersionTLS12,
+			}, nil
+		}
 	}
 
 	// No existing cert found — request via Let's Encrypt if enabled.
@@ -554,6 +571,28 @@ func (m *SSLManager) GetHTTPHandler(fallback http.Handler) http.Handler {
 		}
 		fallback.ServeHTTP(w, r)
 	})
+}
+
+// validateCertForFQDN enforces the two content-level checks from AI.md
+// PART 15 "Certificate Validation" that mere file existence cannot satisfy:
+// the certificate must not be expired, and its CN or SAN must match the
+// configured FQDN. An empty fqdn (no configured host) skips the hostname
+// check since there is nothing to match against.
+func validateCertForFQDN(cert *x509.Certificate, fqdn string) error {
+	now := time.Now()
+	if now.After(cert.NotAfter) {
+		return fmt.Errorf("certificate expired at %s", cert.NotAfter.Format(time.RFC3339))
+	}
+	if fqdn == "" {
+		return nil
+	}
+	if err := cert.VerifyHostname(fqdn); err == nil {
+		return nil
+	}
+	if cert.Subject.CommonName == fqdn {
+		return nil
+	}
+	return fmt.Errorf("certificate CN/SAN does not match %s", fqdn)
 }
 
 // findCertByPriority checks all 4 certificate locations in the priority order

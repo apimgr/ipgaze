@@ -188,6 +188,11 @@
     "success": "Thank you for your message. We will respond shortly.",
     "support_intro": "For support or questions about ipgaze:",
     "security_issues": "Security issues",
+    "security_issues_body": "To report a security vulnerability, consult our security policy.",
+    "security_policy_link": "security policy",
+    "abuse_reports": "Abuse reports",
+    "abuse_reports_body": "To report abusive content or policy violations, use this contact form.",
+    "abuse_reports_body_email": "To report abusive content or policy violations, use this contact form or email {email}.",
     "github": "GitHub",
     "form_heading": "Send a Message"
   },
@@ -270,11 +275,23 @@
     "changes": "Changes",
     "governing_law": "Governing law",
     "acceptable_use_body": "You may use ipgaze for lawful purposes only. Automated bulk lookups that degrade service for other users are prohibited.",
+    "acceptance_body": "By accessing or using ipgaze, you agree to be bound by these terms. If you do not agree, do not use the service.",
     "no_warranty_heading": "No Warranty",
     "no_warranty_body": "This service is provided \"as is\" without warranty of any kind. We do not guarantee uptime or accuracy of geolocation data.",
     "rate_limiting_heading": "Rate Limiting",
     "rate_limiting_body": "The API is rate limited to 120 requests per minute. Exceeding this limit will result in temporary blocks.",
-    "changes_body": "These terms may change at any time. Continued use of the service constitutes acceptance of the updated terms."
+    "changes_body": "These terms may change at any time. Continued use of the service constitutes acceptance of the updated terms.",
+    "governing_law_body": "These terms are governed by the laws of the jurisdiction in which the service operator resides, without regard to conflict-of-law principles."
+  },
+
+  "security": {
+    "title": "Security Policy",
+    "intro": "We take the security of ipgaze seriously. If you discover a security vulnerability, please report it responsibly.",
+    "report_email": "Report vulnerabilities by emailing {email}.",
+    "report_github": "You can also report a vulnerability privately via",
+    "report_github_link": "GitHub Security Advisories",
+    "txt_heading": "Machine-Readable Policy",
+    "txt_body": "Automated tools can fetch this policy in RFC 9116 format at"
   },
 
   "cookie_consent": {
@@ -347,6 +364,10 @@
   "pwa": {
     "install": "Install app",
     "installed": "App installed",
+    "ios_install_title": "Install {app}",
+    "ios_install_step1": "Tap the Share button in Safari's toolbar.",
+    "ios_install_step2": "Scroll down and tap \"Add to Home Screen\".",
+    "ios_install_step3": "Tap \"Add\" in the top-right corner.",
     "offline_message": "No internet connection. Showing cached content.",
     "offline_title": "You are offline",
     "offline_description": "IPGaze requires a network connection to look up IP addresses. Please check your connection and try again.",
@@ -518,8 +539,25 @@
     "port_intro": "Check if a port is open on the requesting IP:",
     "tor_access_intro": "This server is also reachable as a Tor hidden service — no exit node, and no intermediary ever sees your real IP:",
     "tor_access_disabled": "This server does not currently run a Tor hidden service.",
+    "tor_address_heading": "Onion Address",
+    "tor_connect_heading": "How to Connect",
+    "tor_step1_pre": "Download",
+    "tor_step1_link": "Tor Browser",
+    "tor_step2": "Open Tor Browser and wait for it to connect",
+    "tor_step3": "Copy the onion address above and paste it into the Tor Browser address bar",
+    "tor_note": "Using Tor provides additional privacy by hiding your IP address and encrypting your connection through the Tor network.",
     "i2p_access_intro": "This server is also reachable as an I2P eepsite:",
     "i2p_access_disabled": "This server does not currently run an I2P eepsite.",
+    "i2p_address_heading": "I2P Address",
+    "i2p_connect_heading": "How to Connect",
+    "i2p_step1_pre": "Install",
+    "i2p_step1_link_i2p": "I2P",
+    "i2p_step1_or": "or",
+    "i2p_step1_link_i2pd": "i2pd",
+    "i2p_step1_post": "and wait for it to integrate with the network",
+    "i2p_step2": "Configure your browser to use the I2P HTTP proxy (default {proxy})",
+    "i2p_step3": "Copy the .b32.i2p address above and paste it into your browser address bar",
+    "i2p_note": "Using I2P provides additional privacy by routing your connection through the I2P network. Eepsites are served over http:// — the I2P tunnel provides the transport encryption, so no TLS certificate is used.",
     "formats_heading": "API Formats",
     "formats_plain_label": "Plain text",
     "formats_plain_desc": "default for curl/wget/CLI user-agents and empty User-Agent",
@@ -1045,6 +1083,10 @@
         "description": "Returns the privacy policy, including what is logged, for how long, and the available opt-outs.",
         "summary": "Privacy policy"
       },
+      "server_security": {
+        "description": "Returns this service’s security policy, contact address and vulnerability-reporting instructions.",
+        "summary": "Security policy"
+      },
       "server_terms": {
         "description": "Returns the terms governing use of this service.",
         "summary": "Terms of service"
@@ -1122,6 +1164,9 @@
       "v1_swagger": {
         "description": "Returns this OpenAPI 3.0 document as JSON from the versioned API path.",
         "summary": "OpenAPI document (API v1)"
+      },
+      "v1_security": {
+        "summary": "Security policy (API v1)"
       },
       "v1_terms": {
         "summary": "Terms of service (API v1)"

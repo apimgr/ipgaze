@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/apimgr/ipgaze/src/common/httputil"
 	"github.com/apimgr/ipgaze/src/useragent"
 )
 
@@ -74,22 +75,31 @@ func userAgentFromRequest(r *http.Request) *useragent.UserAgent {
 	return userAgent
 }
 
-// cliMatcher returns true if the request appears to be from a CLI tool.
-// Used for backward compatibility; prefer detectClientType for new code.
-func cliMatcher(r *http.Request) bool {
-	ua := useragent.Parse(r.UserAgent())
-	switch ua.Product {
-	case "curl", "HTTPie", "httpie-go", "Wget", "fetch libfetch", "Go", "Go-http-client", "ddclient", "Mikrotik", "xh":
-		return true
-	}
-	return false
-}
-
-// detectClientType returns the preferred response format for the request per AI.md PART 16.
-// Returns "html", "text", or "json".
-// Priority: Accept header → User-Agent browser/CLI detection → default "html".
+// detectClientType returns the preferred response format for a frontend (`/**`)
+// route per AI.md PART 14 "Smart Content Negotiation". Returns "html", "text",
+// or "json".
+//
+// Priority, matching AI.md's handleFrontendRequest reference implementation and
+// its Accept-header table:
+//
+//  1. Our CLI client is INTERACTIVE and always receives JSON so it can render
+//     its own TUI/GUI — it is never given HTML or pre-formatted text.
+//  2. An explicit Accept header wins over User-Agent heuristics.
+//  3. Text browsers (lynx, w3m, links) are INTERACTIVE without JavaScript and
+//     receive server-rendered HTML, never converted text.
+//  4. HTTP tools (curl, wget, httpie) are NON-INTERACTIVE and receive text.
+//  5. Everything else (regular browsers, unknown agents) receives HTML.
+//
+// Client classification is delegated to the canonical detectors in
+// src/common/httputil/detect.go — this package keeps no second User-Agent list.
 func detectClientType(r *http.Request) string {
-	// 1. Check Accept header first (explicit preference)
+	ua := r.Header.Get("User-Agent")
+
+	// Our CLI client always gets JSON, regardless of Accept.
+	if httputil.IsOurCliClient(ua) {
+		return "json"
+	}
+
 	accept := r.Header.Get("Accept")
 	if strings.Contains(accept, "text/html") {
 		return "html"
@@ -101,40 +111,51 @@ func detectClientType(r *http.Request) string {
 		return "json"
 	}
 
-	// 2. Check User-Agent for browser detection
-	ua := r.Header.Get("User-Agent")
-
-	browsers := []string{
-		"Mozilla/", "Chrome/", "Safari/", "Edge/", "Firefox/",
-		"Opera/", "MSIE", "Trident/",
+	if httputil.IsTextBrowser(ua) {
+		return "html"
 	}
-	for _, b := range browsers {
-		if strings.Contains(ua, b) {
-			return "html"
-		}
-	}
-
-	// 3. CLI tools (curl, wget, HTTPie, etc.)
-	cliTools := []string{
-		"curl/", "Wget/", "HTTPie/", "python-requests/",
-		"Go-http-client/", "node-fetch/",
-	}
-	for _, t := range cliTools {
-		if strings.Contains(ua, t) {
-			return "text"
-		}
-	}
-
-	// 4. Empty User-Agent → programmatic/CLI access
-	if ua == "" {
+	if httputil.IsHttpTool(ua) {
 		return "text"
 	}
 
-	// 5. Default: HTML (safest fallback for unknown UAs)
+	// Regular browsers and unknown agents get HTML.
 	return "html"
+}
+
+// apiResponseFormat returns the response format for a backend (`/api/**`) route
+// per AI.md PART 14 "Backend API Content Negotiation". Returns "text" or "json".
+//
+// API routes emit raw data as plain text — never HTML2TextConverter output —
+// because there is no HTML to convert. Priority matches AI.md's
+// getAPIResponseFormat reference: `.txt` suffix, then Accept: text/plain, then
+// non-interactive client detection, then JSON.
+func apiResponseFormat(r *http.Request) string {
+	if r.URL != nil && strings.HasSuffix(r.URL.Path, ".txt") {
+		return "text"
+	}
+	if strings.Contains(r.Header.Get("Accept"), "text/plain") {
+		return "text"
+	}
+	if httputil.IsNonInteractiveClient(r.Header.Get("User-Agent")) {
+		return "text"
+	}
+	return "json"
 }
 
 // formatCoordinate formats a coordinate value with 6 decimal places
 func formatCoordinate(c float64) string {
 	return strconv.FormatFloat(c, 'f', 6, 64)
+}
+
+// formatCoordinatePair renders "{latitude},{longitude}" for the plain-text and
+// scalar coordinate endpoints, returning an empty string when the location is
+// unknown. The model marks both fields `omitempty`, so a zero pair means "no
+// GeoIP data" rather than the literal point 0,0 — the other GeoIP text routes
+// return an empty body in that case and coordinates must not claim a position
+// the lookup never produced.
+func formatCoordinatePair(lat, lon float64) string {
+	if lat == 0 && lon == 0 {
+		return ""
+	}
+	return formatCoordinate(lat) + "," + formatCoordinate(lon)
 }

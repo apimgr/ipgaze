@@ -331,31 +331,37 @@ func TestIPFromRequest(t *testing.T) {
 	}
 }
 
-func TestCLIMatcher(t *testing.T) {
+// TestDetectClientType covers the AI.md PART 14 frontend dispatch: our CLI gets
+// JSON, text browsers and regular browsers get HTML, HTTP tools get text.
+func TestDetectClientType(t *testing.T) {
 	browserUserAgent := "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_8_4) " +
 		"AppleWebKit/537.36 (KHTML, like Gecko) Chrome/30.0.1599.28 " +
 		"Safari/537.36"
 	var tests = []struct {
 		in  string
-		out bool
+		out string
 	}{
-		{"curl/7.26.0", true},
-		{"Wget/1.13.4 (linux-gnu)", true},
-		{"Wget", true},
-		{"fetch libfetch/2.0", true},
-		{"HTTPie/0.9.3", true},
-		{"httpie-go/0.6.0", true},
-		{"Go 1.1 package server", true},
-		{"Go-http-client/1.1", true},
-		{"Go-http-client/2.0", true},
-		{"ddclient/3.8.3", true},
-		{"Mikrotik/6.x Fetch", true},
-		{browserUserAgent, false},
+		{"curl/7.26.0", "text"},
+		{"Wget/1.13.4 (linux-gnu)", "text"},
+		{"Wget", "text"},
+		{"fetch libfetch/2.0", "text"},
+		{"HTTPie/0.9.3", "text"},
+		{"httpie-go/0.6.0", "text"},
+		{"Go 1.1 package server", "text"},
+		{"Go-http-client/1.1", "text"},
+		{"Go-http-client/2.0", "text"},
+		{"ddclient/3.8.3", "text"},
+		{"Mikrotik/6.x Fetch", "text"},
+		{"", "text"},
+		{"ipgaze-cli/1.2.3", "json"},
+		{"Lynx/2.9.0dev.10 libwww-FM/2.14", "html"},
+		{"w3m/0.5.3+git20230121", "html"},
+		{browserUserAgent, "html"},
 	}
 	for _, tt := range tests {
 		r := &http.Request{Header: http.Header{"User-Agent": []string{tt.in}}}
-		if got := cliMatcher(r); got != tt.out {
-			t.Errorf("Expected %t, got %t for %q", tt.out, got, tt.in)
+		if got := detectClientType(r); got != tt.out {
+			t.Errorf("Expected %q, got %q for %q", tt.out, got, tt.in)
 		}
 	}
 }

@@ -62,10 +62,12 @@
   </p>
 </section>
 
-<section class="section-card" aria-labelledby="tor-access">
-  <h2 id="tor-access">{{t .Lang "help.tor_access"}}</h2>
-  {{if and .TorEnabled .TorRunning}}
+{{if and .TorEnabled .TorRunning .OnionAddress}}
+<section id="tor-access" class="section-card tor-access" aria-labelledby="tor-access-heading">
+  <h2 id="tor-access-heading">{{t .Lang "help.tor_access"}}</h2>
   <p>{{t .Lang "api_help.tor_access_intro"}}</p>
+
+  <h3>{{t .Lang "api_help.tor_address_heading"}}</h3>
   <div class="onion-address-row">
     <code class="code-content onion-address">{{.OnionAddress}}</code>
     <button type="button" class="copy-btn copy-value" data-copy="{{.OnionAddress}}" data-copied-label="{{t .Lang "common.copied"}}" aria-label="{{t .Lang "common.copy_onion_aria"}}">
@@ -73,16 +75,24 @@
       <span class="copy-text">{{t .Lang "common.copy"}}</span>
     </button>
   </div>
-  {{else}}
-  <p>{{t .Lang "api_help.tor_access_disabled"}}</p>
-  {{end}}
-</section>
 
-{{if .I2PEnabled}}
-<section class="section-card" aria-labelledby="i2p-access">
-  <h2 id="i2p-access">{{t .Lang "help.i2p_access"}}</h2>
-  {{if .I2PRunning}}
+  <h3>{{t .Lang "api_help.tor_connect_heading"}}</h3>
+  <ol>
+    <li>{{t .Lang "api_help.tor_step1_pre"}} <a href="https://www.torproject.org/download/" target="_blank" rel="noopener">{{t .Lang "api_help.tor_step1_link"}}</a></li>
+    <li>{{t .Lang "api_help.tor_step2"}}</li>
+    <li>{{t .Lang "api_help.tor_step3"}}</li>
+  </ol>
+
+  <p class="note">{{t .Lang "api_help.tor_note"}}</p>
+</section>
+{{end}}
+
+{{if and .I2PEnabled .I2PRunning .I2PAddress}}
+<section id="i2p-access" class="section-card i2p-access" aria-labelledby="i2p-access-heading">
+  <h2 id="i2p-access-heading">{{t .Lang "help.i2p_access"}}</h2>
   <p>{{t .Lang "api_help.i2p_access_intro"}}</p>
+
+  <h3>{{t .Lang "api_help.i2p_address_heading"}}</h3>
   <div class="i2p-address-row">
     <code class="code-content i2p-address">{{.I2PAddress}}</code>
     <button type="button" class="copy-btn copy-value" data-copy="{{.I2PAddress}}" data-copied-label="{{t .Lang "common.copied"}}" aria-label="{{t .Lang "common.copy_i2p_aria"}}">
@@ -90,9 +100,15 @@
       <span class="copy-text">{{t .Lang "common.copy"}}</span>
     </button>
   </div>
-  {{else}}
-  <p>{{t .Lang "api_help.i2p_access_disabled"}}</p>
-  {{end}}
+
+  <h3>{{t .Lang "api_help.i2p_connect_heading"}}</h3>
+  <ol>
+    <li>{{t .Lang "api_help.i2p_step1_pre"}} <a href="https://geti2p.net/en/download" target="_blank" rel="noopener">{{t .Lang "api_help.i2p_step1_link_i2p"}}</a> {{t .Lang "api_help.i2p_step1_or"}} <a href="https://i2pd.website/" target="_blank" rel="noopener">{{t .Lang "api_help.i2p_step1_link_i2pd"}}</a> {{t .Lang "api_help.i2p_step1_post"}}</li>
+    <li>{{tf .Lang "api_help.i2p_step2" "proxy" "127.0.0.1:4444"}}</li>
+    <li>{{t .Lang "api_help.i2p_step3"}}</li>
+  </ol>
+
+  <p class="note">{{t .Lang "api_help.i2p_note"}}</p>
 </section>
 {{end}}
 

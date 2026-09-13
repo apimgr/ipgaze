@@ -20,7 +20,7 @@
 - (PART 32) Never launch the TUI for `-h`/`--help`/`-v`/`--version` — these always print and exit immediately, in CLI/plain mode, never TUI
 - (PART 32) Never persist a `--server`/`--token`/other config-flag value to `cli.yml` when the current stored value is already valid — only save when current is empty or invalid (`SaveIfEmptyOrInvalid`); a valid flag value is used for the session only
 - (PART 32) Never store `cli.yml` with anything looser than `0600` (Unix) / non-user-only ACL (Windows) — it holds the API token
-- (PART 32) Never build the CLI's optional GUI with Electron or a web view — native toolkit only (GTK4/Qt6 Linux, Cocoa macOS, Win32/WinUI Windows), and never let it lag the TUI in feature coverage
+- (PART 32) Never build the CLI's optional GUI with Electron, a web view, Gio (`gioui.org`), or Fyne (`fyne.io/fyne/v2`) — those require cgo on Linux and are banned project-wide; the only compliant toolkit is `github.com/gogpu/ui` + `github.com/gogpu/gogpu`, pure Go / zero CGO, one implementation for Linux/macOS/Windows (no per-OS launcher file, no `runtime.GOOS` dispatch); BSD has no windowing backend yet — compile GUI out there (`caps.GUISupported == false`), falling back to TUI/CLI. Never let GUI lag the TUI in feature coverage
 - (PART 32) Never attempt GUI mode over SSH/Mosh even if `DISPLAY` is set — remote sessions always use TUI
 
 ## CRITICAL - ALWAYS DO

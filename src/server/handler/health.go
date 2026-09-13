@@ -697,7 +697,10 @@ func (h *HealthHandler) APIV1HealthzHandler(w http.ResponseWriter, r *http.Reque
 func writeHealthJSON(ctx context.Context, w http.ResponseWriter, health model.HealthResponse, code int) {
 	b, err := json.MarshalIndent(health, "", "  ")
 	if err != nil {
-		http.Error(w, i18n.T(ctx, "errors.server_error"), http.StatusInternalServerError)
+		// This path only ever serves JSON clients, so its fallback is the
+		// canonical PART 9 envelope (AI.md 24426: the error path honors content
+		// negotiation — JSON for API clients).
+		WriteAPIError(w, http.StatusInternalServerError, "", i18n.T(ctx, "errors.server_error"))
 		return
 	}
 	w.Header().Set("Content-Type", jsonMediaType)

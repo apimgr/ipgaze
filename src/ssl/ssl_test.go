@@ -24,7 +24,12 @@ import (
 // generateSelfSignedCert writes a self-signed certificate and key pair to the
 // given directory under the filenames cert.pem and key.pem and returns their
 // paths.
-func generateSelfSignedCert(t *testing.T, dir string) (certFile, keyFile string) {
+// generateSelfSignedCert writes a cert/key pair into dir that is actually valid
+// for domain. AI.md PART 15 "Certificate Validation" requires GetTLSConfig to
+// reject a cert whose CN/SAN does not match the configured FQDN, so a fixture
+// carrying an unrelated CN would exercise the rejection path rather than the
+// happy path the caller is testing.
+func generateSelfSignedCert(t *testing.T, dir, domain string) (certFile, keyFile string) {
 	t.Helper()
 
 	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
@@ -34,7 +39,8 @@ func generateSelfSignedCert(t *testing.T, dir string) (certFile, keyFile string)
 
 	tmpl := &x509.Certificate{
 		SerialNumber: big.NewInt(1),
-		Subject:      pkix.Name{CommonName: "test"},
+		Subject:      pkix.Name{CommonName: domain},
+		DNSNames:     []string{domain},
 		NotBefore:    time.Now().Add(-time.Hour),
 		NotAfter:     time.Now().Add(24 * time.Hour),
 	}
@@ -132,7 +138,7 @@ func TestGetTLSConfig_LocalCert(t *testing.T) {
 		t.Fatalf("mkdir local dir: %v", err)
 	}
 
-	certFile, keyFile := generateSelfSignedCert(t, localDir)
+	certFile, keyFile := generateSelfSignedCert(t, localDir, domain)
 
 	// Rename to the expected filenames: cert.pem and key.pem (already correct).
 	_ = certFile

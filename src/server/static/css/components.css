@@ -802,6 +802,15 @@ dialog.modal::backdrop {
   border: 1px solid var(--color-warning);
 }
 
+/* Mode badge for the "debug" operational state (AI.md PART 6 "Six
+   Operational States" / PART 16 "badge-{mode}") — Health.Mode can render
+   this value, so it needs its own style alongside production/development. */
+.badge-debug {
+  background: var(--color-error-bg);
+  color: var(--color-error);
+  border: 1px solid var(--color-error);
+}
+
 /* ============================================================================
    Code Block
    ============================================================================ */

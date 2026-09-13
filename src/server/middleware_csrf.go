@@ -5,7 +5,6 @@ import (
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/base64"
-	"encoding/json"
 	"net/http"
 	"path"
 	"strings"
@@ -318,25 +317,20 @@ func csrfError(w http.ResponseWriter, r *http.Request, lm *applog.Manager, reaso
 
 	padFailedAuth(start)
 
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.WriteHeader(http.StatusForbidden)
-
-	// Canonical error body per AI.md PART 14
 	msg := i18n.T(i18n.WithLang(r.Context(), lang), "errors.csrf_failed")
 	if msg == "" || msg == "errors.csrf_failed" {
 		msg = "CSRF token validation failed"
 	}
-	// Marshalled, never concatenated: a translated message containing a quote
-	// or backslash would otherwise produce a malformed body.
-	body, err := json.Marshal(map[string]any{
-		"ok":      false,
-		"error":   "CSRF_FAILED",
-		"message": msg,
-	})
-	if err != nil {
-		body = []byte(`{"ok":false,"error":"CSRF_FAILED","message":"CSRF token validation failed"}`)
-	}
-	_, _ = w.Write(body)
+
+	// A CSRF rejection is overwhelmingly a browser form POST, so it must render
+	// the themed 403 page, not a raw JSON body: AI.md 24407 "ALL error pages
+	// MUST use the site theme system. No plain/unstyled error pages." and 24413
+	// lists 403 Forbidden as theme-required. writeNegotiatedError keeps the
+	// canonical {"ok":false,"error":"CSRF_FAILED","message":"..."} envelope for
+	// API/JSON clients while giving browsers the themed page. The explicit code
+	// is required because AI.md PART 9's table maps 403 to both FORBIDDEN and
+	// CSRF_FAILED, and this path is the latter.
+	writeNegotiatedError(w, r, http.StatusForbidden, "CSRF_FAILED", msg)
 }
 
 // GetCSRFToken returns the current CSRF token for use in templates and responses.

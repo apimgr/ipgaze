@@ -49,9 +49,15 @@ func SetErrorLogManager(lm *applog.Manager) {
 }
 
 type appError struct {
-	Error       error
-	Message     string
-	Code        int
+	Error   error
+	Message string
+	Code    int
+	// ErrorCode overrides the status-derived UPPERCASE_SNAKE_CASE code in the
+	// JSON envelope. AI.md PART 9's error-code table maps some statuses to more
+	// than one code — 403 is both FORBIDDEN ("Permission denied") and
+	// CSRF_FAILED — so a caller that must emit the more specific one sets this;
+	// an empty value keeps the httpStatusToErrorCode default.
+	ErrorCode   string
 	ContentType string
 }
 
@@ -78,6 +84,15 @@ func (e *appError) AsJSON() *appError {
 func (e *appError) WithMessage(message string) *appError {
 	e.Message = message
 	return e
+}
+
+// jsonErrorCode returns the UPPERCASE_SNAKE_CASE code for the JSON envelope,
+// preferring an explicit ErrorCode over the status-derived default.
+func (e *appError) jsonErrorCode() string {
+	if e.ErrorCode != "" {
+		return e.ErrorCode
+	}
+	return httpStatusToErrorCode(e.Code)
 }
 
 func (e *appError) IsJSON() bool {
@@ -168,7 +183,7 @@ func (fn appHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			OK      bool   `json:"ok"`
 			Error   string `json:"error"`
 			Message string `json:"message"`
-		}{false, httpStatusToErrorCode(e.Code), msg}
+		}{false, e.jsonErrorCode(), msg}
 		b, err := json.MarshalIndent(data, "", "  ")
 		if err != nil {
 			panic(err)
@@ -183,35 +198,40 @@ func (fn appHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprint(w, msg)
 }
 
-// httpStatusToErrorCode maps an HTTP status code to an UPPERCASE_SNAKE_CASE error code.
-// Per AI.md PART 9: error codes must be UPPERCASE_SNAKE_CASE strings.
+// httpStatusToErrorCode maps an HTTP status code to an UPPERCASE_SNAKE_CASE
+// error code per AI.md PART 9. The mapping itself lives in handler so the
+// frontend error path and this envelope cannot drift apart.
 func httpStatusToErrorCode(code int) string {
-	switch code {
-	case http.StatusBadRequest:
-		return "BAD_REQUEST"
-	case http.StatusUnauthorized:
-		return "UNAUTHORIZED"
-	case http.StatusForbidden:
-		return "FORBIDDEN"
-	case http.StatusNotFound:
-		return "NOT_FOUND"
-	case http.StatusMethodNotAllowed:
-		return "METHOD_NOT_ALLOWED"
-	case http.StatusConflict:
-		return "CONFLICT"
-	case http.StatusUnprocessableEntity:
-		return "UNPROCESSABLE_ENTITY"
-	case http.StatusTooManyRequests:
-		return "RATE_LIMITED"
-	case http.StatusInternalServerError:
-		return "SERVER_ERROR"
-	case http.StatusBadGateway:
-		return "BAD_GATEWAY"
-	case http.StatusServiceUnavailable:
-		return "MAINTENANCE"
-	default:
-		return "SERVER_ERROR"
+	return handler.ErrorCodeForStatus(code)
+}
+
+// writeNegotiatedError terminates a request with a content-negotiated error
+// response: a browser gets the themed error page (AI.md 24407 "ALL error pages
+// MUST use the site theme system. No plain/unstyled error pages." — 24411-24417
+// lists 400/401/403/404/500/502/503 as theme-required), an API/JSON client gets
+// the canonical {"ok":false,"error":"CODE","message":"..."} envelope, and an
+// HTTP tool gets plain text, per AI.md 24426 "honoring content negotiation —
+// HTML for browsers, JSON for API clients".
+//
+// This is the single entry point for any rejection raised outside an appHandler
+// (middleware, router-level guards). http.Error must not be used for those:
+// it emits an unstyled text/plain body to every client alike.
+//
+// errorCode may be empty, in which case the JSON envelope uses the
+// status-derived default from httpStatusToErrorCode.
+//
+// The JSON-vs-text split for /api/** mirrors NotFoundHandler's, since both are
+// router-level rejections that have to serve both halves of the site.
+func writeNegotiatedError(w http.ResponseWriter, r *http.Request, code int, errorCode, msg string) {
+	e := &appError{Code: code, ErrorCode: errorCode, Message: msg}
+	if strings.HasPrefix(r.URL.Path, "/api/") {
+		if !apiNotFoundWantsText(r) {
+			e = e.AsJSON()
+		}
+	} else if r.Header.Get("accept") == jsonMediaType {
+		e = e.AsJSON()
 	}
+	appHandler(func(http.ResponseWriter, *http.Request) *appError { return e }).ServeHTTP(w, r)
 }
 
 // NotFoundHandler returns a 404 error response.

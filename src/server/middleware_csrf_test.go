@@ -1,6 +1,7 @@
 package server
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -420,6 +421,11 @@ func TestCSRFMiddleware_CrossOrigin_RequiresToken(t *testing.T) {
 	}
 }
 
+// A CSRF rejection is content-negotiated like every other error: a JSON client
+// gets the canonical envelope, a browser gets the themed 403 page (AI.md 24407
+// "ALL error pages MUST use the site theme system", 24413 listing 403 as
+// theme-required, 24426 "honoring content negotiation - HTML for browsers, JSON
+// for API clients"). It must not hand a raw JSON body to a form-posting browser.
 func TestCSRFMiddleware_ErrorResponse_JSON(t *testing.T) {
 	cfg := DefaultCSRFConfig()
 	handler := CSRFMiddleware(cfg, false, nil)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -427,6 +433,7 @@ func TestCSRFMiddleware_ErrorResponse_JSON(t *testing.T) {
 	}))
 
 	req := httptest.NewRequest(http.MethodPost, "/submit", nil)
+	req.Header.Set("Accept", jsonMediaType)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
@@ -439,11 +446,47 @@ func TestCSRFMiddleware_ErrorResponse_JSON(t *testing.T) {
 		t.Errorf("Error response should be JSON, got Content-Type: %s", contentType)
 	}
 
-	body := rec.Body.String()
-	if !strings.Contains(body, `"ok":false`) {
-		t.Errorf("Error response should contain ok:false, got: %s", body)
+	var body struct {
+		OK      bool   `json:"ok"`
+		Error   string `json:"error"`
+		Message string `json:"message"`
 	}
-	if !strings.Contains(body, `"error":"CSRF_FAILED"`) {
-		t.Errorf("Error response should contain error code, got: %s", body)
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("Error response is not valid JSON: %v (%s)", err, rec.Body.String())
+	}
+	if body.OK {
+		t.Errorf("Error response should contain ok:false, got: %s", rec.Body.String())
+	}
+	// 403 maps to both FORBIDDEN and CSRF_FAILED in AI.md PART 9's error-code
+	// table; a CSRF rejection must emit the specific one.
+	if body.Error != "CSRF_FAILED" {
+		t.Errorf("Expected error code CSRF_FAILED, got %q", body.Error)
+	}
+}
+
+func TestCSRFMiddleware_ErrorResponse_BrowserIsNotJSON(t *testing.T) {
+	cfg := DefaultCSRFConfig()
+	handler := CSRFMiddleware(cfg, false, nil)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest(http.MethodPost, "/submit", nil)
+	req.Header.Set("User-Agent", "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36")
+	req.Header.Set("Accept", "text/html,application/xhtml+xml")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("Expected 403, got %d", rec.Code)
+	}
+	// The themed page itself needs the server's template set, which a unit test
+	// does not wire up, so the render falls through to the guaranteed plain-text
+	// response. What must hold either way is that a browser is never handed the
+	// raw JSON envelope.
+	if strings.Contains(rec.Header().Get("Content-Type"), "application/json") {
+		t.Errorf("Browser CSRF rejection should not be JSON, got Content-Type: %s", rec.Header().Get("Content-Type"))
+	}
+	if strings.Contains(rec.Body.String(), `"error"`) {
+		t.Errorf("Browser CSRF rejection leaked the JSON envelope: %s", rec.Body.String())
 	}
 }

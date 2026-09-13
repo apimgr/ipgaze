@@ -9,6 +9,14 @@ import (
 	applog "github.com/apimgr/ipgaze/src/log"
 )
 
+// writeForbidden emits a content-negotiated 403 through writeNegotiatedError,
+// so a browser blocked by BlocklistMiddleware or GeoIPMiddleware gets the
+// themed error page AI.md 24407/24413 require rather than the bare unstyled
+// text/plain body http.Error produced for every client alike.
+func writeForbidden(w http.ResponseWriter, r *http.Request, msg string) {
+	writeNegotiatedError(w, r, http.StatusForbidden, "", msg)
+}
+
 // BlocklistMiddleware checks the client IP against downloaded blocklists.
 // If the IP is found in any blocklist it returns 403 Forbidden.
 // Allowlisted IPs (set by AllowlistMiddleware) bypass this check.
@@ -37,7 +45,7 @@ func BlocklistMiddleware(lookup *blocklist.Lookup, lm *applog.Manager) func(http
 					log.Printf("blocklist: blocked request from %s %s", ip, sanitizeLogValue(r.URL.Path))
 					lm.WriteSecurity("Blocked request from blocklisted IP", sanitizeLogValue(ip.String()))
 					lang := i18n.DetectLocale(r)
-					http.Error(w, i18n.T(i18n.WithLang(r.Context(), lang), "errors.blocked_by_blocklist"), http.StatusForbidden)
+					writeForbidden(w, r, i18n.T(i18n.WithLang(r.Context(), lang), "errors.blocked_by_blocklist"))
 					return
 				}
 			}

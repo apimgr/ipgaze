@@ -9,6 +9,7 @@ import (
 
 	i18n "github.com/apimgr/ipgaze/src/common/i18n"
 	"github.com/apimgr/ipgaze/src/common/theme"
+	"github.com/apimgr/ipgaze/src/server/handler"
 	"github.com/apimgr/ipgaze/src/server/model"
 )
 
@@ -49,7 +50,10 @@ func Handler(cfg GraphQLHandlerConfig) http.HandlerFunc {
 		if err := InitSchema(); err != nil {
 			return func(w http.ResponseWriter, r *http.Request) {
 				lang := i18n.DetectLocale(r)
-				http.Error(w, i18n.T(i18n.WithLang(r.Context(), lang), "errors.server_error"), http.StatusInternalServerError)
+				// The GraphQL endpoint answers API clients, so a schema-init
+				// failure returns the canonical AI.md PART 9 envelope rather
+				// than http.Error's bare text/plain body.
+				handler.WriteAPIError(w, http.StatusInternalServerError, "", i18n.T(i18n.WithLang(r.Context(), lang), "errors.server_error"))
 			}
 		}
 	}
