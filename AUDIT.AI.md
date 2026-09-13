@@ -49,6 +49,20 @@ user ruling remain. This file is deleted entirely once they are resolved.
       separately lists `make all`. No `all` target was added — resolving the
       contradiction that way would violate PART 25's explicit rule. Which side
       wins?
+- [ ] AI.md 18478/18503 vs IDEA.md line 34 conflict on the HTTP-tool (curl,
+      wget, HTTPie) response body for the echoip data routes `/`, `/{ip}`,
+      and `/{ip}/{field}`. AI.md mandates the frontend page rendered through
+      `HTML2TextConverter()` ("Beautiful formatted ... full page with headers,
+      navigation, formatting"); IDEA.md line 34 mandates an
+      "echoip-compatible API surface (same routes, response formats,
+      user-agent detection behavior)", whose defining behavior is
+      `curl ifconfig.co` returning the bare address and nothing else.
+      The existing bare-address `CLIHandler` output was preserved on those
+      three routes, since converting them to formatted page text would break
+      the product's core purpose. The conflict does not extend to
+      `/server/*`, where AI.md applies cleanly — those pages now go through
+      `HTML2TextConverter` via `renderNegotiated`. Which side wins for the
+      data routes?
 - [x] AI.md 8708-8709/9223-9252 ("Six Operational States") vs AI.md 8788
       (`--mode debug` = development + debug) debug-mode contradiction —
       RESOLVED. The user ruled to follow 8708-9252: `debug` is its own

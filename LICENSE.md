@@ -51,7 +51,7 @@ This software includes the following third-party libraries:
 | github.com/tursodatabase/libsql-client-go | v0.0.0-20260528064733-9d5d30a29a60 | MIT | 2023 libSQL |
 | github.com/yuin/goldmark | v1.8.5 | MIT | 2019 Yusuke Inuzuka |
 | golang.org/x/crypto | v0.55.0 | BSD-3-Clause | 2009 The Go Authors |
-| golang.org/x/net | v0.57.0 | BSD-3-Clause | 2009 The Go Authors |
+| golang.org/x/net | v0.58.0 | BSD-3-Clause | 2009 The Go Authors |
 | golang.org/x/sys | v0.47.0 | BSD-3-Clause | 2009 The Go Authors |
 | golang.org/x/term | v0.45.0 | BSD-3-Clause | 2009 The Go Authors |
 | golang.org/x/time | v0.15.0 | BSD-3-Clause | 2009 The Go Authors |
@@ -89,7 +89,7 @@ Full license: https://spdx.org/licenses/BSD-3-Clause.html
 Copyright (c) 2009 The Go Authors. All rights reserved.
 Full license: https://spdx.org/licenses/BSD-3-Clause.html
 
-**golang.org/x/net v0.57.0**
+**golang.org/x/net v0.58.0**
 Copyright (c) 2009 The Go Authors. All rights reserved.
 Full license: https://spdx.org/licenses/BSD-3-Clause.html
 
