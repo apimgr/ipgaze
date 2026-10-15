@@ -955,11 +955,10 @@ Reconciliation items from the AI.md bootstrap/compliance passes.
     export scope), `features-rules.md` (PART 18 Task Execution Panic
     Safety). All 13 mtimes are now newer than AI.md's.
 
-44. **`.claude/settings.json` is missing** — AI.md 1234 lists it as
-    committed team config (not gitignored, and the repo's `.gitignore`
-    correctly ignores only `settings.local.json`). Creating it was blocked
-    by the permission classifier because it is a permissions file; the user
-    needs to create it or approve its creation.
+44. ~~**`.claude/settings.json` was missing**~~ — RESOLVED. Added the
+    committed team settings with AI.md's required schema, host-Go and
+    destructive-command denials, formatting/vendor-name hooks, and
+    `CGO_ENABLED=0`. `Read: AI.md PART 1`
 
 45. **`.forgejo/` is at the repo root but is not in AI.md's allowed
     root-directories list** (AI.md 1949) even though AI.md 816, 6226, 6265
@@ -982,14 +981,7 @@ Reconciliation items from the AI.md bootstrap/compliance passes.
     linked, and `go mod tidy` keeps the `/go.mod` lines by design, so
     there is nothing to swap or update.
 
-48. **`src/server/error.go` line 189 `panic(err)` in the JSON error-envelope
-    fallback** — found by the go-lint agent during the round-2 diff review
-    (pre-existing, not touched by this round's changes). Inside
-    `appHandler.ServeHTTP`'s JSON-branch, if `json.MarshalIndent` on the
-    three-field `{ok,error,message}` struct ever fails, the handler panics
-    instead of falling through to a guaranteed plain-text body — AI.md PART 9
-    requires every error path, including this one, to degrade to a minimal
-    hardcoded response rather than rely on the outer recover middleware.
-    Practically unreachable (marshaling three plain strings cannot fail), but
-    should be replaced with a hardcoded plain-text fallback for spec
-    correctness.
+48. ~~**`src/server/error.go` panicked if JSON error serialization failed**~~ —
+    RESOLVED. The handler now logs serialization failures with the request ID
+    and status and returns a fixed sanitized `SERVER_ERROR` JSON envelope.
+    `Read: AI.md PART 9`
