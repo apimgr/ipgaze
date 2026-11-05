@@ -8,8 +8,8 @@
   if already root/admin
 - Never use a UID/GID that isn't equal — the same numeric value MUST back both UID and GID
 - Never pick a UID/GID from the reserved/well-known list (65534 nobody, 999/998/997/996/995 systemd/docker,
-  994-980 systemd-network/kvm/render/pipewire/colord/geoclue/avahi/rtkit/saned/usbmux/cups, 170-179, 101-110
-  sshd/postfix/dovecot) even if it currently appears free on the host
+  994-980 systemd-network/input/kvm/render/sgx/pipewire/colord/geoclue/avahi/rtkit/saned/usbmux/cups,
+  170-179, 101-110 sshd/postfix/dovecot) even if it currently appears free on the host
 - Never let `--service --install` do anything beyond installing, enabling, and starting the service — user
   creation, privilege escalation, directory setup, and permissions belong to normal binary startup, not to
   install
@@ -50,6 +50,8 @@
   chosen only when `/sbin/openrc-run` and `systemctl` are both absent but `update-rc.d`/`chkconfig` work),
   runit (`/etc/sv/{internal_name}/run` + `log/run`), rc.d (`/usr/local/etc/rc.d/{internal_name}`), launchd
   (`/Library/LaunchDaemons/{plist_name}.plist`), Windows Service (`golang.org/x/sys/windows/svc`)
+- Detect and support s6 as a Linux init/service manager as well as systemd, OpenRC, runit, and SysVinit;
+  the supported manager set is mandatory, not best-effort
 - Every service unit/script must reference `{internal_name}` for identity/paths (stable across binary
   renames) and `{project_name}`/`{app_name}` only for the executable path and display text
 - Apply systemd security hardening (`ProtectSystem=strict`, `ProtectHome=yes`, `PrivateTmp=yes`, explicit
@@ -61,8 +63,10 @@ user-level directories. `--service --install/--uninstall/--disable` only manage 
 binary's own normal startup sequence (not the install/uninstall paths) owns user creation, privilege
 escalation, and directory setup. UID/GID are always equal, chosen from a safe range by scanning downward and
 skipping a fixed reserved-ID list, never reused from that list even if free. Every supported init system
-(systemd, OpenRC, SysVinit, runit, rc.d, launchd, Windows Service) must be detected and supported, each
+(systemd, OpenRC, SysVinit, runit, s6, rc.d, launchd, Windows Service) must be detected and supported, each
 keyed off `{internal_name}` for paths/identity. Uninstall is destructive — it always deletes all data and
 the system user after an explicit y/N confirmation — and never removes the binary itself.
+Linux manager detection also includes s6; reserved IDs 993-987 (systemd-timesync, input, kvm, render, SGX, and PipeWire)
+are skipped alongside the documented system and service IDs, even when they are currently unused.
 
 For complete details, see AI.md PART 23, PART 24.

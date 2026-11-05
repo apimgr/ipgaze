@@ -494,7 +494,7 @@ func newLocalListener(t *testing.T) (net.Listener, int) {
 	if err != nil {
 		t.Fatalf("failed to open local listener: %v", err)
 	}
-	t.Cleanup(func() { ln.Close() })
+	t.Cleanup(func() { _ = ln.Close() })
 	port := ln.Addr().(*net.TCPAddr).Port
 	return ln, port
 }
@@ -507,7 +507,7 @@ func TestResolveCheckPort_OpenPort_Reachable(t *testing.T) {
 			if err != nil {
 				return
 			}
-			c.Close()
+			_ = c.Close()
 		}
 	}()
 	setResolverDeps(t, Deps{
@@ -519,7 +519,7 @@ func TestResolveCheckPort_OpenPort_Reachable(t *testing.T) {
 			if err != nil {
 				return false, nil
 			}
-			conn.Close()
+			_ = conn.Close()
 			return true, nil
 		},
 	})
@@ -542,7 +542,7 @@ func TestResolveCheckPort_ClosedPort_NotReachable(t *testing.T) {
 	// Open and immediately close a listener to get a port that is very
 	// likely to refuse new connections for the duration of the test.
 	ln, port := newLocalListener(t)
-	ln.Close()
+	_ = ln.Close()
 
 	setResolverDeps(t, Deps{
 		ClientIP: func(r *http.Request, allowOverride bool) (net.IP, error) {
@@ -553,7 +553,7 @@ func TestResolveCheckPort_ClosedPort_NotReachable(t *testing.T) {
 			if err != nil {
 				return false, nil
 			}
-			conn.Close()
+			_ = conn.Close()
 			return true, nil
 		},
 	})

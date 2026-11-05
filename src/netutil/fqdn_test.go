@@ -4,7 +4,6 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"strings"
 	"testing"
 )
@@ -104,7 +103,7 @@ func TestGetAllDomainsFromEnv(t *testing.T) {
 }
 
 func TestGetAllDomainsFallback(t *testing.T) {
-	os.Unsetenv("DOMAIN")
+	t.Setenv("DOMAIN", "")
 	got := getAllDomains()
 	if len(got) == 0 {
 		t.Error("getAllDomains() fallback returned empty slice")

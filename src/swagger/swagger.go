@@ -50,6 +50,7 @@ type PathItem struct {
 
 // Operation holds metadata for a single API operation
 type Operation struct {
+	OperationID string                 `json:"operationId,omitempty"`
 	Summary     string                 `json:"summary,omitempty"`
 	Description string                 `json:"description,omitempty"`
 	Tags        []string               `json:"tags,omitempty"`
@@ -149,7 +150,9 @@ func Handler(cfg SwaggerHandlerConfig) http.HandlerFunc {
 			// AI.md PART 14: every JSON response is 2-space indented.
 			enc := json.NewEncoder(w)
 			enc.SetIndent("", "  ")
-			enc.Encode(spec)
+			if err := enc.Encode(spec); err != nil {
+				http.Error(w, "failed to encode OpenAPI specification", http.StatusInternalServerError)
+			}
 			return
 		}
 
@@ -171,7 +174,9 @@ func JSONHandler(cfg SwaggerHandlerConfig) http.HandlerFunc {
 		// AI.md PART 14: every JSON response is 2-space indented.
 		enc := json.NewEncoder(w)
 		enc.SetIndent("", "  ")
-		enc.Encode(spec)
+		if err := enc.Encode(spec); err != nil {
+			http.Error(w, "failed to encode OpenAPI specification", http.StatusInternalServerError)
+		}
 	}
 }
 
@@ -203,7 +208,7 @@ func serveSwaggerUI(w http.ResponseWriter, r *http.Request, cfg SwaggerHandlerCo
 </html>`
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Write([]byte(html))
+	_, _ = w.Write([]byte(html))
 }
 
 // buildBaseURL constructs the base URL for the Swagger UI using the canonical netutil helpers.

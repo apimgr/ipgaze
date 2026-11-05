@@ -69,8 +69,12 @@ func TestSha256File(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		f.WriteString("hello world")
-		f.Close()
+		if _, err := f.WriteString("hello world"); err != nil {
+			t.Fatal(err)
+		}
+		if err := f.Close(); err != nil {
+			t.Fatal(err)
+		}
 
 		hash, err := sha256File(f.Name())
 		if err != nil {

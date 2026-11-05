@@ -250,10 +250,10 @@ func writeFileAtomic(path string, data []byte, perm os.FileMode) error {
 		return err
 	}
 	tmpPath := tmp.Name()
-	defer os.Remove(tmpPath)
+	defer func() { _ = os.Remove(tmpPath) }()
 
 	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
+		_ = tmp.Close()
 		return err
 	}
 	if err := tmp.Close(); err != nil {
@@ -293,10 +293,10 @@ func (m *SSLManager) setChallengeProvider(client *lego.Client) (func(), error) {
 			_ = srv.ServeTLS(listener, "", "")
 		}()
 		if err := client.Challenge.SetTLSALPN01Provider(provider); err != nil {
-			srv.Close()
+			_ = srv.Close()
 			return nil, fmt.Errorf("tls-alpn-01 provider: %w", err)
 		}
-		return func() { srv.Close() }, nil
+		return func() { _ = srv.Close() }, nil
 
 	default:
 		listener, err := net.Listen("tcp", ":80")
@@ -310,10 +310,10 @@ func (m *SSLManager) setChallengeProvider(client *lego.Client) (func(), error) {
 			_ = srv.Serve(listener)
 		}()
 		if err := client.Challenge.SetHTTP01Provider(newHTTP01Provider(m.challengeServer)); err != nil {
-			srv.Close()
+			_ = srv.Close()
 			return nil, fmt.Errorf("http-01 provider: %w", err)
 		}
-		return func() { srv.Close() }, nil
+		return func() { _ = srv.Close() }, nil
 	}
 }
 
@@ -417,7 +417,7 @@ func (m *SSLManager) dnsProvider() (challenge.Provider, error) {
 	// honoring decryptDNSCredentials' "never cached/persisted" contract.
 	defer func() {
 		for key := range creds {
-			os.Unsetenv(key)
+			_ = os.Unsetenv(key)
 		}
 	}()
 	provider, err := dns.NewDNSChallengeProviderByName(name)
@@ -687,7 +687,7 @@ func (cs *ChallengeServer) ServeHTTP(w http.ResponseWriter, r *http.Request) boo
 	}
 
 	w.Header().Set("Content-Type", "text/plain")
-	w.Write([]byte(auth))
+	_, _ = w.Write([]byte(auth))
 	return true
 }
 

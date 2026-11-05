@@ -63,7 +63,11 @@ func TestNew_EmptyType_UsesMemory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewCache(empty) error: %v", err)
 	}
-	defer c.Close()
+	t.Cleanup(func() {
+		if err := c.Close(); err != nil {
+			t.Errorf("close cache: %v", err)
+		}
+	})
 	if _, ok := c.(*memoryCache); !ok {
 		t.Errorf("NewCache(empty) type = %T; want *memoryCache", c)
 	}
@@ -74,7 +78,11 @@ func TestNew_TypeMemory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewCache(memory) error: %v", err)
 	}
-	defer c.Close()
+	t.Cleanup(func() {
+		if err := c.Close(); err != nil {
+			t.Errorf("close cache: %v", err)
+		}
+	})
 	if _, ok := c.(*memoryCache); !ok {
 		t.Errorf("NewCache(memory) type = %T; want *memoryCache", c)
 	}
@@ -85,7 +93,11 @@ func TestNew_TypeNone(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewCache(none) error: %v", err)
 	}
-	defer c.Close()
+	t.Cleanup(func() {
+		if err := c.Close(); err != nil {
+			t.Errorf("close cache: %v", err)
+		}
+	})
 	if _, ok := c.(*noopCache); !ok {
 		t.Errorf("NewCache(none) type = %T; want *noopCache", c)
 	}
@@ -96,7 +108,11 @@ func TestNew_TypeRedis_ReturnsClient(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewCache(redis) error: %v", err)
 	}
-	defer c.Close()
+	t.Cleanup(func() {
+		if err := c.Close(); err != nil {
+			t.Errorf("close cache: %v", err)
+		}
+	})
 	if _, ok := c.(*redisCache); !ok {
 		t.Errorf("NewCache(redis) type = %T; want *redisCache", c)
 	}
@@ -107,7 +123,11 @@ func TestNew_TypeValkey_ReturnsRedisClient(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewCache(valkey) error: %v", err)
 	}
-	defer c.Close()
+	t.Cleanup(func() {
+		if err := c.Close(); err != nil {
+			t.Errorf("close cache: %v", err)
+		}
+	})
 	if _, ok := c.(*redisCache); !ok {
 		t.Errorf("NewCache(valkey) type = %T; want *redisCache", c)
 	}
@@ -118,7 +138,11 @@ func TestNew_TypeMemcache_ReturnsClient(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewCache(memcache) error: %v", err)
 	}
-	defer c.Close()
+	t.Cleanup(func() {
+		if err := c.Close(); err != nil {
+			t.Errorf("close cache: %v", err)
+		}
+	})
 	if _, ok := c.(*memcacheCache); !ok {
 		t.Errorf("NewCache(memcache) type = %T; want *memcacheCache", c)
 	}

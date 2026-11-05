@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -28,6 +29,14 @@ func BinaryFilename(projectName string) string {
 		name += ".exe"
 	}
 	return name
+}
+
+// removeTemp removes an incomplete update artifact, ignoring an already-absent path.
+func removeTemp(path string) error {
+	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("remove temporary update file: %w", err)
+	}
+	return nil
 }
 
 // CheckResult holds the result of an update check.
@@ -108,55 +117,47 @@ func Do(ctx context.Context, client *api.APIClient, projectName, serverBase, cur
 	filename := BinaryFilename(projectName)
 	_, err = client.DownloadBinary(ctx, filename, tmpPath)
 	if err != nil {
-		os.Remove(tmpPath)
-		return fmt.Errorf("download: %w", err)
+		return errors.Join(fmt.Errorf("download: %w", err), removeTemp(tmpPath))
 	}
 
 	// Verify SHA-256 per AI.md PART 32 (same verifyChecksum pattern as PART 22).
 	// A missing checksum is fatal: never install an unverified binary — mirrors
 	// the hard-abort in the server-side updater (src/updater/update.go).
 	if result.SHA256 == "" {
-		os.Remove(tmpPath)
 		fmt.Fprintln(os.Stderr, "audit: cli.update_checksum_invalid expected=(none)")
-		return fmt.Errorf("checksum not available for this platform — aborting update")
+		return errors.Join(fmt.Errorf("checksum not available for this platform — aborting update"), removeTemp(tmpPath))
 	}
 	if err := verifyChecksum(tmpPath, result.SHA256); err != nil {
-		os.Remove(tmpPath)
 		// Audit event: cli.update_checksum_invalid
 		fmt.Fprintf(os.Stderr, "audit: cli.update_checksum_invalid expected=%s\n", result.SHA256)
-		return fmt.Errorf("checksum mismatch: %w", err)
+		return errors.Join(fmt.Errorf("checksum mismatch: %w", err), removeTemp(tmpPath))
 	}
 
 	// Make executable on Unix
 	if runtime.GOOS != "windows" {
 		if err := os.Chmod(tmpPath, 0755); err != nil {
-			os.Remove(tmpPath)
-			return fmt.Errorf("chmod: %w", err)
+			return errors.Join(fmt.Errorf("chmod: %w", err), removeTemp(tmpPath))
 		}
 	}
 
 	// Resolve current binary path
 	currentPath, err := os.Executable()
 	if err != nil {
-		os.Remove(tmpPath)
-		return fmt.Errorf("resolve binary path: %w", err)
+		return errors.Join(fmt.Errorf("resolve binary path: %w", err), removeTemp(tmpPath))
 	}
 	currentPath, err = filepath.EvalSymlinks(currentPath)
 	if err != nil {
-		os.Remove(tmpPath)
-		return fmt.Errorf("eval symlinks: %w", err)
+		return errors.Join(fmt.Errorf("eval symlinks: %w", err), removeTemp(tmpPath))
 	}
 
 	// Check write permission on install path
 	if err := checkWritable(currentPath); err != nil {
-		os.Remove(tmpPath)
-		return fmt.Errorf("you do not have permission to update %s; ask your admin or move the binary to a writable path", currentPath)
+		return errors.Join(fmt.Errorf("you do not have permission to update %s; ask your admin or move the binary to a writable path", currentPath), removeTemp(tmpPath))
 	}
 
 	// Atomic swap (platform-specific)
 	if err := replaceBinary(currentPath, tmpPath); err != nil {
-		os.Remove(tmpPath)
-		return fmt.Errorf("replace binary: %w", err)
+		return errors.Join(fmt.Errorf("replace binary: %w", err), removeTemp(tmpPath))
 	}
 
 	// Audit event: cli.update_completed
@@ -168,12 +169,12 @@ func Do(ctx context.Context, client *api.APIClient, projectName, serverBase, cur
 }
 
 // verifyChecksum checks that the file at path has the expected SHA-256 hex digest.
-func verifyChecksum(path, expected string) error {
+func verifyChecksum(path, expected string) (resultErr error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func() { resultErr = errors.Join(resultErr, f.Close()) }()
 	h := sha256.New()
 	if _, err := io.Copy(h, f); err != nil {
 		return err
@@ -191,8 +192,7 @@ func checkWritable(path string) error {
 	if err != nil {
 		return err
 	}
-	f.Close()
-	return nil
+	return f.Close()
 }
 
 // isOlderVersion returns true when a is strictly older than b, comparing

@@ -226,6 +226,21 @@ labels:
   - "traefik.http.services.ipgaze.loadbalancer.server.port=64123"
 ```
 
+## MCP Endpoint
+
+The Streamable HTTP MCP endpoint is enabled by default. Set
+`server.mcp.enabled: false` to return `404` from `/api/v1/server/mcp`,
+`/api/mcp`, and `/mcp` without restarting the server.
+
+```yaml
+server:
+  mcp:
+    enabled: true
+```
+
+MCP uses the same public API operations and Bearer authorization as REST.
+It does not accept cookies or issue separate MCP tokens.
+
 ## Caching
 
 Response/lookup caching is configured under `server.cache`:

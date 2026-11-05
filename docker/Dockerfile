@@ -79,6 +79,7 @@ RUN chmod 755 /usr/local/bin/*
 # Config: /config/ipgaze/   Data: /data/ipgaze/   DB: /data/db/sqlite/
 # MODE is never baked into the image — binary defaults to production; compose sets MODE explicitly
 ENV TZ=America/New_York \
+    PORT=80 \
     DATABASE_DIR=/data/db/sqlite
 
 # Port 80 inside container (mapped by docker-compose)

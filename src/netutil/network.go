@@ -44,7 +44,7 @@ func getOutboundIP() string {
 	// Try IPv4 first
 	conn, err := net.Dial("udp", "8.8.8.8:80")
 	if err == nil {
-		defer conn.Close()
+		defer func() { _ = conn.Close() }()
 		localAddr := conn.LocalAddr().(*net.UDPAddr)
 		return localAddr.IP.String()
 	}
@@ -52,7 +52,7 @@ func getOutboundIP() string {
 	// Try IPv6
 	conn, err = net.Dial("udp", "[2001:4860:4860::8888]:80")
 	if err == nil {
-		defer conn.Close()
+		defer func() { _ = conn.Close() }()
 		localAddr := conn.LocalAddr().(*net.UDPAddr)
 		return localAddr.IP.String()
 	}
@@ -130,7 +130,7 @@ func FetchPublicIP() (string, error) {
 			continue
 		}
 		body, err := io.ReadAll(io.LimitReader(resp.Body, 64))
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		if err != nil || resp.StatusCode != http.StatusOK {
 			lastErr = fmt.Errorf("source %s: status %d", src, resp.StatusCode)
 			continue

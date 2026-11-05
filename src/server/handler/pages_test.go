@@ -820,6 +820,7 @@ func TestServerPreferencesHandler_RendersCurrentValues(t *testing.T) {
 	h := newTestPagesHandler()
 	req := newBrowserRequest("/server/preferences")
 	req.AddCookie(&http.Cookie{Name: "lang", Value: "fr"})
+	req.AddCookie(&http.Cookie{Name: lookupWidgetPreferenceCookie, Value: "city"})
 	w := httptest.NewRecorder()
 
 	h.ServerPreferencesHandler(w, req)
@@ -831,6 +832,63 @@ func TestServerPreferencesHandler_RendersCurrentValues(t *testing.T) {
 	body := w.Body.String()
 	if !strings.Contains(body, "preferences.tmpl") {
 		t.Errorf("body = %q, want it to render preferences.tmpl", body)
+	}
+	if got := h.NewPageData(req).DefaultWidget; got != "city" {
+		t.Errorf("NewPageData().DefaultWidget = %q, want city", got)
+	}
+}
+
+func TestServerPreferencesUpdateHandler_SetsWidgetPreference(t *testing.T) {
+	h := newTestPagesHandler()
+	req := httptest.NewRequest(http.MethodPost, "/server/preferences", strings.NewReader("ipgaze_pref_widget=city"))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+
+	h.ServerPreferencesUpdateHandler(w, req)
+
+	if w.Code != http.StatusSeeOther {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusSeeOther)
+	}
+	for _, cookie := range w.Result().Cookies() {
+		if cookie.Name == lookupWidgetPreferenceCookie && cookie.Value == "city" && cookie.MaxAge == 365*24*60*60 && !cookie.HttpOnly {
+			return
+		}
+	}
+	t.Fatal("expected a one-year readable ipgaze_pref_widget cookie")
+}
+
+func TestAPIV1ServerPreferencesUpdateHandler_AppliesWidgetPreference(t *testing.T) {
+	h := newTestPagesHandler()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/server/preferences", strings.NewReader(`{"prefs":{"widget":"json"}}`))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	h.APIV1ServerPreferencesUpdateHandler(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d: %s", w.Code, http.StatusOK, w.Body.String())
+	}
+	var response struct {
+		Data PreferencesResponse `json:"data"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&response); err != nil {
+		t.Fatal(err)
+	}
+	if response.Data.Prefs["widget"] != "json" || !containsPreference(response.Data.Applied, lookupWidgetPreferenceCookie) {
+		t.Errorf("response data = %#v, want widget=json applied", response.Data)
+	}
+}
+
+func TestAPIV1ServerPreferencesUpdateHandler_RejectsNoValidValues(t *testing.T) {
+	h := newTestPagesHandler()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/server/preferences", strings.NewReader(`{"prefs":{"widget":"invalid"}}`))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	h.APIV1ServerPreferencesUpdateHandler(w, req)
+
+	if w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), "VALIDATION_FAILED") {
+		t.Errorf("status/body = %d %q, want 400 VALIDATION_FAILED", w.Code, w.Body.String())
 	}
 }
 
@@ -862,8 +920,8 @@ func TestAPIV1ServerPreferencesHandler_ReturnsThemeAndLang(t *testing.T) {
 	if resp.Data.Theme != "dark" {
 		t.Errorf("Theme = %q, want %q (default, no DetectTheme injected)", resp.Data.Theme, "dark")
 	}
-	if resp.Data.ExportURL == "" || resp.Data.ExportCode == "" {
-		t.Error("ExportURL/ExportCode empty, want populated")
+	if resp.Data.Prefs == nil || len(resp.Data.Prefs) != 0 {
+		t.Errorf("Prefs = %#v, want an empty preference map", resp.Data.Prefs)
 	}
 }
 
@@ -886,6 +944,25 @@ func TestAPIV1ServerPreferencesExportHandler_OnlyExportsThemeAndLang(t *testing.
 	}
 }
 
+func TestAPIV1ServerPreferencesExportHandler_ExportsWidgetPreference(t *testing.T) {
+	h := newTestPagesHandler()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/server/preferences/export", nil)
+	req.AddCookie(&http.Cookie{Name: lookupWidgetPreferenceCookie, Value: "city"})
+	w := httptest.NewRecorder()
+
+	h.APIV1ServerPreferencesExportHandler(w, req)
+
+	var body struct {
+		Data PreferencesExportResponse `json:"data"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Data.Prefs["widget"] != "city" || !strings.Contains(body.Data.URL, "ipgaze_pref_widget=city") {
+		t.Errorf("export = %#v, want widget=city in prefs and URL", body.Data)
+	}
+}
+
 func TestServerPreferencesImportHandler_ValidValues_SetsCookiesAndRedirects(t *testing.T) {
 	h := newTestPagesHandler()
 	h.ValidateTheme = testValidateTheme
@@ -899,8 +976,8 @@ func TestServerPreferencesImportHandler_ValidValues_SetsCookiesAndRedirects(t *t
 	if res.StatusCode != http.StatusSeeOther {
 		t.Errorf("StatusCode = %d, want %d", res.StatusCode, http.StatusSeeOther)
 	}
-	if loc := res.Header.Get("Location"); loc != "/server/preferences" {
-		t.Errorf("Location = %q, want %q", loc, "/server/preferences")
+	if loc := res.Header.Get("Location"); loc != "/" {
+		t.Errorf("Location = %q, want fallback %q for preferences route", loc, "/")
 	}
 	var gotTheme, gotLang string
 	for _, c := range res.Cookies() {
@@ -961,6 +1038,41 @@ func TestServerPreferencesImportHandler_ViaShortCode(t *testing.T) {
 	}
 }
 
+func TestServerPreferencesImportHandler_PaddedCodeAndDirectValuesWin(t *testing.T) {
+	h := newTestPagesHandler()
+	code := base64.URLEncoding.EncodeToString([]byte("theme=light&ipgaze_pref_widget=city"))
+	req := httptest.NewRequest(http.MethodGet, "/server/preferences/import?code="+url.QueryEscape(code)+"&theme=dark&ipgaze_pref_widget=asn", nil)
+	w := httptest.NewRecorder()
+
+	h.ServerPreferencesImportHandler(w, req)
+
+	got := map[string]string{}
+	for _, cookie := range w.Result().Cookies() {
+		got[cookie.Name] = cookie.Value
+	}
+	if got["theme"] != "dark" || got[lookupWidgetPreferenceCookie] != "asn" {
+		t.Errorf("imported cookies = %#v, want direct theme/widget values", got)
+	}
+}
+
+func TestServerPreferencesImportHandler_AppliesWidgetPreference(t *testing.T) {
+	h := newTestPagesHandler()
+	req := httptest.NewRequest(http.MethodGet, "/server/preferences/import?ipgaze_pref_widget=asn", nil)
+	w := httptest.NewRecorder()
+
+	h.ServerPreferencesImportHandler(w, req)
+
+	for _, cookie := range w.Result().Cookies() {
+		if cookie.Name == lookupWidgetPreferenceCookie {
+			if cookie.Value != "asn" {
+				t.Fatalf("widget preference cookie = %q, want asn", cookie.Value)
+			}
+			return
+		}
+	}
+	t.Fatal("widget preference cookie missing")
+}
+
 func TestServerPreferencesImportHandler_MalformedCode_NoCookiesSet(t *testing.T) {
 	h := newTestPagesHandler()
 	h.ValidateTheme = testValidateTheme
@@ -995,6 +1107,27 @@ func TestAPIV1ServerPreferencesImportHandler_ReturnsAppliedValues(t *testing.T) 
 	}
 	if resp.Data.Theme != "auto" || resp.Data.Lang != "zh" {
 		t.Errorf("Theme=%q Lang=%q, want auto/zh", resp.Data.Theme, resp.Data.Lang)
+	}
+}
+
+func TestAPIV1ServerPreferencesImportHandler_AppliesWidgetAndIgnoresConsent(t *testing.T) {
+	h := newTestPagesHandler()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/server/preferences/import?ipgaze_pref_widget=port&cookie_consent=accepted", nil)
+	w := httptest.NewRecorder()
+
+	h.APIV1ServerPreferencesImportHandler(w, req)
+
+	var response struct {
+		Data PreferencesImportResponse `json:"data"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&response); err != nil {
+		t.Fatal(err)
+	}
+	if response.Data.Prefs["widget"] != "port" || !containsPreference(response.Data.Applied, lookupWidgetPreferenceCookie) {
+		t.Errorf("import response = %#v, want widget=port applied", response.Data)
+	}
+	if !containsPreference(response.Data.Ignored, "cookie_consent") {
+		t.Errorf("ignored = %#v, want cookie_consent", response.Data.Ignored)
 	}
 }
 

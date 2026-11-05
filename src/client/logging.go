@@ -130,7 +130,7 @@ func (l *clientLogger) write(level int, levelName, format string, args ...any) {
 	if err != nil {
 		return
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	if err := setFilePermissions(l.path); err != nil {
 		return

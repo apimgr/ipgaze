@@ -39,19 +39,29 @@ func makeSize(cols, rows int) terminal.TerminalSize {
 
 // captureStdout redirects os.Stdout for the duration of fn and returns whatever
 // was written to it. This is safe for single-threaded test use only.
-func captureStdout(fn func()) string {
-	r, w, _ := os.Pipe()
+func captureStdout(t *testing.T, fn func()) string {
+	t.Helper()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("create stdout pipe: %v", err)
+	}
 	old := os.Stdout
 	os.Stdout = w
+	defer func() { os.Stdout = old }()
 
 	fn()
 
-	w.Close()
-	os.Stdout = old
+	if err := w.Close(); err != nil {
+		t.Errorf("close stdout pipe writer: %v", err)
+	}
 
 	var buf bytes.Buffer
-	io.Copy(&buf, r)
-	r.Close()
+	if _, err := io.Copy(&buf, r); err != nil {
+		t.Errorf("read captured stdout: %v", err)
+	}
+	if err := r.Close(); err != nil {
+		t.Errorf("close stdout pipe reader: %v", err)
+	}
 	return buf.String()
 }
 
@@ -72,7 +82,7 @@ func minimalConfig() BannerPrintConfig {
 // printMicro must always print AppName and Version — it is the smallest mode.
 func TestPrintMicro_ContainsNameAndVersion(t *testing.T) {
 	cfg := minimalConfig()
-	out := captureStdout(func() { printMicro(cfg) })
+	out := captureStdout(t, func() { printMicro(cfg) })
 	if !strings.Contains(out, "testapp") {
 		t.Errorf("printMicro: AppName missing from output:\n%s", out)
 	}
@@ -86,7 +96,7 @@ func TestPrintMicro_ContainsNameAndVersion(t *testing.T) {
 // printMinimal must include AppName, Version, and AppMode.
 func TestPrintMinimal_ContainsNameVersionMode(t *testing.T) {
 	cfg := minimalConfig()
-	out := captureStdout(func() { printMinimal(cfg, true) })
+	out := captureStdout(t, func() { printMinimal(cfg, true) })
 	if !strings.Contains(strings.ToLower(out), "testapp") {
 		t.Errorf("printMinimal: AppName missing:\n%s", out)
 	}
@@ -102,7 +112,7 @@ func TestPrintMinimal_ContainsNameVersionMode(t *testing.T) {
 // while still including AppName, Version, and AppMode text.
 func TestPrintMinimal_EmojiDisabled_NoEmoji(t *testing.T) {
 	cfg := minimalConfig()
-	out := captureStdout(func() { printMinimal(cfg, false) })
+	out := captureStdout(t, func() { printMinimal(cfg, false) })
 	for _, e := range []string{"🚀", "📦", "🔧", "🔒", "✅"} {
 		if strings.Contains(out, e) {
 			t.Errorf("printMinimal emoji=false: unexpected %q in output:\n%s", e, out)
@@ -118,7 +128,7 @@ func TestPrintMinimal_EmojiDisabled_NoEmoji(t *testing.T) {
 // printCompact without color must print name, version, mode, and the URL.
 func TestPrintCompact_NoColor_ContainsAllFields(t *testing.T) {
 	cfg := minimalConfig()
-	out := captureStdout(func() { printCompact(cfg, false, true) })
+	out := captureStdout(t, func() { printCompact(cfg, false, true) })
 	if !strings.Contains(strings.ToLower(out), "testapp") {
 		t.Errorf("printCompact no-color: AppName missing:\n%s", out)
 	}
@@ -136,7 +146,7 @@ func TestPrintCompact_NoColor_ContainsAllFields(t *testing.T) {
 // printCompact with color must still contain readable text (despite ANSI codes).
 func TestPrintCompact_WithColor_ContainsAppName(t *testing.T) {
 	cfg := minimalConfig()
-	out := captureStdout(func() { printCompact(cfg, true, true) })
+	out := captureStdout(t, func() { printCompact(cfg, true, true) })
 	if !strings.Contains(strings.ToLower(out), "testapp") {
 		t.Errorf("printCompact color: AppName missing:\n%s", out)
 	}
@@ -149,7 +159,7 @@ func TestPrintCompact_WithColor_ContainsAppName(t *testing.T) {
 func TestPrintCompact_MultipleURLs(t *testing.T) {
 	cfg := minimalConfig()
 	cfg.URLs = []string{"http://0.0.0.0:8080", "http://abc.onion"}
-	out := captureStdout(func() { printCompact(cfg, false, true) })
+	out := captureStdout(t, func() { printCompact(cfg, false, true) })
 	for _, u := range cfg.URLs {
 		if !strings.Contains(out, u) {
 			t.Errorf("printCompact multi-URL: %q missing from output:\n%s", u, out)
@@ -163,7 +173,7 @@ func TestPrintCompact_MultipleURLs(t *testing.T) {
 func TestPrintFull_NoColor_NoANSI(t *testing.T) {
 	cfg := minimalConfig()
 	size := makeSize(80, 24)
-	out := captureStdout(func() { printFull(cfg, size, false, true) })
+	out := captureStdout(t, func() { printFull(cfg, size, false, true) })
 	if strings.Contains(out, "\033[") {
 		t.Errorf("printFull no-color: unexpected ANSI escape sequences in output:\n%s", out)
 	}
@@ -179,7 +189,7 @@ func TestPrintFull_NoColor_NoANSI(t *testing.T) {
 func TestPrintFull_WithColor_ContainsANSI(t *testing.T) {
 	cfg := minimalConfig()
 	size := makeSize(80, 24)
-	out := captureStdout(func() { printFull(cfg, size, true, true) })
+	out := captureStdout(t, func() { printFull(cfg, size, true, true) })
 	if !strings.Contains(out, "\033[") {
 		t.Errorf("printFull with-color: expected ANSI escape sequences, got:\n%s", out)
 	}
@@ -190,7 +200,7 @@ func TestPrintFull_DebugLine_WhenDebugTrue(t *testing.T) {
 	cfg := minimalConfig()
 	cfg.Debug = true
 	size := makeSize(80, 24)
-	out := captureStdout(func() { printFull(cfg, size, false, true) })
+	out := captureStdout(t, func() { printFull(cfg, size, false, true) })
 	if !strings.Contains(out, "Debug") {
 		t.Errorf("printFull debug=true: 'Debug' line missing from output:\n%s", out)
 	}
@@ -201,7 +211,7 @@ func TestPrintFull_NoDebugLine_WhenDebugFalse(t *testing.T) {
 	cfg := minimalConfig()
 	cfg.Debug = false
 	size := makeSize(80, 24)
-	out := captureStdout(func() { printFull(cfg, size, false, true) })
+	out := captureStdout(t, func() { printFull(cfg, size, false, true) })
 	if strings.Contains(out, "Debug: enabled") {
 		t.Errorf("printFull debug=false: unexpected 'Debug: enabled' in output:\n%s", out)
 	}
@@ -212,7 +222,7 @@ func TestPrintFull_MultipleURLs(t *testing.T) {
 	cfg := minimalConfig()
 	cfg.URLs = []string{"http://0.0.0.0:8080", "http://example.onion"}
 	size := makeSize(80, 24)
-	out := captureStdout(func() { printFull(cfg, size, false, true) })
+	out := captureStdout(t, func() { printFull(cfg, size, false, true) })
 	for _, u := range cfg.URLs {
 		if !strings.Contains(out, u) {
 			t.Errorf("printFull multiple URLs: %q missing from output:\n%s", u, out)
@@ -227,7 +237,7 @@ func TestPrintFull_MultipleURLs(t *testing.T) {
 func TestPrintFull_WidthCappedAt100(t *testing.T) {
 	cfg := minimalConfig()
 	size := makeSize(200, 50)
-	out := captureStdout(func() { printFull(cfg, size, false, true) })
+	out := captureStdout(t, func() { printFull(cfg, size, false, true) })
 	for _, line := range strings.Split(out, "\n") {
 		if line == "" {
 			continue
@@ -243,7 +253,7 @@ func TestPrintFull_NoURLs_NoPanic(t *testing.T) {
 	cfg := minimalConfig()
 	cfg.URLs = nil
 	size := makeSize(80, 24)
-	captureStdout(func() { printFull(cfg, size, false, true) })
+	captureStdout(t, func() { printFull(cfg, size, false, true) })
 }
 
 // ─────────────────────── CachedSize race safety ──────────────────────────────

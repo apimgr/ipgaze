@@ -9,6 +9,7 @@ import (
 	"net/mail"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -522,9 +523,12 @@ func fakePlaintextSMTPServer(t *testing.T) (host string, port int) {
 		if err != nil {
 			return
 		}
-		defer conn.Close()
+		defer func() { _ = conn.Close() }()
+		writeResponse := func(response string) {
+			_, _ = fmt.Fprint(conn, response)
+		}
 		r := bufio.NewReader(conn)
-		fmt.Fprint(conn, "220 test.smtp.local ESMTP\r\n")
+		writeResponse("220 test.smtp.local ESMTP\r\n")
 		inData := false
 		for {
 			line, err := r.ReadString('\n')
@@ -536,28 +540,34 @@ func fakePlaintextSMTPServer(t *testing.T) (host string, port int) {
 			case inData:
 				if strings.TrimRight(line, "\r\n") == "." {
 					inData = false
-					fmt.Fprint(conn, "250 OK queued\r\n")
+					writeResponse("250 OK queued\r\n")
 				}
 			case strings.HasPrefix(upper, "EHLO"):
-				fmt.Fprint(conn, "250-test.smtp.local\r\n250 OK\r\n")
+				writeResponse("250-test.smtp.local\r\n250 OK\r\n")
 			case strings.HasPrefix(upper, "MAIL FROM"):
-				fmt.Fprint(conn, "250 OK\r\n")
+				writeResponse("250 OK\r\n")
 			case strings.HasPrefix(upper, "RCPT TO"):
-				fmt.Fprint(conn, "250 OK\r\n")
+				writeResponse("250 OK\r\n")
 			case upper == "DATA":
 				inData = true
-				fmt.Fprint(conn, "354 Start mail input\r\n")
+				writeResponse("354 Start mail input\r\n")
 			case upper == "QUIT":
-				fmt.Fprint(conn, "221 Bye\r\n")
+				writeResponse("221 Bye\r\n")
 				return
 			default:
-				fmt.Fprint(conn, "500 unrecognized command\r\n")
+				writeResponse("500 unrecognized command\r\n")
 			}
 		}
 	}()
 
-	h, portStr, _ := net.SplitHostPort(ln.Addr().String())
-	fmt.Sscanf(portStr, "%d", &port)
+	h, portStr, err := net.SplitHostPort(ln.Addr().String())
+	if err != nil {
+		t.Fatalf("split listener address: %v", err)
+	}
+	port, err = strconv.Atoi(portStr)
+	if err != nil {
+		t.Fatalf("parse listener port: %v", err)
+	}
 	return h, port
 }
 

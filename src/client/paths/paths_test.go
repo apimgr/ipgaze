@@ -20,14 +20,20 @@ func withEnv(t *testing.T, kvs map[string]string) {
 		} else {
 			saved[k] = "\x00" // sentinel: "was not set"
 		}
-		os.Setenv(k, v)
+		if err := os.Setenv(k, v); err != nil {
+			t.Fatalf("Setenv(%q): %v", k, err)
+		}
 	}
 	t.Cleanup(func() {
 		for k, old := range saved {
 			if old == "\x00" {
-				os.Unsetenv(k)
+				if err := os.Unsetenv(k); err != nil {
+					t.Errorf("Unsetenv(%q): %v", k, err)
+				}
 			} else {
-				os.Setenv(k, old)
+				if err := os.Setenv(k, old); err != nil {
+					t.Errorf("restore Setenv(%q): %v", k, err)
+				}
 			}
 		}
 	})

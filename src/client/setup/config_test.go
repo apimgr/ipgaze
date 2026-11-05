@@ -26,15 +26,7 @@ func redirectConfigDir(t *testing.T) string {
 		t.Skip("setup redirect test requires XDG on Linux/BSD")
 	}
 	tmp := t.TempDir()
-	old, exists := os.LookupEnv("XDG_CONFIG_HOME")
-	os.Setenv("XDG_CONFIG_HOME", tmp)
-	t.Cleanup(func() {
-		if exists {
-			os.Setenv("XDG_CONFIG_HOME", old)
-		} else {
-			os.Unsetenv("XDG_CONFIG_HOME")
-		}
-	})
+	t.Setenv("XDG_CONFIG_HOME", tmp)
 	return tmp
 }
 

@@ -702,7 +702,7 @@ func (m *TorManager) startDedicated(ctx context.Context) (*service, error) {
 
 	torrcContent := getTorConfig(m.cfg, hsDir, torBackendPort)
 	if err := updateTorrc(torrcPath, []byte(torrcContent)); err != nil {
-		backendLn.Close()
+		_ = backendLn.Close()
 		return nil, fmt.Errorf("torrc: %w", err)
 	}
 
@@ -717,7 +717,7 @@ func (m *TorManager) startDedicated(ctx context.Context) (*service, error) {
 
 	t, err := binetorcmd.Start(ctx, conf)
 	if err != nil {
-		backendLn.Close()
+		_ = backendLn.Close()
 		return nil, fmt.Errorf("tor start: %w", err)
 	}
 
@@ -728,8 +728,8 @@ func (m *TorManager) startDedicated(ctx context.Context) (*service, error) {
 	dialCtx, cancel := context.WithTimeout(ctx, bootstrapTimeout)
 	defer cancel()
 	if err := t.EnableNetwork(dialCtx, true); err != nil {
-		t.Close()
-		backendLn.Close()
+		_ = t.Close()
+		_ = backendLn.Close()
 		return nil, fmt.Errorf("tor enable network: %w", err)
 	}
 
@@ -738,8 +738,8 @@ func (m *TorManager) startDedicated(ctx context.Context) (*service, error) {
 	// and wrote the .onion into {hsDir}/hostname — no ADD_ONION involved.
 	onionBytes, err := os.ReadFile(hostnamePath)
 	if err != nil {
-		t.Close()
-		backendLn.Close()
+		_ = t.Close()
+		_ = backendLn.Close()
 		return nil, fmt.Errorf("read onion hostname: %w", err)
 	}
 	onionAddress := strings.TrimSpace(string(onionBytes))

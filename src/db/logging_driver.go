@@ -156,8 +156,7 @@ func (c *loggingConn) Close() error { return c.inner.Close() }
 // implemented and preferred by database/sql; this remains only as the
 // required fallback for callers that bypass context.
 func (c *loggingConn) Begin() (driver.Tx, error) {
-	//lint:ignore SA1019 required driver.Conn fallback, see doc comment above
-	return c.inner.Begin()
+	return c.inner.Begin() //nolint:staticcheck // Required legacy driver.Conn fallback.
 }
 
 func (c *loggingConn) PrepareContext(ctx context.Context, query string) (driver.Stmt, error) {
@@ -175,8 +174,7 @@ func (c *loggingConn) BeginTx(ctx context.Context, opts driver.TxOptions) (drive
 	if b, ok := c.inner.(driver.ConnBeginTx); ok {
 		return b.BeginTx(ctx, opts)
 	}
-	//lint:ignore SA1019 fallback when inner lacks ConnBeginTx
-	return c.inner.Begin()
+	return c.inner.Begin() //nolint:staticcheck // database/sql legacy fallback when inner lacks ConnBeginTx.
 }
 
 func (c *loggingConn) ExecContext(ctx context.Context, query string, args []driver.NamedValue) (driver.Result, error) {
@@ -246,8 +244,7 @@ func (s *loggingStmt) NumInput() int { return s.inner.NumInput() }
 // required fallback for callers that bypass context.
 func (s *loggingStmt) Exec(args []driver.Value) (driver.Result, error) {
 	start := time.Now()
-	//lint:ignore SA1019 required driver.Stmt fallback, see doc comment above
-	res, err := s.inner.Exec(args)
+	res, err := s.inner.Exec(args) //nolint:staticcheck // Required legacy driver.Stmt fallback.
 	logQuery(s.query, valuesToNamed(args), start, err)
 	return res, err
 }
@@ -257,8 +254,7 @@ func (s *loggingStmt) Exec(args []driver.Value) (driver.Result, error) {
 // required fallback for callers that bypass context.
 func (s *loggingStmt) Query(args []driver.Value) (driver.Rows, error) {
 	start := time.Now()
-	//lint:ignore SA1019 required driver.Stmt fallback, see doc comment above
-	rows, err := s.inner.Query(args)
+	rows, err := s.inner.Query(args) //nolint:staticcheck // Required legacy driver.Stmt fallback.
 	logQuery(s.query, valuesToNamed(args), start, err)
 	return rows, err
 }

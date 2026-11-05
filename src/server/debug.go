@@ -20,7 +20,7 @@ func respondJSON(w http.ResponseWriter, status int, v any) {
 	w.WriteHeader(status)
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
-	enc.Encode(v)
+	_ = enc.Encode(v)
 }
 
 // respondError writes a canonical JSON error response per AI.md PART 9.
@@ -174,7 +174,7 @@ func (s *Server) handleDebugGoroutines(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
-	w.Write(buf[:n])
+	_, _ = w.Write(buf[:n])
 }
 
 // bodyCapturingWriter wraps http.ResponseWriter, tee-ing every write into a

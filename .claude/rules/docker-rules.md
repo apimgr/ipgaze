@@ -21,6 +21,11 @@
 - Never include a `build:` or `version:` key in a docker-compose file
 - Never let `docker/docker-compose.test.yml` use a non-ephemeral cache/data service
 - Never hardcode secrets into any Dockerfile or compose file
+- Never create `.env`, `.env.example`, or `.env.sample`; use YAML map-style environment entries with
+  `${VAR:-default}` fallbacks
+- Never run `docker/docker-compose.yml` or `docker/docker-compose.dev.yml` as an AI agent, or run any
+  compose file from the repository directory / against repository `volumes/`
+- Never push `:dev` or `:test` tags to a production registry; those tags are local-only
 
 ## CRITICAL - ALWAYS DO
 - Use a multi-stage build: `casjaysdev/go:latest` builder stage (git+bash, `CGO_ENABLED=0` static build with
@@ -47,7 +52,11 @@
   too (via `docker/metadata-action` + `build-push-action` with `annotations:` set and `labels: ""`), since
   registries read multi-arch metadata from the manifest index, not per-platform `--label` layers
 - Build both `linux/amd64` and `linux/arm64` by default; keep builds reproducible in containers
-- Verify Docker changes by actually building the image and smoke-testing at least one endpoint/command
+- For AI/automated container testing, prefer project `tests/` scripts. If none exist and direct test-compose
+  use is necessary, copy `docker-compose.test.yml` to a unique project-scoped OS temp directory and run it
+  there so `./volumes` cannot resolve inside the repository; clean up that temp directory afterward.
+- Use release tags `{PLATFORM_CONTAINER_REGISTRY}/{project_org}/{internal_name}:{latest|version|yymm|commit_id}`;
+  local development/test images use `{project_name}:dev` / `{project_name}:test` without a registry prefix
 
 ## Key Rules Summary
 Dockerfiles are multi-stage (`casjaysdev/go:latest` → `alpine:latest`), carry no `LABEL`/`USER`/directory-
@@ -56,6 +65,9 @@ vars — and route all customization through `entrypoint.sh` behind `tini`. All 
 both build-time labels and manifest annotations, never hardcoded in the Dockerfile. Compose files mount only
 `/config` and `/data` as whole trees, never `build:`/`version:` keys, and keep the container path layout
 (`/config/{project_name}`, `/data/{project_name}`, `/data/db/sqlite/server.db`, `/data/log`,
-`/data/backups`) exactly as documented so the binary's auto-created host `./volumes/` tree matches.
+`/data/backups`) exactly as documented so the binary's auto-created host `./volumes/` tree matches. AI
+container tests use project test scripts or a copied test compose file in a unique temp directory; production
+and development compose files are human-only. Environment configuration has inline defaults and no checked-
+in `.env` examples, and release images use the project organization/internal name registry path.
 
 For complete details, see AI.md PART 26.

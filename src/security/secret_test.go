@@ -17,7 +17,11 @@ func openMemDB(t *testing.T) *sql.DB {
 	if err != nil {
 		t.Fatalf("sql.Open: %v", err)
 	}
-	t.Cleanup(func() { conn.Close() })
+	t.Cleanup(func() {
+		if err := conn.Close(); err != nil {
+			t.Errorf("close database: %v", err)
+		}
+	})
 	if err := db.EnsureSchema(conn); err != nil {
 		t.Fatalf("EnsureSchema: %v", err)
 	}

@@ -74,21 +74,27 @@ func newTestServer(t *testing.T, routes routeMap) *httptest.Server {
 func jsonHandler(v interface{}) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(v)
+		if err := json.NewEncoder(w).Encode(v); err != nil {
+			panic(err)
+		}
 	}
 }
 
 func textHandler(body string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain")
-		fmt.Fprint(w, body)
+		if _, err := fmt.Fprint(w, body); err != nil {
+			panic(err)
+		}
 	}
 }
 
 func errorHandler(status int, body string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(status)
-		fmt.Fprint(w, body)
+		if _, err := fmt.Fprint(w, body); err != nil {
+			panic(err)
+		}
 	}
 }
 
@@ -343,7 +349,9 @@ func TestDoAPIRequest_SendsBearerToken(t *testing.T) {
 	var capturedAuth string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		capturedAuth = r.Header.Get("Authorization")
-		fmt.Fprint(w, "ok")
+		if _, err := fmt.Fprint(w, "ok"); err != nil {
+			panic(err)
+		}
 	}))
 	defer srv.Close()
 
@@ -359,7 +367,9 @@ func TestDoAPIRequest_NoAuthHeaderWhenNoToken(t *testing.T) {
 	var capturedAuth string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		capturedAuth = r.Header.Get("Authorization")
-		fmt.Fprint(w, "127.0.0.1")
+		if _, err := fmt.Fprint(w, "127.0.0.1"); err != nil {
+			t.Errorf("write response: %v", err)
+		}
 	}))
 	defer srv.Close()
 
@@ -375,7 +385,9 @@ func TestDoAPIRequest_SendsUserAgent(t *testing.T) {
 	var capturedUA string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		capturedUA = r.Header.Get("User-Agent")
-		fmt.Fprint(w, "127.0.0.1")
+		if _, err := fmt.Fprint(w, "127.0.0.1"); err != nil {
+			t.Errorf("write response: %v", err)
+		}
 	}))
 	defer srv.Close()
 
@@ -395,7 +407,9 @@ func TestDoAPIRequest_PlainTextTokenRevoked(t *testing.T) {
 	srv := newTestServer(t, routeMap{
 		"/ip": func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusUnauthorized)
-			fmt.Fprint(w, "TOKEN_REVOKED")
+			if _, err := fmt.Fprint(w, "TOKEN_REVOKED"); err != nil {
+				t.Errorf("write response: %v", err)
+			}
 		},
 	})
 	defer srv.Close()
@@ -411,7 +425,9 @@ func TestDoAPIRequest_JSONTokenRevoked(t *testing.T) {
 	srv := newTestServer(t, routeMap{
 		"/json": func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusUnauthorized)
-			fmt.Fprint(w, `{"error":"TOKEN_REVOKED"}`)
+			if _, err := fmt.Fprint(w, `{"error":"TOKEN_REVOKED"}`); err != nil {
+				t.Errorf("write response: %v", err)
+			}
 		},
 	})
 	defer srv.Close()
@@ -427,7 +443,9 @@ func TestDoAPIRequest_OtherUnauthorizedNotRevoked(t *testing.T) {
 	srv := newTestServer(t, routeMap{
 		"/ip": func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusUnauthorized)
-			fmt.Fprint(w, `{"error":"invalid_token"}`)
+			if _, err := fmt.Fprint(w, `{"error":"invalid_token"}`); err != nil {
+				t.Errorf("write response: %v", err)
+			}
 		},
 	})
 	defer srv.Close()
@@ -490,7 +508,9 @@ func TestDownloadBinary_WritesContentsToFile(t *testing.T) {
 	content := []byte("fake binary data 1234")
 	srv := newTestServer(t, routeMap{
 		"/cli/binaries/testbin": func(w http.ResponseWriter, r *http.Request) {
-			w.Write(content)
+			if _, err := w.Write(content); err != nil {
+				panic(err)
+			}
 		},
 	})
 	defer srv.Close()
@@ -548,7 +568,9 @@ func TestDownloadBinary_SendsAuthToken(t *testing.T) {
 	var capturedAuth string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		capturedAuth = r.Header.Get("Authorization")
-		w.Write([]byte("data"))
+		if _, err := w.Write([]byte("data")); err != nil {
+			panic(err)
+		}
 	}))
 	defer srv.Close()
 
@@ -594,7 +616,9 @@ func captureRequestURI(t *testing.T, recorded *string) *httptest.Server {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		*recorded = r.URL.EscapedPath()
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, `{"ip":"1.2.3.4"}`)
+		if _, err := fmt.Fprint(w, `{"ip":"1.2.3.4"}`); err != nil {
+			t.Errorf("write response: %v", err)
+		}
 	}))
 	t.Cleanup(srv.Close)
 	return srv

@@ -15,7 +15,11 @@ func openMemDB(t *testing.T) *sql.DB {
 	if err != nil {
 		t.Fatalf("sql.Open: %v", err)
 	}
-	t.Cleanup(func() { db.Close() })
+	t.Cleanup(func() {
+		if err := db.Close(); err != nil {
+			t.Errorf("close database: %v", err)
+		}
+	})
 	return db
 }
 
@@ -143,7 +147,9 @@ func TestEnsureSchema_CreatesIndexes(t *testing.T) {
 // EnsureSchema must return an error when the DB is closed.
 func TestEnsureSchema_ClosedDB_ReturnsError(t *testing.T) {
 	db := openMemDB(t)
-	db.Close()
+	if err := db.Close(); err != nil {
+		t.Fatalf("close database: %v", err)
+	}
 
 	err := EnsureSchema(db)
 	if err == nil {

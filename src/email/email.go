@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/tls"
 	"embed"
+	"errors"
 	"fmt"
 	"html"
 	"io/fs"
@@ -127,7 +128,7 @@ func (m *EmailManager) SendDirect(msg *Message) error {
 
 // sendWithTLSMode connects to the configured SMTP server and sends msg,
 // branching on cfg.TLS per AI.md PART 17.
-func sendWithTLSMode(cfg SMTPConfig, to []string, body []byte) error {
+func sendWithTLSMode(cfg SMTPConfig, to []string, body []byte) (returnErr error) {
 	addr := net.JoinHostPort(cfg.Host, fmt.Sprintf("%d", cfg.Port))
 
 	tlsMode := strings.ToLower(strings.TrimSpace(cfg.TLS))
@@ -149,13 +150,14 @@ func sendWithTLSMode(cfg SMTPConfig, to []string, body []byte) error {
 	if err != nil {
 		return fmt.Errorf("email: dial: %w", err)
 	}
-	defer conn.Close()
-
 	client, err := smtp.NewClient(conn, cfg.Host)
 	if err != nil {
-		return fmt.Errorf("email: new client: %w", err)
+		return errors.Join(fmt.Errorf("email: new client: %w", err), conn.Close())
 	}
-	defer client.Close()
+	// smtp.Client.Close also closes conn. Its QUIT/close errors are cleanup
+	// failures after message delivery and must not turn a successful send into
+	// a retryable delivery failure.
+	defer func() { _ = client.Close() }()
 
 	// "starttls" (or "auto" on a non-implicit-TLS port) upgrades in place.
 	if tlsMode == "starttls" || (tlsMode == "auto" && cfg.Port != 465) {
@@ -345,7 +347,7 @@ func (m *EmailManager) LoadTemplate(name string) (*Template, error) {
 // parseTemplate parses a template file with "Subject: ..." + "---" + body format.
 func parseTemplate(name string, data []byte) (*Template, error) {
 	content := string(data)
-	lines := strings.SplitN(content, "\n", -1)
+	lines := strings.Split(content, "\n")
 
 	if len(lines) < 3 {
 		return nil, fmt.Errorf("template %q: too short", name)

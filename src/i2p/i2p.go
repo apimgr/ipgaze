@@ -158,7 +158,7 @@ func samReachable(addr string) bool {
 	if err != nil {
 		return false
 	}
-	conn.Close()
+	_ = conn.Close()
 	return true
 }
 
@@ -246,19 +246,19 @@ func closeServiceLocked(svc *service) error {
 	if svc == nil {
 		return nil
 	}
+	var closeErr error
 	if svc.backendSrv != nil {
-		_ = svc.backendSrv.Close()
+		closeErr = errors.Join(closeErr, svc.backendSrv.Close())
 	}
 	if svc.samConn != nil {
-		svc.samConn.Close()
+		closeErr = errors.Join(closeErr, svc.samConn.Close())
 		svc.samConn = nil
 	}
 	if svc.i2pd != nil && svc.i2pd.Process != nil {
-		err := svc.i2pd.Process.Signal(os.Interrupt)
+		closeErr = errors.Join(closeErr, svc.i2pd.Process.Signal(os.Interrupt))
 		svc.i2pd = nil
-		return err
 	}
-	return nil
+	return closeErr
 }
 
 // Stop terminates the I2P provider and its dedicated backend listener.
@@ -595,14 +595,11 @@ func (m *I2PManager) startDedicated(ctx context.Context) (*service, error) {
 		samAddr = "127.0.0.1:7656"
 	}
 
-	provider := ProviderNone
 	i2pdBinary := m.resolveI2PDBinary()
-	switch {
-	case i2pdBinary != "":
+	provider := ProviderSAM
+	if i2pdBinary != "" {
 		provider = ProviderI2PD
-	case samReachable(samAddr):
-		provider = ProviderSAM
-	default:
+	} else if !samReachable(samAddr) {
 		return nil, fmt.Errorf("%w (no i2pd binary, SAM %s unreachable)", ErrNoProvider, samAddr)
 	}
 
@@ -624,14 +621,14 @@ func (m *I2PManager) startDedicated(ctx context.Context) (*service, error) {
 	case ProviderI2PD:
 		addr, err := m.startI2PD(ctx, i2pdBinary, keysPath, i2pBackendPort, svc)
 		if err != nil {
-			rawLn.Close()
+			_ = rawLn.Close()
 			return nil, err
 		}
 		svc.eepsiteAddress = addr
 	case ProviderSAM:
 		addr, err := m.startSAMEepsite(samAddr, keysPath, i2pBackendPort, svc)
 		if err != nil {
-			rawLn.Close()
+			_ = rawLn.Close()
 			return nil, err
 		}
 		svc.eepsiteAddress = addr
@@ -808,37 +805,37 @@ func (m *I2PManager) startSAMEepsite(samAddr, keysPath string, i2pBackendPort in
 	r := bufio.NewReader(conn)
 
 	if _, err := fmt.Fprintf(conn, "HELLO VERSION MIN=3.0 MAX=3.3\n"); err != nil {
-		conn.Close()
+		_ = conn.Close()
 		return "", err
 	}
 	if _, err := readSAMReply(r, "HELLO REPLY"); err != nil {
-		conn.Close()
+		_ = conn.Close()
 		return "", err
 	}
 
 	dest, err := loadOrCreateSAMDestination(conn, r, keysPath, m.cfg.SignatureType)
 	if err != nil {
-		conn.Close()
+		_ = conn.Close()
 		return "", err
 	}
 
 	if _, err := fmt.Fprintf(conn, "SESSION CREATE STYLE=STREAM ID=site DESTINATION=%s "+
 		"inbound.length=%d outbound.length=%d inbound.quantity=%d outbound.quantity=%d\n",
 		dest.priv, m.cfg.InboundLength, m.cfg.OutboundLength, m.cfg.InboundQuantity, m.cfg.OutboundQuantity); err != nil {
-		conn.Close()
+		_ = conn.Close()
 		return "", err
 	}
 	if _, err := readSAMReply(r, "SESSION STATUS"); err != nil {
-		conn.Close()
+		_ = conn.Close()
 		return "", err
 	}
 
 	if _, err := fmt.Fprintf(conn, "STREAM FORWARD ID=site PORT=%d HOST=127.0.0.1\n", i2pBackendPort); err != nil {
-		conn.Close()
+		_ = conn.Close()
 		return "", err
 	}
 	if _, err := readSAMReply(r, "STREAM STATUS"); err != nil {
-		conn.Close()
+		_ = conn.Close()
 		return "", err
 	}
 

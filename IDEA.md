@@ -33,6 +33,7 @@ repository:        https://github.com/apimgr/ipgaze
 - Tor exit-node detection (cross-referenced against Tor exit node list)
 - echoip-compatible API surface (same routes, response formats, user-agent detection behavior)
 - Multiple output formats per endpoint: JSON, plain text, HTML (content negotiation)
+- Guest UI preferences for theme, language, and the default landing-page curl example widget; stored in cookies and never used to alter echoip-compatible API responses
 - CLI user-agent detection: curl, wget, HTTPie, Go HTTP client, Mikrotik, ddclient, xh → plain text response
 - Reverse DNS hostname lookup (always enabled, no flag)
 - Port reachability testing (always enabled, no flag)
@@ -90,7 +91,7 @@ CLI operator tokens are stored server-side (DB) and cleaned up by the `token_cle
 |--------------------|-------------|-------------|
 | sapics/ip-location-db via jsDelivr CDN | Trusted source for GeoIP DB downloads; no API key required | GeoIP features disabled if download fails; server continues without GeoIP |
 | MMDB binary format | Trusted format, validated on load by maxminddb-golang | Error logged; GeoIP disabled if DB corrupt |
-| X-Forwarded-For / X-Real-IP headers | UNTRUSTED by default — only trusted when operator explicitly passes `--header` flag | Ignored unless operator opts in |
+| Proxy client-IP headers | UNTRUSTED unless the immediate peer matches the operator-configured `trusted_proxies`; only then are the documented proxy headers honored | Untrusted headers are ignored and `r.RemoteAddr` is used; `--header` selects which headers are considered |
 | Tor network | Optional, no trust required | Hidden service silently disabled if Tor binary not found |
 | jsDelivr CDN (https://cdn.jsdelivr.net) | Trusted delivery channel for ip-location-db MMDB files | Download retried; GeoIP disabled if unavailable |
 | Official site (https://ifcfg.us) | Production endpoint embedded as default server in CLI binary | CLI falls back to manual `--server` flag |
@@ -139,7 +140,7 @@ CLI operator tokens are stored server-side (DB) and cleaned up by the `token_cle
 | GeoIP informational only, not used for access control | GeoIP accuracy is too low for security decisions; VPNs trivially bypass country-based blocks |
 | `unsafe` Go package: NOT used | CGO_ENABLED=0, pure Go static binary — no unsafe memory operations |
 | Tor binary in container but not started by entrypoint | Binary controls Tor lifecycle per AI.md PART 31; entrypoint only sets env vars and execs binary |
-| X-Forwarded-For ignored by default | Trusting proxy headers without explicit opt-in enables IP spoofing; operator must pass `--header` flag to enable |
+| Proxy client-IP headers are gated by `trusted_proxies` | Trusting headers from arbitrary peers enables IP spoofing; only a configured trusted proxy may supply the client IP, with `r.RemoteAddr` as fallback |
 
 ---
 

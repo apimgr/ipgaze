@@ -19,7 +19,11 @@ func TestNewDB_SQLite(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewDB() error = %v", err)
 	}
-	defer db.Close()
+	t.Cleanup(func() {
+		if err := db.Close(); err != nil {
+			t.Errorf("close database: %v", err)
+		}
+	})
 
 	// Verify the database file was created directly under the passed dbDir
 	// (NewDB no longer appends a "db" subdirectory — callers pass the
@@ -54,7 +58,9 @@ func TestNewDB_SQLiteAliases(t *testing.T) {
 			if err != nil {
 				t.Fatalf("NewDB() with driver %q error = %v", alias, err)
 			}
-			db.Close()
+			if err := db.Close(); err != nil {
+				t.Errorf("close database: %v", err)
+			}
 		})
 	}
 }
@@ -90,7 +96,11 @@ func TestApplyPool_HonorsConfiguredLimits(t *testing.T) {
 	if err != nil {
 		t.Fatalf("OpenSQLite() error = %v", err)
 	}
-	defer sqlDB.Close()
+	t.Cleanup(func() {
+		if err := sqlDB.Close(); err != nil {
+			t.Errorf("close database: %v", err)
+		}
+	})
 
 	pool := config.DatabasePoolConfig{
 		MaxOpen:     25,
@@ -112,7 +122,11 @@ func TestApplyPool_SQLiteStaysSingleWriter(t *testing.T) {
 	if err != nil {
 		t.Fatalf("OpenSQLite() error = %v", err)
 	}
-	defer sqlDB.Close()
+	t.Cleanup(func() {
+		if err := sqlDB.Close(); err != nil {
+			t.Errorf("close database: %v", err)
+		}
+	})
 
 	applyPool(sqlDB, config.DatabasePoolConfig{MaxOpen: 25, MaxIdle: 5}, true)
 
@@ -127,7 +141,11 @@ func TestApplyPool_ZeroValuesUseDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("OpenSQLite() error = %v", err)
 	}
-	defer sqlDB.Close()
+	t.Cleanup(func() {
+		if err := sqlDB.Close(); err != nil {
+			t.Errorf("close database: %v", err)
+		}
+	})
 
 	applyPool(sqlDB, config.DatabasePoolConfig{}, false)
 

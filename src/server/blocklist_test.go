@@ -76,7 +76,7 @@ func TestBlocklistMiddlewarePrivateIPExempt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	// A bogon-style list that (as real lists such as firehol_level1 do)
 	// intentionally includes loopback and RFC 1918 ranges.
@@ -113,7 +113,7 @@ func TestBlocklistMiddlewareBlockedIP(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	listFile := filepath.Join(tmpDir, "test.txt")
 	if err := os.WriteFile(listFile, []byte("1.2.3.4\n"), 0o644); err != nil {

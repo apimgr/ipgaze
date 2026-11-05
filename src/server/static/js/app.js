@@ -418,7 +418,11 @@ function landingUpdatePort(value, host, notAvailable) {
 function landingUpdateIP(value, host, data, jsonObj, notAvailable) {
   landingWidgetState.ipQuery = '?ip=' + value;
   landingSetCommandStr(host, notAvailable);
-  landingChangeInput('ip', null, host, data, jsonObj, notAvailable);
+  var defaultWidget = document.body.dataset.widget || 'ip';
+  var defaultButton = Array.from(document.querySelectorAll('.widget-select')).find(function(btn) {
+    return btn.dataset.widget === defaultWidget;
+  });
+  landingChangeInput(defaultWidget, defaultButton || null, host, data, jsonObj, notAvailable);
 }
 
 function initWidget() {

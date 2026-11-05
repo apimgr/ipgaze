@@ -502,7 +502,7 @@ func (h *HealthHandler) HealthzHandler(w http.ResponseWriter, r *http.Request) {
 	fallbackLang := i18n.DetectLocale(r)
 	fallbackDir := string(i18n.LocaleDirection(fallbackLang))
 	w.WriteHeader(code)
-	fmt.Fprintf(w, `<!DOCTYPE html>
+	_, _ = fmt.Fprintf(w, `<!DOCTYPE html>
 <html lang="%s" dir="%s">
   <head>
     <meta charset="UTF-8">
@@ -596,7 +596,7 @@ func (h *HealthHandler) HealthzHandler(w http.ResponseWriter, r *http.Request) {
 func writeHealthText(w http.ResponseWriter, health model.HealthResponse, code int) {
 	w.Header().Set("Content-Type", textMediaType)
 	w.WriteHeader(code)
-	fmt.Fprintf(w,
+	_, _ = fmt.Fprintf(w,
 		"project.name: %s\nproject.tagline: %s\nproject.description: %s\nstatus: %s\nversion: %s\ngo_version: %s\nbuild.commit: %s\nbuild.date: %s\nuptime: %s\nmode: %s\ntimestamp: %s\nfeatures.tor.enabled: %v\nfeatures.tor.running: %v\nfeatures.tor.status: %s\nfeatures.tor.hostname: %s\nfeatures.i2p.enabled: %v\nfeatures.i2p.running: %v\nfeatures.i2p.status: %s\nfeatures.i2p.hostname: %s\nfeatures.i2p.provider: %s\nfeatures.geoip: %v\nchecks.database: %s\nchecks.cache: %s\nchecks.disk: %s\nchecks.scheduler: %s\n",
 		health.Project.Name,
 		health.Project.Tagline,
@@ -625,12 +625,12 @@ func writeHealthText(w http.ResponseWriter, health model.HealthResponse, code in
 		health.Checks.Scheduler,
 	)
 	if health.Checks.Tor != "" {
-		fmt.Fprintf(w, "checks.tor: %s\n", health.Checks.Tor)
+		_, _ = fmt.Fprintf(w, "checks.tor: %s\n", health.Checks.Tor)
 	}
 	if health.Checks.I2P != "" {
-		fmt.Fprintf(w, "checks.i2p: %s\n", health.Checks.I2P)
+		_, _ = fmt.Fprintf(w, "checks.i2p: %s\n", health.Checks.I2P)
 	}
-	fmt.Fprintf(w,
+	_, _ = fmt.Fprintf(w,
 		"stats.requests_total: %d\nstats.requests_24h: %d\nstats.active_connections: %d\n",
 		health.Stats.RequestsTotal,
 		health.Stats.Requests24h,

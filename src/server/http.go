@@ -30,6 +30,7 @@ import (
 	"github.com/apimgr/ipgaze/src/server/handler"
 	"github.com/apimgr/ipgaze/src/server/model"
 	"github.com/apimgr/ipgaze/src/server/service"
+	"github.com/apimgr/ipgaze/src/swagger"
 	"github.com/apimgr/ipgaze/src/threat"
 	"github.com/go-chi/chi/v5"
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
@@ -74,8 +75,18 @@ type Server struct {
 	cfg           interface{}
 	// config is the typed application config, set via SetConfig.
 	config *config.AppConfig
+	// configManager exposes restart-required file changes through health status.
+	configManager *config.ConfigManager
 	// router holds the chi.Router for debug route inspection.
 	router chi.Router
+	// apiOperationIDs identifies documented API operations registered by the
+	// active route table, for MCP tool discovery and llms.txt endpoint listing.
+	apiOperationIDs map[string]struct{}
+	// handlerMu protects the active request handler while a file-backed config
+	// change rebuilds middleware and routes. Requests already in flight finish
+	// on the previous handler before the swap proceeds.
+	handlerMu     sync.RWMutex
+	activeHandler http.Handler
 	// sched holds the scheduler for /debug/scheduler status.
 	sched *scheduler.Scheduler
 	// sqlDB holds the database connection for /debug/db stats.
@@ -234,6 +245,33 @@ func (s *Server) SetConfig(cfg interface{}) {
 	}
 }
 
+// SetConfigManager wires the file watcher so health responses can report
+// settings that remain pending until restart.
+func (s *Server) SetConfigManager(manager *config.ConfigManager) {
+	s.configManager = manager
+}
+
+// ReloadRuntimeConfig applies a validated file-backed config snapshot and
+// rebuilds the request handler so new requests use the updated middleware and
+// route configuration. The lock lets in-flight requests finish on the prior
+// snapshot before the new one becomes active.
+func (s *Server) ReloadRuntimeConfig(cfg *config.AppConfig, baseURL string) {
+	s.handlerMu.Lock()
+	defer s.handlerMu.Unlock()
+	s.SetConfig(cfg)
+	s.BaseURL = baseURL
+	s.HealthzRootEnabled = cfg.Server.Healthz.Root.Enabled
+	s.SetOperatorToken(cfg.Server.Token)
+	s.SetMetricsConfig(cfg.Server.Metrics)
+	s.SetGeoIPCountries(cfg.Server.GeoIP.ResolvedDenyCountries(), cfg.Server.GeoIP.ResolvedAllowCountries())
+	allowlistEntries := make([]AllowlistEntry, 0, len(cfg.Server.Security.Allowlist))
+	for _, entry := range cfg.Server.Security.Allowlist {
+		allowlistEntries = append(allowlistEntries, AllowlistEntry{CIDR: entry.CIDR, Description: entry.Description})
+	}
+	s.SetAllowlist(NewAllowlistLookup(allowlistEntries))
+	s.activeHandler = s.buildHandler()
+}
+
 // SetPublicIP stores the server's cached external public IP.
 // Called by the public_ip_refresh scheduler task (AI.md PART 18).
 func (s *Server) SetPublicIP(ip string) {
@@ -319,6 +357,9 @@ func (s *Server) SetThreatLookup(tl *threat.Lookup) {
 
 // SetRateLimiter attaches the rate limiter for the middleware chain.
 func (s *Server) SetRateLimiter(rl *RateLimiter) {
+	if s.rateLimiter != nil && s.rateLimiter != rl {
+		s.rateLimiter.Stop()
+	}
 	s.rateLimiter = rl
 }
 
@@ -484,7 +525,7 @@ func (s *Server) CLIHandler(w http.ResponseWriter, r *http.Request) *appError {
 	if err != nil {
 		return badRequest(err).WithMessage(i18n.T(r.Context(), "errors.bad_request")).AsJSON()
 	}
-	fmt.Fprintln(w, ip.String())
+	_, _ = fmt.Fprintln(w, ip.String())
 	return nil
 }
 
@@ -494,7 +535,7 @@ func (s *Server) CLICountryHandler(w http.ResponseWriter, r *http.Request) *appE
 	if err != nil {
 		return badRequest(err).WithMessage(i18n.T(r.Context(), "errors.bad_request")).AsJSON()
 	}
-	fmt.Fprintln(w, response.Country)
+	_, _ = fmt.Fprintln(w, response.Country)
 	return nil
 }
 
@@ -505,7 +546,7 @@ func (s *Server) CLICountryISOHandler(w http.ResponseWriter, r *http.Request) *a
 	if err != nil {
 		return badRequest(err).WithMessage(i18n.T(r.Context(), "errors.bad_request")).AsJSON()
 	}
-	fmt.Fprintln(w, response.CountryISO)
+	_, _ = fmt.Fprintln(w, response.CountryISO)
 	return nil
 }
 
@@ -515,7 +556,7 @@ func (s *Server) CLICityHandler(w http.ResponseWriter, r *http.Request) *appErro
 	if err != nil {
 		return badRequest(err).WithMessage(i18n.T(r.Context(), "errors.bad_request")).AsJSON()
 	}
-	fmt.Fprintln(w, response.City)
+	_, _ = fmt.Fprintln(w, response.City)
 	return nil
 }
 
@@ -526,7 +567,7 @@ func (s *Server) CLICoordinatesHandler(w http.ResponseWriter, r *http.Request) *
 	if err != nil {
 		return badRequest(err).WithMessage(i18n.T(r.Context(), "errors.bad_request")).AsJSON()
 	}
-	fmt.Fprintf(w, "%s\n", formatCoordinatePair(response.Latitude, response.Longitude))
+	_, _ = fmt.Fprintf(w, "%s\n", formatCoordinatePair(response.Latitude, response.Longitude))
 	return nil
 }
 
@@ -537,7 +578,7 @@ func (s *Server) CLIASNHandler(w http.ResponseWriter, r *http.Request) *appError
 	if err != nil {
 		return badRequest(err).WithMessage(i18n.T(r.Context(), "errors.bad_request")).AsJSON()
 	}
-	fmt.Fprintf(w, "%s\n", response.ASN)
+	_, _ = fmt.Fprintf(w, "%s\n", response.ASN)
 	return nil
 }
 
@@ -548,7 +589,7 @@ func (s *Server) CLIASNOrgHandler(w http.ResponseWriter, r *http.Request) *appEr
 	if err != nil {
 		return badRequest(err).WithMessage(i18n.T(r.Context(), "errors.bad_request")).AsJSON()
 	}
-	fmt.Fprintf(w, "%s\n", response.ASNOrg)
+	_, _ = fmt.Fprintf(w, "%s\n", response.ASNOrg)
 	return nil
 }
 
@@ -791,7 +832,7 @@ func (s *Server) APIV1ASNHandler(w http.ResponseWriter, r *http.Request) *appErr
 func writeAPIScalar(w http.ResponseWriter, r *http.Request, field, value string) *appError {
 	if apiResponseFormat(r) == "text" {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		fmt.Fprintln(w, value)
+		_, _ = fmt.Fprintln(w, value)
 		return nil
 	}
 	b, err := json.MarshalIndent(map[string]string{field: value}, "", "  ")
@@ -853,9 +894,28 @@ func (s *Server) SetTrust(tr *netutil.TrustResolver) {
 	s.trust = tr
 }
 
-// Handler builds the fully wired chi router — middleware chain, web routes,
-// and their /api/{version} JSON mirrors — and returns it as an http.Handler.
+// Handler builds and activates the fully wired router, then returns a stable
+// dispatcher that can serve the replacement handler after a graceful reload.
 func (s *Server) Handler() http.Handler {
+	s.handlerMu.Lock()
+	s.activeHandler = s.buildHandler()
+	s.handlerMu.Unlock()
+	return http.HandlerFunc(s.serveActiveHandler)
+}
+
+func (s *Server) serveActiveHandler(w http.ResponseWriter, r *http.Request) {
+	s.handlerMu.RLock()
+	defer s.handlerMu.RUnlock()
+	if s.activeHandler == nil {
+		http.Error(w, "server handler unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	s.activeHandler.ServeHTTP(w, r)
+}
+
+// buildHandler creates the full router and middleware stack from the active
+// config snapshot. Callers hold handlerMu while invoking it.
+func (s *Server) buildHandler() http.Handler {
 	r := NewChiRouter()
 
 	// Initialize templates (if using embedded)
@@ -1031,6 +1091,11 @@ func (s *Server) Handler() http.Handler {
 	if s.HealthHandler == nil {
 		s.HealthHandler = handler.NewHealthHandler(s.Version, s.CommitID, s.BuildDate, s.Mode, s.StartTime)
 	}
+	if s.configManager != nil {
+		s.HealthHandler.PendingRestart = func() (bool, []string) {
+			return s.configManager.PendingRestart(), s.configManager.RestartSettings()
+		}
+	}
 	// Wire live subsystem probes for /server/healthz checks/stats (AI.md PART 13).
 	s.HealthHandler.DB = s.sqlDB
 	s.HealthHandler.TorStatus = s.TorStatus
@@ -1168,19 +1233,16 @@ func (s *Server) Handler() http.Handler {
 	r.Get("/api/healthz.txt", s.HealthHandler.APIV1HealthzHandler)
 
 	// API v1 routes
+	mcpHandler := s.MCPHandler()
+	r.Handle("/api/mcp", mcpHandler)
+	r.Handle("/mcp", mcpHandler)
 	r.Route("/api/v1", func(r chi.Router) {
 		// A `.txt` suffix on ANY /api/v1 route forces plain text (AI.md PART 14
 		// "Content Negotiation Priority"); the middleware strips it before
 		// routing so no endpoint needs a second registration.
 		r.Use(APITextSuffixMiddleware)
-		r.Get("/", appHandlerToHTTP(s.APIV1InfoHandler))
-		// /json is the API mirror of the web /json route.
-		r.Get("/json", appHandlerToHTTP(s.APIV1InfoHandler))
-		r.Get("/ip", appHandlerToHTTP(s.APIV1IPHandler))
-		r.Get("/ip/*", appHandlerToHTTP(s.APIV1IPLookupHandler))
-		r.Get("/server/healthz", s.HealthHandler.APIV1HealthzHandler)
-
-		r.Get("/version", func(w http.ResponseWriter, r *http.Request) {
+		r.Handle("/server/mcp", mcpHandler)
+		versionHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			type versionData struct {
 				Version string `json:"version"`
 				Commit  string `json:"commit"`
@@ -1194,59 +1256,76 @@ func (s *Server) Handler() http.Handler {
 				Date:    s.BuildDate,
 			}, nil)
 		})
-
-		// JSON versions of public pages
-		r.Get("/server/about", s.PagesHandler.APIV1ServerAboutHandler)
-		r.Get("/server/help", s.PagesHandler.APIV1ServerHelpHandler)
-		r.Get("/server/privacy", s.PagesHandler.APIV1ServerPrivacyHandler)
-		r.Post("/server/contact", s.PagesHandler.APIV1ServerContactHandler)
-		r.Get("/server/terms", s.PagesHandler.APIV1ServerTermsHandler)
-		r.Get("/server/security", s.PagesHandler.APIV1ServerSecurityHandler)
-		r.Get("/server/preferences", s.PagesHandler.APIV1ServerPreferencesHandler)
-		// JSON mirror of the web form POST /server/preferences.
-		r.Post("/server/preferences", s.PagesHandler.APIV1ServerPreferencesUpdateHandler)
-		r.Get("/server/preferences/export", s.PagesHandler.APIV1ServerPreferencesExportHandler)
-		r.Get("/server/preferences/import", s.PagesHandler.APIV1ServerPreferencesImportHandler)
-
-		// Swagger and GraphQL inside /api/v1
-		if s.SwaggerJSONHandler != nil {
-			r.Get("/server/swagger", s.SwaggerJSONHandler)
+		operationHandlers := map[string]http.Handler{
+			"v1_info":               appHandlerToHTTP(s.APIV1InfoHandler),
+			"v1_ip":                 appHandlerToHTTP(s.APIV1IPHandler),
+			"v1_ip_lookup":          appHandlerToHTTP(s.APIV1IPLookupHandler),
+			"v1_healthz":            http.HandlerFunc(s.HealthHandler.APIV1HealthzHandler),
+			"v1_healthz_txt":        http.HandlerFunc(s.HealthHandler.APIV1HealthzHandler),
+			"v1_version":            versionHandler,
+			"v1_about":              http.HandlerFunc(s.PagesHandler.APIV1ServerAboutHandler),
+			"v1_help":               http.HandlerFunc(s.PagesHandler.APIV1ServerHelpHandler),
+			"v1_privacy":            http.HandlerFunc(s.PagesHandler.APIV1ServerPrivacyHandler),
+			"v1_terms":              http.HandlerFunc(s.PagesHandler.APIV1ServerTermsHandler),
+			"v1_security":           http.HandlerFunc(s.PagesHandler.APIV1ServerSecurityHandler),
+			"v1_contact":            http.HandlerFunc(s.PagesHandler.APIV1ServerContactHandler),
+			"v1_preferences":        http.HandlerFunc(s.PagesHandler.APIV1ServerPreferencesHandler),
+			"v1_preferences_update": http.HandlerFunc(s.PagesHandler.APIV1ServerPreferencesUpdateHandler),
+			"v1_preferences_export": http.HandlerFunc(s.PagesHandler.APIV1ServerPreferencesExportHandler),
+			"v1_preferences_import": http.HandlerFunc(s.PagesHandler.APIV1ServerPreferencesImportHandler),
+			"v1_json":               appHandlerToHTTP(s.APIV1InfoHandler),
+			"v1_consent":            http.HandlerFunc(s.PagesHandler.ConsentHandler),
+			"v1_ccpa":               http.HandlerFunc(s.PagesHandler.CCPAHandler),
+			"v1_dismiss":            http.HandlerFunc(s.PagesHandler.DismissAnnouncementHandler),
+			"report_csp":            s.reportsHandler("csp"),
+			"report_nel":            s.reportsHandler("nel"),
+			"report_deprecation":    s.reportsHandler("deprecation"),
+			"report_intervention":   s.reportsHandler("intervention"),
+			"report_crash":          s.reportsHandler("crash"),
+			"report_error":          s.reportsHandler("error"),
+			"report_default":        s.reportsHandler("default"),
+		}
+		if s.gr != nil && !s.gr.IsEmpty() {
+			operationHandlers["v1_country"] = appHandlerToHTTP(s.APIV1CountryHandler)
+			operationHandlers["v1_city"] = appHandlerToHTTP(s.APIV1CityHandler)
+			operationHandlers["v1_asn"] = appHandlerToHTTP(s.APIV1ASNHandler)
+			operationHandlers["v1_country_iso"] = appHandlerToHTTP(s.APIV1CountryISOHandler)
+			operationHandlers["v1_coordinates"] = appHandlerToHTTP(s.APIV1CoordinatesHandler)
+			operationHandlers["v1_asn_org"] = appHandlerToHTTP(s.APIV1ASNOrgHandler)
+		}
+		if s.LookupPort != nil {
+			operationHandlers["v1_port_check"] = appHandlerToHTTP(s.PortHandler)
 		}
 		if s.GraphQLHandler != nil {
-			r.Get("/server/graphql", s.GraphQLHandler)
-			r.Post("/server/graphql", s.GraphQLHandler)
+			operationHandlers["v1_graphql_get"] = s.GraphQLHandler
+			operationHandlers["v1_graphql_post"] = s.GraphQLHandler
 		}
-
-		// Web routes that change state need the same JSON-capable API mirror
-		// (AI.md PART 14 web/API parity); these handlers already answer 204 to
-		// a non-HTML client, so they serve both surfaces unchanged.
-		r.Post("/server/consent", s.PagesHandler.ConsentHandler)
-		r.Post("/server/ccpa", s.PagesHandler.CCPAHandler)
-		r.Post("/announcements/dismiss", s.PagesHandler.DismissAnnouncementHandler)
-
-		// GeoIP-dependent routes
-		if !s.gr.IsEmpty() {
-			r.Get("/country", appHandlerToHTTP(s.APIV1CountryHandler))
-			r.Get("/city", appHandlerToHTTP(s.APIV1CityHandler))
-			r.Get("/asn", appHandlerToHTTP(s.APIV1ASNHandler))
-			r.Get("/country-iso", appHandlerToHTTP(s.APIV1CountryISOHandler))
-			r.Get("/coordinates", appHandlerToHTTP(s.APIV1CoordinatesHandler))
-			r.Get("/asn-org", appHandlerToHTTP(s.APIV1ASNOrgHandler))
+		if s.SwaggerJSONHandler != nil {
+			operationHandlers["v1_swagger"] = s.SwaggerJSONHandler
 		}
-
-		// Port reachability mirror of the web /port/* route.
-		if s.LookupPort != nil {
-			r.Get("/port/*", appHandlerToHTTP(s.PortHandler))
+		s.apiOperationIDs = make(map[string]struct{})
+		for _, definition := range swagger.APIV1RouteDefinitions() {
+			routeHandler, exists := operationHandlers[definition.OperationID]
+			if !exists || routeHandler == nil {
+				continue
+			}
+			s.apiOperationIDs[definition.OperationID] = struct{}{}
+			if definition.RuntimeAlias {
+				continue
+			}
+			routePath := definition.RuntimePath
+			if routePath == "" {
+				routePath = definition.Path
+			}
+			routePath = strings.TrimPrefix(routePath, "/api/v1")
+			if routePath == "" {
+				routePath = "/"
+			}
+			r.Method(definition.Method, routePath, routeHandler)
 		}
-
-		// Report endpoints per AI.md PART 13
-		r.Post("/server/reports/csp", s.reportsHandler("csp"))
-		r.Post("/server/reports/nel", s.reportsHandler("nel"))
-		r.Post("/server/reports/deprecation", s.reportsHandler("deprecation"))
-		r.Post("/server/reports/intervention", s.reportsHandler("intervention"))
-		r.Post("/server/reports/crash", s.reportsHandler("crash"))
-		r.Post("/server/reports/error", s.reportsHandler("error"))
-		r.Post("/server/reports/default", s.reportsHandler("default"))
+		if s.SpecialHandler != nil {
+			s.SpecialHandler.APIV1OperationIDs = s.apiOperationIDs
+		}
 	})
 
 	// JSON endpoint
@@ -1408,7 +1487,7 @@ func sha256File(path string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("open: %w", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	h := sha256.New()
 	if _, err := io.Copy(h, f); err != nil {
 		return "", fmt.Errorf("hash: %w", err)
@@ -1525,7 +1604,7 @@ func (s *Server) cliBinaryDownloadHandler() http.HandlerFunc {
 			writeNegotiatedError(w, r, http.StatusInternalServerError, "", i18n.T(r.Context(), "errors.server_error"))
 			return
 		}
-		defer f.Close()
+		defer func() { _ = f.Close() }()
 
 		fi, err := f.Stat()
 		if err != nil {
@@ -1587,7 +1666,7 @@ func (s *Server) reportsHandler(reportType string) http.HandlerFunc {
 		if r.Body != nil {
 			body, _ = io.ReadAll(io.LimitReader(r.Body, maxReportBodyBytes))
 			_, _ = io.Copy(io.Discard, r.Body)
-			r.Body.Close()
+			_ = r.Body.Close()
 		}
 
 		// sanitizeLogValue strips control characters and truncates, so a
@@ -1695,7 +1774,7 @@ func (s *Server) ipLookupFieldHandler(ip net.IP, field string) appHandler {
 				WithMessage(i18n.T(r.Context(), "errors.not_found")).AsJSON()
 		}
 
-		fmt.Fprintln(w, val)
+		_, _ = fmt.Fprintln(w, val)
 		return nil
 	}
 }

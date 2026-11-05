@@ -112,8 +112,18 @@ correctly.
   `redis`; `url` takes precedence over discrete `host`/`port`/etc. when
   both are set; used by sessions and rate limiting
 
-Cross-checked against `src/config/config.go`: all PART 5/6/12 struct
-fields, yaml tags, and defaults listed above are present and match the
-spec. No missing keys found in this pass.
+**Smart config reload (PART 12):** distinguish immediate hot reload
+(`rate_limit.*`, CORS, branding/SEO, `logging.level`, notifications/SMTP,
+security headers), graceful reload (log paths/format, `server.baseurl`,
+`server.timeouts.*`), and restart-required settings (`server.port`,
+`server.address`, `ssl.*`, `server.daemonize`, `database.*`, `tor.*`).
+Graceful reload keeps the listener available while swapping/reopening the
+affected runtime component; restart-only values remain pending and are
+reported through health/status until restart. The MCP enabled toggle is
+hot-reloadable and disabled MCP paths return 404.
+
+Config-file comparison must cover every YAML-tagged setting. An unknown new
+setting must not disappear from change detection, and restart-only values
+must remain pending when one edit mixes restart and hot-reload settings.
 
 For complete details, see AI.md PART 5, PART 6, PART 12.

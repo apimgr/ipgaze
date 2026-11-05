@@ -22,7 +22,11 @@ func TestNewDB_SQLitePragmaEffect(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewDB() error = %v", err)
 	}
-	defer sqlDB.Close()
+	t.Cleanup(func() {
+		if err := sqlDB.Close(); err != nil {
+			t.Errorf("close database: %v", err)
+		}
+	})
 
 	var journalMode string
 	if err := sqlDB.QueryRow("PRAGMA journal_mode").Scan(&journalMode); err != nil {

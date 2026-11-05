@@ -15,7 +15,11 @@ func openTestDB(t *testing.T) *sql.DB {
 	if err != nil {
 		t.Fatalf("sql.Open: %v", err)
 	}
-	t.Cleanup(func() { db.Close() })
+	t.Cleanup(func() {
+		if err := db.Close(); err != nil {
+			t.Errorf("close test database: %v", err)
+		}
+	})
 	schema := []string{
 		`CREATE TABLE IF NOT EXISTS scheduler_tasks (
 			id          TEXT PRIMARY KEY,

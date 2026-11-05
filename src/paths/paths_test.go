@@ -8,6 +8,24 @@ import (
 	"testing"
 )
 
+func newTempProjectDir(t *testing.T) string {
+	t.Helper()
+	parent := filepath.Join(os.TempDir(), "apimgr")
+	if err := os.MkdirAll(parent, 0o755); err != nil {
+		t.Fatalf("create temp parent: %v", err)
+	}
+	base, err := os.MkdirTemp(parent, "ipgaze-")
+	if err != nil {
+		t.Fatalf("create temp project dir: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := os.RemoveAll(base); err != nil {
+			t.Errorf("remove temp project dir: %v", err)
+		}
+	})
+	return base
+}
+
 func TestGetDirectories_Returns(t *testing.T) {
 	dirs := GetDirectories()
 	if dirs.Config == "" {
@@ -122,15 +140,7 @@ func TestGetDefaultDirsLegacy_ContainsProjectName(t *testing.T) {
 }
 
 func TestEnsureDir_CreatesDir(t *testing.T) {
-	base, err := os.MkdirTemp(filepath.Join(os.TempDir(), "apimgr"), "ipgaze-")
-	if err != nil {
-		os.MkdirAll(filepath.Join(os.TempDir(), "apimgr"), 0755)
-		base, err = os.MkdirTemp(filepath.Join(os.TempDir(), "apimgr"), "ipgaze-")
-		if err != nil {
-			t.Fatal(err)
-		}
-	}
-	defer os.RemoveAll(base)
+	base := newTempProjectDir(t)
 
 	target := filepath.Join(base, "sub", "dir")
 	if err := EnsureDir(target, false); err != nil {
@@ -142,15 +152,7 @@ func TestEnsureDir_CreatesDir(t *testing.T) {
 }
 
 func TestEnsureDir_Idempotent(t *testing.T) {
-	base, err := os.MkdirTemp(filepath.Join(os.TempDir(), "apimgr"), "ipgaze-")
-	if err != nil {
-		os.MkdirAll(filepath.Join(os.TempDir(), "apimgr"), 0755)
-		base, err = os.MkdirTemp(filepath.Join(os.TempDir(), "apimgr"), "ipgaze-")
-		if err != nil {
-			t.Fatal(err)
-		}
-	}
-	defer os.RemoveAll(base)
+	base := newTempProjectDir(t)
 
 	target := filepath.Join(base, "already")
 	if err := os.MkdirAll(target, 0755); err != nil {
@@ -162,15 +164,7 @@ func TestEnsureDir_Idempotent(t *testing.T) {
 }
 
 func TestEnsureDirs_CreatesAll(t *testing.T) {
-	base, err := os.MkdirTemp(filepath.Join(os.TempDir(), "apimgr"), "ipgaze-")
-	if err != nil {
-		os.MkdirAll(filepath.Join(os.TempDir(), "apimgr"), 0755)
-		base, err = os.MkdirTemp(filepath.Join(os.TempDir(), "apimgr"), "ipgaze-")
-		if err != nil {
-			t.Fatal(err)
-		}
-	}
-	defer os.RemoveAll(base)
+	base := newTempProjectDir(t)
 
 	cfg := filepath.Join(base, "config")
 	data := filepath.Join(base, "data")
@@ -187,15 +181,7 @@ func TestEnsureDirs_CreatesAll(t *testing.T) {
 }
 
 func TestEnsureDirectories_CreatesAll(t *testing.T) {
-	base, err := os.MkdirTemp(filepath.Join(os.TempDir(), "apimgr"), "ipgaze-")
-	if err != nil {
-		os.MkdirAll(filepath.Join(os.TempDir(), "apimgr"), 0755)
-		base, err = os.MkdirTemp(filepath.Join(os.TempDir(), "apimgr"), "ipgaze-")
-		if err != nil {
-			t.Fatal(err)
-		}
-	}
-	defer os.RemoveAll(base)
+	base := newTempProjectDir(t)
 
 	dirs := Directories{
 		Config:   filepath.Join(base, "config"),
@@ -219,15 +205,7 @@ func TestEnsureDirectories_CreatesAll(t *testing.T) {
 }
 
 func TestEnsureDirectories_EmptyPIDSkipped(t *testing.T) {
-	base, err := os.MkdirTemp(filepath.Join(os.TempDir(), "apimgr"), "ipgaze-")
-	if err != nil {
-		os.MkdirAll(filepath.Join(os.TempDir(), "apimgr"), 0755)
-		base, err = os.MkdirTemp(filepath.Join(os.TempDir(), "apimgr"), "ipgaze-")
-		if err != nil {
-			t.Fatal(err)
-		}
-	}
-	defer os.RemoveAll(base)
+	base := newTempProjectDir(t)
 
 	dirs := Directories{
 		Config: filepath.Join(base, "config"),
@@ -269,15 +247,7 @@ func TestGetBackupDir_EnvWins(t *testing.T) {
 }
 
 func TestGetAllDirs_XDGOverride(t *testing.T) {
-	base, err := os.MkdirTemp(filepath.Join(os.TempDir(), "apimgr"), "ipgaze-")
-	if err != nil {
-		os.MkdirAll(filepath.Join(os.TempDir(), "apimgr"), 0755)
-		base, err = os.MkdirTemp(filepath.Join(os.TempDir(), "apimgr"), "ipgaze-")
-		if err != nil {
-			t.Fatal(err)
-		}
-	}
-	defer os.RemoveAll(base)
+	base := newTempProjectDir(t)
 
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(base, "cfg"))
 	t.Setenv("XDG_DATA_HOME", filepath.Join(base, "data"))
@@ -373,15 +343,7 @@ func TestSafePathSimple_Traversal(t *testing.T) {
 }
 
 func TestSafeFilePath_Valid(t *testing.T) {
-	base, err := os.MkdirTemp(filepath.Join(os.TempDir(), "apimgr"), "ipgaze-")
-	if err != nil {
-		os.MkdirAll(filepath.Join(os.TempDir(), "apimgr"), 0755)
-		base, err = os.MkdirTemp(filepath.Join(os.TempDir(), "apimgr"), "ipgaze-")
-		if err != nil {
-			t.Fatal(err)
-		}
-	}
-	defer os.RemoveAll(base)
+	base := newTempProjectDir(t)
 
 	got, err := SafeFilePath(base, "sub/file")
 	if err != nil {
@@ -393,15 +355,7 @@ func TestSafeFilePath_Valid(t *testing.T) {
 }
 
 func TestSafeFilePath_Traversal(t *testing.T) {
-	base, err := os.MkdirTemp(filepath.Join(os.TempDir(), "apimgr"), "ipgaze-")
-	if err != nil {
-		os.MkdirAll(filepath.Join(os.TempDir(), "apimgr"), 0755)
-		base, err = os.MkdirTemp(filepath.Join(os.TempDir(), "apimgr"), "ipgaze-")
-		if err != nil {
-			t.Fatal(err)
-		}
-	}
-	defer os.RemoveAll(base)
+	base := newTempProjectDir(t)
 
 	if _, err := SafeFilePath(base, "../etc/passwd"); err == nil {
 		t.Error("SafeFilePath(traversal) expected error")
@@ -409,15 +363,7 @@ func TestSafeFilePath_Traversal(t *testing.T) {
 }
 
 func TestEnsureDirs_PartialError(t *testing.T) {
-	base, err := os.MkdirTemp(filepath.Join(os.TempDir(), "apimgr"), "ipgaze-")
-	if err != nil {
-		os.MkdirAll(filepath.Join(os.TempDir(), "apimgr"), 0755)
-		base, err = os.MkdirTemp(filepath.Join(os.TempDir(), "apimgr"), "ipgaze-")
-		if err != nil {
-			t.Fatal(err)
-		}
-	}
-	defer os.RemoveAll(base)
+	base := newTempProjectDir(t)
 
 	// Create a file where a directory should be — EnsureDir will fail
 	blocker := filepath.Join(base, "blocker")
@@ -430,22 +376,13 @@ func TestEnsureDirs_PartialError(t *testing.T) {
 	data := filepath.Join(blocker, "data")
 	logs := filepath.Join(base, "logs")
 
-	err = EnsureDirs(cfg, data, logs)
-	if err == nil {
+	if err := EnsureDirs(cfg, data, logs); err == nil {
 		t.Error("EnsureDirs should return error when a path cannot be created")
 	}
 }
 
 func TestEnsureDirectories_PartialError(t *testing.T) {
-	base, err := os.MkdirTemp(filepath.Join(os.TempDir(), "apimgr"), "ipgaze-")
-	if err != nil {
-		os.MkdirAll(filepath.Join(os.TempDir(), "apimgr"), 0755)
-		base, err = os.MkdirTemp(filepath.Join(os.TempDir(), "apimgr"), "ipgaze-")
-		if err != nil {
-			t.Fatal(err)
-		}
-	}
-	defer os.RemoveAll(base)
+	base := newTempProjectDir(t)
 
 	blocker := filepath.Join(base, "blocker")
 	if err := os.WriteFile(blocker, []byte("x"), 0644); err != nil {
@@ -470,15 +407,7 @@ func TestIsRunningInContainer_EnvVar(t *testing.T) {
 }
 
 func TestIsRunningInContainer_TiniComm(t *testing.T) {
-	base, err := os.MkdirTemp(filepath.Join(os.TempDir(), "apimgr"), "ipgaze-proc-")
-	if err != nil {
-		os.MkdirAll(filepath.Join(os.TempDir(), "apimgr"), 0755)
-		base, err = os.MkdirTemp(filepath.Join(os.TempDir(), "apimgr"), "ipgaze-proc-")
-		if err != nil {
-			t.Fatal(err)
-		}
-	}
-	defer os.RemoveAll(base)
+	base := newTempProjectDir(t)
 
 	commFile := filepath.Join(base, "comm")
 	if err := os.WriteFile(commFile, []byte("tini\n"), 0644); err != nil {
@@ -502,15 +431,7 @@ func TestIsRunningInContainer_TiniComm(t *testing.T) {
 }
 
 func TestIsRunningInContainer_CgroupDocker(t *testing.T) {
-	base, err := os.MkdirTemp(filepath.Join(os.TempDir(), "apimgr"), "ipgaze-proc-")
-	if err != nil {
-		os.MkdirAll(filepath.Join(os.TempDir(), "apimgr"), 0755)
-		base, err = os.MkdirTemp(filepath.Join(os.TempDir(), "apimgr"), "ipgaze-proc-")
-		if err != nil {
-			t.Fatal(err)
-		}
-	}
-	defer os.RemoveAll(base)
+	base := newTempProjectDir(t)
 
 	commFile := filepath.Join(base, "comm")
 	if err := os.WriteFile(commFile, []byte("bash\n"), 0644); err != nil {
@@ -538,15 +459,7 @@ func TestIsRunningInContainer_CgroupDocker(t *testing.T) {
 }
 
 func TestIsRunningInContainer_EnvVarOnly(t *testing.T) {
-	base, err := os.MkdirTemp(filepath.Join(os.TempDir(), "apimgr"), "ipgaze-proc-")
-	if err != nil {
-		os.MkdirAll(filepath.Join(os.TempDir(), "apimgr"), 0755)
-		base, err = os.MkdirTemp(filepath.Join(os.TempDir(), "apimgr"), "ipgaze-proc-")
-		if err != nil {
-			t.Fatal(err)
-		}
-	}
-	defer os.RemoveAll(base)
+	base := newTempProjectDir(t)
 
 	commFile := filepath.Join(base, "comm")
 	if err := os.WriteFile(commFile, []byte("bash\n"), 0644); err != nil {
@@ -574,15 +487,7 @@ func TestIsRunningInContainer_EnvVarOnly(t *testing.T) {
 }
 
 func TestIsRunningInContainer_NotAContainer(t *testing.T) {
-	base, err := os.MkdirTemp(filepath.Join(os.TempDir(), "apimgr"), "ipgaze-proc-")
-	if err != nil {
-		os.MkdirAll(filepath.Join(os.TempDir(), "apimgr"), 0755)
-		base, err = os.MkdirTemp(filepath.Join(os.TempDir(), "apimgr"), "ipgaze-proc-")
-		if err != nil {
-			t.Fatal(err)
-		}
-	}
-	defer os.RemoveAll(base)
+	base := newTempProjectDir(t)
 
 	commFile := filepath.Join(base, "comm")
 	if err := os.WriteFile(commFile, []byte("systemd\n"), 0644); err != nil {
@@ -610,15 +515,7 @@ func TestIsRunningInContainer_NotAContainer(t *testing.T) {
 }
 
 func TestEnsureDirs_SecondDirError(t *testing.T) {
-	base, err := os.MkdirTemp(filepath.Join(os.TempDir(), "apimgr"), "ipgaze-")
-	if err != nil {
-		os.MkdirAll(filepath.Join(os.TempDir(), "apimgr"), 0755)
-		base, err = os.MkdirTemp(filepath.Join(os.TempDir(), "apimgr"), "ipgaze-")
-		if err != nil {
-			t.Fatal(err)
-		}
-	}
-	defer os.RemoveAll(base)
+	base := newTempProjectDir(t)
 
 	blocker := filepath.Join(base, "blocker-data")
 	if err := os.WriteFile(blocker, []byte("x"), 0644); err != nil {
@@ -629,22 +526,13 @@ func TestEnsureDirs_SecondDirError(t *testing.T) {
 	data := filepath.Join(blocker, "sub") // will fail - blocker is a file
 	logs := filepath.Join(base, "logs")
 
-	err = EnsureDirs(cfg, data, logs)
-	if err == nil {
+	if err := EnsureDirs(cfg, data, logs); err == nil {
 		t.Error("EnsureDirs should return error when second dir creation fails")
 	}
 }
 
 func TestEnsureDirs_ThirdDirError(t *testing.T) {
-	base, err := os.MkdirTemp(filepath.Join(os.TempDir(), "apimgr"), "ipgaze-")
-	if err != nil {
-		os.MkdirAll(filepath.Join(os.TempDir(), "apimgr"), 0755)
-		base, err = os.MkdirTemp(filepath.Join(os.TempDir(), "apimgr"), "ipgaze-")
-		if err != nil {
-			t.Fatal(err)
-		}
-	}
-	defer os.RemoveAll(base)
+	base := newTempProjectDir(t)
 
 	blocker := filepath.Join(base, "blocker-logs")
 	if err := os.WriteFile(blocker, []byte("x"), 0644); err != nil {
@@ -655,8 +543,7 @@ func TestEnsureDirs_ThirdDirError(t *testing.T) {
 	data := filepath.Join(base, "data")
 	logs := filepath.Join(blocker, "sub") // will fail - blocker is a file
 
-	err = EnsureDirs(cfg, data, logs)
-	if err == nil {
+	if err := EnsureDirs(cfg, data, logs); err == nil {
 		t.Error("EnsureDirs should return error when third dir creation fails")
 	}
 }
@@ -753,15 +640,7 @@ func TestGetFullDirs_NonContainerNonRootXDG(t *testing.T) {
 		testForceNonRoot = false
 	}()
 
-	base, err := os.MkdirTemp(filepath.Join(os.TempDir(), "apimgr"), "ipgaze-")
-	if err != nil {
-		os.MkdirAll(filepath.Join(os.TempDir(), "apimgr"), 0755)
-		base, err = os.MkdirTemp(filepath.Join(os.TempDir(), "apimgr"), "ipgaze-")
-		if err != nil {
-			t.Fatal(err)
-		}
-	}
-	defer os.RemoveAll(base)
+	base := newTempProjectDir(t)
 
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(base, "cfg"))
 	t.Setenv("XDG_DATA_HOME", filepath.Join(base, "share"))
@@ -968,15 +847,7 @@ func TestGetDefaultDirsLegacy_NonRootXDG(t *testing.T) {
 	testForceNonRoot = true
 	defer func() { testForceNonRoot = false }()
 
-	base, err := os.MkdirTemp(filepath.Join(os.TempDir(), "apimgr"), "ipgaze-")
-	if err != nil {
-		os.MkdirAll(filepath.Join(os.TempDir(), "apimgr"), 0755)
-		base, err = os.MkdirTemp(filepath.Join(os.TempDir(), "apimgr"), "ipgaze-")
-		if err != nil {
-			t.Fatal(err)
-		}
-	}
-	defer os.RemoveAll(base)
+	base := newTempProjectDir(t)
 
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(base, "cfg"))
 	t.Setenv("XDG_DATA_HOME", filepath.Join(base, "share"))
@@ -994,15 +865,7 @@ func TestGetDefaultDirsLegacy_NonRootXDG(t *testing.T) {
 }
 
 func TestWritePIDFile_NestedDirCreation(t *testing.T) {
-	base, err := os.MkdirTemp(filepath.Join(os.TempDir(), "apimgr"), "ipgaze-")
-	if err != nil {
-		os.MkdirAll(filepath.Join(os.TempDir(), "apimgr"), 0755)
-		base, err = os.MkdirTemp(filepath.Join(os.TempDir(), "apimgr"), "ipgaze-")
-		if err != nil {
-			t.Fatal(err)
-		}
-	}
-	defer os.RemoveAll(base)
+	base := newTempProjectDir(t)
 
 	// Deep nested path that does not exist yet
 	pidPath := filepath.Join(base, "a", "b", "c", "test.pid")

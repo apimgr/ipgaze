@@ -50,6 +50,10 @@
   (`$(HOME)/go/pkg/mod`) across projects — Go file-locks module downloads so sharing is safe
 - Always pass `-e CGO_ENABLED=0 -e GOFLAGS=-buildvcs=false` to the Docker build container
 - Build the CLI binaries only when `src/client/` exists, using the same platform loop as the server
+- Enforce at least 60% Go test coverage in `make test` using a unique org/project-scoped OS temp directory;
+  IDEA may raise the floor but never lower it, and tests must not be skipped with `-short` or `-count=0`
+- Keep `make release` as a manual stable release path that creates a source archive plus SHA-256 and
+  SHA-512 checksum files; CI release workflows own automated publishing for the other channels
 
 ## Key Rules Summary
 The Makefile has exactly six core targets (`dev`, `local`, `build`, `test`, `release`, `docker`) plus
@@ -60,6 +64,8 @@ alongside build/test/docker/release/clean; PART 25's body and reference implemen
 add an `all` target to resolve this — it conflicts with PART 25's explicit target-count rule — flag it as
 an unresolved spec inconsistency instead. Versioning is fully deterministic (`release.txt` > `VERSION` env
 > `devel`), version tags only get a `v` prefix when numeric, and all identifiers that key a rename-durable
-path (registry, tempdir) use `INTERNAL_NAME`, never `PROJECT_NAME`.
+path (registry, tempdir) use `INTERNAL_NAME`, never `PROJECT_NAME`. `make test` enforces the 60% minimum
+coverage floor (IDEA may raise it, never lower it) without skip flags; manual `make release` includes the
+source archive and SHA-256/SHA-512 checksum files.
 
 For complete details, see AI.md PART 25.

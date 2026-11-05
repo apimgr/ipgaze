@@ -89,7 +89,7 @@ func publishOne(host, publicArmor string) error {
 			lastErr = fmt.Errorf("pgp: publish to %s: %w", host, err)
 			continue
 		}
-		resp.Body.Close()
+		_ = resp.Body.Close()
 
 		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 			return nil

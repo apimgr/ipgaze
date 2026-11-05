@@ -1,6 +1,8 @@
 package swagger
 
 import (
+	"strings"
+
 	i18n "github.com/apimgr/ipgaze/src/common/i18n"
 )
 
@@ -262,18 +264,49 @@ type apiErr struct {
 // so operations that share wording (the .txt variants, the API mirrors) do not
 // duplicate translation strings.
 type routeDoc struct {
-	path       string
-	method     string
-	id         string
-	descKey    string
-	tagSlug    string
-	params     []Parameter
-	okSlug     string
-	content    map[string]MediaType
-	bodySlug   string
-	bodySchema *Schema
-	errs       []apiErr
-	statusOK   string
+	path         string
+	runtimePath  string
+	runtimeAlias bool
+	method       string
+	id           string
+	descKey      string
+	tagSlug      string
+	params       []Parameter
+	okSlug       string
+	content      map[string]MediaType
+	bodySlug     string
+	bodySchema   *Schema
+	errs         []apiErr
+	statusOK     string
+}
+
+// RouteDefinition exposes the stable HTTP identity shared by runtime API
+// registration and generated OpenAPI operations.
+type RouteDefinition struct {
+	Path         string
+	RuntimePath  string
+	RuntimeAlias bool
+	Method       string
+	OperationID  string
+}
+
+// APIV1RouteDefinitions returns the versioned API operations from the same
+// catalogue used to generate OpenAPI, MCP tools, and llms.txt.
+func APIV1RouteDefinitions() []RouteDefinition {
+	var definitions []RouteDefinition
+	for _, doc := range routeDocs("en") {
+		if !strings.HasPrefix(doc.path, "/api/v1") {
+			continue
+		}
+		definitions = append(definitions, RouteDefinition{
+			Path:         doc.path,
+			RuntimePath:  doc.runtimePath,
+			RuntimeAlias: doc.runtimeAlias,
+			Method:       strings.ToUpper(doc.method),
+			OperationID:  doc.id,
+		})
+	}
+	return definitions
 }
 
 // param builds a documented parameter whose description comes from the
@@ -461,14 +494,14 @@ func routeDocs(lang string) []routeDoc {
 		{path: "/server/preferences/import", method: "get", id: "server_preferences_import", tagSlug: "pages", params: prefsQuery, okSlug: "redirect", content: htmlPage(), statusOK: "303", errs: []apiErr{{"400", "bad_request"}}},
 		{path: "/announcements/dismiss", method: "post", id: "announcements_dismiss", tagSlug: "pages", okSlug: "redirect", content: htmlPage(), statusOK: "303", bodySlug: "dismiss", bodySchema: &Schema{Type: "object"}},
 
-		{path: "/api/v1", method: "get", id: "v1_info", tagSlug: "api_v1", params: ipQuery, okSlug: "ip_info", content: jsonRef("IPResponse")},
+		{path: "/api/v1", runtimePath: "/api/v1/", method: "get", id: "v1_info", tagSlug: "api_v1", params: ipQuery, okSlug: "ip_info", content: jsonRef("IPResponse")},
 		{path: "/api/v1/ip", method: "get", id: "v1_ip", tagSlug: "api_v1", okSlug: "text_value", content: textPlain("203.0.113.42")},
-		{path: "/api/v1/ip/{ip}", method: "get", id: "v1_ip_lookup", tagSlug: "api_v1", params: ipPath, okSlug: "ip_info", content: jsonRef("IPResponse"), errs: []apiErr{{"400", "invalid_ip"}}},
+		{path: "/api/v1/ip/{ip}", runtimePath: "/api/v1/ip/*", method: "get", id: "v1_ip_lookup", tagSlug: "api_v1", params: ipPath, okSlug: "ip_info", content: jsonRef("IPResponse"), errs: []apiErr{{"400", "invalid_ip"}}},
 		{path: "/api/v1/country", method: "get", id: "v1_country", tagSlug: "api_v1", okSlug: "text_value", content: textPlain("United States")},
 		{path: "/api/v1/city", method: "get", id: "v1_city", tagSlug: "api_v1", okSlug: "text_value", content: textPlain("Mountain View")},
 		{path: "/api/v1/asn", method: "get", id: "v1_asn", tagSlug: "api_v1", okSlug: "text_value", content: textPlain("AS15169")},
 		{path: "/api/v1/server/healthz", method: "get", id: "v1_healthz", tagSlug: "api_v1", okSlug: "health", content: jsonRef("HealthResponse"), errs: []apiErr{{"503", "unavailable"}}},
-		{path: "/api/v1/server/healthz.txt", method: "get", id: "v1_healthz_txt", descKey: txtVariantKey, tagSlug: "api_v1", okSlug: "health", content: textPlain("healthy"), errs: []apiErr{{"503", "unavailable"}}},
+		{path: "/api/v1/server/healthz.txt", runtimePath: "/api/v1/server/healthz", runtimeAlias: true, method: "get", id: "v1_healthz_txt", descKey: txtVariantKey, tagSlug: "api_v1", okSlug: "health", content: textPlain("healthy"), errs: []apiErr{{"503", "unavailable"}}},
 		{path: "/api/v1/version", method: "get", id: "v1_version", tagSlug: "api_v1", okSlug: "version", content: jsonRef("VersionResponse")},
 		{path: "/api/v1/server/about", method: "get", id: "v1_about", descKey: apiMirrorKey, tagSlug: "api_v1", okSlug: "json_object", content: jsonObject()},
 		{path: "/api/v1/server/help", method: "get", id: "v1_help", descKey: apiMirrorKey, tagSlug: "api_v1", okSlug: "json_object", content: jsonObject()},
@@ -486,7 +519,7 @@ func routeDocs(lang string) []routeDoc {
 		{path: "/api/v1/country-iso", method: "get", id: "v1_country_iso", tagSlug: "api_v1", okSlug: "json_object", content: jsonObject()},
 		{path: "/api/v1/coordinates", method: "get", id: "v1_coordinates", tagSlug: "api_v1", okSlug: "json_object", content: jsonObject()},
 		{path: "/api/v1/asn-org", method: "get", id: "v1_asn_org", tagSlug: "api_v1", okSlug: "json_object", content: jsonObject()},
-		{path: "/api/v1/port/{port}", method: "get", id: "v1_port_check", tagSlug: "api_v1", params: []Parameter{param(lang, "port", "path", "port_path", true, intSchema())}, okSlug: "port_check", content: jsonRef("PortResponse"), errs: []apiErr{{"400", "invalid_port"}}},
+		{path: "/api/v1/port/{port}", runtimePath: "/api/v1/port/*", method: "get", id: "v1_port_check", tagSlug: "api_v1", params: []Parameter{param(lang, "port", "path", "port_path", true, intSchema())}, okSlug: "port_check", content: jsonRef("PortResponse"), errs: []apiErr{{"400", "invalid_port"}}},
 		{path: "/api/v1/server/consent", method: "post", id: "v1_consent", tagSlug: "api_v1", okSlug: "accepted", statusOK: "204", bodySlug: "consent", bodySchema: &Schema{Type: "object"}},
 		{path: "/api/v1/server/ccpa", method: "post", id: "v1_ccpa", tagSlug: "api_v1", okSlug: "accepted", statusOK: "204", bodySlug: "ccpa", bodySchema: &Schema{Type: "object"}},
 		{path: "/api/v1/announcements/dismiss", method: "post", id: "v1_dismiss", tagSlug: "api_v1", okSlug: "accepted", statusOK: "204", bodySlug: "dismiss", bodySchema: &Schema{Type: "object"}},
@@ -550,6 +583,7 @@ func buildOperation(lang string, d routeDoc) *Operation {
 	}
 
 	op := &Operation{
+		OperationID: d.id,
 		Summary:     tr(lang, "swagger.paths."+d.id+".summary"),
 		Description: tr(lang, descKey),
 		Tags:        []string{tr(lang, "swagger.tags."+d.tagSlug)},

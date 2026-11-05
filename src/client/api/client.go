@@ -238,7 +238,7 @@ func (c *APIClient) Autodiscover(ctx context.Context) (*AutodiscoverResponse, er
 
 // DownloadBinary fetches /cli/binaries/{filename} and writes it to dst.
 // Returns the number of bytes written.
-func (c *APIClient) DownloadBinary(ctx context.Context, filename, dst string) (int64, error) {
+func (c *APIClient) DownloadBinary(ctx context.Context, filename, dst string) (written int64, retErr error) {
 	url := c.baseURL + "/cli/binaries/" + urlutil.EncodePathSegment(filename)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
@@ -257,7 +257,11 @@ func (c *APIClient) DownloadBinary(ctx context.Context, filename, dst string) (i
 	if err != nil {
 		return 0, &ConnectionError{URL: url, Err: err}
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			retErr = errors.Join(retErr, fmt.Errorf("close download response: %w", err))
+		}
+	}()
 	if resp.StatusCode != http.StatusOK {
 		return 0, &APIError{
 			StatusCode: resp.StatusCode,
@@ -269,16 +273,21 @@ func (c *APIClient) DownloadBinary(ctx context.Context, filename, dst string) (i
 	if err != nil {
 		return 0, fmt.Errorf("create temp file: %w", err)
 	}
-	defer f.Close()
 	n, err := io.Copy(f, resp.Body)
 	if err != nil {
+		if closeErr := f.Close(); closeErr != nil {
+			return 0, errors.Join(fmt.Errorf("write download: %w", err), fmt.Errorf("close download file: %w", closeErr))
+		}
 		return 0, fmt.Errorf("write download: %w", err)
+	}
+	if err := f.Close(); err != nil {
+		return 0, fmt.Errorf("close download file: %w", err)
 	}
 	return n, nil
 }
 
 // doAPIRequest performs an HTTP GET request and returns the response body.
-func (c *APIClient) doAPIRequest(ctx context.Context, path, accept string) ([]byte, error) {
+func (c *APIClient) doAPIRequest(ctx context.Context, path, accept string) (body []byte, retErr error) {
 	requestURL := c.baseURL + path
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, requestURL, nil)
 	if err != nil {
@@ -298,8 +307,12 @@ func (c *APIClient) doAPIRequest(ctx context.Context, path, accept string) ([]by
 	if err != nil {
 		return nil, &ConnectionError{URL: requestURL, Err: err}
 	}
-	defer resp.Body.Close()
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			retErr = errors.Join(retErr, fmt.Errorf("close API response: %w", err))
+		}
+	}()
+	body, err = io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
 		return nil, fmt.Errorf("read response: %w", err)
 	}

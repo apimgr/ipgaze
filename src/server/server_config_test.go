@@ -4,6 +4,7 @@ import (
 	"io"
 	"log"
 	"net/http/httptest"
+	"reflect"
 	"testing"
 
 	"github.com/apimgr/ipgaze/src/blocklist"
@@ -18,6 +19,29 @@ func TestSetConfig(t *testing.T) {
 	s.SetConfig(cfg)
 	if s.cfg == nil {
 		t.Error("expected cfg to be set")
+	}
+}
+
+func TestReloadRuntimeConfigRebuildsActiveHandler(t *testing.T) {
+	srv := testServer()
+	stableHandler := srv.Handler()
+	previousRouter := reflect.ValueOf(srv.router).Pointer()
+	cfg := config.DefaultConfig()
+	cfg.Server.BaseURL = "/nested"
+	cfg.Server.Token = "reload-token"
+	srv.ReloadRuntimeConfig(cfg, cfg.Server.BaseURL)
+
+	if reflect.ValueOf(srv.router).Pointer() == previousRouter {
+		t.Fatal("runtime config reload did not replace the active router")
+	}
+	if srv.config != cfg || srv.BaseURL != "/nested" {
+		t.Errorf("runtime config/base URL = %p/%q, want %p/%q", srv.config, srv.BaseURL, cfg, "/nested")
+	}
+	if !srv.ValidateOperatorToken("reload-token") {
+		t.Fatal("runtime config reload did not refresh the operator token hash")
+	}
+	if stableHandler == nil {
+		t.Fatal("Handler returned a nil stable dispatcher")
 	}
 }
 

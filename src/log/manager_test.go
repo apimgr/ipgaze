@@ -116,6 +116,59 @@ func TestManager_AuditJSON(t *testing.T) {
 	}
 }
 
+func TestManager_AuditSourceJSON(t *testing.T) {
+	dir := t.TempDir()
+	m, err := NewManager(dir, DefaultConfig())
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
+	m.WriteAudit(AuditEvent{Event: "api.request", Source: "mcp", Category: "api", Severity: "info", Result: "success"})
+	m.Close()
+
+	b, err := os.ReadFile(filepath.Join(dir, "audit.log"))
+	if err != nil {
+		t.Fatalf("read audit.log: %v", err)
+	}
+	var evt AuditEvent
+	if err := json.Unmarshal([]byte(strings.TrimSpace(string(b))), &evt); err != nil {
+		t.Fatalf("unmarshal audit event: %v", err)
+	}
+	if evt.Source != "mcp" {
+		t.Errorf("Source: got %q, want mcp", evt.Source)
+	}
+}
+
+func TestManager_ReconfigureSwitchesActiveWriter(t *testing.T) {
+	dir := t.TempDir()
+	cfg := DefaultConfig()
+	manager, err := NewManager(dir, cfg)
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
+	manager.WriteServer("INFO", "before reload")
+	cfg.Server.Filename = "server-renamed.log"
+	if err := manager.Reconfigure(cfg); err != nil {
+		t.Fatalf("Reconfigure: %v", err)
+	}
+	manager.WriteServer("INFO", "after reload")
+	manager.Close()
+
+	oldLog, err := os.ReadFile(filepath.Join(dir, "server.log"))
+	if err != nil {
+		t.Fatalf("read old server log: %v", err)
+	}
+	newLog, err := os.ReadFile(filepath.Join(dir, "server-renamed.log"))
+	if err != nil {
+		t.Fatalf("read replacement server log: %v", err)
+	}
+	if !strings.Contains(string(oldLog), "before reload") || strings.Contains(string(oldLog), "after reload") {
+		t.Errorf("old server log has incorrect contents: %q", oldLog)
+	}
+	if !strings.Contains(string(newLog), "after reload") || strings.Contains(string(newLog), "before reload") {
+		t.Errorf("replacement server log has incorrect contents: %q", newLog)
+	}
+}
+
 func TestManager_AccessApache(t *testing.T) {
 	dir := t.TempDir()
 	cfg := DefaultConfig()

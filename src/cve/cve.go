@@ -4,6 +4,7 @@ package cve
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -213,7 +214,7 @@ func (m *CVEManager) Update() error {
 }
 
 // fetchPage requests a single page of results from the CVE API 2.0.
-func (m *CVEManager) fetchPage(start, end time.Time, startIndex int) (*nvdResponse, error) {
+func (m *CVEManager) fetchPage(start, end time.Time, startIndex int) (result *nvdResponse, retErr error) {
 	pageURL, err := m.pageURL(start, end, startIndex)
 	if err != nil {
 		return nil, err
@@ -227,7 +228,7 @@ func (m *CVEManager) fetchPage(start, end time.Time, startIndex int) (*nvdRespon
 	if err != nil {
 		return nil, fmt.Errorf("cve: download feed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { retErr = errors.Join(retErr, resp.Body.Close()) }()
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("cve: HTTP %d from %s", resp.StatusCode, m.apiURL)
 	}
@@ -325,10 +326,16 @@ func writeFileAtomic(path string, data []byte, perm os.FileMode) error {
 		return err
 	}
 	tmpPath := tmp.Name()
-	defer os.Remove(tmpPath)
+	defer func() {
+		if err := os.Remove(tmpPath); err != nil && !os.IsNotExist(err) {
+			log.Printf("cve: remove temporary file %s: %v", tmpPath, err)
+		}
+	}()
 
 	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
+		if closeErr := tmp.Close(); closeErr != nil {
+			return errors.Join(err, closeErr)
+		}
 		return err
 	}
 	if err := tmp.Close(); err != nil {

@@ -24,11 +24,16 @@
 - Support all three ACME challenge types with the documented defaults: HTTP-01 (default, port 80), TLS-ALPN-01 (port 443), DNS-01 (required for wildcard certs)
 - Run certificate renewal on the daily 03:00 scheduler job and renew only within 7 days of expiry, and only for certificates ipgaze itself issued/manages (4-tier lookup priority: explicit config path → ACME-managed → self-signed fallback → none)
 - Log structured errors with request IDs server-side while returning only the minimal client-safe message
+- Expose MCP through the same Streamable HTTP handler at `/api/{api_version}/server/mcp`, `/api/mcp`, and `/mcp`; aliases are direct mounts, never redirects
+- Generate one MCP tool per public versioned API operation from the OpenAPI operation definition; use its `operationId`, description, and input schema, and dispatch in-process through the existing handler/middleware chain
+- Reuse API Bearer authentication, authorization, rate limiting, and audit behavior for MCP; ignore cookies and never expose token-management operations as tools
+- For MCP, enforce POST-only stateless transport, current protocol version/header checks, and Origin validation; disabled routes return 404
 
 ## Key Rules Summary
 - **Health (PART 13):** `HealthResponse` has a fixed field order and field set (see NEVER DO above); status→HTTP code mapping is `healthy`/`degraded`/`restart_required`→200, `unhealthy`/`maintenance`/`shutting_down`→503. `/healthz` may alias `/server/healthz` only when config-enabled.
 - **API structure (PART 14):** every endpoint follows the canonical `{ok,data}` / `{ok,error,message}` envelope (health's bare body is the sole exception); pagination/filter/sort use `page`/`limit`/`sort`/`order`; legacy endpoints are deleted outright, never redirected or shimmed. Content negotiation on `/api/**` is suffix → `Accept` header → non-interactive-client detection → JSON default. Frontend content negotiation additionally distinguishes our CLI (always JSON), text browsers (normal HTML — the project's JS Necessity Gate already keeps that HTML usable without JS, so no separate no-JS template/function exists or is needed), and HTTP tools (HTML converted to formatted plain text via `HTML2TextConverter`).
 - **SSL/TLS (PART 15):** certificate lookup follows a 4-tier priority; ACME supports HTTP-01 (default), TLS-ALPN-01, and DNS-01 (wildcard); renewal runs daily at 03:00, only within 7 days of expiry, and only for app-managed certificates — never externally supplied ones.
 - Rate-limit tier specifics live outside PART 13-15 (see PART 11/backend rules) — do not assume tier numbers from this file.
+- **MCP (PART 14):** only public versioned API operations become tools; tools are generated from the OpenAPI/route definition and named by `operationId`; same handler and Bearer auth apply.
 
 For complete details, see AI.md PART 13, PART 14, PART 15.

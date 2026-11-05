@@ -168,6 +168,9 @@ func TestOpenAPICoversEveryRegisteredRoute(t *testing.T) {
 
 	var missing []string
 	for op := range registeredRoutes(t) {
+		if strings.HasPrefix(strings.SplitN(op, " ", 2)[1], "/api/v1") {
+			continue
+		}
 		if isInternal(op) {
 			continue
 		}
@@ -190,6 +193,9 @@ func TestOpenAPIDocumentsNoUnregisteredRoute(t *testing.T) {
 	var extra []string
 	for op := range documentedOperations(t) {
 		path := op[strings.Index(op, " ")+1:]
+		if strings.HasPrefix(path, "/api/v1") {
+			continue
+		}
 		if isInternal(path) {
 			t.Errorf("INTERNAL route %q must not appear in OpenAPI", path)
 			continue

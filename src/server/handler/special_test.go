@@ -6,6 +6,9 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/apimgr/ipgaze/src/config"
+	"github.com/apimgr/ipgaze/src/swagger"
 )
 
 func TestNewSpecialHandler_Default(t *testing.T) {
@@ -128,7 +131,9 @@ func TestHasPGPKey(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	f.Close()
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
 	h.PGPPublicKeyPath = f.Name()
 	if !h.hasPGPKey() {
 		t.Error("hasPGPKey with existing file = false, want true")
@@ -316,7 +321,67 @@ func TestLLMsTxtHandler(t *testing.T) {
 	if !strings.Contains(body, "## Capabilities") {
 		t.Errorf("body missing '## Capabilities' section: %q", body)
 	}
-	if !strings.Contains(body, "GET /health") {
-		t.Errorf("body missing health endpoint: %q", body)
+	if !strings.Contains(body, "GET /api/v1/server/healthz") {
+		t.Errorf("body missing generated health API endpoint: %q", body)
+	}
+	if !strings.Contains(body, "GET /api/v1/ip/{ip}") {
+		t.Errorf("body missing generated IP lookup API endpoint: %q", body)
+	}
+	for _, endpoint := range []string{"GET /", "GET /{ip}", "GET /country", "GET /port/{port}", "GET /api/graphql"} {
+		if !strings.Contains(body, endpoint) {
+			t.Errorf("body missing generated public endpoint %q: %q", endpoint, body)
+		}
+	}
+	for _, endpoint := range []string{"GET /server/about", "GET /static/{path}"} {
+		if strings.Contains(body, endpoint) {
+			t.Errorf("body unexpectedly lists non-API route %q: %q", endpoint, body)
+		}
+	}
+	if !strings.Contains(body, "Versioned API base URL: http://example.com/api/v1") {
+		t.Errorf("body missing request-resolved API base URL: %q", body)
+	}
+}
+
+func TestLLMsReadRateLimitUsesConfiguration(t *testing.T) {
+	tests := []struct {
+		name string
+		cfg  *config.AppConfig
+		want string
+	}{
+		{name: "default fallback", want: "120 requests per 1 minute per IP"},
+		{name: "configured bucket", cfg: func() *config.AppConfig {
+			cfg := config.DefaultConfig()
+			cfg.Server.RateLimit.Read.Requests = 25
+			cfg.Server.RateLimit.Read.Window = 30
+			return cfg
+		}(), want: "25 requests per 30 seconds per IP"},
+		{name: "disabled", cfg: func() *config.AppConfig {
+			cfg := config.DefaultConfig()
+			cfg.Server.RateLimit.Enabled = false
+			return cfg
+		}(), want: "disabled"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := llmsReadRateLimit(tt.cfg); got != tt.want {
+				t.Fatalf("llmsReadRateLimit() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestLLMsAPIEndpointsRespectActiveRuntimeRegistry(t *testing.T) {
+	spec := swagger.GenerateSpec(swagger.SwaggerHandlerConfig{}, "https://example.com/api/v1", "en")
+	active := map[string]struct{}{"v1_healthz": {}}
+	endpoints := llmsAPIEndpoints(spec.Paths, active)
+	joined := strings.Join(endpoints, "\n")
+	if !strings.Contains(joined, "GET /api/v1/server/healthz") {
+		t.Fatal("active health endpoint missing from llms.txt endpoint list")
+	}
+	if strings.Contains(joined, "GET /api/v1/server/about") {
+		t.Fatal("unregistered API operation listed in llms.txt")
+	}
+	if !strings.Contains(joined, "GET /") || !strings.Contains(joined, "GET /{ip}") {
+		t.Fatal("runtime filtering removed echoip-compatible root routes")
 	}
 }

@@ -6,6 +6,7 @@ package db
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -88,8 +89,7 @@ func NewDB(cfg *config.DatabaseConfig, dbDir string) (*sql.DB, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := db.PingContext(ctx); err != nil {
-		db.Close()
-		return nil, fmt.Errorf("db: ping %s: %w", driver, err)
+		return nil, errors.Join(fmt.Errorf("db: ping %s: %w", driver, err), db.Close())
 	}
 
 	if sqliteConn {
@@ -99,19 +99,18 @@ func NewDB(cfg *config.DatabaseConfig, dbDir string) (*sql.DB, error) {
 		// a PRAGMA failure here must surface as an error rather than
 		// silently leaving WAL/foreign-keys/busy-timeout unset.
 		if _, err := db.ExecContext(ctx, "PRAGMA journal_mode=WAL"); err != nil {
-			return nil, fmt.Errorf("db: set journal_mode: %w", err)
+			return nil, errors.Join(fmt.Errorf("db: set journal_mode: %w", err), db.Close())
 		}
 		if _, err := db.ExecContext(ctx, "PRAGMA foreign_keys=ON"); err != nil {
-			return nil, fmt.Errorf("db: set foreign_keys: %w", err)
+			return nil, errors.Join(fmt.Errorf("db: set foreign_keys: %w", err), db.Close())
 		}
 		if _, err := db.ExecContext(ctx, "PRAGMA busy_timeout=5000"); err != nil {
-			return nil, fmt.Errorf("db: set busy_timeout: %w", err)
+			return nil, errors.Join(fmt.Errorf("db: set busy_timeout: %w", err), db.Close())
 		}
 	}
 
 	if err := EnsureSchema(db); err != nil {
-		db.Close()
-		return nil, fmt.Errorf("db: apply schema: %w", err)
+		return nil, errors.Join(fmt.Errorf("db: apply schema: %w", err), db.Close())
 	}
 
 	return db, nil

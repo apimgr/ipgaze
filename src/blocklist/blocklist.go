@@ -4,6 +4,7 @@ package blocklist
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -125,7 +126,9 @@ func (l *Lookup) LoadDir(dir string) error {
 				}
 			}
 		}
-		f.Close()
+		if err := f.Close(); err != nil {
+			return fmt.Errorf("close %s: %w", e.Name(), err)
+		}
 	}
 
 	l.mu.Lock()
@@ -160,7 +163,11 @@ func (m *BlocklistManager) download(client *http.Client, src Source) error {
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			log.Printf("blocklist: close response body for %s: %v", src.URL, err)
+		}
+	}()
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("HTTP %d for %s", resp.StatusCode, src.URL)
 	}
@@ -184,10 +191,16 @@ func writeFileAtomic(path string, data []byte, perm os.FileMode) error {
 		return err
 	}
 	tmpPath := tmp.Name()
-	defer os.Remove(tmpPath)
+	defer func() {
+		if err := os.Remove(tmpPath); err != nil && !os.IsNotExist(err) {
+			log.Printf("blocklist: remove temporary file %s: %v", tmpPath, err)
+		}
+	}()
 
 	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
+		if closeErr := tmp.Close(); closeErr != nil {
+			return errors.Join(err, closeErr)
+		}
 		return err
 	}
 	if err := tmp.Close(); err != nil {

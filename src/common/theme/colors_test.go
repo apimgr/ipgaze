@@ -143,7 +143,7 @@ func assertValidHex(t *testing.T, field, color string) {
 		return
 	}
 	for _, ch := range hex {
-		if !((ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f') || (ch >= 'A' && ch <= 'F')) {
+		if (ch < '0' || ch > '9') && (ch < 'a' || ch > 'f') && (ch < 'A' || ch > 'F') {
 			t.Errorf("%s: color %q contains non-hex character %q", field, color, ch)
 		}
 	}

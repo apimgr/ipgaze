@@ -81,6 +81,7 @@ RUN chmod 755 /usr/local/bin/*
 # Development environment variables — debug symbols retained
 # MODE is never baked into the image — binary defaults to production; compose sets MODE explicitly
 ENV TZ=America/New_York \
+    PORT=80 \
     DATABASE_DIR=/data/db/sqlite
 
 # Expose internal port (always 80)

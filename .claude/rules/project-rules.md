@@ -44,7 +44,8 @@
   differ by OS and privilege level; Docker uses `/config` + `/data` only
   inside containers, never on native OS
 - ALWAYS keep `.claude/settings.json` committed (shared team settings) —
-  currently missing in this repo; OPEN item, see report
+  keep shared permissions, hooks, and environment defaults in this file;
+  personal overrides belong in the gitignored `.claude/settings.local.json`
 
 ## Key Rules Summary
 

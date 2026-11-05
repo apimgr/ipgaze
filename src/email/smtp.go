@@ -1,6 +1,7 @@
 package email
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"net/smtp"
@@ -47,11 +48,9 @@ func probeSMTPPort(host string, port int) error {
 	}
 	c, err := smtp.NewClient(conn, host)
 	if err != nil {
-		conn.Close()
-		return err
+		return errors.Join(err, conn.Close())
 	}
-	c.Close()
-	return nil
+	return c.Close()
 }
 
 // AutoDetectSMTP probes candidate hosts for a reachable SMTP server.

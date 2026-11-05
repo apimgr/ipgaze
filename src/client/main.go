@@ -193,11 +193,15 @@ func main() {
 	flag.StringVar(&configFlag, "config", "", tr(&lang, "client.config_flag"))
 	flag.StringVar(&updateCmd, "update", "", tr(&lang, "client.update_flag"))
 
+	var usageErr error
 	flag.Usage = func() {
-		printUsage(os.Stderr, binaryName, lang)
+		usageErr = printUsage(os.Stderr, binaryName, lang)
 	}
 
 	flag.Parse()
+	if usageErr != nil {
+		os.Exit(exitGeneral)
+	}
 
 	// Capture the raw --server/--token flag values before the priority
 	// fallback chain below overwrites serverURL with env/config/default
@@ -265,12 +269,13 @@ func main() {
 
 	// Handle help (exits immediately, never TUI).
 	if showHelp.Bool() {
-		printUsage(os.Stdout, binaryName, lang)
+		if err := printUsage(os.Stdout, binaryName, lang); err != nil {
+			os.Exit(exitGeneral)
+		}
 		os.Exit(exitSuccess)
 	}
 
-	// Server URL priority: flag > env > config > compiled default (AI.md PART 32).
-	serverURL = envOr(serverURL, "IPGAZE_SERVER_PRIMARY")
+	// Server URL priority: flag > config > compiled default (AI.md PART 32).
 	serverURL = stringOrDefault(serverURL, cfg.Server.Primary)
 	serverURL = stringOrDefault(serverURL, cfg.Defaults.Server)
 	serverURL = stringOrDefault(serverURL, OfficialSite)
@@ -383,10 +388,15 @@ func trf(lang, key string, args ...string) string {
 }
 
 // printUsage writes the translated help screen.
-func printUsage(w *os.File, binaryName, lang string) {
-	fmt.Fprintf(w, "%s\n\n", trf(lang, "client.usage_line", "binary", binaryName))
-	fmt.Fprintf(w, "%s\n\n", trf(lang, "client.description"))
-	fmt.Fprintf(w, "%s\n", trf(lang, "client.options_header"))
+func printUsage(w *os.File, binaryName, lang string) error {
+	var resultErr error
+	write := func(format string, args ...any) {
+		_, err := fmt.Fprintf(w, format, args...)
+		resultErr = errors.Join(resultErr, err)
+	}
+	write("%s\n\n", trf(lang, "client.usage_line", "binary", binaryName))
+	write("%s\n\n", trf(lang, "client.description"))
+	write("%s\n", trf(lang, "client.options_header"))
 
 	options := [][2]string{
 		{"-h, --help", "client.help_flag"},
@@ -404,16 +414,16 @@ func printUsage(w *os.File, binaryName, lang string) {
 		{"--update CMD", "client.update_flag"},
 	}
 	for _, opt := range options {
-		fmt.Fprintf(w, "  %-20s %s\n", opt[0], trf(lang, opt[1]))
+		write("  %-20s %s\n", opt[0], trf(lang, opt[1]))
 	}
 
-	fmt.Fprintf(w, "\n%s\n", trf(lang, "client.formats_header",
+	write("\n%s\n", trf(lang, "client.formats_header",
 		"formats", strings.Join(setup.OutputFormats, ", ")))
-	fmt.Fprintf(w, "%s\n", trf(lang, "client.fields_header",
+	write("%s\n", trf(lang, "client.fields_header",
 		"fields", strings.Join(api.FieldNames, ", ")))
-	fmt.Fprintf(w, "%s\n", trf(lang, "client.shells_header", "shells", supportedShells))
+	write("%s\n", trf(lang, "client.shells_header", "shells", supportedShells))
 
-	fmt.Fprintf(w, "\n%s\n", trf(lang, "client.examples_header"))
+	write("\n%s\n", trf(lang, "client.examples_header"))
 	examples := [][2]string{
 		{binaryName, "client.example_own_ip"},
 		{binaryName + " 8.8.8.8", "client.example_lookup_ip"},
@@ -425,8 +435,9 @@ func printUsage(w *os.File, binaryName, lang string) {
 		{binaryName + " --update yes", "client.example_update_install"},
 	}
 	for _, ex := range examples {
-		fmt.Fprintf(w, "  %-34s # %s\n", ex[0], trf(lang, ex[1]))
+		write("  %-34s # %s\n", ex[0], trf(lang, ex[1]))
 	}
+	return resultErr
 }
 
 // printVersion writes the PART 32 version line plus, when the server answers,

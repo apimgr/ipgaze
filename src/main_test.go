@@ -443,7 +443,7 @@ func captureStdout(fn func()) string {
 	r, w, _ := os.Pipe()
 	os.Stdout = w
 	fn()
-	w.Close()
+	_ = w.Close()
 	os.Stdout = old
 	var buf bytes.Buffer
 	io.Copy(&buf, r) //nolint:errcheck
@@ -570,5 +570,43 @@ func TestHandleI2PCommand_StatusEnabledNoProvider(t *testing.T) {
 	out := captureStdout(func() { handleI2PCommand([]string{"status"}, dir, dir, dir, cfg) })
 	if !strings.Contains(out, "No Provider") {
 		t.Errorf("handleI2PCommand([status]) with no provider, got:\n%s", out)
+	}
+}
+
+func TestBannerDisplayHost(t *testing.T) {
+	tests := []struct {
+		name           string
+		configuredFQDN string
+		bindAddress    string
+		want           string
+	}{
+		{name: "configured hostname", configuredFQDN: " example.test ", bindAddress: "0.0.0.0", want: "example.test"},
+		{name: "specific bind address", bindAddress: "192.0.2.10", want: "192.0.2.10"},
+		{name: "IPv6 address is bracketed", configuredFQDN: "2001:db8::10", want: "[2001:db8::10]"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := bannerDisplayHost(tt.configuredFQDN, tt.bindAddress); got != tt.want {
+				t.Errorf("bannerDisplayHost(%q, %q) = %q, want %q", tt.configuredFQDN, tt.bindAddress, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestBannerPortSuffix(t *testing.T) {
+	tests := []struct {
+		proto string
+		port  string
+		want  string
+	}{
+		{proto: "http", port: "", want: ""},
+		{proto: "http", port: "80", want: ""},
+		{proto: "https", port: "443", want: ""},
+		{proto: "https", port: "8443", want: ":8443"},
+	}
+	for _, tt := range tests {
+		if got := bannerPortSuffix(tt.proto, tt.port); got != tt.want {
+			t.Errorf("bannerPortSuffix(%q, %q) = %q, want %q", tt.proto, tt.port, got, tt.want)
+		}
 	}
 }

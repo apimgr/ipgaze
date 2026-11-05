@@ -278,7 +278,7 @@ FROM scheduler_tasks
 	if err != nil {
 		return err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	for rows.Next() {
 		var taskID string
@@ -320,7 +320,7 @@ WHERE enabled = 1 AND (last_run IS NULL OR last_run < ?)
 		log.Printf("Scheduler: failed to check missed tasks: %v", err)
 		return
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var missedTasks []string
 	for rows.Next() {
@@ -568,7 +568,7 @@ ORDER BY name
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var states []TaskState
 	for rows.Next() {

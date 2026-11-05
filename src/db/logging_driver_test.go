@@ -14,7 +14,11 @@ func openLoggingMemDB(t *testing.T) *sql.DB {
 	if err != nil {
 		t.Fatalf("OpenSQLite: %v", err)
 	}
-	t.Cleanup(func() { db.Close() })
+	t.Cleanup(func() {
+		if err := db.Close(); err != nil {
+			t.Errorf("close database: %v", err)
+		}
+	})
 	return db
 }
 
@@ -40,7 +44,9 @@ func TestLoggingDriver_ExecQueryContext(t *testing.T) {
 				t.Fatalf("scan: %v", err)
 			}
 		}
-		rows.Close()
+		if err := rows.Close(); err != nil {
+			t.Errorf("close rows: %v", err)
+		}
 		if got != "alice" {
 			t.Errorf("got %q, want alice", got)
 		}
@@ -67,7 +73,11 @@ func TestLoggingDriver_PrepareStmtExecQuery(t *testing.T) {
 	if err != nil {
 		t.Fatalf("prepare: %v", err)
 	}
-	defer stmt.Close()
+	t.Cleanup(func() {
+		if err := stmt.Close(); err != nil {
+			t.Errorf("close statement: %v", err)
+		}
+	})
 
 	if _, err := stmt.Exec("bob"); err != nil {
 		t.Fatalf("stmt exec: %v", err)
@@ -77,13 +87,21 @@ func TestLoggingDriver_PrepareStmtExecQuery(t *testing.T) {
 	if err != nil {
 		t.Fatalf("prepare select: %v", err)
 	}
-	defer qstmt.Close()
+	t.Cleanup(func() {
+		if err := qstmt.Close(); err != nil {
+			t.Errorf("close query statement: %v", err)
+		}
+	})
 
 	rows, err := qstmt.Query("bob")
 	if err != nil {
 		t.Fatalf("stmt query: %v", err)
 	}
-	defer rows.Close()
+	t.Cleanup(func() {
+		if err := rows.Close(); err != nil {
+			t.Errorf("close rows: %v", err)
+		}
+	})
 	found := false
 	for rows.Next() {
 		found = true
@@ -150,5 +168,9 @@ func TestRegisterLoggingDrivers_Idempotent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("OpenSQLite: %v", err)
 	}
-	defer db.Close()
+	t.Cleanup(func() {
+		if err := db.Close(); err != nil {
+			t.Errorf("close database: %v", err)
+		}
+	})
 }

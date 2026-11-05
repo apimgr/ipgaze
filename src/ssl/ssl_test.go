@@ -57,7 +57,11 @@ func generateSelfSignedCert(t *testing.T, dir, domain string) (certFile, keyFile
 	if err != nil {
 		t.Fatalf("create cert file: %v", err)
 	}
-	defer cf.Close()
+	defer func() {
+		if err := cf.Close(); err != nil {
+			t.Errorf("close cert file: %v", err)
+		}
+	}()
 	if err := pem.Encode(cf, &pem.Block{Type: "CERTIFICATE", Bytes: der}); err != nil {
 		t.Fatalf("pem encode cert: %v", err)
 	}
@@ -66,7 +70,11 @@ func generateSelfSignedCert(t *testing.T, dir, domain string) (certFile, keyFile
 	if err != nil {
 		t.Fatalf("create key file: %v", err)
 	}
-	defer kf.Close()
+	defer func() {
+		if err := kf.Close(); err != nil {
+			t.Errorf("close key file: %v", err)
+		}
+	}()
 	privDER, err := x509.MarshalECPrivateKey(priv)
 	if err != nil {
 		t.Fatalf("marshal private key: %v", err)
@@ -90,7 +98,11 @@ func tempDir(t *testing.T) string {
 	if err != nil {
 		t.Fatalf("mkdirtemp: %v", err)
 	}
-	t.Cleanup(func() { os.RemoveAll(dir) })
+	t.Cleanup(func() {
+		if err := os.RemoveAll(dir); err != nil {
+			t.Errorf("remove temp dir: %v", err)
+		}
+	})
 	return dir
 }
 
@@ -194,14 +206,31 @@ func TestGetTLSConfig_AppManagedLECert(t *testing.T) {
 	certFile := filepath.Join(leDir, "fullchain.pem")
 	keyFile := filepath.Join(leDir, "privkey.pem")
 
-	cf, _ := os.Create(certFile)
-	pem.Encode(cf, &pem.Block{Type: "CERTIFICATE", Bytes: der})
-	cf.Close()
+	cf, err := os.Create(certFile)
+	if err != nil {
+		t.Fatalf("create cert file: %v", err)
+	}
+	if err := pem.Encode(cf, &pem.Block{Type: "CERTIFICATE", Bytes: der}); err != nil {
+		t.Fatalf("encode cert: %v", err)
+	}
+	if err := cf.Close(); err != nil {
+		t.Fatalf("close cert file: %v", err)
+	}
 
-	kf, _ := os.Create(keyFile)
-	privDER, _ := x509.MarshalECPrivateKey(priv)
-	pem.Encode(kf, &pem.Block{Type: "EC PRIVATE KEY", Bytes: privDER})
-	kf.Close()
+	kf, err := os.Create(keyFile)
+	if err != nil {
+		t.Fatalf("create key file: %v", err)
+	}
+	privDER, err := x509.MarshalECPrivateKey(priv)
+	if err != nil {
+		t.Fatalf("marshal private key: %v", err)
+	}
+	if err := pem.Encode(kf, &pem.Block{Type: "EC PRIVATE KEY", Bytes: privDER}); err != nil {
+		t.Fatalf("encode key: %v", err)
+	}
+	if err := kf.Close(); err != nil {
+		t.Fatalf("close key file: %v", err)
+	}
 
 	m := NewSSLManager(SSLManagerConfig{
 		Enabled:  true,
@@ -255,7 +284,7 @@ func TestGetHTTPHandler_NilCertManager(t *testing.T) {
 	m := NewSSLManager(SSLManagerConfig{})
 	fallback := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("fallback"))
+		_, _ = w.Write([]byte("fallback"))
 	})
 
 	h := m.GetHTTPHandler(fallback)
@@ -421,8 +450,12 @@ func TestFindCertByPriority_Priority3(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	os.WriteFile(filepath.Join(leDir, "fullchain.pem"), []byte("cert"), 0600)
-	os.WriteFile(filepath.Join(leDir, "privkey.pem"), []byte("key"), 0600)
+	if err := os.WriteFile(filepath.Join(leDir, "fullchain.pem"), []byte("cert"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(leDir, "privkey.pem"), []byte("key"), 0600); err != nil {
+		t.Fatal(err)
+	}
 
 	m := NewSSLManager(SSLManagerConfig{
 		Enabled:  true,
@@ -444,8 +477,12 @@ func TestFindCertByPriority_Priority4(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	os.WriteFile(filepath.Join(localDir, "cert.pem"), []byte("cert"), 0600)
-	os.WriteFile(filepath.Join(localDir, "key.pem"), []byte("key"), 0600)
+	if err := os.WriteFile(filepath.Join(localDir, "cert.pem"), []byte("cert"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(localDir, "key.pem"), []byte("key"), 0600); err != nil {
+		t.Fatal(err)
+	}
 
 	m := NewSSLManager(SSLManagerConfig{
 		Enabled:  true,
@@ -540,16 +577,36 @@ func TestCertExpiry_ExistingCert(t *testing.T) {
 		NotBefore:    time.Now().Add(-time.Hour),
 		NotAfter:     wantNotAfter,
 	}
-	der, _ := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &priv.PublicKey, priv)
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &priv.PublicKey, priv)
+	if err != nil {
+		t.Fatalf("create certificate: %v", err)
+	}
 
-	cf, _ := os.Create(filepath.Join(localDir, "cert.pem"))
-	pem.Encode(cf, &pem.Block{Type: "CERTIFICATE", Bytes: der})
-	cf.Close()
+	cf, err := os.Create(filepath.Join(localDir, "cert.pem"))
+	if err != nil {
+		t.Fatalf("create cert file: %v", err)
+	}
+	if err := pem.Encode(cf, &pem.Block{Type: "CERTIFICATE", Bytes: der}); err != nil {
+		t.Fatalf("encode cert: %v", err)
+	}
+	if err := cf.Close(); err != nil {
+		t.Fatalf("close cert file: %v", err)
+	}
 
-	privDER, _ := x509.MarshalECPrivateKey(priv)
-	kf, _ := os.Create(filepath.Join(localDir, "key.pem"))
-	pem.Encode(kf, &pem.Block{Type: "EC PRIVATE KEY", Bytes: privDER})
-	kf.Close()
+	privDER, err := x509.MarshalECPrivateKey(priv)
+	if err != nil {
+		t.Fatalf("marshal private key: %v", err)
+	}
+	kf, err := os.Create(filepath.Join(localDir, "key.pem"))
+	if err != nil {
+		t.Fatalf("create key file: %v", err)
+	}
+	if err := pem.Encode(kf, &pem.Block{Type: "EC PRIVATE KEY", Bytes: privDER}); err != nil {
+		t.Fatalf("encode key: %v", err)
+	}
+	if err := kf.Close(); err != nil {
+		t.Fatalf("close key file: %v", err)
+	}
 
 	m := NewSSLManager(SSLManagerConfig{Enabled: true, CertPath: dir})
 
@@ -581,16 +638,36 @@ func TestRenewIfExpiring_NotExpiring(t *testing.T) {
 		NotBefore:    time.Now().Add(-time.Hour),
 		NotAfter:     time.Now().Add(30 * 24 * time.Hour),
 	}
-	der, _ := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &priv.PublicKey, priv)
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &priv.PublicKey, priv)
+	if err != nil {
+		t.Fatalf("create certificate: %v", err)
+	}
 
-	cf, _ := os.Create(filepath.Join(localDir, "cert.pem"))
-	pem.Encode(cf, &pem.Block{Type: "CERTIFICATE", Bytes: der})
-	cf.Close()
+	cf, err := os.Create(filepath.Join(localDir, "cert.pem"))
+	if err != nil {
+		t.Fatalf("create cert file: %v", err)
+	}
+	if err := pem.Encode(cf, &pem.Block{Type: "CERTIFICATE", Bytes: der}); err != nil {
+		t.Fatalf("encode cert: %v", err)
+	}
+	if err := cf.Close(); err != nil {
+		t.Fatalf("close cert file: %v", err)
+	}
 
-	privDER, _ := x509.MarshalECPrivateKey(priv)
-	kf, _ := os.Create(filepath.Join(localDir, "key.pem"))
-	pem.Encode(kf, &pem.Block{Type: "EC PRIVATE KEY", Bytes: privDER})
-	kf.Close()
+	privDER, err := x509.MarshalECPrivateKey(priv)
+	if err != nil {
+		t.Fatalf("marshal private key: %v", err)
+	}
+	kf, err := os.Create(filepath.Join(localDir, "key.pem"))
+	if err != nil {
+		t.Fatalf("create key file: %v", err)
+	}
+	if err := pem.Encode(kf, &pem.Block{Type: "EC PRIVATE KEY", Bytes: privDER}); err != nil {
+		t.Fatalf("encode key: %v", err)
+	}
+	if err := kf.Close(); err != nil {
+		t.Fatalf("close key file: %v", err)
+	}
 
 	m := NewSSLManager(SSLManagerConfig{
 		Enabled:  true,
@@ -600,8 +677,7 @@ func TestRenewIfExpiring_NotExpiring(t *testing.T) {
 		},
 	})
 
-	err := m.RenewIfExpiring([]string{domain}, 7)
-	if err != nil {
+	if err := m.RenewIfExpiring([]string{domain}, 7); err != nil {
 		t.Errorf("RenewIfExpiring non-expiring cert: %v", err)
 	}
 }
@@ -622,16 +698,36 @@ func TestRenewIfExpiring_Expiring_ExistingCertStillLoads(t *testing.T) {
 		NotBefore:    time.Now().Add(-24 * time.Hour),
 		NotAfter:     time.Now().Add(3 * 24 * time.Hour),
 	}
-	der, _ := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &priv.PublicKey, priv)
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &priv.PublicKey, priv)
+	if err != nil {
+		t.Fatalf("create certificate: %v", err)
+	}
 
-	cf, _ := os.Create(filepath.Join(localDir, "cert.pem"))
-	pem.Encode(cf, &pem.Block{Type: "CERTIFICATE", Bytes: der})
-	cf.Close()
+	cf, err := os.Create(filepath.Join(localDir, "cert.pem"))
+	if err != nil {
+		t.Fatalf("create cert file: %v", err)
+	}
+	if err := pem.Encode(cf, &pem.Block{Type: "CERTIFICATE", Bytes: der}); err != nil {
+		t.Fatalf("encode cert: %v", err)
+	}
+	if err := cf.Close(); err != nil {
+		t.Fatalf("close cert file: %v", err)
+	}
 
-	privDER, _ := x509.MarshalECPrivateKey(priv)
-	kf, _ := os.Create(filepath.Join(localDir, "key.pem"))
-	pem.Encode(kf, &pem.Block{Type: "EC PRIVATE KEY", Bytes: privDER})
-	kf.Close()
+	privDER, err := x509.MarshalECPrivateKey(priv)
+	if err != nil {
+		t.Fatalf("marshal private key: %v", err)
+	}
+	kf, err := os.Create(filepath.Join(localDir, "key.pem"))
+	if err != nil {
+		t.Fatalf("create key file: %v", err)
+	}
+	if err := pem.Encode(kf, &pem.Block{Type: "EC PRIVATE KEY", Bytes: privDER}); err != nil {
+		t.Fatalf("encode key: %v", err)
+	}
+	if err := kf.Close(); err != nil {
+		t.Fatalf("close key file: %v", err)
+	}
 
 	m := NewSSLManager(SSLManagerConfig{
 		Enabled:  true,
@@ -641,8 +737,7 @@ func TestRenewIfExpiring_Expiring_ExistingCertStillLoads(t *testing.T) {
 		},
 	})
 
-	err := m.RenewIfExpiring([]string{domain}, 7)
-	if err != nil {
+	if err := m.RenewIfExpiring([]string{domain}, 7); err != nil {
 		t.Errorf("expiring cert that still exists should load without error, got: %v", err)
 	}
 }
@@ -663,16 +758,36 @@ func TestRenewIfExpiring_Expiring_LEEnabled(t *testing.T) {
 		NotBefore:    time.Now().Add(-24 * time.Hour),
 		NotAfter:     time.Now().Add(3 * 24 * time.Hour),
 	}
-	der, _ := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &priv.PublicKey, priv)
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &priv.PublicKey, priv)
+	if err != nil {
+		t.Fatalf("create certificate: %v", err)
+	}
 
-	cf, _ := os.Create(filepath.Join(localDir, "cert.pem"))
-	pem.Encode(cf, &pem.Block{Type: "CERTIFICATE", Bytes: der})
-	cf.Close()
+	cf, err := os.Create(filepath.Join(localDir, "cert.pem"))
+	if err != nil {
+		t.Fatalf("create cert file: %v", err)
+	}
+	if err := pem.Encode(cf, &pem.Block{Type: "CERTIFICATE", Bytes: der}); err != nil {
+		t.Fatalf("encode cert: %v", err)
+	}
+	if err := cf.Close(); err != nil {
+		t.Fatalf("close cert file: %v", err)
+	}
 
-	privDER, _ := x509.MarshalECPrivateKey(priv)
-	kf, _ := os.Create(filepath.Join(localDir, "key.pem"))
-	pem.Encode(kf, &pem.Block{Type: "EC PRIVATE KEY", Bytes: privDER})
-	kf.Close()
+	privDER, err := x509.MarshalECPrivateKey(priv)
+	if err != nil {
+		t.Fatalf("marshal private key: %v", err)
+	}
+	kf, err := os.Create(filepath.Join(localDir, "key.pem"))
+	if err != nil {
+		t.Fatalf("create key file: %v", err)
+	}
+	if err := pem.Encode(kf, &pem.Block{Type: "EC PRIVATE KEY", Bytes: privDER}); err != nil {
+		t.Fatalf("encode key: %v", err)
+	}
+	if err := kf.Close(); err != nil {
+		t.Fatalf("close key file: %v", err)
+	}
 
 	m := NewSSLManager(SSLManagerConfig{
 		Enabled:  true,
@@ -683,8 +798,7 @@ func TestRenewIfExpiring_Expiring_LEEnabled(t *testing.T) {
 		},
 	})
 
-	err := m.RenewIfExpiring([]string{domain}, 7)
-	if err != nil {
+	if err := m.RenewIfExpiring([]string{domain}, 7); err != nil {
 		t.Errorf("RenewIfExpiring with LE enabled on expiring cert: %v", err)
 	}
 }
@@ -698,16 +812,19 @@ func TestRenewIfExpiring_InvalidPEM(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	os.WriteFile(filepath.Join(localDir, "cert.pem"), []byte("not-pem"), 0600)
-	os.WriteFile(filepath.Join(localDir, "key.pem"), []byte("not-pem"), 0600)
+	if err := os.WriteFile(filepath.Join(localDir, "cert.pem"), []byte("not-pem"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(localDir, "key.pem"), []byte("not-pem"), 0600); err != nil {
+		t.Fatal(err)
+	}
 
 	m := NewSSLManager(SSLManagerConfig{
 		Enabled:  true,
 		CertPath: dir,
 	})
 
-	err := m.RenewIfExpiring([]string{domain}, 7)
-	if err != nil {
+	if err := m.RenewIfExpiring([]string{domain}, 7); err != nil {
 		t.Errorf("invalid PEM should be silently ignored (nil block), got: %v", err)
 	}
 }
@@ -739,13 +856,21 @@ func TestRenewIfExpiring_Expiring_AppManagedLE_ForcesReissue(t *testing.T) {
 	der, _ := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &priv.PublicKey, priv)
 
 	cf, _ := os.Create(filepath.Join(leDir, "fullchain.pem"))
-	pem.Encode(cf, &pem.Block{Type: "CERTIFICATE", Bytes: der})
-	cf.Close()
+	if err := pem.Encode(cf, &pem.Block{Type: "CERTIFICATE", Bytes: der}); err != nil {
+		t.Fatal(err)
+	}
+	if err := cf.Close(); err != nil {
+		t.Fatal(err)
+	}
 
 	privDER, _ := x509.MarshalECPrivateKey(priv)
 	kf, _ := os.Create(filepath.Join(leDir, "privkey.pem"))
-	pem.Encode(kf, &pem.Block{Type: "EC PRIVATE KEY", Bytes: privDER})
-	kf.Close()
+	if err := pem.Encode(kf, &pem.Block{Type: "EC PRIVATE KEY", Bytes: privDER}); err != nil {
+		t.Fatal(err)
+	}
+	if err := kf.Close(); err != nil {
+		t.Fatal(err)
+	}
 
 	m := NewSSLManager(SSLManagerConfig{
 		Enabled:  true,
@@ -943,7 +1068,11 @@ func TestValidateDNSCredentials_Success(t *testing.T) {
 
 	// dnsProvider() injects credentials into real process env vars per lego's
 	// convention; clean up so later tests in this package aren't affected.
-	t.Cleanup(func() { os.Unsetenv("CLOUDFLARE_DNS_API_TOKEN") })
+	t.Cleanup(func() {
+		if err := os.Unsetenv("CLOUDFLARE_DNS_API_TOKEN"); err != nil {
+			t.Errorf("unset cloudflare token: %v", err)
+		}
+	})
 
 	if err := m.ValidateDNSCredentials(); err != nil {
 		t.Fatalf("ValidateDNSCredentials: %v", err)
@@ -973,9 +1102,11 @@ func TestValidateDNSCredentials_MalformedCredentialsFails(t *testing.T) {
 
 	// Ensure no leftover cloudflare env vars from other tests or the host
 	// environment mask the missing-credentials failure this test asserts.
-	os.Unsetenv("CLOUDFLARE_DNS_API_TOKEN")
-	os.Unsetenv("CLOUDFLARE_API_KEY")
-	os.Unsetenv("CLOUDFLARE_EMAIL")
+	for _, key := range []string{"CLOUDFLARE_DNS_API_TOKEN", "CLOUDFLARE_API_KEY", "CLOUDFLARE_EMAIL"} {
+		if err := os.Unsetenv(key); err != nil {
+			t.Fatalf("unset %s: %v", key, err)
+		}
+	}
 
 	callbackInvoked := false
 	m.config.OnDNSCredentialsValidated = func(string) { callbackInvoked = true }

@@ -210,12 +210,13 @@ func TestDefaultHandler(t *testing.T) {
 	}
 	req.Header.Set("Accept", "text/html")
 	req.Header.Set("User-Agent", "Mozilla/5.0 (compatible browser)")
+	req.AddCookie(&http.Cookie{Name: "ipgaze_pref_widget", Value: "city"})
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, _ := io.ReadAll(resp.Body)
 
 	if resp.StatusCode != http.StatusOK {
@@ -223,6 +224,9 @@ func TestDefaultHandler(t *testing.T) {
 	}
 	if !strings.Contains(string(body), "html") {
 		t.Errorf("expected HTML response, got: %s", string(body)[:min(200, len(body))])
+	}
+	if !strings.Contains(string(body), `data-widget="city"`) {
+		t.Errorf("landing page did not honor the widget preference: %s", string(body)[:min(500, len(body))])
 	}
 }
 

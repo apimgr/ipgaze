@@ -24,6 +24,7 @@
 - Host documentation on ReadTheDocs via MkDocs Material (`mkdocs.yml`, `.readthedocs.yaml`) with dark/light/auto theme switching per PART 16
 - Keep all of `docs/index.md`, `installation.md`, `configuration.md`, `api.md`, `security.md`, `integrations.md`, `development.md`, `requirements.txt` present and current; add `cli.md` if the project ships a CLI
 - Document any public discovery/standards endpoints (`/.well-known/**`, Swagger/GraphQL docs, autodiscover, OAuth/OIDC metadata, native app association files, security-reporting endpoints) in the relevant docs page
+- Document and validate MCP at `/api/{api_version}/server/mcp` plus `/api/mcp` and `/mcp`, including Streamable HTTP, Bearer auth, disabled behavior, and generated tool coverage
 - Support all 7 required languages (en, es, zh, fr, ar, de, ja) with locale files at `src/common/i18n/locales/{lang}.json`, embedded via `go:embed`
 - Resolve language via `?lang= query param → lang cookie → Accept-Language header → default en`; resolve `--lang` CLI flag via `flag > config > LANG/LC_ALL env > default en`
 - Use dot-separated lowercase translation keys; nest plurals under `zero/one/two/few/many/other` per language's actual plural rules (e.g. Arabic uses all six categories, English/German/Spanish use only `one`/`other`)

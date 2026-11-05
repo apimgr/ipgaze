@@ -24,6 +24,18 @@
         {{end}}
       </select>
     </div>
+    <div class="form-group">
+      <label for="preferences-widget">{{t .Lang "preferences.default_widget_label"}}</label>
+      <select id="preferences-widget" name="ipgaze_pref_widget" class="form-control">
+        <option value="ip"{{if eq .DefaultWidget "ip"}} selected{{end}}>ip</option>
+        <option value="country"{{if eq .DefaultWidget "country"}} selected{{end}}>country</option>
+        <option value="country-iso"{{if eq .DefaultWidget "country-iso"}} selected{{end}}>country-iso</option>
+        <option value="city"{{if eq .DefaultWidget "city"}} selected{{end}}>city</option>
+        <option value="asn"{{if eq .DefaultWidget "asn"}} selected{{end}}>asn</option>
+        <option value="json"{{if eq .DefaultWidget "json"}} selected{{end}}>json</option>
+        <option value="port"{{if eq .DefaultWidget "port"}} selected{{end}}>port</option>
+      </select>
+    </div>
     <button type="submit" class="btn btn-primary">{{t .Lang "preferences.save"}}</button>
   </form>
 </section>

@@ -60,7 +60,9 @@ func TestCheckForUpdateStable_UpToDate(t *testing.T) {
 	release := Release{TagName: "v1.0.0", Prerelease: false}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(release)
+		if err := json.NewEncoder(w).Encode(release); err != nil {
+			t.Errorf("encode release response: %v", err)
+		}
 	}))
 	defer srv.Close()
 
@@ -81,7 +83,9 @@ func TestCheckForUpdateStable_NewVersion(t *testing.T) {
 	release := Release{TagName: "v1.1.0", Prerelease: false}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(release)
+		if err := json.NewEncoder(w).Encode(release); err != nil {
+			t.Errorf("encode release response: %v", err)
+		}
 	}))
 	defer srv.Close()
 
@@ -108,7 +112,9 @@ func TestCheckForUpdateBeta_UpToDate(t *testing.T) {
 	}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(releases)
+		if err := json.NewEncoder(w).Encode(releases); err != nil {
+			t.Errorf("encode releases response: %v", err)
+		}
 	}))
 	defer srv.Close()
 

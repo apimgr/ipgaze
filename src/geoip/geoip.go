@@ -1,6 +1,7 @@
 package geoip
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -242,16 +243,24 @@ func (m *GeoIPManager) loadDatabases() error {
 	}
 
 	if newASN != nil && oldASN != nil {
-		oldASN.Close()
+		if err := oldASN.Close(); err != nil {
+			log.Printf("geoip: close old ASN database: %v", err)
+		}
 	}
 	if newCountry != nil && oldCountry != nil {
-		oldCountry.Close()
+		if err := oldCountry.Close(); err != nil {
+			log.Printf("geoip: close old country database: %v", err)
+		}
 	}
 	if newCityV4 != nil && oldCityV4 != nil {
-		oldCityV4.Close()
+		if err := oldCityV4.Close(); err != nil {
+			log.Printf("geoip: close old city IPv4 database: %v", err)
+		}
 	}
 	if newCityV6 != nil && oldCityV6 != nil {
-		oldCityV6.Close()
+		if err := oldCityV6.Close(); err != nil {
+			log.Printf("geoip: close old city IPv6 database: %v", err)
+		}
 	}
 
 	m.refreshLiveReader()
@@ -321,7 +330,7 @@ func (m *GeoIPManager) downloadFile(url, localPath string) error {
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("HTTP %d: %s", resp.StatusCode, resp.Status)
@@ -336,18 +345,16 @@ func (m *GeoIPManager) downloadFile(url, localPath string) error {
 	}
 
 	if _, err := io.Copy(out, resp.Body); err != nil {
-		out.Close()
-		os.Remove(tmpPath)
-		return err
+		closeErr := out.Close()
+		removeErr := os.Remove(tmpPath)
+		return errors.Join(err, closeErr, removeErr)
 	}
 	if err := out.Close(); err != nil {
-		os.Remove(tmpPath)
-		return err
+		return errors.Join(err, os.Remove(tmpPath))
 	}
 
 	if err := os.Rename(tmpPath, localPath); err != nil {
-		os.Remove(tmpPath)
-		return err
+		return errors.Join(err, os.Remove(tmpPath))
 	}
 	return nil
 }

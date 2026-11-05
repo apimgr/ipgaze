@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -126,10 +127,11 @@ func NewPagesHandler(version, buildDate string, trust *netutil.TrustResolver, re
 
 // PageData is the template context for simple public pages.
 type PageData struct {
-	Lang         string
-	Dir          string
-	Theme        string
-	CanonicalURL string
+	Lang          string
+	Dir           string
+	Theme         string
+	DefaultWidget string
+	CanonicalURL  string
 	// Robots is the per-route <meta name="robots"> directive computed by
 	// ResolveRobotsDirective (AI.md PART 16 "Robots Directive"). Never
 	// hardcoded in a template: every route that is not explicitly public
@@ -347,18 +349,19 @@ func (h *PagesHandler) NewPageData(r *http.Request) PageData {
 		csrfToken = h.CSRFToken(r)
 	}
 	data := PageData{
-		Lang:         lang,
-		Dir:          dir,
-		Theme:        theme,
-		CanonicalURL: canonicalURL,
-		Robots:       ResolveRobotsDirective(r.URL.Path),
-		CSRFToken:    csrfToken,
-		CurrentYear:  time.Now().Year(),
-		Version:      h.Version,
-		BuildDate:    h.BuildDate,
-		ProjectName:  "IPGaze",
-		RepoURL:      "https://github.com/apimgr/ipgaze",
-		Host:         r.Host,
+		Lang:          lang,
+		Dir:           dir,
+		Theme:         theme,
+		DefaultWidget: lookupWidgetPreference(r),
+		CanonicalURL:  canonicalURL,
+		Robots:        ResolveRobotsDirective(r.URL.Path),
+		CSRFToken:     csrfToken,
+		CurrentYear:   time.Now().Year(),
+		Version:       h.Version,
+		BuildDate:     h.BuildDate,
+		ProjectName:   "IPGaze",
+		RepoURL:       "https://github.com/apimgr/ipgaze",
+		Host:          r.Host,
 	}
 	if h.Config != nil && h.Config.Server.Branding.Title != "" {
 		data.ProjectName = h.Config.Server.Branding.Title
@@ -958,11 +961,11 @@ func (h *PagesHandler) APIV1ServerSecurityHandler(w http.ResponseWriter, r *http
 // redirect attacks. Falls back to "/" for anything absolute, protocol-relative, or
 // pointing at a different host.
 func safeRedirectTarget(r *http.Request, target string) string {
-	if target == "" {
+	if target == "" || strings.ContainsAny(target, "\r\n") {
 		return "/"
 	}
 	// Reject protocol-relative URLs ("//evil.com") and anything not starting with "/".
-	if !strings.HasPrefix(target, "/") || strings.HasPrefix(target, "//") {
+	if !strings.HasPrefix(target, "/") || strings.HasPrefix(target, "//") || strings.HasPrefix(target, "/\\") {
 		return "/"
 	}
 	u, err := url.Parse(target)
@@ -979,6 +982,51 @@ func safeRedirectTarget(r *http.Request, target string) string {
 		out += "?" + u.RawQuery
 	}
 	return out
+}
+
+func preferencesRedirectTarget(r *http.Request, trust *netutil.TrustResolver) string {
+	if target, ok := validPreferencesRedirect(r.URL.Query().Get("redirect")); ok {
+		return target
+	}
+	if referer := r.Referer(); referer != "" {
+		if strings.HasPrefix(referer, "/") {
+			if target, ok := validPreferencesRedirect(referer); ok {
+				return target
+			}
+		}
+		ref, err := url.Parse(referer)
+		if err == nil {
+			origin, originErr := url.Parse(netutil.BuildURL(r, trust, "/"))
+			if originErr == nil && strings.EqualFold(ref.Scheme, origin.Scheme) && strings.EqualFold(ref.Host, origin.Host) {
+				candidate := ref.EscapedPath()
+				if ref.RawQuery != "" {
+					candidate += "?" + ref.RawQuery
+				}
+				if target, ok := validPreferencesRedirect(candidate); ok {
+					return target
+				}
+			}
+		}
+	}
+	return "/"
+}
+
+func validPreferencesRedirect(target string) (string, bool) {
+	if target == "" || !strings.HasPrefix(target, "/") || strings.HasPrefix(target, "//") || strings.HasPrefix(target, "/\\") || strings.ContainsAny(target, "\r\n") {
+		return "", false
+	}
+	u, err := url.Parse(target)
+	if err != nil || u.IsAbs() || u.Host != "" {
+		return "", false
+	}
+	if u.Path == "/server/preferences" || u.Path == "/server/preferences/import" || u.Path == "/server/preferences/export" {
+		return "", false
+	}
+	path := u.EscapedPath()
+	if u.RawQuery != "" {
+		path += "?" + u.RawQuery
+	}
+	return path, true
 }
 
 // ConsentHandler handles POST /server/consent — records the user's cookie consent choice.
@@ -1034,7 +1082,7 @@ func (h *PagesHandler) ConsentHandler(w http.ResponseWriter, r *http.Request) {
 		MaxAge:   365 * 24 * 60 * 60,
 		HttpOnly: false,
 		SameSite: http.SameSiteLaxMode,
-		Secure:   r.TLS != nil,
+		Secure:   isSecurePreferenceRequest(r, h.Trust),
 	})
 	// PRG redirect for no-JS browser form submissions (Accept: text/html).
 	// JS fetch does not set text/html in Accept, so it receives 204 and handles the UI update.
@@ -1109,19 +1157,30 @@ func (h *PagesHandler) ServerPreferencesUpdateHandler(w http.ResponseWriter, r *
 		http.Error(w, i18n.T(r.Context(), "errors.method_not_allowed"), http.StatusMethodNotAllowed)
 		return
 	}
-	if submitted := r.FormValue("theme"); submitted != "" {
-		setThemeCookie(w, r, normalizeThemeValue(submitted))
+	if submitted := r.FormValue("theme"); isValidTheme(submitted) {
+		setThemeCookie(w, r, h.Trust, normalizeThemeValue(submitted))
 	}
-	if submitted := r.FormValue("lang"); submitted != "" && i18n.IsSupported(submitted) {
-		i18n.SetLangCookie(w, r, submitted)
+	if submitted := r.FormValue("lang"); submitted != "" {
+		if canonical := canonicalPreferenceLanguage(submitted); canonical != "" {
+			setLangPreferenceCookie(w, r, h.Trust, canonical)
+		}
 	}
-	ref := safeRedirectTarget(r, r.Referer())
-	http.Redirect(w, r, ref, http.StatusSeeOther)
+	if submitted := r.FormValue(lookupWidgetPreferenceCookie); submitted != "" {
+		setLookupWidgetPreference(w, r, h.Trust, submitted)
+	}
+	ref := preferencesRedirectTarget(r, h.Trust)
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Location", ref)
+	w.WriteHeader(http.StatusSeeOther)
 }
 
 // normalizeThemeValue validates a submitted theme against the allowed enum
 // (AI.md PART 16 "Client-Side Preferences"), falling back to the project
 // default for anything unknown or malformed.
+func isValidTheme(theme string) bool {
+	return theme == "light" || theme == "dark" || theme == "auto"
+}
+
 func normalizeThemeValue(theme string) string {
 	switch theme {
 	case "light", "dark", "auto":
@@ -1133,7 +1192,7 @@ func normalizeThemeValue(theme string) string {
 
 // setThemeCookie writes the visitor's theme cookie. Shared by the web form
 // handler and its JSON API mirror so both persist the preference identically.
-func setThemeCookie(w http.ResponseWriter, r *http.Request, theme string) {
+func setThemeCookie(w http.ResponseWriter, r *http.Request, trust *netutil.TrustResolver, theme string) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     "theme",
 		Value:    theme,
@@ -1141,7 +1200,14 @@ func setThemeCookie(w http.ResponseWriter, r *http.Request, theme string) {
 		MaxAge:   365 * 24 * 60 * 60,
 		HttpOnly: false,
 		SameSite: http.SameSiteLaxMode,
-		Secure:   r.TLS != nil,
+		Secure:   isSecurePreferenceRequest(r, trust),
+	})
+}
+
+func setLangPreferenceCookie(w http.ResponseWriter, r *http.Request, trust *netutil.TrustResolver, lang string) {
+	http.SetCookie(w, &http.Cookie{
+		Name: "lang", Value: lang, Path: "/", MaxAge: 365 * 24 * 60 * 60,
+		SameSite: http.SameSiteLaxMode, Secure: isSecurePreferenceRequest(r, trust),
 	})
 }
 
@@ -1220,6 +1286,7 @@ func consentCategories(r *http.Request) (preferences, analytics bool) {
 // to the export action (No-JS-first: the export link/copy button works
 // without JavaScript; JS only adds copy-to-clipboard convenience).
 func (h *PagesHandler) ServerPreferencesHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
 	base := h.NewPageData(r)
 	export := h.buildPreferencesExport(r)
 	consentPreferences, consentAnalytics := consentCategories(r)
@@ -1231,30 +1298,30 @@ func (h *PagesHandler) ServerPreferencesHandler(w http.ResponseWriter, r *http.R
 		ConsentAnalytics:      consentAnalytics,
 	}
 	h.renderNegotiated(w, r, "preferences.tmpl", data, PreferencesResponse{
-		Theme:      export.Theme,
-		Lang:       export.Lang,
-		ExportURL:  export.URL,
-		ExportCode: export.Code,
+		Theme: export.Theme,
+		Lang:  export.Lang,
+		Prefs: export.Prefs,
 	})
 }
 
 // PreferencesResponse is the JSON shape for GET
 // /api/{api_version}/server/preferences.
 type PreferencesResponse struct {
-	Theme      string `json:"theme"`
-	Lang       string `json:"lang"`
-	ExportURL  string `json:"export_url"`
-	ExportCode string `json:"export_code"`
+	Theme   string            `json:"theme"`
+	Lang    string            `json:"lang"`
+	Prefs   map[string]string `json:"prefs"`
+	Applied []string          `json:"applied,omitempty"`
+	Ignored []string          `json:"ignored,omitempty"`
 }
 
 // APIV1ServerPreferencesHandler serves /api/{api_version}/server/preferences (JSON).
 func (h *PagesHandler) APIV1ServerPreferencesHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
 	export := h.buildPreferencesExport(r)
 	SendAPIResponseOK(w, PreferencesResponse{
-		Theme:      export.Theme,
-		Lang:       export.Lang,
-		ExportURL:  export.URL,
-		ExportCode: export.Code,
+		Theme: export.Theme,
+		Lang:  export.Lang,
+		Prefs: export.Prefs,
 	}, nil)
 }
 
@@ -1265,31 +1332,71 @@ func (h *PagesHandler) APIV1ServerPreferencesHandler(w http.ResponseWriter, r *h
 // cookie exactly as the web handler does, and answers with the updated
 // preferences instead of a redirect.
 func (h *PagesHandler) APIV1ServerPreferencesUpdateHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
 	var submitted struct {
-		Theme string `json:"theme"`
-		Lang  string `json:"lang"`
+		Theme string            `json:"theme"`
+		Lang  string            `json:"lang"`
+		Prefs map[string]string `json:"prefs"`
 	}
 	if strings.HasPrefix(r.Header.Get("Content-Type"), "application/json") {
-		// A malformed/empty body just yields a zero-value struct, which
-		// normalizeThemeValue resolves to the default theme.
-		_ = json.NewDecoder(r.Body).Decode(&submitted)
+		var fields map[string]json.RawMessage
+		if err := json.NewDecoder(r.Body).Decode(&fields); err == nil {
+			encoded, _ := json.Marshal(fields)
+			_ = json.Unmarshal(encoded, &submitted)
+			if raw, ok := fields[lookupWidgetPreferenceCookie]; ok {
+				var value string
+				if json.Unmarshal(raw, &value) == nil {
+					if submitted.Prefs == nil {
+						submitted.Prefs = map[string]string{}
+					}
+					submitted.Prefs["widget"] = value
+				}
+			}
+		}
 	} else {
 		submitted.Theme = r.FormValue("theme")
 		submitted.Lang = r.FormValue("lang")
+		if value := r.FormValue(lookupWidgetPreferenceCookie); value != "" {
+			submitted.Prefs = map[string]string{"widget": value}
+		}
 	}
-	theme := normalizeThemeValue(submitted.Theme)
-	setThemeCookie(w, r, theme)
-	lang := i18n.DetectLocale(r)
-	if submitted.Lang != "" && i18n.IsSupported(submitted.Lang) {
-		i18n.SetLangCookie(w, r, submitted.Lang)
-		lang = submitted.Lang
+	theme, lang := h.currentTheme(r), i18n.DetectLocale(r)
+	prefs := currentLookupPreferences(r)
+	appliedNames := []string{}
+	ignored := []string{}
+	if submitted.Theme != "" {
+		if isValidTheme(submitted.Theme) {
+			theme = submitted.Theme
+			setThemeCookie(w, r, h.Trust, theme)
+			appliedNames = append(appliedNames, "theme")
+		} else {
+			ignored = append(ignored, "theme")
+		}
 	}
-	export := h.buildPreferencesExportFor(r, theme, lang)
+	if submitted.Lang != "" {
+		if canonical := canonicalPreferenceLanguage(submitted.Lang); canonical != "" {
+			lang = canonical
+			setLangPreferenceCookie(w, r, h.Trust, lang)
+			appliedNames = append(appliedNames, "lang")
+		} else {
+			ignored = append(ignored, "lang")
+		}
+	}
+	for key, value := range submitted.Prefs {
+		if key == "widget" && validLookupWidget(value) {
+			prefs[key] = value
+			setLookupWidgetPreference(w, r, h.Trust, value)
+			appliedNames = append(appliedNames, lookupWidgetPreferenceCookie)
+		} else {
+			ignored = append(ignored, "ipgaze_pref_"+key)
+		}
+	}
+	if len(appliedNames) == 0 {
+		SendAPIResponseError(w, http.StatusBadRequest, "VALIDATION_FAILED", "No valid preference values were supplied", nil)
+		return
+	}
 	SendAPIResponseOK(w, PreferencesResponse{
-		Theme:      export.Theme,
-		Lang:       export.Lang,
-		ExportURL:  export.URL,
-		ExportCode: export.Code,
+		Theme: theme, Lang: lang, Prefs: prefs, Applied: appliedNames, Ignored: ignored,
 	}, nil)
 }
 
@@ -1299,6 +1406,7 @@ func (h *PagesHandler) APIV1ServerPreferencesUpdateHandler(w http.ResponseWriter
 type preferencesExport struct {
 	Theme string
 	Lang  string
+	Prefs map[string]string
 	URL   string
 	Code  string
 }
@@ -1307,18 +1415,24 @@ type preferencesExport struct {
 // renders both the full import URL and its base64url-encoded short code
 // (AI.md PART 16 "Cross-device preference sync").
 func (h *PagesHandler) buildPreferencesExport(r *http.Request) preferencesExport {
-	return h.buildPreferencesExportFor(r, h.currentTheme(r), i18n.DetectLocale(r))
+	return h.buildPreferencesExportFor(r, h.currentTheme(r), i18n.DetectLocale(r), currentLookupPreferences(r))
 }
 
 // buildPreferencesExportFor renders the export representations for an
 // explicit theme/lang pair rather than the request's current cookies. The
 // preference-update API mirror needs this: the cookie it just set is on the
 // response, so re-reading the request would still report the old value.
-func (h *PagesHandler) buildPreferencesExportFor(r *http.Request, theme, lang string) preferencesExport {
-	query := url.Values{"theme": {theme}, "lang": {lang}}.Encode()
+func (h *PagesHandler) buildPreferencesExportFor(r *http.Request, theme, lang string, prefs map[string]string) preferencesExport {
+	values := url.Values{"theme": {theme}, "lang": {lang}}
+	for key, value := range prefs {
+		if key == "widget" && validLookupWidget(value) {
+			values.Set(lookupWidgetPreferenceCookie, value)
+		}
+	}
+	query := values.Encode()
 	fullURL := netutil.BuildURL(r, h.Trust, "/server/preferences/import?"+query)
 	code := base64.RawURLEncoding.EncodeToString([]byte(query))
-	return preferencesExport{Theme: theme, Lang: lang, URL: fullURL, Code: code}
+	return preferencesExport{Theme: theme, Lang: lang, Prefs: prefs, URL: fullURL, Code: code}
 }
 
 // ServerPreferencesExportHandler serves GET /server/preferences/export — the
@@ -1327,19 +1441,43 @@ func (h *PagesHandler) buildPreferencesExportFor(r *http.Request, theme, lang st
 // working, No-JS-first content rather than a JSON-only response (AI.md PART
 // 16 "Cross-device preference sync" -> "Export").
 func (h *PagesHandler) ServerPreferencesExportHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	export := h.buildPreferencesExport(r)
+	accept := r.Header.Get("Accept")
+	if strings.Contains(accept, "application/json") {
+		SendAPIResponseOK(w, PreferencesExportResponse(export), nil)
+		return
+	}
+	if strings.Contains(accept, "text/plain") && !strings.Contains(accept, "text/html") {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		_, _ = fmt.Fprintf(w, "URL: %s\nCode: %s\n", export.URL, export.Code)
+		return
+	}
 	h.ServerPreferencesHandler(w, r)
 }
 
 // APIV1ServerPreferencesExportHandler serves
 // /api/{api_version}/server/preferences/export (JSON).
 func (h *PagesHandler) APIV1ServerPreferencesExportHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
 	export := h.buildPreferencesExport(r)
-	SendAPIResponseOK(w, PreferencesResponse{
-		Theme:      export.Theme,
-		Lang:       export.Lang,
-		ExportURL:  export.URL,
-		ExportCode: export.Code,
-	}, nil)
+	SendAPIResponseOK(w, PreferencesExportResponse(export), nil)
+}
+
+type PreferencesExportResponse struct {
+	Theme string            `json:"theme"`
+	Lang  string            `json:"lang"`
+	Prefs map[string]string `json:"prefs"`
+	URL   string            `json:"url"`
+	Code  string            `json:"code"`
+}
+
+func currentLookupPreferences(r *http.Request) map[string]string {
+	cookie, err := r.Cookie(lookupWidgetPreferenceCookie)
+	if err != nil || !validLookupWidget(cookie.Value) {
+		return map[string]string{}
+	}
+	return map[string]string{"widget": cookie.Value}
 }
 
 // decodePreferencesCode decodes a base64url short code produced by
@@ -1349,7 +1487,10 @@ func (h *PagesHandler) APIV1ServerPreferencesExportHandler(w http.ResponseWriter
 func decodePreferencesCode(code string) url.Values {
 	raw, err := base64.RawURLEncoding.DecodeString(code)
 	if err != nil {
-		return url.Values{}
+		raw, err = base64.URLEncoding.DecodeString(code)
+		if err != nil {
+			return url.Values{}
+		}
 	}
 	values, err := url.ParseQuery(string(raw))
 	if err != nil {
@@ -1366,33 +1507,116 @@ func decodePreferencesCode(code string) url.Values {
 // value is validated against its normal allowlist; unknown/malformed values
 // are dropped rather than defaulted, so an import never silently forces a
 // theme/lang the visitor didn't ask for.
-func (h *PagesHandler) resolvePreferencesImport(r *http.Request) (theme, lang string) {
+func (h *PagesHandler) resolvePreferencesImport(r *http.Request) (theme, lang string, prefs map[string]string, applied, ignored []string) {
 	q := r.URL.Query()
 	if code := strings.TrimSpace(q.Get("code")); code != "" {
-		if idx := strings.LastIndex(code, "?"); idx != -1 {
-			code = code[idx+1:]
-		}
-		decoded := decodePreferencesCode(code)
-		if q.Get("theme") == "" && decoded.Get("theme") != "" {
-			q.Set("theme", decoded.Get("theme"))
-		}
-		if q.Get("lang") == "" && decoded.Get("lang") != "" {
-			q.Set("lang", decoded.Get("lang"))
+		if len(code) > 2048 {
+			ignored = append(ignored, "code")
+		} else {
+			if idx := strings.Index(code, "?"); idx >= 0 {
+				code = code[idx+1:]
+			}
+			decoded := url.Values{}
+			firstKey := strings.SplitN(code, "=", 2)[0]
+			isPlainQuery := strings.Contains(code, "&") || firstKey == "theme" || firstKey == "lang" || strings.HasPrefix(firstKey, "ipgaze_pref_") || (strings.Contains(code, "=") && !strings.HasSuffix(code, "="))
+			if isPlainQuery {
+				decoded, _ = url.ParseQuery(code)
+			} else if code != "" {
+				decoded = decodePreferencesCode(code)
+			}
+			if len(decoded) == 0 {
+				ignored = append(ignored, "code")
+			}
+			for key, values := range decoded {
+				if _, exists := q[key]; !exists && len(values) > 0 {
+					q.Set(key, values[0])
+				}
+			}
 		}
 	}
-	if candidate := q.Get("theme"); candidate != "" && h.ValidateTheme != nil {
-		// ValidateTheme normalizes to a safe default ("dark") for anything
-		// outside its enum, so a round-trip match confirms the candidate was
-		// already one of the three recognized values — the only signal
-		// ValidateTheme exposes for "valid vs. dropped".
-		if normalized := h.ValidateTheme(candidate); normalized == candidate {
-			theme = normalized
+	keys := make([]string, 0, len(q))
+	for key := range q {
+		if key != "code" && key != "redirect" {
+			keys = append(keys, key)
 		}
 	}
-	if candidate := q.Get("lang"); candidate != "" && i18n.IsSupported(candidate) {
-		lang = candidate
+	sort.Strings(keys)
+	if len(keys) > 32 {
+		ignored = append(ignored, keys[32:]...)
+		keys = keys[:32]
 	}
-	return theme, lang
+	theme, lang = h.currentTheme(r), i18n.DetectLocale(r)
+	prefs = currentLookupPreferences(r)
+	for _, key := range keys {
+		values := q[key]
+		if len(values) == 0 {
+			ignored = append(ignored, key)
+			continue
+		}
+		value := values[0]
+		if len(value) > 64 {
+			ignored = append(ignored, key)
+			continue
+		}
+		switch key {
+		case "theme":
+			if isValidTheme(value) {
+				theme = value
+				applied = append(applied, key)
+			} else {
+				ignored = append(ignored, key)
+			}
+		case "lang":
+			canonical := canonicalPreferenceLanguage(value)
+			if canonical != "" {
+				lang = canonical
+				applied = append(applied, key)
+			} else {
+				ignored = append(ignored, key)
+			}
+		case lookupWidgetPreferenceCookie:
+			if validLookupWidget(value) {
+				prefs["widget"] = value
+				applied = append(applied, key)
+			} else {
+				ignored = append(ignored, key)
+			}
+		default:
+			ignored = append(ignored, key)
+		}
+	}
+	if applied == nil {
+		applied = []string{}
+	}
+	if ignored == nil {
+		ignored = []string{}
+	}
+	return theme, lang, prefs, applied, ignored
+}
+
+func canonicalPreferenceLanguage(candidate string) string {
+	for _, supported := range i18n.AvailableLanguages() {
+		if strings.EqualFold(candidate, supported.Code) {
+			return supported.Code
+		}
+	}
+	if base, _, ok := strings.Cut(candidate, "-"); ok {
+		for _, supported := range i18n.AvailableLanguages() {
+			if strings.EqualFold(base, supported.Code) {
+				return supported.Code
+			}
+		}
+	}
+	return ""
+}
+
+func containsPreference(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
 }
 
 // ServerPreferencesImportHandler handles GET /server/preferences/import —
@@ -1404,9 +1628,9 @@ func (h *PagesHandler) resolvePreferencesImport(r *http.Request) (theme, lang st
 // error — an untrusted query param is not grounds for a 400 on a plain link
 // click.
 func (h *PagesHandler) ServerPreferencesImportHandler(w http.ResponseWriter, r *http.Request) {
-	theme, lang := h.resolvePreferencesImport(r)
-	secure := r.TLS != nil
-	if theme != "" {
+	theme, lang, prefs, applied, _ := h.resolvePreferencesImport(r)
+	secure := isSecurePreferenceRequest(r, h.Trust)
+	if containsPreference(applied, "theme") {
 		http.SetCookie(w, &http.Cookie{
 			Name:     "theme",
 			Value:    theme,
@@ -1417,11 +1641,18 @@ func (h *PagesHandler) ServerPreferencesImportHandler(w http.ResponseWriter, r *
 			Secure:   secure,
 		})
 	}
-	if lang != "" {
-		i18n.SetLangCookie(w, r, lang)
+	if containsPreference(applied, "lang") {
+		setLangPreferenceCookie(w, r, h.Trust, lang)
 	}
-	ref := safeRedirectTarget(r, r.Referer())
-	http.Redirect(w, r, ref, http.StatusSeeOther)
+	if containsPreference(applied, lookupWidgetPreferenceCookie) {
+		if value := prefs["widget"]; value != "" {
+			setLookupWidgetPreference(w, r, h.Trust, value)
+		}
+	}
+	ref := preferencesRedirectTarget(r, h.Trust)
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Location", ref)
+	w.WriteHeader(http.StatusSeeOther)
 }
 
 // PreferencesImportResponse is the JSON shape for GET
@@ -1429,8 +1660,11 @@ func (h *PagesHandler) ServerPreferencesImportHandler(w http.ResponseWriter, r *
 // actually applied (empty string means the corresponding param was missing,
 // unknown, or malformed and was dropped).
 type PreferencesImportResponse struct {
-	Theme string `json:"theme"`
-	Lang  string `json:"lang"`
+	Theme   string            `json:"theme"`
+	Lang    string            `json:"lang"`
+	Prefs   map[string]string `json:"prefs"`
+	Applied []string          `json:"applied"`
+	Ignored []string          `json:"ignored"`
 }
 
 // APIV1ServerPreferencesImportHandler serves
@@ -1438,9 +1672,10 @@ type PreferencesImportResponse struct {
 // it does not redirect — it sets whichever cookies validated and returns a
 // JSON confirmation of what was applied.
 func (h *PagesHandler) APIV1ServerPreferencesImportHandler(w http.ResponseWriter, r *http.Request) {
-	theme, lang := h.resolvePreferencesImport(r)
-	secure := r.TLS != nil
-	if theme != "" {
+	w.Header().Set("Cache-Control", "no-store")
+	theme, lang, prefs, applied, ignored := h.resolvePreferencesImport(r)
+	secure := isSecurePreferenceRequest(r, h.Trust)
+	if containsPreference(applied, "theme") {
 		http.SetCookie(w, &http.Cookie{
 			Name:     "theme",
 			Value:    theme,
@@ -1451,10 +1686,15 @@ func (h *PagesHandler) APIV1ServerPreferencesImportHandler(w http.ResponseWriter
 			Secure:   secure,
 		})
 	}
-	if lang != "" {
-		i18n.SetLangCookie(w, r, lang)
+	if containsPreference(applied, "lang") {
+		setLangPreferenceCookie(w, r, h.Trust, lang)
 	}
-	SendAPIResponseOK(w, PreferencesImportResponse{Theme: theme, Lang: lang}, nil)
+	if containsPreference(applied, lookupWidgetPreferenceCookie) {
+		if value := prefs["widget"]; value != "" {
+			setLookupWidgetPreference(w, r, h.Trust, value)
+		}
+	}
+	SendAPIResponseOK(w, PreferencesImportResponse{Theme: theme, Lang: lang, Prefs: prefs, Applied: applied, Ignored: ignored}, nil)
 }
 
 // DismissAnnouncementHandler handles POST /announcements/dismiss.

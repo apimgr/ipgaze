@@ -184,7 +184,6 @@ Each overrides `cli.yml` and is in turn overridden by the matching flag.
 |----------|-------------|
 | `IPGAZE_DEBUG` | Enable client debug output; accepts any truthy value (`true`, `1`, `yes`, `on`). Overridden by `--debug` |
 | `IPGAZE_SERVER_TIMEOUT` | HTTP request timeout, as a Go duration (`5s`, `1m`) or a bare number of seconds (`12`). Invalid values fall back to the built-in default |
-| `IPGAZE_SERVER_PRIMARY` | Server base URL. Overridden by `--server`; falls back to `server.primary` in `cli.yml`, then the compiled-in official site |
 | `IPGAZE_TOKEN` | API token. Resolved after `--token`/`--token-file` and before `auth.token`/`auth.token_file` in `cli.yml` |
 | `IPGAZE_OUTPUT_FORMAT` | Output format. Overridden by `--output`; falls back to `output.format` in `cli.yml` |
 

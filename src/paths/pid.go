@@ -25,24 +25,38 @@ func CheckPIDFile(pidPath string) (bool, int, error) {
 	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
 	if err != nil {
 		// Corrupt PID file — remove it and continue
-		os.Remove(pidPath)
+		if err := removeStalePIDFile(pidPath); err != nil {
+			return false, 0, fmt.Errorf("remove corrupt pid file: %w", err)
+		}
 		return false, 0, nil
 	}
 
 	if !isProcessRunning(pid) {
 		// Stale PID file — remove it
-		os.Remove(pidPath)
+		if err := removeStalePIDFile(pidPath); err != nil {
+			return false, 0, fmt.Errorf("remove stale pid file: %w", err)
+		}
 		return false, 0, nil
 	}
 
 	// Process exists — verify it is actually our binary (not PID reuse)
 	if !isOurProcess(pid) {
 		// PID was reused by another process — remove stale file
-		os.Remove(pidPath)
+		if err := removeStalePIDFile(pidPath); err != nil {
+			return false, 0, fmt.Errorf("remove stale pid file: %w", err)
+		}
 		return false, 0, nil
 	}
 
 	return true, pid, nil
+}
+
+func removeStalePIDFile(pidPath string) error {
+	err := os.Remove(pidPath)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	return err
 }
 
 // WritePIDFile writes the current process PID to the given file.

@@ -213,7 +213,7 @@ func writeMaintenanceRejection(w http.ResponseWriter, r *http.Request, code stri
 	if detectClientType(r) == "html" {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.WriteHeader(http.StatusServiceUnavailable)
-		fmt.Fprint(w, "<!DOCTYPE html><html><head><title>503 Maintenance Mode</title></head>"+
+		_, _ = fmt.Fprint(w, "<!DOCTYPE html><html><head><title>503 Maintenance Mode</title></head>"+
 			"<body><h1>503</h1><p>The server is in read-only maintenance mode. "+
 			"Please retry shortly.</p><a href=\"/\">Home</a></body></html>")
 		return
@@ -225,5 +225,5 @@ func writeMaintenanceRejection(w http.ResponseWriter, r *http.Request, code stri
 	if code != "" {
 		body += fmt.Sprintf(`,"details":{"reason":%q,"self_healing":true}`, code)
 	}
-	fmt.Fprint(w, body+"}\n")
+	_, _ = fmt.Fprint(w, body+"}\n")
 }

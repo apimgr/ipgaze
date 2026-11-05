@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -70,7 +71,7 @@ func CheckForUpdate(ctx context.Context, currentVersion, branch string, buildEpo
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode == http.StatusNotFound {
 		return nil, nil
@@ -121,7 +122,7 @@ func CheckForUpdate(ctx context.Context, currentVersion, branch string, buildEpo
 // DoUpdate downloads the release binary, verifies its SHA-256 checksum, and
 // atomically replaces the running binary. The caller is responsible for
 // restarting the process (RestartSelf) afterwards.
-func DoUpdate(ctx context.Context, release *Release) error {
+func DoUpdate(ctx context.Context, release *Release) (retErr error) {
 	assetName := getBinaryName()
 	var downloadURL string
 	for _, a := range release.Assets {
@@ -150,30 +151,36 @@ func DoUpdate(ctx context.Context, release *Release) error {
 		return fmt.Errorf("cannot create temp file: %w", err)
 	}
 	tmpPath := tmpFile.Name()
-	defer os.Remove(tmpPath)
+	defer func() {
+		if err := os.Remove(tmpPath); err != nil && !os.IsNotExist(err) {
+			retErr = errors.Join(retErr, fmt.Errorf("remove temporary update file: %w", err))
+		}
+	}()
 
 	dlReq, err := http.NewRequestWithContext(ctx, http.MethodGet, downloadURL, nil)
 	if err != nil {
-		tmpFile.Close()
-		return err
+		return errors.Join(err, tmpFile.Close())
 	}
 	dlResp, err := client.Do(dlReq)
 	if err != nil {
-		tmpFile.Close()
-		return fmt.Errorf("download failed: %w", err)
+		return errors.Join(fmt.Errorf("download failed: %w", err), tmpFile.Close())
 	}
-	defer dlResp.Body.Close()
+	defer func() {
+		if err := dlResp.Body.Close(); err != nil {
+			retErr = errors.Join(retErr, fmt.Errorf("close downloaded response: %w", err))
+		}
+	}()
 	if dlResp.StatusCode != http.StatusOK {
-		tmpFile.Close()
-		return fmt.Errorf("download HTTP %d", dlResp.StatusCode)
+		return errors.Join(fmt.Errorf("download HTTP %d", dlResp.StatusCode), tmpFile.Close())
 	}
 
 	h := sha256.New()
 	if _, err := io.Copy(io.MultiWriter(tmpFile, h), dlResp.Body); err != nil {
-		tmpFile.Close()
-		return fmt.Errorf("write failed: %w", err)
+		return errors.Join(fmt.Errorf("write failed: %w", err), tmpFile.Close())
 	}
-	tmpFile.Close()
+	if err := tmpFile.Close(); err != nil {
+		return fmt.Errorf("close temporary update file: %w", err)
+	}
 
 	// Verify checksum before touching the running binary.
 	actualSum := hex.EncodeToString(h.Sum(nil))
@@ -232,7 +239,7 @@ func fetchExpectedChecksum(ctx context.Context, client *http.Client, release *Re
 	if err != nil {
 		return "", fmt.Errorf("checksum fetch failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("checksum download failed: %d", resp.StatusCode)
 	}

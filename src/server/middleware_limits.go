@@ -68,14 +68,14 @@ func writePayloadTooLarge(w http.ResponseWriter, r *http.Request) {
 	if detectClientType(r) == "html" {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.WriteHeader(http.StatusRequestEntityTooLarge)
-		fmt.Fprint(w, "<!DOCTYPE html><html><head><title>413 Payload Too Large</title></head>"+
+		_, _ = fmt.Fprint(w, "<!DOCTYPE html><html><head><title>413 Payload Too Large</title></head>"+
 			"<body><h1>413</h1><p>The request body exceeds the maximum allowed size.</p>"+
 			"<a href=\"/\">Home</a></body></html>")
 		return
 	}
 	w.Header().Set("Content-Type", jsonMediaType)
 	w.WriteHeader(http.StatusRequestEntityTooLarge)
-	fmt.Fprint(w, `{"ok":false,"error":"PAYLOAD_TOO_LARGE","message":"Request body exceeds the maximum allowed size"}`+"\n")
+	_, _ = fmt.Fprint(w, `{"ok":false,"error":"PAYLOAD_TOO_LARGE","message":"Request body exceeds the maximum allowed size"}`+"\n")
 }
 
 // gzipResponseWriter defers the compress-or-not decision to the first
@@ -130,7 +130,7 @@ func (w *gzipResponseWriter) Write(b []byte) (int, error) {
 
 func (w *gzipResponseWriter) Flush() {
 	if w.gz != nil {
-		w.gz.Flush()
+		_ = w.gz.Flush()
 	}
 	if f, ok := w.ResponseWriter.(http.Flusher); ok {
 		f.Flush()
@@ -176,7 +176,7 @@ func CompressionMiddleware(cfg config.CompressionConfig) func(http.Handler) http
 				return
 			}
 			gw := &gzipResponseWriter{ResponseWriter: w, types: types, level: level}
-			defer gw.Close()
+			defer func() { _ = gw.Close() }()
 			next.ServeHTTP(gw, r)
 		})
 	}

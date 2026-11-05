@@ -348,7 +348,7 @@ func TestDatabaseConfig_ValidateLibSQL_OKWithURL(t *testing.T) {
 // ────────────────────────────── IsDebug ───────────────────────────────
 
 func TestIsDebug_FalseByDefault(t *testing.T) {
-	os.Unsetenv("DEBUG")
+	t.Setenv("DEBUG", "")
 	cfg := DefaultConfig()
 	if cfg.IsDebug() {
 		t.Error("IsDebug: want false when DEBUG env unset and mode is production")
@@ -356,8 +356,7 @@ func TestIsDebug_FalseByDefault(t *testing.T) {
 }
 
 func TestIsDebug_TrueViaDEBUGEnvVar(t *testing.T) {
-	os.Setenv("DEBUG", "true")
-	defer os.Unsetenv("DEBUG")
+	t.Setenv("DEBUG", "true")
 
 	cfg := DefaultConfig()
 	if !cfg.IsDebug() {
@@ -368,25 +367,25 @@ func TestIsDebug_TrueViaDEBUGEnvVar(t *testing.T) {
 func TestIsDebug_TrueViaDEBUGEnvVar_Truthy(t *testing.T) {
 	truthyInputs := []string{"1", "yes", "on", "enabled", "enable"}
 	for _, v := range truthyInputs {
-		os.Setenv("DEBUG", v)
+		t.Setenv("DEBUG", v)
 		cfg := DefaultConfig()
 		if !cfg.IsDebug() {
 			t.Errorf("IsDebug: want true when DEBUG=%q", v)
 		}
 	}
-	os.Unsetenv("DEBUG")
+	t.Setenv("DEBUG", "")
 }
 
 func TestIsDebug_FalseViaDEBUGEnvVar_Falsy(t *testing.T) {
 	falsyInputs := []string{"0", "no", "off", "false", "disabled"}
 	for _, v := range falsyInputs {
-		os.Setenv("DEBUG", v)
+		t.Setenv("DEBUG", v)
 		cfg := DefaultConfig()
 		if cfg.IsDebug() {
 			t.Errorf("IsDebug: want false when DEBUG=%q", v)
 		}
 	}
-	os.Unsetenv("DEBUG")
+	t.Setenv("DEBUG", "")
 }
 
 func TestIsDebug_TrueViaEnv(t *testing.T) {
@@ -399,7 +398,7 @@ func TestIsDebug_TrueViaEnv(t *testing.T) {
 }
 
 func TestIsDebug_FalseViaModeProduction(t *testing.T) {
-	os.Unsetenv("DEBUG")
+	t.Setenv("DEBUG", "")
 	cfg := DefaultConfig()
 	cfg.Server.Mode = "production"
 	if cfg.IsDebug() {
@@ -856,8 +855,12 @@ func TestMigrateYamlToYml_BothExistNoRename(t *testing.T) {
 	yamlPath := filepath.Join(dir, "server.yaml")
 	ymlPath := filepath.Join(dir, "server.yml")
 
-	os.WriteFile(yamlPath, []byte("yaml: content"), 0644)
-	os.WriteFile(ymlPath, []byte("yml: content"), 0644)
+	if err := os.WriteFile(yamlPath, []byte("yaml: content"), 0644); err != nil {
+		t.Fatalf("write yaml file: %v", err)
+	}
+	if err := os.WriteFile(ymlPath, []byte("yml: content"), 0644); err != nil {
+		t.Fatalf("write yml file: %v", err)
+	}
 
 	got := migrateYamlToYml(ymlPath)
 	if got != ymlPath {
@@ -990,7 +993,9 @@ func TestReloadConfigFromFile_InvalidYAML(t *testing.T) {
 		t.Fatalf("LoadConfigFromFile: %v", err)
 	}
 
-	os.WriteFile(path, []byte("{broken yaml: ["), 0644)
+	if err := os.WriteFile(path, []byte("{broken yaml: ["), 0644); err != nil {
+		t.Fatalf("write invalid YAML: %v", err)
+	}
 
 	if err := reloadConfigFromFile(); err == nil {
 		t.Error("reloadConfigFromFile on invalid YAML: want error, got nil")
@@ -1210,6 +1215,7 @@ func TestConfigManager_Start_StopCleanly(t *testing.T) {
 	stop := m.Start()
 	// Must not block or panic
 	stop()
+	stop()
 }
 
 // ─────────────────────────── categorizeChanges ───────────────────────────────
@@ -1218,6 +1224,9 @@ func TestCategorizeChanges_RestartRequired(t *testing.T) {
 	restartTriggers := []string{
 		"server.port",
 		"server.address",
+		"server.ssl.enabled",
+		"server.database.path",
+		"server.tor.enabled",
 		"ssl.enabled",
 		"ssl.cert",
 		"ssl.key",
@@ -1263,10 +1272,13 @@ func TestCategorizeChanges_RestartRequired_WholeSectionPrefixes(t *testing.T) {
 
 func TestCategorizeChanges_HotReloadable(t *testing.T) {
 	hotKeys := []string{
-		"logging.level",
+		"server.logging.level",
 		"cors",
+		"web.cors",
 		"branding.title",
+		"server.branding.title",
 		"ratelimit.enabled",
+		"server.rate_limit.enabled",
 	}
 	for _, key := range hotKeys {
 		hotReload, needsRestart := categorizeChanges([]string{key})
@@ -1294,6 +1306,25 @@ func TestCategorizeChanges_Empty(t *testing.T) {
 	hotReload, needsRestart := categorizeChanges(nil)
 	if len(hotReload) != 0 || len(needsRestart) != 0 {
 		t.Error("categorizeChanges(nil): want both slices empty")
+	}
+}
+
+func TestCategorizeReloadChanges(t *testing.T) {
+	hot, graceful, restart := categorizeReloadChanges([]string{
+		"server.logging.level",
+		"server.logging.audit.filename",
+		"server.baseurl",
+		"server.limits.read_timeout",
+		"server.port",
+	})
+	if len(hot) != 1 || hot[0] != "server.logging.level" {
+		t.Errorf("hot changes = %v", hot)
+	}
+	if len(graceful) != 3 {
+		t.Errorf("graceful changes = %v, want 3 settings", graceful)
+	}
+	if len(restart) != 1 || restart[0] != "server.port" {
+		t.Errorf("restart changes = %v", restart)
 	}
 }
 
@@ -1333,8 +1364,8 @@ func TestCompareConfigs_LoggingLevelChange(t *testing.T) {
 	b := DefaultConfig()
 	b.Server.Logging.Level = "debug"
 	changes := compareConfigs(a, b)
-	if !contains(changes, "logging.level") {
-		t.Errorf("compareConfigs: expected logging.level in %v", changes)
+	if !contains(changes, "server.logging.level") {
+		t.Errorf("compareConfigs: expected server.logging.level in %v", changes)
 	}
 }
 
@@ -1343,8 +1374,8 @@ func TestCompareConfigs_RateLimitChange(t *testing.T) {
 	b := DefaultConfig()
 	b.Server.RateLimit.Enabled = false
 	changes := compareConfigs(a, b)
-	if !contains(changes, "ratelimit.enabled") {
-		t.Errorf("compareConfigs: expected ratelimit.enabled in %v", changes)
+	if !contains(changes, "server.rate_limit.enabled") {
+		t.Errorf("compareConfigs: expected server.rate_limit.enabled in %v", changes)
 	}
 }
 
@@ -1353,8 +1384,8 @@ func TestCompareConfigs_CORSChange(t *testing.T) {
 	b := DefaultConfig()
 	b.Web.CORS = "https://example.com"
 	changes := compareConfigs(a, b)
-	if !contains(changes, "cors") {
-		t.Errorf("compareConfigs: expected cors in %v", changes)
+	if !contains(changes, "web.cors") {
+		t.Errorf("compareConfigs: expected web.cors in %v", changes)
 	}
 }
 
@@ -1369,7 +1400,7 @@ func TestCompareConfigs_BrandingChanges(t *testing.T) {
 	b.Server.Branding.ThemeColor = "#ff0000"
 	changes := compareConfigs(a, b)
 
-	for _, key := range []string{"branding.title", "branding.tagline", "branding.description", "branding.logo_url", "branding.favicon_url", "branding.theme_color"} {
+	for _, key := range []string{"server.branding.title", "server.branding.tagline", "server.branding.description", "server.branding.logo_url", "server.branding.favicon_url", "server.branding.theme_color"} {
 		if !contains(changes, key) {
 			t.Errorf("compareConfigs: expected %q in %v", key, changes)
 		}
@@ -1381,8 +1412,8 @@ func TestCompareConfigs_RateLimitReadRequests(t *testing.T) {
 	b := DefaultConfig()
 	b.Server.RateLimit.Read.Requests = 50
 	changes := compareConfigs(a, b)
-	if !contains(changes, "ratelimit.read.requests") {
-		t.Errorf("compareConfigs: expected ratelimit.read.requests in %v", changes)
+	if !contains(changes, "server.rate_limit.read.requests") {
+		t.Errorf("compareConfigs: expected server.rate_limit.read.requests in %v", changes)
 	}
 }
 
@@ -1391,8 +1422,8 @@ func TestCompareConfigs_RateLimitReadWindow(t *testing.T) {
 	b := DefaultConfig()
 	b.Server.RateLimit.Read.Window = 30
 	changes := compareConfigs(a, b)
-	if !contains(changes, "ratelimit.read.window") {
-		t.Errorf("compareConfigs: expected ratelimit.read.window in %v", changes)
+	if !contains(changes, "server.rate_limit.read.window") {
+		t.Errorf("compareConfigs: expected server.rate_limit.read.window in %v", changes)
 	}
 }
 
@@ -1401,8 +1432,18 @@ func TestCompareConfigs_GlobalBurst(t *testing.T) {
 	b := DefaultConfig()
 	b.Server.RateLimit.GlobalBurst = 100
 	changes := compareConfigs(a, b)
-	if !contains(changes, "ratelimit.global_burst") {
-		t.Errorf("compareConfigs: expected ratelimit.global_burst in %v", changes)
+	if !contains(changes, "server.rate_limit.global_burst") {
+		t.Errorf("compareConfigs: expected server.rate_limit.global_burst in %v", changes)
+	}
+}
+
+func TestCompareConfigs_DetectsPreviouslyUnmonitoredSetting(t *testing.T) {
+	a := DefaultConfig()
+	b := DefaultConfig()
+	b.Server.UpdateBranch = "beta"
+	changes := compareConfigs(a, b)
+	if !contains(changes, "server.update_branch") {
+		t.Errorf("compareConfigs: expected server.update_branch in %v", changes)
 	}
 }
 
@@ -1456,6 +1497,35 @@ func TestApplyConfigChanges_HotReloadUpdatesGlobal(t *testing.T) {
 	}
 }
 
+func TestApplyConfigChanges_InvokesRuntimeReloadHandler(t *testing.T) {
+	resetGlobals()
+	mu.Lock()
+	current = DefaultConfig()
+	mu.Unlock()
+
+	called := false
+	m := &ConfigManager{}
+	m.SetReloadHandler(func(cfg *AppConfig, changed []string) error {
+		called = true
+		if cfg.Server.BaseURL != "/nested" {
+			t.Errorf("runtime handler received baseurl %q", cfg.Server.BaseURL)
+		}
+		if !contains(changed, "server.baseurl") {
+			t.Errorf("runtime handler changes = %v", changed)
+		}
+		return nil
+	})
+	newCfg := DefaultConfig()
+	newCfg.Server.BaseURL = "/nested"
+	m.applyConfigChanges(newCfg)
+	if !called {
+		t.Fatal("graceful change did not invoke runtime reload handler")
+	}
+	if m.PendingRestart() {
+		t.Fatal("successful graceful reload should not require restart")
+	}
+}
+
 func TestApplyConfigChanges_RestartRequiredSetsFlag(t *testing.T) {
 	resetGlobals()
 	mu.Lock()
@@ -1474,6 +1544,35 @@ func TestApplyConfigChanges_RestartRequiredSetsFlag(t *testing.T) {
 	settings := m.RestartSettings()
 	if !contains(settings, "server.port") {
 		t.Errorf("applyConfigChanges: server.port not in restartSettings: %v", settings)
+	}
+}
+
+func TestApplyConfigChanges_MixedChangesKeepRestartValuesPending(t *testing.T) {
+	resetGlobals()
+	mu.Lock()
+	base := DefaultConfig()
+	current = base
+	mu.Unlock()
+
+	m := &ConfigManager{}
+	newCfg := DefaultConfig()
+	newCfg.Server.Port = "9999"
+	newCfg.Server.Database.Driver = "libsql"
+	newCfg.Server.Branding.Title = "Updated title"
+	m.applyConfigChanges(newCfg)
+
+	got := getCurrentConfig()
+	if got.Server.Port != base.Server.Port {
+		t.Errorf("mixed reload changed port before restart: got %q, want %q", got.Server.Port, base.Server.Port)
+	}
+	if got.Server.Database.Driver != base.Server.Database.Driver {
+		t.Errorf("mixed reload changed database driver before restart: got %q, want %q", got.Server.Database.Driver, base.Server.Database.Driver)
+	}
+	if got.Server.Branding.Title != "Updated title" {
+		t.Errorf("mixed reload failed to apply branding title: got %q", got.Server.Branding.Title)
+	}
+	if !m.PendingRestart() {
+		t.Error("mixed reload: restart-required setting should set pendingRestart")
 	}
 }
 
@@ -1496,7 +1595,7 @@ func TestApplyConfigChanges_NoChangesNoRestart(t *testing.T) {
 // ───────────────────────────── IsDebug / Get ─────────────────────────
 
 func TestAppConfig_IsDebug_EnvUnset(t *testing.T) {
-	os.Unsetenv("DEBUG")
+	t.Setenv("DEBUG", "")
 	cfg := DefaultConfig()
 	if cfg.IsDebug() {
 		t.Error("IsDebug() should be false when DEBUG env is unset")
@@ -1504,8 +1603,7 @@ func TestAppConfig_IsDebug_EnvUnset(t *testing.T) {
 }
 
 func TestAppConfig_IsDebug_EnvSet(t *testing.T) {
-	os.Setenv("DEBUG", "1")
-	t.Cleanup(func() { os.Unsetenv("DEBUG") })
+	t.Setenv("DEBUG", "1")
 
 	cfg := DefaultConfig()
 	if !cfg.IsDebug() {

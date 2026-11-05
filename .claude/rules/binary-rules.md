@@ -106,6 +106,6 @@ Perms: `0600` (Unix) / user-only ACL (Windows) — contains server URL + API tok
 
 **Signals** (`src/signal`): SIGTERM/SIGINT/SIGQUIT/SIGRTMIN+3 (37) shut down gracefully, SIGUSR1 reopens logs, SIGUSR2 dumps status, SIGHUP is explicitly ignored.
 
-**Env fallbacks:** Init-Only vars seed `server.yml` on first run only; runtime vars (`MODE`, `NO_COLOR`, `TERM`, `DATABASE_*`, `SMTP_*`, …) are re-read every start. Config changes hot-reload except the `server.port`/`server.address`/`server.daemonize`/`ssl.`/`database.`/`tor.` prefixes, which require a restart.
+**Env fallbacks:** Init-Only vars seed `server.yml` on first run only; runtime vars (`MODE`, `NO_COLOR`, `TERM`, `DATABASE_*`, `SMTP_*`, …) are re-read every start. Config changes have three classes: hot reload, graceful reload (reopen/swap runtime components without downtime), and restart-required (`server.port`/`server.address`/`server.daemonize`/`ssl.`/`database.`/`tor.`). See AI.md PART 12 and config-rules.
 
 For complete details, see AI.md PART 7, PART 8, PART 32.

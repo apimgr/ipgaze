@@ -3,8 +3,11 @@
 package config
 
 import (
+	"fmt"
 	"log"
 	"os"
+	"reflect"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -14,18 +17,20 @@ import (
 )
 
 // restartRequiredPrefixes lists dot-notation config key prefixes that require
-// a full process restart; all other changed keys are hot-reloaded in place.
-// Matches AI.md PART 12's restartRequiredSettings exactly: ssl./database./tor.
-// are whole-section prefixes (TLS listener, connection pool, and Tor child
-// process must all be recreated on any change within their section, not just
-// the specific subkeys previously listed here).
+// a full process restart. Other changed keys are classified as hot or graceful
+// reloads by categorizeReloadChanges. The section prefixes match AI.md PART 12.
+// server.ssl/server.database/server.tor mirror the current AppConfig YAML
+// layout; the unrooted aliases retain the spec's documented prefix forms.
 var restartRequiredPrefixes = []string{
 	"server.port",
 	"server.address",
 	"server.daemonize",
 	"ssl.",
+	"server.ssl.",
 	"database.",
+	"server.database.",
 	"tor.",
+	"server.tor.",
 }
 
 // ConfigManager watches server.yml for changes and applies hot-reload or
@@ -33,11 +38,20 @@ var restartRequiredPrefixes = []string{
 type ConfigManager struct {
 	configPath      string
 	lastFileModTime time.Time
+	reloadHandler   func(*AppConfig, []string) error
 	// pendingRestart is true when a restart-required setting changed.
 	pendingRestart bool
 	// restartSettings lists the setting keys that triggered the pending restart.
 	restartSettings []string
 	mu              sync.RWMutex
+}
+
+// SetReloadHandler registers the runtime hook for applying file-backed
+// configuration changes after the package-level config snapshot is updated.
+func (m *ConfigManager) SetReloadHandler(handler func(*AppConfig, []string) error) {
+	m.mu.Lock()
+	m.reloadHandler = handler
+	m.mu.Unlock()
 }
 
 // NewConfigManager creates a ConfigManager for the given server.yml path.
@@ -57,7 +71,9 @@ func NewConfigManager(path string) *ConfigManager {
 // Returns a stop function; call it to halt polling (e.g. on graceful shutdown).
 func (m *ConfigManager) Start() (stop func()) {
 	done := make(chan struct{})
+	stopped := make(chan struct{})
 	go func() {
+		defer close(stopped)
 		ticker := time.NewTicker(5 * time.Second)
 		defer ticker.Stop()
 		for {
@@ -69,7 +85,11 @@ func (m *ConfigManager) Start() (stop func()) {
 			}
 		}
 	}()
-	return func() { close(done) }
+	var stopOnce sync.Once
+	return func() {
+		stopOnce.Do(func() { close(done) })
+		<-stopped
+	}
 }
 
 // checkFileChanges compares the current mtime of server.yml against the
@@ -79,7 +99,7 @@ func (m *ConfigManager) checkFileChanges() {
 	if err != nil {
 		return
 	}
-	if info.ModTime() == m.lastFileModTime {
+	if info.ModTime().Equal(m.lastFileModTime) {
 		return
 	}
 	m.lastFileModTime = info.ModTime()
@@ -123,11 +143,41 @@ func (m *ConfigManager) applyConfigChanges(newCfg *AppConfig) {
 		return
 	}
 
-	hotReloadable, needsRestart := categorizeChanges(changes)
+	hotReloadable, gracefulReload, needsRestart := categorizeReloadChanges(changes)
+	gracefulHandler := m.getReloadHandler()
+	if len(gracefulReload) > 0 && gracefulHandler == nil {
+		preserveConfigPaths(oldCfg, newCfg, gracefulReload)
+		needsRestart = append(needsRestart, gracefulReload...)
+		log.Printf("config: graceful reload handler unavailable; restart required for: %v", gracefulReload)
+		gracefulReload = nil
+	}
 
-	if len(hotReloadable) > 0 {
+	if len(hotReloadable) > 0 || len(gracefulReload) > 0 {
+		preserveRestartRequiredSettings(oldCfg, newCfg)
 		applyHotReloadSettings(newCfg)
-		log.Printf("config: hot-reloaded from file: %v", hotReloadable)
+		applied := append(append([]string(nil), hotReloadable...), gracefulReload...)
+		if len(hotReloadable) > 0 {
+			log.Printf("config: hot-reloaded from file: %v", hotReloadable)
+		}
+		if len(gracefulReload) > 0 {
+			if err := gracefulHandler(newCfg, applied); err != nil {
+				preserveConfigPaths(oldCfg, newCfg, gracefulReload)
+				applyHotReloadSettings(newCfg)
+				needsRestart = append(needsRestart, gracefulReload...)
+				log.Printf("config: graceful reload failed; restart required for %v: %v", gracefulReload, err)
+				if len(hotReloadable) > 0 {
+					if hotErr := gracefulHandler(newCfg, hotReloadable); hotErr != nil {
+						log.Printf("config: runtime hot-reload hook failed: %v", hotErr)
+					}
+				}
+			} else {
+				log.Printf("config: gracefully reloaded from file: %v", gracefulReload)
+			}
+		} else if gracefulHandler != nil && len(hotReloadable) > 0 {
+			if err := gracefulHandler(newCfg, applied); err != nil {
+				log.Printf("config: runtime hot-reload hook failed: %v", err)
+			}
+		}
 	}
 
 	if len(needsRestart) > 0 {
@@ -137,6 +187,12 @@ func (m *ConfigManager) applyConfigChanges(newCfg *AppConfig) {
 		m.mu.Unlock()
 		log.Printf("config: restart required for: %v", needsRestart)
 	}
+}
+
+func (m *ConfigManager) getReloadHandler() func(*AppConfig, []string) error {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.reloadHandler
 }
 
 // applyHotReloadSettings atomically replaces the current config with newCfg.
@@ -151,91 +207,303 @@ func applyHotReloadSettings(newCfg *AppConfig) {
 	display.SetOutputPreferences(newCfg.Output.Color, newCfg.Output.Emoji)
 }
 
-// compareConfigs returns dot-notation keys for settings that differ between
-// old and new. Only monitored keys are compared; unknown or unmonitored keys
-// are silently ignored.
+// compareConfigs returns every changed setting using its YAML-tag path.
 func compareConfigs(old, new *AppConfig) []string {
 	var changed []string
-
-	if old.Server.Port != new.Server.Port {
-		changed = append(changed, "server.port")
-	}
-	if old.Server.Address != new.Server.Address {
-		changed = append(changed, "server.address")
-	}
-	if old.Server.Logging.Level != new.Server.Logging.Level {
-		changed = append(changed, "logging.level")
-	}
-	if old.Server.RateLimit.Enabled != new.Server.RateLimit.Enabled {
-		changed = append(changed, "ratelimit.enabled")
-	}
-	if old.Server.RateLimit.Read.Requests != new.Server.RateLimit.Read.Requests {
-		changed = append(changed, "ratelimit.read.requests")
-	}
-	if old.Server.RateLimit.Read.Window != new.Server.RateLimit.Read.Window {
-		changed = append(changed, "ratelimit.read.window")
-	}
-	if old.Server.RateLimit.GlobalBurst != new.Server.RateLimit.GlobalBurst {
-		changed = append(changed, "ratelimit.global_burst")
-	}
-	if old.Web.CORS != new.Web.CORS {
-		changed = append(changed, "cors")
-	}
-	if old.Server.SSL.Enabled != new.Server.SSL.Enabled {
-		changed = append(changed, "ssl.enabled")
-	}
-	if old.Server.SSL.LetsEncrypt != new.Server.SSL.LetsEncrypt {
-		changed = append(changed, "ssl.letsencrypt")
-	}
-	if old.Server.Daemonize != new.Server.Daemonize {
-		changed = append(changed, "server.daemonize")
-	}
-	if old.Server.Database != new.Server.Database {
-		changed = append(changed, "database.driver")
-	}
-	if old.Server.Tor != new.Server.Tor {
-		changed = append(changed, "tor.settings")
-	}
-	if old.Server.Branding.Title != new.Server.Branding.Title {
-		changed = append(changed, "branding.title")
-	}
-	if old.Server.Branding.Tagline != new.Server.Branding.Tagline {
-		changed = append(changed, "branding.tagline")
-	}
-	if old.Server.Branding.Description != new.Server.Branding.Description {
-		changed = append(changed, "branding.description")
-	}
-	if old.Server.Branding.LogoURL != new.Server.Branding.LogoURL {
-		changed = append(changed, "branding.logo_url")
-	}
-	if old.Server.Branding.FaviconURL != new.Server.Branding.FaviconURL {
-		changed = append(changed, "branding.favicon_url")
-	}
-	if old.Server.Branding.ThemeColor != new.Server.Branding.ThemeColor {
-		changed = append(changed, "branding.theme_color")
-	}
-
+	compareConfigValue(reflect.ValueOf(old), reflect.ValueOf(new), "", &changed)
+	sort.Strings(changed)
 	return changed
 }
 
-// categorizeChanges splits changed setting keys into hot-reloadable and
-// restart-required buckets using restartRequiredPrefixes.
-func categorizeChanges(changes []string) (hotReload, needsRestart []string) {
-	for _, setting := range changes {
-		requiresRestart := false
-		for _, prefix := range restartRequiredPrefixes {
-			if strings.HasPrefix(setting, prefix) {
-				requiresRestart = true
-				break
-			}
+// compareConfigValue walks config values using their YAML field names so every
+// setting added to the schema is included without a second hand-maintained list.
+func compareConfigValue(old, new reflect.Value, path string, changed *[]string) {
+	if !old.IsValid() || !new.IsValid() {
+		if old.IsValid() != new.IsValid() && path != "" {
+			*changed = append(*changed, path)
 		}
-		if requiresRestart {
+		return
+	}
+	if old.Type() != new.Type() {
+		if path != "" {
+			*changed = append(*changed, path)
+		}
+		return
+	}
+
+	switch old.Kind() {
+	case reflect.Interface, reflect.Pointer:
+		if old.IsNil() || new.IsNil() {
+			if old.IsNil() != new.IsNil() && path != "" {
+				*changed = append(*changed, path)
+			}
+			return
+		}
+		compareConfigValue(old.Elem(), new.Elem(), path, changed)
+	case reflect.Struct:
+		for i := 0; i < old.NumField(); i++ {
+			field := old.Type().Field(i)
+			if field.PkgPath != "" {
+				continue
+			}
+			name, inline, skip := yamlFieldName(field)
+			if skip {
+				continue
+			}
+			fieldPath := path
+			if !inline {
+				fieldPath = joinConfigPath(path, name)
+			}
+			compareConfigValue(old.Field(i), new.Field(i), fieldPath, changed)
+		}
+	case reflect.Map:
+		if old.IsNil() != new.IsNil() && old.Len() == 0 && new.Len() == 0 {
+			if path != "" {
+				*changed = append(*changed, path)
+			}
+			return
+		}
+		type mapKeys struct {
+			old reflect.Value
+			new reflect.Value
+		}
+		keys := make(map[string]mapKeys, old.Len()+new.Len())
+		for _, key := range old.MapKeys() {
+			name := fmt.Sprint(key.Interface())
+			entry := keys[name]
+			entry.old = key
+			keys[name] = entry
+		}
+		for _, key := range new.MapKeys() {
+			name := fmt.Sprint(key.Interface())
+			entry := keys[name]
+			entry.new = key
+			keys[name] = entry
+		}
+		ordered := make([]string, 0, len(keys))
+		for key := range keys {
+			ordered = append(ordered, key)
+		}
+		sort.Strings(ordered)
+		for _, key := range ordered {
+			entry := keys[key]
+			var oldItem, newItem reflect.Value
+			if entry.old.IsValid() {
+				oldItem = old.MapIndex(entry.old)
+			}
+			if entry.new.IsValid() {
+				newItem = new.MapIndex(entry.new)
+			}
+			compareConfigValue(oldItem, newItem, joinConfigPath(path, key), changed)
+		}
+	case reflect.Slice, reflect.Array:
+		if old.Kind() == reflect.Slice && old.IsNil() != new.IsNil() && old.Len() == 0 && new.Len() == 0 {
+			if path != "" {
+				*changed = append(*changed, path)
+			}
+			return
+		}
+		maxLen := old.Len()
+		if new.Len() > maxLen {
+			maxLen = new.Len()
+		}
+		for i := 0; i < maxLen; i++ {
+			var oldItem, newItem reflect.Value
+			if i < old.Len() {
+				oldItem = old.Index(i)
+			}
+			if i < new.Len() {
+				newItem = new.Index(i)
+			}
+			compareConfigValue(oldItem, newItem, fmt.Sprintf("%s[%d]", path, i), changed)
+		}
+	default:
+		if !reflect.DeepEqual(old.Interface(), new.Interface()) && path != "" {
+			*changed = append(*changed, path)
+		}
+	}
+}
+
+// yamlFieldName returns the effective key and inline/skip behavior for a field.
+func yamlFieldName(field reflect.StructField) (name string, inline, skip bool) {
+	parts := strings.Split(field.Tag.Get("yaml"), ",")
+	name = parts[0]
+	for _, option := range parts[1:] {
+		if option == "inline" {
+			inline = true
+		}
+	}
+	if name == "-" {
+		return "", false, true
+	}
+	if name == "" {
+		name = strings.ToLower(field.Name)
+	}
+	return name, inline, false
+}
+
+func joinConfigPath(parent, child string) string {
+	if parent == "" {
+		return child
+	}
+	return parent + "." + child
+}
+
+func requiresRestart(setting string) bool {
+	for _, prefix := range restartRequiredPrefixes {
+		root := strings.TrimSuffix(prefix, ".")
+		if setting == root || (strings.HasSuffix(prefix, ".") && strings.HasPrefix(setting, prefix)) {
+			return true
+		}
+	}
+	return false
+}
+
+// preserveRestartRequiredSettings restores the active values for settings that
+// cannot take effect without a process restart, even when other fields reload.
+func preserveRestartRequiredSettings(oldCfg, newCfg *AppConfig) {
+	preserveRestartValues(reflect.ValueOf(oldCfg).Elem(), reflect.ValueOf(newCfg).Elem(), "")
+}
+
+func preserveRestartValues(old, new reflect.Value, path string) {
+	if !old.IsValid() || !new.IsValid() || old.Type() != new.Type() {
+		return
+	}
+	if path != "" && requiresRestart(path) {
+		if new.CanSet() {
+			new.Set(old)
+		}
+		return
+	}
+	if path != "" && !isRestartPathAncestor(path) {
+		return
+	}
+
+	switch old.Kind() {
+	case reflect.Interface, reflect.Pointer:
+		if old.IsNil() || new.IsNil() {
+			if new.CanSet() {
+				new.Set(old)
+			}
+			return
+		}
+		preserveRestartValues(old.Elem(), new.Elem(), path)
+	case reflect.Struct:
+		for i := 0; i < old.NumField(); i++ {
+			field := old.Type().Field(i)
+			if field.PkgPath != "" {
+				continue
+			}
+			name, inline, skip := yamlFieldName(field)
+			if skip {
+				continue
+			}
+			fieldPath := path
+			if !inline {
+				fieldPath = joinConfigPath(path, name)
+			}
+			preserveRestartValues(old.Field(i), new.Field(i), fieldPath)
+		}
+	}
+}
+
+func isRestartPathAncestor(path string) bool {
+	if path == "" {
+		return true
+	}
+	for _, prefix := range restartRequiredPrefixes {
+		root := strings.TrimSuffix(prefix, ".")
+		if strings.HasPrefix(root, path+".") {
+			return true
+		}
+	}
+	return false
+}
+
+// categorizeChanges retains the two-bucket compatibility helper for callers
+// that only need to distinguish immediate changes from restart requirements.
+func categorizeChanges(changes []string) (hotReload, needsRestart []string) {
+	hotReload, _, needsRestart = categorizeReloadChanges(changes)
+	return append(hotReload, changesMatching(changes, requiresGracefulReload)...), needsRestart
+}
+
+func categorizeReloadChanges(changes []string) (hotReload, gracefulReload, needsRestart []string) {
+	for _, setting := range changes {
+		if requiresRestart(setting) {
 			needsRestart = append(needsRestart, setting)
+		} else if requiresGracefulReload(setting) {
+			gracefulReload = append(gracefulReload, setting)
 		} else {
 			hotReload = append(hotReload, setting)
 		}
 	}
 	return
+}
+
+func requiresGracefulReload(setting string) bool {
+	if setting == "server.baseurl" || strings.HasPrefix(setting, "server.logging.") && setting != "server.logging.level" {
+		return true
+	}
+	switch setting {
+	case "server.limits.read_timeout", "server.limits.write_timeout", "server.limits.idle_timeout",
+		"server.timeouts.read", "server.timeouts.write", "server.timeouts.idle":
+		return true
+	default:
+		return false
+	}
+}
+
+func changesMatching(changes []string, match func(string) bool) []string {
+	var out []string
+	for _, change := range changes {
+		if match(change) {
+			out = append(out, change)
+		}
+	}
+	return out
+}
+
+func preserveConfigPaths(oldCfg, newCfg *AppConfig, paths []string) {
+	oldValue := reflect.ValueOf(oldCfg).Elem()
+	newValue := reflect.ValueOf(newCfg).Elem()
+	for _, path := range paths {
+		copyConfigPath(oldValue, newValue, strings.Split(path, "."))
+	}
+}
+
+func copyConfigPath(oldValue, newValue reflect.Value, parts []string) {
+	if !oldValue.IsValid() || !newValue.IsValid() || len(parts) == 0 {
+		return
+	}
+	if oldValue.Kind() == reflect.Pointer {
+		if oldValue.IsNil() || newValue.IsNil() {
+			return
+		}
+		copyConfigPath(oldValue.Elem(), newValue.Elem(), parts)
+		return
+	}
+	if oldValue.Kind() != reflect.Struct {
+		return
+	}
+	for index := 0; index < oldValue.NumField(); index++ {
+		field := oldValue.Type().Field(index)
+		if field.PkgPath != "" {
+			continue
+		}
+		name, inline, skip := yamlFieldName(field)
+		if skip || inline || name != parts[0] {
+			continue
+		}
+		oldField, newField := oldValue.Field(index), newValue.Field(index)
+		if len(parts) == 1 {
+			if newField.CanSet() {
+				newField.Set(oldField)
+			}
+			return
+		}
+		copyConfigPath(oldField, newField, parts[1:])
+		return
+	}
 }
 
 // PendingRestart reports whether any restart-required setting changed since

@@ -27,7 +27,11 @@ func newTestRedisCache(t *testing.T) Cache {
 	if err != nil {
 		t.Fatalf("newRedisCache() error: %v", err)
 	}
-	t.Cleanup(func() { _ = c.Close() })
+	t.Cleanup(func() {
+		if err := c.Close(); err != nil {
+			t.Errorf("Close(): %v", err)
+		}
+	})
 	return c
 }
 
@@ -43,7 +47,11 @@ func TestNewRedisCache_DefaultHostPort(t *testing.T) {
 	if err != nil {
 		t.Fatalf("newRedisCache() error: %v", err)
 	}
-	defer c.Close()
+	t.Cleanup(func() {
+		if err := c.Close(); err != nil {
+			t.Errorf("Close(): %v", err)
+		}
+	})
 }
 
 func TestNewRedisCache_TLSEnabled(t *testing.T) {
@@ -55,7 +63,11 @@ func TestNewRedisCache_TLSEnabled(t *testing.T) {
 	if err != nil {
 		t.Fatalf("newRedisCache() error: %v", err)
 	}
-	defer c.Close()
+	t.Cleanup(func() {
+		if err := c.Close(); err != nil {
+			t.Errorf("Close(): %v", err)
+		}
+	})
 }
 
 func TestRedisCache_GetConnectionError(t *testing.T) {
@@ -117,7 +129,11 @@ func newTestMemcacheCache(t *testing.T) Cache {
 	if err != nil {
 		t.Fatalf("newMemcacheCache() error: %v", err)
 	}
-	t.Cleanup(func() { _ = c.Close() })
+	t.Cleanup(func() {
+		if err := c.Close(); err != nil {
+			t.Errorf("Close(): %v", err)
+		}
+	})
 	return c
 }
 
@@ -126,7 +142,11 @@ func TestNewMemcacheCache_DefaultHostPort(t *testing.T) {
 	if err != nil {
 		t.Fatalf("newMemcacheCache() error: %v", err)
 	}
-	defer c.Close()
+	t.Cleanup(func() {
+		if err := c.Close(); err != nil {
+			t.Errorf("Close(): %v", err)
+		}
+	})
 }
 
 func TestNewMemcacheCache_URLTakesPrecedence(t *testing.T) {
@@ -134,7 +154,11 @@ func TestNewMemcacheCache_URLTakesPrecedence(t *testing.T) {
 	if err != nil {
 		t.Fatalf("newMemcacheCache() error: %v", err)
 	}
-	defer c.Close()
+	t.Cleanup(func() {
+		if err := c.Close(); err != nil {
+			t.Errorf("Close(): %v", err)
+		}
+	})
 }
 
 func TestMemcacheCache_GetConnectionError(t *testing.T) {

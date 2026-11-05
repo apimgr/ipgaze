@@ -61,9 +61,9 @@ func detectMode() theme.Name {
 func (o *Output) PrintSuccess(format string, args ...interface{}) {
 	msg := fmt.Sprintf(format, args...)
 	if o.colors {
-		fmt.Fprintf(o.out, "\033[38;5;%sm✓\033[0m %s\n", o.palette.Success, msg)
+		_, _ = fmt.Fprintf(o.out, "\033[38;5;%sm✓\033[0m %s\n", o.palette.Success, msg)
 	} else {
-		fmt.Fprintf(o.out, "OK: %s\n", msg)
+		_, _ = fmt.Fprintf(o.out, "OK: %s\n", msg)
 	}
 }
 
@@ -73,9 +73,9 @@ func (o *Output) PrintSuccess(format string, args ...interface{}) {
 func (o *Output) PrintError(format string, args ...interface{}) {
 	msg := fmt.Sprintf(format, args...)
 	if o.colors {
-		fmt.Fprintf(o.err, "\033[38;5;%sm✗\033[0m %s\n", o.palette.Error, msg)
+		_, _ = fmt.Fprintf(o.err, "\033[38;5;%sm✗\033[0m %s\n", o.palette.Error, msg)
 	} else {
-		fmt.Fprintf(o.err, "ERR: %s\n", msg)
+		_, _ = fmt.Fprintf(o.err, "ERR: %s\n", msg)
 	}
 }
 
@@ -85,9 +85,9 @@ func (o *Output) PrintError(format string, args ...interface{}) {
 func (o *Output) PrintWarning(format string, args ...interface{}) {
 	msg := fmt.Sprintf(format, args...)
 	if o.colors {
-		fmt.Fprintf(o.err, "\033[38;5;%sm⚠\033[0m %s\n", o.palette.Warning, msg)
+		_, _ = fmt.Fprintf(o.err, "\033[38;5;%sm⚠\033[0m %s\n", o.palette.Warning, msg)
 	} else {
-		fmt.Fprintf(o.err, "WARN: %s\n", msg)
+		_, _ = fmt.Fprintf(o.err, "WARN: %s\n", msg)
 	}
 }
 
@@ -97,13 +97,13 @@ func (o *Output) PrintWarning(format string, args ...interface{}) {
 func (o *Output) PrintInfo(format string, args ...interface{}) {
 	msg := fmt.Sprintf(format, args...)
 	if o.colors {
-		fmt.Fprintf(o.out, "\033[38;5;%smℹ\033[0m %s\n", o.palette.Info, msg)
+		_, _ = fmt.Fprintf(o.out, "\033[38;5;%smℹ\033[0m %s\n", o.palette.Info, msg)
 	} else {
-		fmt.Fprintf(o.out, "INFO: %s\n", msg)
+		_, _ = fmt.Fprintf(o.out, "INFO: %s\n", msg)
 	}
 }
 
 // Print prints a plain message to stdout.
 func (o *Output) Print(format string, args ...interface{}) {
-	fmt.Fprintf(o.out, format+"\n", args...)
+	_, _ = fmt.Fprintf(o.out, format+"\n", args...)
 }

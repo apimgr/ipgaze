@@ -6,12 +6,14 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"sort"
 	"strings"
 
 	"github.com/apimgr/ipgaze/src/common/i18n"
 	"github.com/apimgr/ipgaze/src/common/theme"
 	"github.com/apimgr/ipgaze/src/config"
 	"github.com/apimgr/ipgaze/src/netutil"
+	"github.com/apimgr/ipgaze/src/swagger"
 )
 
 // SpecialHandler handles special file routes (robots.txt, security.txt, etc.)
@@ -59,6 +61,9 @@ type SpecialHandler struct {
 	// "Sitemap:" directive is omitted when the document is not served, so
 	// robots.txt never points a crawler at a 404.
 	SitemapEnabled bool
+	// APIV1OperationIDs contains the versioned API operations registered by
+	// the active runtime router. llms.txt uses it to omit disabled endpoints.
+	APIV1OperationIDs map[string]struct{}
 }
 
 // NewSpecialHandler creates a new SpecialHandler
@@ -105,30 +110,30 @@ func (h *SpecialHandler) isTorRequest(r *http.Request) bool {
 // the wildcard Allow for that bot only (AI.md PART 16 "AI Crawler Rules").
 func (h *SpecialHandler) RobotsTxtHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/plain")
-	fmt.Fprintln(w, "User-agent: *")
-	fmt.Fprintln(w, "Allow: /")
-	fmt.Fprintln(w, "Allow: /api")
-	fmt.Fprintln(w, "Disallow: /debug")
+	_, _ = fmt.Fprintln(w, "User-agent: *")
+	_, _ = fmt.Fprintln(w, "Allow: /")
+	_, _ = fmt.Fprintln(w, "Allow: /api")
+	_, _ = fmt.Fprintln(w, "Disallow: /debug")
 	// AI.md PART 16 "robots.txt" requires the generated file to point crawlers
 	// at the sitemap. The URL is request-aware so a proxied or Tor request
 	// gets the host it actually arrived on.
 	if h.SitemapEnabled {
-		fmt.Fprintln(w, "Sitemap: "+netutil.BuildURL(r, h.Trust, "/sitemap.xml"))
+		_, _ = fmt.Fprintln(w, "Sitemap: "+netutil.BuildURL(r, h.Trust, "/sitemap.xml"))
 	}
 
 	denied := h.AIBots.DeniedAIBots()
 	if len(denied) == 0 {
-		fmt.Fprintln(w)
-		fmt.Fprintln(w, "# AI crawlers - default: no additional restrictions (inherit User-agent: * above)")
-		fmt.Fprintln(w, "# Per-bot stanzas are only rendered when that bot is explicitly denied below")
+		_, _ = fmt.Fprintln(w)
+		_, _ = fmt.Fprintln(w, "# AI crawlers - default: no additional restrictions (inherit User-agent: * above)")
+		_, _ = fmt.Fprintln(w, "# Per-bot stanzas are only rendered when that bot is explicitly denied below")
 		return
 	}
-	fmt.Fprintln(w)
-	fmt.Fprintln(w, "# AI crawlers - the bots below are denied; every other recognized bot inherits User-agent: * above")
+	_, _ = fmt.Fprintln(w)
+	_, _ = fmt.Fprintln(w, "# AI crawlers - the bots below are denied; every other recognized bot inherits User-agent: * above")
 	for _, bot := range denied {
-		fmt.Fprintln(w)
-		fmt.Fprintln(w, "User-agent: "+bot)
-		fmt.Fprintln(w, "Disallow: /")
+		_, _ = fmt.Fprintln(w)
+		_, _ = fmt.Fprintln(w, "User-agent: "+bot)
+		_, _ = fmt.Fprintln(w, "Disallow: /")
 	}
 }
 
@@ -153,29 +158,29 @@ func (h *SpecialHandler) SecurityTxtHandler(w http.ResponseWriter, r *http.Reque
 	if h.isTorRequest(r) {
 		// Tor variant: all URLs use the onion address, no clearnet FQDN (AI.md PART 12).
 		base := "http://" + h.OnionAddress
-		fmt.Fprintln(w, "Contact: "+base+"/server/contact")
+		_, _ = fmt.Fprintln(w, "Contact: "+base+"/server/contact")
 		if h.TorContactEmail != "" {
-			fmt.Fprintln(w, "Contact: mailto:"+h.TorContactEmail)
+			_, _ = fmt.Fprintln(w, "Contact: mailto:"+h.TorContactEmail)
 		}
-		fmt.Fprintln(w, "Expires: 2026-12-31T23:59:59.000Z")
-		fmt.Fprintln(w, "Policy: "+base+"/server/security")
+		_, _ = fmt.Fprintln(w, "Expires: 2026-12-31T23:59:59.000Z")
+		_, _ = fmt.Fprintln(w, "Policy: "+base+"/server/security")
 		if h.hasPGPKey() {
-			fmt.Fprintln(w, "Encryption: "+base+"/.well-known/pgp-key.asc")
+			_, _ = fmt.Fprintln(w, "Encryption: "+base+"/.well-known/pgp-key.asc")
 		}
-		fmt.Fprintln(w, "Canonical: "+base+"/.well-known/security.txt")
+		_, _ = fmt.Fprintln(w, "Canonical: "+base+"/.well-known/security.txt")
 		return
 	}
 	contact := h.SecurityContact
 	if contact == "" {
 		contact = "security@apimgr.us"
 	}
-	fmt.Fprintln(w, "Contact: mailto:"+contact)
-	fmt.Fprintln(w, "Expires: 2026-12-31T23:59:59.000Z")
+	_, _ = fmt.Fprintln(w, "Contact: mailto:"+contact)
+	_, _ = fmt.Fprintln(w, "Expires: 2026-12-31T23:59:59.000Z")
 	if h.hasPGPKey() {
-		fmt.Fprintf(w, "Encryption: %s/.well-known/pgp-key.asc\n", h.OfficialSite)
+		_, _ = fmt.Fprintf(w, "Encryption: %s/.well-known/pgp-key.asc\n", h.OfficialSite)
 	}
-	fmt.Fprintln(w, "Preferred-Languages: en")
-	fmt.Fprintf(w, "Canonical: %s/.well-known/security.txt\n", h.OfficialSite)
+	_, _ = fmt.Fprintln(w, "Preferred-Languages: en")
+	_, _ = fmt.Fprintf(w, "Canonical: %s/.well-known/security.txt\n", h.OfficialSite)
 }
 
 // PGPKeyHandler serves the project's PGP public key (AI.md PART 11
@@ -269,7 +274,7 @@ func (h *SpecialHandler) ManifestHandler(w http.ResponseWriter, r *http.Request)
     }
   ]
 }`, theme.ThemePaletteDark.Background, theme.ThemePaletteDark.Primary)
-	fmt.Fprintln(w, manifest)
+	_, _ = fmt.Fprintln(w, manifest)
 }
 
 // ServiceWorkerHandler serves the PWA service worker per AI.md PART 16.
@@ -385,7 +390,7 @@ self.addEventListener('fetch', function(event) {
   );
 });
 `
-	fmt.Fprintln(w, sw)
+	_, _ = fmt.Fprintln(w, sw)
 }
 
 // OfflineHandler serves the PWA offline fallback page per AI.md PART 16.
@@ -395,7 +400,7 @@ func (h *SpecialHandler) OfflineHandler(w http.ResponseWriter, r *http.Request) 
 	dir := string(i18n.LocaleDirection(lang))
 	ctx := i18n.WithLang(r.Context(), lang)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	fmt.Fprintf(w, `<!DOCTYPE html>
+	_, _ = fmt.Fprintf(w, `<!DOCTYPE html>
 <html lang="%s" dir="%s">
 <head>
   <meta charset="UTF-8">
@@ -447,29 +452,22 @@ func (h *SpecialHandler) OfflineHandler(w http.ResponseWriter, r *http.Request) 
 // Served at both /.well-known/llms.txt and /llms.txt.
 func (h *SpecialHandler) LLMsTxtHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	apiBaseURL := netutil.BuildURL(r, h.Trust, "/api/v1")
+	spec := swagger.GenerateSpec(swagger.SwaggerHandlerConfig{}, apiBaseURL, "en")
 	content := `# IPGaze
 > Lightweight, fast IP address lookup service with GeoIP information.
 > echoip-compatible API — same routes, same response formats.
 
 ## API
-Base URL: /api/v1
+Versioned API base URL: ` + apiBaseURL + `
+Echoip-compatible routes use the site root.
 Authentication: None required for public endpoints
-Rate limit: 120 requests/minute per IP
-
-## Endpoints
-- GET /health - Health check
-- GET /version - Server version info
-- GET / - Your IP address (plain text for CLI, JSON for API clients)
-- GET /{ip} - Lookup specific IP address
-- GET /ip - Your IP address
-- GET /country - Your country
-- GET /city - Your city
-- GET /asn - Your ASN
-- GET /json - Full response as JSON
-- GET /api/v1/ip - Your IP (JSON)
-- GET /api/v1/ip/{ip} - Lookup specific IP (JSON)
-- GET /graphql - GraphQL endpoint
-
+`
+	content += "Read rate limit: " + llmsReadRateLimit(config.Get()) + "\n\n## Endpoints\n"
+	for _, endpoint := range llmsAPIEndpoints(spec.Paths, h.APIV1OperationIDs) {
+		content += "- " + endpoint + "\n"
+	}
+	content += `
 ## Capabilities
 - IPv4 and IPv6 support
 - GeoIP lookup (country, city, region, ASN, coordinates, timezone)
@@ -489,5 +487,88 @@ Rate limit: 120 requests/minute per IP
 Repository: https://github.com/apimgr/ipgaze
 License: MIT
 `
-	fmt.Fprint(w, content)
+	_, _ = fmt.Fprint(w, content)
+}
+
+func llmsReadRateLimit(cfg *config.AppConfig) string {
+	requests, window := 120, 60
+	if cfg != nil {
+		if !cfg.Server.RateLimit.Enabled {
+			return "disabled"
+		}
+		if cfg.Server.RateLimit.Read.Requests > 0 {
+			requests = cfg.Server.RateLimit.Read.Requests
+		}
+		if cfg.Server.RateLimit.Read.Window > 0 {
+			window = cfg.Server.RateLimit.Read.Window
+		}
+	}
+	if window%60 == 0 {
+		minutes := window / 60
+		unit := "minutes"
+		if minutes == 1 {
+			unit = "minute"
+		}
+		return fmt.Sprintf("%d requests per %d %s per IP", requests, minutes, unit)
+	}
+	unit := "seconds"
+	if window == 1 {
+		unit = "second"
+	}
+	return fmt.Sprintf("%d requests per %d %s per IP", requests, window, unit)
+}
+
+func llmsAPIEndpoints(paths map[string]swagger.PathItem, activeAPIV1 map[string]struct{}) []string {
+	var endpoints []string
+	apiTags := map[string]bool{
+		"IP Lookup":     true,
+		"GeoIP":         true,
+		"Port Check":    true,
+		"System":        true,
+		"API v1":        true,
+		"Documentation": true,
+	}
+	pathNames := make([]string, 0, len(paths))
+	for path := range paths {
+		pathNames = append(pathNames, path)
+	}
+	sort.Strings(pathNames)
+	for _, path := range pathNames {
+		item := paths[path]
+		operations := []struct {
+			method    string
+			operation *swagger.Operation
+		}{
+			{"DELETE", item.Delete}, {"GET", item.Get}, {"PATCH", item.Patch},
+			{"POST", item.Post}, {"PUT", item.Put},
+		}
+		for _, operation := range operations {
+			if operation.operation == nil || !llmsPublicAPIOperation(operation.operation, apiTags) {
+				continue
+			}
+			if activeAPIV1 != nil && strings.HasPrefix(path, "/api/v1") {
+				if _, active := activeAPIV1[operation.operation.OperationID]; !active {
+					continue
+				}
+			}
+			line := operation.method + " " + path
+			if operation.operation.Summary != "" {
+				line += " — " + operation.operation.Summary
+			}
+			endpoints = append(endpoints, line)
+		}
+	}
+	return endpoints
+}
+
+func llmsPublicAPIOperation(operation *swagger.Operation, apiTags map[string]bool) bool {
+	if operation == nil {
+		return false
+	}
+	for _, tag := range operation.Tags {
+		if apiTags[tag] {
+			return true
+		}
+	}
+	return false
 }

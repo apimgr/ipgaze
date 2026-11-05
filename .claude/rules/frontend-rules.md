@@ -45,6 +45,13 @@
   header-actions cluster or footer instead
 - Never ship more than one JS file (`static/js/app.js`) or more than one CSS load order
   (`common.css` → `components.css` → `public.css`)
+- Implement the PART 14 MCP settings controls when an admin settings panel exists: a live
+  `server.mcp.enabled` toggle, read-only resolved endpoint URL, and read-only note that MCP uses API Bearer
+  tokens; keep its default enabled state and do not invent MCP-specific credentials
+- Never expose owner-token management outside `/server/preferences`; keep the token section hidden unless a
+  valid primary owner cookie is present, and never treat a linked token as authority to manage tokens
+- Never reveal tokens in list/detail markup, page source, logs, or cacheable responses — reveal only through
+  the explicit CSRF-protected POST flow and return `Cache-Control: no-store`
 
 ## CRITICAL - ALWAYS DO
 - Support dark/light/auto theme via CSS custom properties defined once in `:root`, never hardcoded colors
@@ -78,6 +85,16 @@
   closing overlay — no JS
 - Keep nav to a single row, 4 zones in order: `{logo/text} {links} {profile/preferences} {theme_toggle}`
 - Use the print utility classes (`.no-print`, `.print-only`, `.print-include`) for print stylesheets
+- Render the owner primary token masked by default, with a plain form POST for reveal and rotation so the
+  core management flow works without JavaScript; keep the `owner_token` cookie HttpOnly, Secure,
+  SameSite=Strict, and refresh its configured sliding Max-Age on valid use
+- Provide “Use an existing token” restore on `/server/preferences`; accept the primary token only, set the
+  owner cookie on success, and do not offer an API restore route
+- Expose MCP configuration as specified by PART 14: an enabled/disabled toggle that takes effect without
+  restart, a read-only per-request endpoint URL, and a read-only shared-Bearer-auth note
+- Show linked-token name, masked value, dates, and status; provide create/reveal/rotate/rename/expiry/revoke
+  controls with the primary token only. Reveals are one-response only; rotation replaces the old token
+  immediately, and confirmation is required for primary rotation.
 
 ## Key Rules Summary
 - **Directory layout**: `template/layout/base.tmpl` is the ONE web layout (no separate admin/dashboard
@@ -94,6 +111,10 @@
   single-line horizontal scroll with an adjacent copy button — never mix the two patterns
 - **Theme system**: `theme` cookie read server-side only, `theme-{dark|light|auto}` class on `<html>`,
   zero JS/zero FOUC; toggle target computed via `nextTheme()`, never hardcoded
+- **Owner-token controls**: `/server/preferences` is the only web token-management surface. Its token
+  section is conditional on a valid primary owner cookie; linked tokens provide resource access but cannot
+  manage credentials. Reveal/rotation/restore are POST forms with CSRF, and token-bearing responses are
+  `no-store`. API mirrors use Bearer authentication and never ambient cookies.
 - **Accessibility/touch targets**: interactive controls ≥44×44px; `lang`/`dir` always template-driven,
   never hardcoded; no inline handlers (CSP)
 

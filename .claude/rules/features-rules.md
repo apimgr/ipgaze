@@ -18,6 +18,10 @@
 - Never skip mandatory post-backup verification or SHA-256 checksum verification before an update
   replaces the running binary
 - Never accept a `--update`/self-update CLI flag for the backup/restore password — password prompt only
+- Never ship pre-populated GeoIP country-blocking presets or silently change `deny_countries`/
+  `allow_countries` from empty defaults; operators author their own named presets
+- Never treat GeoIP country/ASN/city results as an access-control gate by themselves — lookup failure is
+  fail-open for GeoIP while the rest of the security pipeline still runs
 
 ## CRITICAL - ALWAYS DO
 - Translate all user-facing notification and scheduler text (`{{t .Lang "key"}}` / template vars)
@@ -30,6 +34,8 @@
 - Prefix every Prometheus metric with `{project_name}_`; counters end `_total`; base units only
   (`_seconds`, `_bytes`, never ms/KB); labels stay low-cardinality (never raw IP/user ID)
 - Attribute GeoIP data: CC BY 4.0 / NRO / DB-IP, verbatim, on `/server/about` and in `LICENSE.md`
+- Keep the built-in scheduler running in every server mode; task state and schedules are configurable,
+  and task execution must never write to the runtime console (use logs)
 
 ## Key Rules Summary
 
@@ -56,6 +62,13 @@
   `backup_hourly` `@hourly` (disabled by default); `healthcheck_self` `@every 5m`;
   `tor_health` `@every 10m`; `i2p_health` `@every 10m`
 - Every task schedule/enabled state is overridable via `server.schedule.tasks.{id}` in `server.yml`
+- Default scheduler timezone is `America/New_York`; persist task history/state, and retry eligible failures
+  using configured `max_retries` (default 3) and `retry_delay` (default 5m). Individual task panics must be
+  recovered and isolated so the loop and other tasks continue.
+- `update_check` is notify-only by default (`update.auto_install: false`) and honors `update.defer_days`;
+  manual update commands bypass the scheduled-check deferral.
+- The daily backup task creates a full backup plus its daily incremental set (default two files), after a
+  disk-space pre-check, with mandatory fatal-on-failure verification, then retention and audit logging.
 - Task execution panic safety (MUST): every task invocation runs behind its own `defer`+`recover`
   boundary — a panicking task is logged, marked `failed` for that run, and its next occurrence still
   fires; the scheduler loop survives and no other task is skipped, delayed, or corrupted. Same
@@ -69,6 +82,9 @@
 - Downloaded on first run (never embedded in binary), refreshed weekly via `geoip_update` (Sunday 03:00)
 - Defaults to enabled with zero config, `deny_countries`/`allow_countries` both empty; fail-open on
   lookup failure; GeoIP is a risk signal only, never a sole access-control gate
+- Operators may save their own current allow/deny country lists as named reusable presets. No presets ship
+  populated; fresh installs always retain empty allow/deny lists regardless of saved presets. Attribution
+  must be visible on `/server/about` and in `LICENSE.md`, not hidden in a tooltip or collapsed section.
 
 ### PART 20 — Metrics
 - Endpoint family under `/server` namespace: `/server/metrics` (= `/server/metrics/prometheus`),
@@ -87,6 +103,8 @@
   `auth_sessions_active`, plus cache/scheduler/system/business categories per the full metric tables
 - Label rules: snake_case, lowercase, no units in label names, low cardinality (method/status/path with
   IDs normalized to `:id` — never raw user IDs or IPs)
+- Metrics authentication is required by default for every service; only
+  `auth.allow_unauthenticated: true` disables it, and that option is for firewalled internal networks only.
 
 ### PART 21 — Backup & Restore
 - Format: `tar.gz`, optionally `.enc`; manual/timestamped filenames

@@ -317,10 +317,14 @@ func main() {
 		}
 	})
 	if *debugMode {
-		os.Setenv("DEBUG", "true")
+		if err := os.Setenv("DEBUG", "true"); err != nil {
+			log.Printf("Warning: cannot set DEBUG environment: %v", err)
+		}
 		log.Println("Debug mode enabled")
 	} else if debugFlagSet {
-		os.Setenv("DEBUG", "false")
+		if err := os.Setenv("DEBUG", "false"); err != nil {
+			log.Printf("Warning: cannot set DEBUG environment: %v", err)
+		}
 	}
 
 	// Handle directory overrides from flags per AI.md PART 8.
@@ -756,7 +760,11 @@ func main() {
 		log.Printf("Warning: Failed to open %s database: %v", dbDriver, dbErr)
 	} else {
 		serverDB = dbConn
-		defer serverDB.Close()
+		defer func() {
+			if err := serverDB.Close(); err != nil {
+				log.Printf("Warning: close server database: %v", err)
+			}
+		}()
 	}
 
 	// Initialize SSL manager per AI.md PART 15.
@@ -1175,7 +1183,9 @@ func main() {
 			log.Printf("Warning: Failed to add backup_hourly task: %v", err)
 		}
 
-		sched.Start()
+		if err := sched.Start(); err != nil {
+			log.Printf("Warning: start scheduler: %v", err)
+		}
 	}
 
 	// Log the footer custom_html sanitization preview at startup per AI.md
@@ -1275,7 +1285,7 @@ func main() {
 	// Watch server.yml for external edits and hot-reload or flag
 	// restart-required settings per AI.md PART 12.
 	configMgr := config.NewConfigManager(configPath)
-	stopConfigWatch := configMgr.Start()
+	var stopConfigWatch func()
 
 	r := geoMgr.Reader()
 	// Initialise the cache backend from config (type: none|memory|valkey|redis|memcache).
@@ -1292,11 +1302,16 @@ func main() {
 	if cfg.IsDebug() && cfg.Server.Debug.LogCache {
 		appCache = cache.NewLogging(appCache)
 	}
-	defer appCache.Close()
+	defer func() {
+		if err := appCache.Close(); err != nil {
+			log.Printf("Warning: close cache: %v", err)
+		}
+	}()
 	// Legacy in-server response cache for GeoIP result caching; separate from appCache.
 	httpCache := server.NewCache(0)
 	// Profiling endpoints enabled only in debug mode, not via a separate flag
 	srv := server.NewHTTPServer(r, httpCache)
+	srv.SetConfigManager(configMgr)
 	// Default to the standard reverse-proxy header priority list per AI.md
 	// PART 12 "Client IP Detection" when the operator has not overridden it
 	// via --header; these are only honored for trusted peers (see
@@ -1321,7 +1336,20 @@ func main() {
 	srv.SetTorControl(torMgr)
 	srv.SetI2PStatus(i2pMgr)
 	srv.Mode = cfg.Server.Mode
-	srv.BaseURL = *baseurlFlag
+	baseURLFlagExplicit := false
+	flag.Visit(func(f *flag.Flag) {
+		if f.Name == "baseurl" {
+			baseURLFlagExplicit = true
+		}
+	})
+	resolvedBaseURL := cfg.Server.BaseURL
+	if baseURLFlagExplicit {
+		resolvedBaseURL = *baseurlFlag
+	}
+	if resolvedBaseURL == "" {
+		resolvedBaseURL = "/"
+	}
+	srv.BaseURL = resolvedBaseURL
 	// Per AI.md PART 13: /healthz root alias is optional, gated by config.
 	srv.HealthzRootEnabled = cfg.Server.Healthz.Root.Enabled
 	// HOST_IPV4 / HOST_IPV6: host's public IPs for container deployments.
@@ -1366,7 +1394,7 @@ func main() {
 					log.Printf("scheduler: healthcheck_self failed: %v", err)
 					return err
 				}
-				resp.Body.Close()
+				_ = resp.Body.Close()
 				if resp.StatusCode != http.StatusOK {
 					log.Printf("scheduler: healthcheck_self non-200: %d", resp.StatusCode)
 					return fmt.Errorf("healthcheck_self: HTTP %d", resp.StatusCode)
@@ -1470,8 +1498,9 @@ func main() {
 	// sustained flood doesn't send one email per rejected request.
 	var securityAlertMu sync.Mutex
 	securityAlertLast := make(map[string]time.Time)
-	limiter.OnBlocked = func(clientIP string) {
-		if emailMgr == nil || !emailMgr.IsEnabled() || !cfg.Server.Notifications.Email.Events.SecurityAlert {
+	onRateLimitBlocked := func(clientIP string) {
+		currentCfg := config.Get()
+		if emailMgr == nil || !emailMgr.IsEnabled() || currentCfg == nil || !currentCfg.Server.Notifications.Email.Events.SecurityAlert {
 			return
 		}
 		securityAlertMu.Lock()
@@ -1483,14 +1512,15 @@ func main() {
 		}
 		securityAlertLast[clientIP] = now
 		securityAlertMu.Unlock()
-		sendOperatorEmail(cfg, emailMgr, "security_alert", map[string]string{
+		sendOperatorEmail(currentCfg, emailMgr, "security_alert", map[string]string{
 			"app_name": projectName,
-			"app_url":  cfg.Server.BaseURL,
+			"app_url":  currentCfg.Server.BaseURL,
 			"message":  "Rate limit exceeded for " + clientIP,
 			"ip":       clientIP,
 			"time":     now.Format(time.RFC3339),
 		})
 	}
+	limiter.OnBlocked = onRateLimitBlocked
 	srv.SetRateLimiter(limiter)
 
 	// Allowlist: trusted IPs that bypass blocklist/rate-limit/geoip (not auth)
@@ -1637,27 +1667,80 @@ func main() {
 	readTimeout := parseDurationOrDefault(cfg.Server.Limits.ReadTimeout, 30*time.Second)
 	writeTimeout := parseDurationOrDefault(cfg.Server.Limits.WriteTimeout, 30*time.Second)
 	idleTimeout := parseDurationOrDefault(cfg.Server.Limits.IdleTimeout, 120*time.Second)
+	var httpServer *http.Server
+	var httpsServer *http.Server
+	var httpHub *netutil.ListenerHub
+	var httpsHub *netutil.ListenerHub
+	errChan := make(chan error, 4)
+	var newHTTPServer func(time.Duration, time.Duration, time.Duration) *http.Server
+	var newHTTPSServer func(time.Duration, time.Duration, time.Duration) *http.Server
+	var reloadHTTPTimeouts func(*config.AppConfig) error
 
+	// Build one stable handler dispatcher. Config reloads atomically replace its
+	// active router after in-flight requests complete.
+	appHandler := srv.Handler()
+	configMgr.SetReloadHandler(func(newCfg *config.AppConfig, changed []string) error {
+		var timeoutChanged bool
+		for _, path := range changed {
+			if strings.Contains(path, "timeout") {
+				timeoutChanged = true
+				break
+			}
+		}
+		for _, path := range changed {
+			if strings.HasPrefix(path, "server.logging.") && path != "server.logging.level" && logMgr != nil {
+				if err := logMgr.Reconfigure(buildLogConfig(newCfg)); err != nil {
+					return err
+				}
+				break
+			}
+		}
+		if slicesContainPrefix(changed, "server.rate_limit.") {
+			newRateConfig := server.DefaultRateLimitConfig()
+			if newCfg.Server.RateLimit.Enabled {
+				newRateConfig.Read = resolveRateBucket(newCfg.Server.RateLimit.Read, newRateConfig.Read)
+				newRateConfig.Write = resolveRateBucket(newCfg.Server.RateLimit.Write, newRateConfig.Write)
+				newRateConfig.Health = resolveRateBucket(newCfg.Server.RateLimit.Health, newRateConfig.Health)
+				if newCfg.Server.RateLimit.GlobalBurst > 0 {
+					newRateConfig.Global = server.RateLimitBucket{Limit: newCfg.Server.RateLimit.GlobalBurst, Window: time.Minute}
+				}
+			}
+			newLimiter := server.NewRateLimiter(newRateConfig, trust)
+			newLimiter.OnBlocked = onRateLimitBlocked
+			if logMgr != nil {
+				newLimiter.SetLogManager(logMgr)
+			}
+			srv.SetRateLimiter(newLimiter)
+		}
+		baseURL := newCfg.Server.BaseURL
+		if baseURLFlagExplicit {
+			baseURL = *baseurlFlag
+		}
+		if baseURL == "" {
+			baseURL = "/"
+		}
+		srv.ReloadRuntimeConfig(newCfg, baseURL)
+		if timeoutChanged {
+			if err := reloadHTTPTimeouts(newCfg); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 	// Wire the app handler into the Tor hidden-service backend listener now
 	// that srv is fully configured. Per AI.md PART 31.1 the onion address
 	// is served from a dedicated loopback backend port, never the clearnet
 	// HTTP/HTTPS port. Safe to call even if Tor never started or is not
 	// available (ServeBackend is a no-op until Start() has run).
-	torMgr.ServeBackend(srv.Handler())
+	torMgr.ServeBackend(appHandler)
 
 	// Wire the app handler into the I2P eepsite backend listener, mirroring
 	// the Tor wiring above (AI.md PART 31.2). Safe to call even if I2P is
 	// disabled or never started (ServeBackend is a no-op until Start() has run).
-	i2pMgr.ServeBackend(srv.Handler())
-
-	// errChan collects fatal errors from background server goroutines.
-	errChan := make(chan error, 2)
+	i2pMgr.ServeBackend(appHandler)
 
 	// Start HTTPS + HTTP-redirect when SSL is enabled, otherwise plain HTTP.
 	// Per AI.md PART 15: Let's Encrypt autocert, TLS 1.2 min, self-signed fallback for dev.
-	var httpServer *http.Server
-	var httpsServer *http.Server
-
 	// Both listeners were bound before privileges were dropped (AI.md PART 23),
 	// so the servers here only ever call Serve on an already-open socket.
 	if httpsListener != nil {
@@ -1676,70 +1759,138 @@ func main() {
 			}
 		}
 
-		httpsServer = &http.Server{
-			Handler:      srv.Handler(),
-			TLSConfig:    tlsCfg,
-			ReadTimeout:  readTimeout,
-			WriteTimeout: writeTimeout,
-			IdleTimeout:  idleTimeout,
+		newHTTPSServer = func(read, write, idle time.Duration) *http.Server {
+			return &http.Server{
+				Handler:      appHandler,
+				TLSConfig:    tlsCfg,
+				ReadTimeout:  read,
+				WriteTimeout: write,
+				IdleTimeout:  idle,
+			}
 		}
+		httpsServer = newHTTPSServer(readTimeout, writeTimeout, idleTimeout)
 
 		// In dual-port mode ("8090,8443") the HTTP half serves the application
 		// directly; in single-port SSL mode it redirects to HTTPS and answers
 		// ACME HTTP-01 challenges via autocert.Manager (AI.md PART 12, PART 15).
-		httpHandler := srv.Handler()
+		httpHandler := appHandler
 		if httpsPort == "" {
 			httpHandler = sslMgr.GetHTTPHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				target := "https://" + r.Host + r.URL.RequestURI()
 				http.Redirect(w, r, target, http.StatusMovedPermanently)
 			}))
 		}
-		httpServer = &http.Server{
-			Handler:      httpHandler,
-			ReadTimeout:  readTimeout,
-			WriteTimeout: writeTimeout,
-			IdleTimeout:  idleTimeout,
-		}
-
-		go func() {
-			if err := httpServer.Serve(httpListener); err != nil && err != http.ErrServerClosed {
-				log.Printf("HTTP server error: %v", err)
+		newHTTPServer = func(read, write, idle time.Duration) *http.Server {
+			return &http.Server{
+				Handler:      httpHandler,
+				ReadTimeout:  read,
+				WriteTimeout: write,
+				IdleTimeout:  idle,
 			}
-		}()
-		go func() {
-			if err := httpsServer.ServeTLS(httpsListener, "", ""); err != nil && err != http.ErrServerClosed {
+		}
+		httpServer = newHTTPServer(readTimeout, writeTimeout, idleTimeout)
+
+		httpHub = netutil.NewListenerHub(httpListener)
+		httpsHub = netutil.NewListenerHub(httpsListener)
+		go func(current *http.Server, listener net.Listener) {
+			if err := current.Serve(listener); err != nil && err != http.ErrServerClosed && err != net.ErrClosed {
 				errChan <- err
 			}
-		}()
+		}(httpServer, httpHub.Listener())
+		go func(current *http.Server, listener net.Listener) {
+			if err := current.ServeTLS(listener, "", ""); err != nil && err != http.ErrServerClosed && err != net.ErrClosed {
+				errChan <- err
+			}
+		}(httpsServer, httpsHub.Listener())
 		log.Printf("Listening on HTTPS %s (HTTP %s)", httpsListenAddr, httpListenAddr)
 		if logMgr != nil {
 			logMgr.WriteServer("info", fmt.Sprintf("listening on HTTPS %s (HTTP %s)", httpsListenAddr, httpListenAddr))
 		}
 	} else {
 		// Plain HTTP server on the listener bound while still privileged.
-		httpServer = &http.Server{
-			Handler:      srv.Handler(),
-			ReadTimeout:  readTimeout,
-			WriteTimeout: writeTimeout,
-			IdleTimeout:  idleTimeout,
+		newHTTPServer = func(read, write, idle time.Duration) *http.Server {
+			return &http.Server{
+				Handler:      appHandler,
+				ReadTimeout:  read,
+				WriteTimeout: write,
+				IdleTimeout:  idle,
+			}
 		}
-		go func() {
-			if err := httpServer.Serve(httpListener); err != nil && err != http.ErrServerClosed {
+		httpServer = newHTTPServer(readTimeout, writeTimeout, idleTimeout)
+		httpHub = netutil.NewListenerHub(httpListener)
+		go func(current *http.Server, listener net.Listener) {
+			if err := current.Serve(listener); err != nil && err != http.ErrServerClosed && err != net.ErrClosed {
 				errChan <- err
 			}
-		}()
+		}(httpServer, httpHub.Listener())
 		if logMgr != nil {
 			logMgr.WriteServer("info", fmt.Sprintf("listening on HTTP %s", httpListenAddr))
 		}
 	}
+	reloadHTTPTimeouts = func(newCfg *config.AppConfig) error {
+		read := parseDurationOrDefault(newCfg.Server.Limits.ReadTimeout, 30*time.Second)
+		write := parseDurationOrDefault(newCfg.Server.Limits.WriteTimeout, 30*time.Second)
+		idle := parseDurationOrDefault(newCfg.Server.Limits.IdleTimeout, 120*time.Second)
+		type retiringServer struct {
+			name   string
+			server *http.Server
+		}
+		var retiring []retiringServer
+		if httpHub != nil && httpServer != nil {
+			old := httpServer
+			next := newHTTPServer(read, write, idle)
+			listener := httpHub.Switch()
+			httpServer = next
+			go func() {
+				if err := next.Serve(listener); err != nil && err != http.ErrServerClosed && err != net.ErrClosed {
+					errChan <- err
+				}
+			}()
+			retiring = append(retiring, retiringServer{name: "HTTP", server: old})
+		}
+		if httpsHub != nil && httpsServer != nil {
+			old := httpsServer
+			next := newHTTPSServer(read, write, idle)
+			listener := httpsHub.Switch()
+			httpsServer = next
+			go func() {
+				if err := next.ServeTLS(listener, "", ""); err != nil && err != http.ErrServerClosed && err != net.ErrClosed {
+					errChan <- err
+				}
+			}()
+			retiring = append(retiring, retiringServer{name: "HTTPS", server: old})
+		}
+		if len(retiring) > 0 {
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			var drains sync.WaitGroup
+			drains.Add(len(retiring))
+			for _, retired := range retiring {
+				go func(retired retiringServer) {
+					defer drains.Done()
+					if err := retired.server.Shutdown(ctx); err != nil {
+						log.Printf("%s server timeout reload drain failed: %v", retired.name, err)
+						_ = retired.server.Close()
+					}
+				}(retired)
+			}
+			drains.Wait()
+			cancel()
+		}
+		return nil
+	}
+	stopConfigWatch = configMgr.Start()
 
 	// Wait for shutdown signal or server error
 	for {
 		select {
 		case err := <-errChan:
 			stopConfigWatch()
-			torMgr.Stop()
-			i2pMgr.Stop()
+			if stopErr := torMgr.Stop(); stopErr != nil {
+				log.Printf("stop Tor: %v", stopErr)
+			}
+			if stopErr := i2pMgr.Stop(); stopErr != nil {
+				log.Printf("stop I2P: %v", stopErr)
+			}
 			sched.Stop()
 			removePIDFile(pidFile)
 			log.Printf("server error: %v", err)
@@ -1778,6 +1929,7 @@ func main() {
 			// SIGHUP never reaches here (ignored above); every other notified
 			// signal (SIGTERM, SIGINT, SIGQUIT, SIGRTMIN+3) shuts down gracefully.
 			log.Printf("Received signal %v, shutting down gracefully...", sig)
+			stopConfigWatch()
 			if logMgr != nil {
 				logMgr.WriteServer("info", fmt.Sprintf("received signal %v, shutting down gracefully", sig))
 			}
@@ -1801,13 +1953,26 @@ func main() {
 					log.Printf("HTTP server shutdown error: %v", err)
 				}
 			}
+			if httpsHub != nil {
+				if err := httpsHub.Close(); err != nil && err != net.ErrClosed {
+					log.Printf("HTTPS listener close error: %v", err)
+				}
+			}
+			if httpHub != nil {
+				if err := httpHub.Close(); err != nil && err != net.ErrClosed {
+					log.Printf("HTTP listener close error: %v", err)
+				}
+			}
 			cancel()
 
 			// Stop child processes
-			stopConfigWatch()
 			trustCancel()
-			torMgr.Stop()
-			i2pMgr.Stop()
+			if stopErr := torMgr.Stop(); stopErr != nil {
+				log.Printf("stop Tor: %v", stopErr)
+			}
+			if stopErr := i2pMgr.Stop(); stopErr != nil {
+				log.Printf("stop I2P: %v", stopErr)
+			}
 			sched.Stop()
 			close(metricsStop)
 
@@ -1943,7 +2108,9 @@ func applyModeString(cfg *config.AppConfig, modeStr string) error {
 	cfg.Server.Mode = string(resolvedMode)
 	if impliedDebug {
 		if _, set := os.LookupEnv("DEBUG"); !set {
-			os.Setenv("DEBUG", "true")
+			if err := os.Setenv("DEBUG", "true"); err != nil {
+				return fmt.Errorf("set DEBUG for debug mode: %w", err)
+			}
 		}
 	}
 	return nil
@@ -2093,7 +2260,7 @@ func checkHealth(port string) error {
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("health check returned status %d", resp.StatusCode)
 	}
@@ -2160,6 +2327,15 @@ func resolveRateBucket(cfgBucket config.RateLimitBucketConfig, fallback server.R
 		bucket.Window = time.Duration(cfgBucket.Window) * time.Second
 	}
 	return bucket
+}
+
+func slicesContainPrefix(values []string, prefix string) bool {
+	for _, value := range values {
+		if strings.HasPrefix(value, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 // buildLogConfig converts cfg.Server.Logging into an applog.LoggerConfig, ready to
@@ -2350,7 +2526,7 @@ func handlePGPMaintenance(args []string, configDir, logsDir string, cfg *config.
 		log.Printf("pgp: failed to open database: %v", err)
 		os.Exit(exIoErr)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	logMgr, logMgrErr := applog.NewManager(logsDir, buildLogConfig(cfg))
 	if logMgrErr != nil {
@@ -2784,7 +2960,7 @@ func handleSecretMaintenance(args []string, configDir, logsDir string, cfg *conf
 		log.Printf("secret rotate: failed to open database: %v", err)
 		os.Exit(exIoErr)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	logMgr, logMgrErr := applog.NewManager(logsDir, buildLogConfig(cfg))
 	if logMgrErr != nil {
@@ -3048,7 +3224,7 @@ func maintenanceSetup(configPath string, cfg *config.AppConfig, dirs paths.Direc
 		os.Exit(exIoErr)
 	}
 	firstRun := isDatabaseEmpty(conn)
-	conn.Close()
+	_ = conn.Close()
 
 	if !firstRun && !isElevated() {
 		fmt.Println("Setup already completed. To reconfigure:")
@@ -3096,7 +3272,7 @@ func maintenanceToken(args []string, cfg *config.AppConfig, logsDir string, dirs
 		log.Printf("token: failed to open database: %v", err)
 		os.Exit(exIoErr)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	switch args[0] {
 	case "list":
@@ -3123,7 +3299,7 @@ func maintenanceTokenList(conn *sql.DB) {
 		log.Printf("token list: query failed: %v", err)
 		os.Exit(exIoErr)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	fmt.Printf("%-12s %-12s %-24s %-20s %-10s\n", "PREFIX", "TYPE", "RESOURCE", "CREATED", "STATUS")
 	count := 0
@@ -3195,7 +3371,7 @@ func maintenanceData(args []string, cfg *config.AppConfig, logsDir string, dirs 
 		log.Printf("data: failed to open database: %v", err)
 		os.Exit(exIoErr)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	switch args[0] {
 	case "export":
@@ -3484,19 +3660,19 @@ func verifyBackup(backupFile, password string, layout backupArchiveLayout) error
 			break
 		}
 		if terr != nil {
-			gr.Close()
+			_ = gr.Close()
 			return fmt.Errorf("check 5 (manifest readable): tar read: %w", terr)
 		}
 		if strings.HasSuffix(hdr.Name, ".json") {
 			buf, rerr := io.ReadAll(tr)
 			if rerr != nil {
-				gr.Close()
+				_ = gr.Close()
 				return fmt.Errorf("check 5 (manifest readable): read manifest: %w", rerr)
 			}
 			manifestBytes = buf
 		}
 	}
-	gr.Close()
+	_ = gr.Close()
 	if manifestBytes == nil {
 		return fmt.Errorf("check 5 (manifest readable): no manifest.json found in archive")
 	}
@@ -3511,7 +3687,7 @@ func verifyBackup(backupFile, password string, layout backupArchiveLayout) error
 	if err != nil {
 		return fmt.Errorf("check 6 (extraction): create temp dir: %w", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 	if extractErr := extractBackupArchive(archiveBytes, tmpDir); extractErr != nil {
 		return fmt.Errorf("check 6 (extraction): %w", extractErr)
 	}
@@ -3584,7 +3760,9 @@ func maintenanceRestore(backupFile, configDir, dataDir, dbDir string, cfg *confi
 	firstRun := false
 	if conn, err := openMaintenanceDB(cfg, dirs); err == nil {
 		firstRun = isDatabaseEmpty(conn)
-		conn.Close()
+		if err := conn.Close(); err != nil {
+			log.Printf("restore: close maintenance database: %v", err)
+		}
 	}
 	if !firstRun && !requireOperatorAuth(cfg, "This will OVERWRITE all data. Enter operator token to confirm: ") {
 		fmt.Println("Restore requires administrator authorization.")
@@ -3625,7 +3803,7 @@ func maintenanceRestore(backupFile, configDir, dataDir, dbDir string, cfg *confi
 		log.Printf("Restore: archive verification failed: %v", gzErr)
 		os.Exit(exIoErr)
 	} else {
-		gr.Close()
+		_ = gr.Close()
 	}
 
 	fmt.Printf("WARNING: Restoring from %s will overwrite current data in:\n", backupFile)
@@ -3644,7 +3822,7 @@ func maintenanceRestore(backupFile, configDir, dataDir, dbDir string, cfg *confi
 		log.Printf("Restore: failed to create temp directory: %v", err)
 		os.Exit(exOsErr)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	fmt.Printf("Restoring from backup: %s\n", backupFile)
 	if extractErr := extractBackupArchive(archiveBytes, tmpDir); extractErr != nil {
@@ -3803,7 +3981,7 @@ func restoreCopyFile(src, dst string, mode os.FileMode) error {
 	if err != nil {
 		return err
 	}
-	defer in.Close()
+	defer func() { _ = in.Close() }()
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 		return err
 	}
@@ -3811,7 +3989,7 @@ func restoreCopyFile(src, dst string, mode os.FileMode) error {
 	if err != nil {
 		return err
 	}
-	defer out.Close()
+	defer func() { _ = out.Close() }()
 	_, err = io.Copy(out, in)
 	return err
 }
@@ -4195,7 +4373,7 @@ func torControlCall(port, method, endpoint string, body map[string]interface{}) 
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
 		return nil, err
@@ -4602,7 +4780,10 @@ func handleI2PCommand(args []string, configDir, dataDir, logDir string, cfg *con
 		fmt.Println("Any bookmarks or links to the current address will stop working.")
 		fmt.Print("Type 'yes' to confirm: ")
 		var confirm string
-		fmt.Scanln(&confirm)
+		if _, err := fmt.Scanln(&confirm); err != nil {
+			fmt.Println("Regeneration cancelled.")
+			return
+		}
 		if confirm != "yes" {
 			fmt.Println("Regeneration cancelled.")
 			return

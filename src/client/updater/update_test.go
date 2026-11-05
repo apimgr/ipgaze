@@ -284,7 +284,9 @@ func autodiscoverServer(t *testing.T, payload interface{}) *httptest.Server {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(payload)
+		if err := json.NewEncoder(w).Encode(payload); err != nil {
+			t.Errorf("encode response: %v", err)
+		}
 	}))
 	return srv
 }
@@ -448,7 +450,9 @@ func TestDo_AlreadyUpToDate_NoDownload(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/api/autodiscover" {
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(payload)
+			if err := json.NewEncoder(w).Encode(payload); err != nil {
+				t.Errorf("encode response: %v", err)
+			}
 			return
 		}
 		// Any call to /cli/binaries/ is unexpected.
@@ -497,9 +501,13 @@ func TestDo_ChecksumMismatch_Aborts(t *testing.T) {
 		switch r.URL.Path {
 		case "/api/autodiscover":
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(payload)
+			if err := json.NewEncoder(w).Encode(payload); err != nil {
+				t.Errorf("encode response: %v", err)
+			}
 		case "/cli/binaries/" + filename:
-			w.Write(binaryContent)
+			if _, err := w.Write(binaryContent); err != nil {
+				t.Errorf("write binary response: %v", err)
+			}
 		default:
 			http.NotFound(w, r)
 		}

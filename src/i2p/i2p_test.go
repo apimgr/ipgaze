@@ -152,7 +152,11 @@ func TestGetRandomAvailablePort(t *testing.T) {
 	if err != nil {
 		t.Fatalf("getRandomAvailablePort: %v", err)
 	}
-	defer ln1.Close()
+	defer func() {
+		if err := ln1.Close(); err != nil {
+			t.Errorf("close first listener: %v", err)
+		}
+	}()
 	if port1 <= 0 {
 		t.Fatalf("port1 = %d, want > 0", port1)
 	}
@@ -161,7 +165,11 @@ func TestGetRandomAvailablePort(t *testing.T) {
 	if err != nil {
 		t.Fatalf("getRandomAvailablePort (2): %v", err)
 	}
-	defer ln2.Close()
+	defer func() {
+		if err := ln2.Close(); err != nil {
+			t.Errorf("close second listener: %v", err)
+		}
+	}()
 	if port2 <= 0 {
 		t.Fatalf("port2 = %d, want > 0", port2)
 	}
@@ -179,14 +187,20 @@ func TestSamReachable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("listen: %v", err)
 	}
-	defer ln.Close()
+	defer func() {
+		if err := ln.Close(); err != nil {
+			t.Errorf("close listener: %v", err)
+		}
+	}()
 	go func() {
 		for {
 			c, err := ln.Accept()
 			if err != nil {
 				return
 			}
-			c.Close()
+			if err := c.Close(); err != nil {
+				t.Errorf("close accepted connection: %v", err)
+			}
 		}
 	}()
 	if !samReachable(ln.Addr().String()) {
@@ -420,7 +434,7 @@ func TestAttachBackendHandlerLocked_ServesRequests(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GET backend listener: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusTeapot {
 		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusTeapot)
 	}
@@ -439,7 +453,7 @@ func TestHTTPTestServerSanity(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GET: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusNoContent {
 		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusNoContent)
 	}
@@ -548,8 +562,16 @@ func TestLoadOrCreateSAMDestination_GeneratesAndPersistsWhenAbsent(t *testing.T)
 	keysPath := filepath.Join(tmp, "site", "site-keys.dat")
 
 	server, client := net.Pipe()
-	defer server.Close()
-	defer client.Close()
+	defer func() {
+		if err := server.Close(); err != nil {
+			t.Errorf("close server pipe: %v", err)
+		}
+	}()
+	defer func() {
+		if err := client.Close(); err != nil {
+			t.Errorf("close client pipe: %v", err)
+		}
+	}()
 
 	go func() {
 		r := bufio.NewReader(server)
@@ -582,21 +604,27 @@ func TestStartSAMEepsite_FullMockProtocol(t *testing.T) {
 	if err != nil {
 		t.Fatalf("listen: %v", err)
 	}
-	defer ln.Close()
+	defer func() {
+		if err := ln.Close(); err != nil {
+			t.Errorf("close SAM listener: %v", err)
+		}
+	}()
 
 	backendLn, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("listen backend: %v", err)
 	}
 	backendPort := backendLn.Addr().(*net.TCPAddr).Port
-	backendLn.Close()
+	if err := backendLn.Close(); err != nil {
+		t.Fatalf("close backend listener: %v", err)
+	}
 
 	go func() {
 		conn, err := ln.Accept()
 		if err != nil {
 			return
 		}
-		defer conn.Close()
+		defer func() { _ = conn.Close() }()
 		r := bufio.NewReader(conn)
 
 		if line, _ := r.ReadString('\n'); !strings.HasPrefix(line, "HELLO VERSION") {
@@ -653,7 +681,9 @@ func TestStartSAMEepsite_FullMockProtocol(t *testing.T) {
 	if svc.samConn == nil {
 		t.Error("svc.samConn = nil, want the live SAM control connection retained")
 	}
-	svc.samConn.Close()
+	if err := svc.samConn.Close(); err != nil {
+		t.Errorf("close retained SAM connection: %v", err)
+	}
 }
 
 // fakeI2PDScript writes a minimal shell script standing in for the real

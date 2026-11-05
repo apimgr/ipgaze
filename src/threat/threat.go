@@ -5,6 +5,7 @@ package threat
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -144,7 +145,7 @@ func download(client *http.Client, url, dest string) error {
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("HTTP %d for %s", resp.StatusCode, url)
 	}
@@ -214,7 +215,7 @@ func (l *Lookup) LoadDir(dir string, sources []Source) error {
 }
 
 // parseFile reads one IP list file and appends entries to the appropriate kindSet.
-func parseFile(path, kind string, tor, vpn, proxy *kindSet) error {
+func parseFile(path, kind string, tor, vpn, proxy *kindSet) (retErr error) {
 	f, err := os.Open(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -222,7 +223,9 @@ func parseFile(path, kind string, tor, vpn, proxy *kindSet) error {
 		}
 		return err
 	}
-	defer f.Close()
+	defer func() {
+		retErr = errors.Join(retErr, f.Close())
+	}()
 
 	var target *kindSet
 	switch kind {

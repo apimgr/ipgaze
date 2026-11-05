@@ -111,7 +111,11 @@ func archiveCount(t *testing.T, dir, base string) int {
 func TestWriterRotatesBySize(t *testing.T) {
 	dir := t.TempDir()
 	w := newTestWriter(t, dir, "size.log", "200b", "forever", false)
-	defer w.file.Close()
+	t.Cleanup(func() {
+		if err := w.file.Close(); err != nil {
+			t.Errorf("close writer: %v", err)
+		}
+	})
 
 	line := strings.Repeat("x", 60)
 	for i := 0; i < 12; i++ {
@@ -133,7 +137,11 @@ func TestWriterRotatesBySize(t *testing.T) {
 func TestWriterRotatesByDay(t *testing.T) {
 	dir := t.TempDir()
 	w := newTestWriter(t, dir, "daily.log", "daily", "forever", false)
-	defer w.file.Close()
+	t.Cleanup(func() {
+		if err := w.file.Close(); err != nil {
+			t.Errorf("close writer: %v", err)
+		}
+	})
 
 	w.write("first day")
 	// Backdate the period anchor so the next write lands in a new day.
@@ -160,7 +168,11 @@ func TestWriterRotatesByDay(t *testing.T) {
 func TestWriterPrunesToKeepCount(t *testing.T) {
 	dir := t.TempDir()
 	w := newTestWriter(t, dir, "keep.log", "daily", "2", false)
-	defer w.file.Close()
+	t.Cleanup(func() {
+		if err := w.file.Close(); err != nil {
+			t.Errorf("close writer: %v", err)
+		}
+	})
 
 	// Each pass backdates the anchor by a day and rotates at a distinct second,
 	// so five iterations produce five differently-named archives.
@@ -182,7 +194,11 @@ func TestWriterPrunesToKeepCount(t *testing.T) {
 func TestWriterKeepNoneDropsArchives(t *testing.T) {
 	dir := t.TempDir()
 	w := newTestWriter(t, dir, "drop.log", "daily", "none", false)
-	defer w.file.Close()
+	t.Cleanup(func() {
+		if err := w.file.Close(); err != nil {
+			t.Errorf("close writer: %v", err)
+		}
+	})
 
 	w.write("entry")
 	w.mu.Lock()
@@ -198,7 +214,11 @@ func TestWriterKeepNoneDropsArchives(t *testing.T) {
 func TestWriterCompressesArchive(t *testing.T) {
 	dir := t.TempDir()
 	w := newTestWriter(t, dir, "gz.log", "daily", "forever", true)
-	defer w.file.Close()
+	t.Cleanup(func() {
+		if err := w.file.Close(); err != nil {
+			t.Errorf("close writer: %v", err)
+		}
+	})
 
 	w.write("entry")
 	w.mu.Lock()
@@ -229,7 +249,7 @@ func TestManagerRotate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewManager: %v", err)
 	}
-	defer m.Close()
+	t.Cleanup(m.Close)
 
 	m.WriteServer("INFO", "hello")
 	if err := m.Rotate(); err != nil {

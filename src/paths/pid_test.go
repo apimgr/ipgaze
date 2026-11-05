@@ -9,12 +9,18 @@ import (
 
 func mkTempBase(t *testing.T) string {
 	t.Helper()
-	os.MkdirAll(filepath.Join(os.TempDir(), "apimgr"), 0755)
+	if err := os.MkdirAll(filepath.Join(os.TempDir(), "apimgr"), 0755); err != nil {
+		t.Fatalf("create temp base directory: %v", err)
+	}
 	base, err := os.MkdirTemp(filepath.Join(os.TempDir(), "apimgr"), "ipgaze-pid-")
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { os.RemoveAll(base) })
+	t.Cleanup(func() {
+		if err := os.RemoveAll(base); err != nil {
+			t.Errorf("remove temp base: %v", err)
+		}
+	})
 	return base
 }
 
@@ -210,7 +216,11 @@ func TestWritePIDFile_UserModePermissions(t *testing.T) {
 	if err := WritePIDFile(pidPath); err != nil {
 		t.Fatalf("WritePIDFile() error = %v", err)
 	}
-	defer os.Remove(pidPath)
+	t.Cleanup(func() {
+		if err := os.Remove(pidPath); err != nil && !os.IsNotExist(err) {
+			t.Errorf("remove PID file: %v", err)
+		}
+	})
 
 	fi, err := os.Stat(pidPath)
 	if err != nil {
@@ -241,7 +251,11 @@ func TestWritePIDFile_SystemModePermissions(t *testing.T) {
 	if err := WritePIDFile(pidPath); err != nil {
 		t.Fatalf("WritePIDFile() error = %v", err)
 	}
-	defer os.Remove(pidPath)
+	t.Cleanup(func() {
+		if err := os.Remove(pidPath); err != nil && !os.IsNotExist(err) {
+			t.Errorf("remove PID file: %v", err)
+		}
+	})
 
 	fi, err := os.Stat(pidPath)
 	if err != nil {

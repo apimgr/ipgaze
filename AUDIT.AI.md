@@ -4,9 +4,9 @@ Started: 2026-08-29
 Spec version: AI.md, 49114 lines (re-walked 2026-09-11 after the
 2026-09-10 spec update)
 
-Full line-by-line AI.md compliance audit (PARTs 0-33). Every finding from
-Passes 1-6 has been fixed and deleted from this file. Only items blocked on a
-user ruling remain. This file is deleted entirely once they are resolved.
+Full line-by-line AI.md compliance audit (PARTs 0-33). Findings from Passes
+1-6 are resolved. Remaining entries are spec contradictions, unspecified
+requirements, or documentation changes blocked by the read-only AI.md rule.
 
 ## Open Questions — blocked, need a ruling
 
@@ -32,16 +32,17 @@ user ruling remain. This file is deleted entirely once they are resolved.
       "maximum circuits to keep open" — `MaxClientCircuitsPending` has
       different semantics, and emitting a wrong directive aborts Tor startup.
       Left unemitted rather than guessed.
-- [ ] AI.md PART 16 requires a control on `/server/preferences` "for every
-      app-specific `{project_name}_pref_*` setting" and says to "document each
-      one in this project's own AI.md preferences table" — but AI.md is
-      read-only and IDEA.md names no `ipgaze_pref_*` key. The editable page now
-      ships theme, language, cookie-consent categories, and CCPA opt-out; no
-      `ipgaze_pref_*` cookie was invented, and no empty registry was built
-      (that would be dead code). Which app-specific guest preferences, if any,
-      should ipgaze expose (default view mode, results-per-page, sort order,
-      unit system, …)? Also blocks whether export/import needs to grow
-      `{project_name}_pref_*` round-tripping, which today has nothing to carry.
+- [x] AI.md PART 16 requires app-specific guest preferences and export/import
+      round-tripping. Added `ipgaze_pref_widget` with the existing landing-page
+      curl-example choices (`ip`, `country`, `country-iso`, `city`, `asn`,
+      `json`, `port`) to `/server/preferences`, the API mirror, and the
+      canonical export/import flow. The landing page reads the cookie per
+      request and changes only its UI widget, preserving echoip API responses.
+      `IDEA.md` records the product behavior. **Documentation remains open:**
+      AI.md requires this preference in its own cookie table, but project
+      instructions make AI.md read-only. The cookie name/value/default rule
+      should be added to AI.md by its owner before that documentation item can
+      be marked fully resolved.
 - [ ] AI.md PART 25 vs the FINAL CHECKPOINT checklist contradict each other on
       the Makefile target set: PART 25's body and reference `.PHONY` line
       mandate exactly `dev local build test release docker` plus `clean` and
@@ -49,32 +50,15 @@ user ruling remain. This file is deleted entirely once they are resolved.
       separately lists `make all`. No `all` target was added — resolving the
       contradiction that way would violate PART 25's explicit rule. Which side
       wins?
-- [ ] AI.md 32611/32657/32663's reference Makefile builds the local binary with
-      `GOOS=$(go env GOOS) GOARCH=$(go env GOARCH)`. Make expands `$(go env ...)`
-      on the HOST before the Docker build container starts, so on a machine that
-      correctly has no host Go toolchain it emits
-      `/bin/sh: line 1: go: command not found` twice per `make build` and the
-      variables come through empty. The effect is benign (empty GOOS/GOARCH
-      means the container's own native target, which is the intended result),
-      but the line still invokes `go` on the host, which PART 1/PART 28
-      forbid outright. The repo's Makefile reproduces the spec's reference
-      implementation verbatim and was deliberately NOT changed. Should the
-      local-build line move inside the container invocation (e.g. resolve
-      GOOS/GOARCH in the `sh -c` body), or does the verbatim spec text win?
-- [ ] AI.md 18478/18503 vs IDEA.md line 34 conflict on the HTTP-tool (curl,
-      wget, HTTPie) response body for the echoip data routes `/`, `/{ip}`,
-      and `/{ip}/{field}`. AI.md mandates the frontend page rendered through
-      `HTML2TextConverter()` ("Beautiful formatted ... full page with headers,
-      navigation, formatting"); IDEA.md line 34 mandates an
-      "echoip-compatible API surface (same routes, response formats,
-      user-agent detection behavior)", whose defining behavior is
-      `curl ifconfig.co` returning the bare address and nothing else.
-      The existing bare-address `CLIHandler` output was preserved on those
-      three routes, since converting them to formatted page text would break
-      the product's core purpose. The conflict does not extend to
-      `/server/*`, where AI.md applies cleanly — those pages now go through
-      `HTML2TextConverter` via `renderNegotiated`. Which side wins for the
-      data routes?
+- [x] The Makefile command-substitution concern is resolved: both the AI.md
+      reference and repository Makefile use `GOOS=$$(go env GOOS)` and
+      `GOARCH=$$(go env GOARCH)` inside `sh -c` passed to the Docker toolchain.
+      Make passes substitution to the container shell; it does not invoke Go
+      on the host.
+- [x] AI.md 18478/18503 vs IDEA.md echoip response conflict — RESOLVED by user:
+      adhere to AI.md while preserving echoip compatibility. Bare responses
+      remain for `/`, `/{ip}`, and `/{ip}/{field}` when requested by HTTP tools.
+
 - [x] AI.md 8708-8709/9223-9252 ("Six Operational States") vs AI.md 8788
       (`--mode debug` = development + debug) debug-mode contradiction —
       RESOLVED. The user ruled to follow 8708-9252: `debug` is its own
@@ -107,3 +91,31 @@ user ruling remain. This file is deleted entirely once they are resolved.
 `manifest.json.version` and `.trivyignore` moved to TODO.AI.md's Open
 section per the user's ruling to leave both as open TODOs rather than
 resolve now.
+
+- [x] AI.md PART 12 defines three config reload classes. `ConfigManager`
+      classifies hot, graceful, and restart-required changes. Logging changes
+      reopen active writers, `server.baseurl` rebuilds the active router after
+      in-flight requests complete, and timeout changes hand newly accepted
+      connections to replacement HTTP servers on the existing bound listeners
+      while prior servers drain active requests.
+- [x] AI.md PART 14's MCP implementation uses Go SDK v1.8.0, which supports
+      the current `2026-07-28` revision and its header/body checks. MCP
+      operations are filtered against the registered runtime routes, ordered
+      deterministically, and audited with `source: mcp`. `APIV1RouteDefinitions`
+      now drives runtime API registration from the same route catalogue used
+      by OpenAPI; the active operation-ID registry filters MCP and llms.txt.
+      Optional GeoIP, port, GraphQL, and Swagger routes stay absent when their
+      runtime handlers are disabled. Echoip root routes remain listed and
+      unchanged. Parity tests cover definitions, active routes, and discovery.
+      Owner-token tools are not applicable: IDEA.md defines no user-owned
+      resource creation, and AI.md PART 14 only requires project-defined
+      resources and prompts when IDEA.md defines them.
+- [ ] AI.md contains an internal contradiction for the MCP setting. PART 14
+      requires an MCP toggle in Web settings, while PART 12 says configuration
+      is file-only with no runtime mutation, PART 16 says no admin web panel,
+      and PART 14's later frontend rules say there are no admin pages. The
+      user has ruled that AI.md takes precedence over IDEA.md and code, but
+      that does not choose between these conflicting AI.md requirements.
+      `server.mcp.enabled` remains file-configured, defaults to true, and is
+      hot-reloadable. Do not add a public settings route or invent an auth/UI
+      flow until AI.md resolves the contradiction.

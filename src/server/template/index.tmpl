@@ -2,7 +2,7 @@
 
 {{define "meta_description"}}{{ tf .Lang "index.meta_description" "host" .Host }}{{end}}
 
-{{define "body_attrs"}} class="landing-page" data-host="{{ .Host }}" data-json='{{ .JSON }}' data-na="{{ t .Lang "index.value_not_available" }}"{{end}}
+{{define "body_attrs"}} class="landing-page" data-host="{{ .Host }}" data-json='{{ .JSON }}' data-widget="{{ .DefaultWidget }}" data-na="{{ t .Lang "index.value_not_available" }}"{{end}}
 
 {{define "content"}}
       <div class="landing-hero-row">

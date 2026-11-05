@@ -344,7 +344,9 @@ func TestInitialize_CreatesDirectory(t *testing.T) {
 	m := NewGeoIPManager(dir)
 	geoDir := filepath.Join(dir, "security", "geoip")
 	// Remove it if created by parent
-	os.RemoveAll(geoDir)
+	if err := os.RemoveAll(geoDir); err != nil {
+		t.Fatalf("RemoveAll(%q): %v", geoDir, err)
+	}
 	// Initialize will fail at download step, but should create the directory first.
 	// Pre-populate valid files so Initialize succeeds without network access.
 	if err := os.MkdirAll(geoDir, 0755); err != nil {
@@ -412,7 +414,9 @@ func TestDownloadFile_Success(t *testing.T) {
 	content := []byte("fake mmdb content for test")
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write(content)
+		if _, err := w.Write(content); err != nil {
+			t.Errorf("write response: %v", err)
+		}
 	}))
 	defer srv.Close()
 
@@ -472,7 +476,9 @@ func TestDownloadFile_ConnectionRefused(t *testing.T) {
 
 func TestDownloadFile_UnwritableDestination(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("data"))
+		if _, err := w.Write([]byte("data")); err != nil {
+			t.Errorf("write response: %v", err)
+		}
 	}))
 	defer srv.Close()
 

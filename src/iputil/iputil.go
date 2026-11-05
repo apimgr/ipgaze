@@ -28,7 +28,7 @@ func LookupPort(ip net.IP, port uint64) error {
 	if err != nil {
 		return err
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	return nil
 }
 

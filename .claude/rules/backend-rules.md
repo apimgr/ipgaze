@@ -21,6 +21,12 @@
   and rate-limit/audit-log keys must go through the trusted-proxy resolver, never a raw header read
 - Never put the wait time of a `429` in the JSON body — it belongs in the `Retry-After` header only
 - Never log secrets, raw tokens, passwords, or full credentials — hash or redact before writing to any log
+- Never accept cookies as authentication on `/api/...` routes — APIs require `Authorization: Bearer`; only
+  cookie-authenticated web management forms may use the primary owner-token cookie, with CSRF
+- Never allow linked tokens to manage tokens — only an owner's primary token may reveal, rotate, restore,
+  create, rename, change expiry, or revoke linked tokens
+- Never store owner/linked API tokens in plaintext — store SHA-256 lookup hashes and AES-256-GCM encrypted
+  copies under `server.security.encryption_key`; never return raw values outside creation/reveal flows
 
 ## CRITICAL - ALWAYS DO
 - Validate and sanitize all input for its destination context (HTML-encode for HTML, parameterize for SQL)
@@ -37,6 +43,9 @@
   Referrer-Policy, Permissions-Policy, COOP/COEP/CORP) on every response, config-overridable per directive
 - Use double-submit-cookie CSRF on all cookie-authenticated, state-changing browser requests — never bypass
   it based on `Origin`/`Referer` alone, since those can be absent or spoofed
+- Keep `server.security.encryption_key` as the canonical AES-256-GCM at-rest key in `server.yml`, separate
+  from the HMAC/root-secret rows in `app_secrets`; manual rotation uses the sensitive-operation flow and a
+  30-day grace window
 
 ## Key Rules Summary
 
@@ -73,7 +82,8 @@
   INSERT/UPDATE/DELETE 10s, bulk 60s, reports 2m; a multi-statement transaction is bounded at 30s across
   the whole `BeginTx`…`Commit`/`Rollback` span, not per statement — always the `*Context` call variants
 - Core self-managed tables include `config`/`config_meta` (with version-bump triggers), `rate_limits`,
-  `audit_log`, `scheduler_tasks`/`scheduler_history`, `backups`, `api_tokens`, `app_secrets`, `pgp_keypairs`
+  `audit_log`, `owners`, `scheduler_tasks`/`scheduler_history`, `backups`, `api_tokens`, `app_secrets`,
+  `pgp_keypairs`
   — `server.yml` remains the sole source of truth for configuration; the DB never stores user credentials
   or settings, only resource state, tokens, and audit trails
 
@@ -103,6 +113,22 @@
   time as a top-level field
 - IP allow/block lists are config-file only (no web/API management route); the allowlist bypasses IP
   blocklist/rate-limit/GeoIP/auto-block but never bypasses CSRF, path-security, or TLS
+- **Identity model**: one operator tier (`server.token`) plus anonymous owners; there are no passwords,
+  sessions, or user accounts. Owner resources bind to `owner_id`, never token hashes. A primary owner token
+  persists until rotated, operator-revoked, or eligible for configured idle purge; linked tokens have the
+  same resource access without token-management authority.
+- **Token storage and use**: tokens use `tok_` plus 32 URL-safe random base62 characters. Persist the
+  SHA-256 lookup hash and AES-256-GCM encrypted token copy; compare hashes in constant time. API routes
+  accept Bearer only and ignore cookies. Web management forms may fall back to the primary owner cookie;
+  invalid cookies are cleared and valid use refreshes its sliding expiry. Linked-token expiry/revocation
+  rejects access without revealing resource existence.
+- **Primary-only management**: reveal, rotate, restore, linked-token create/rename/expiry/revoke require
+  the owner's primary token. Rotations replace the existing row in place; linked rotation preserves its
+  name and expiry. Lists expose metadata and prefixes only. Reveal and restore are strictly rate-limited;
+  audit token events with owner ID and prefix, never token contents.
+- **Credential configuration**: `server.tokens.max_linked` defaults to 25,
+  `server.tokens.cookie_max_age` defaults to `1y`, and `server.tokens.idle_purge_days` defaults to 0
+  (disabled). Operator token maintenance lists prefixes and revokes by prefix; it never prints raw tokens.
 
 ### PART 31 — Overlay Networks (Tor & I2P)
 - Tor hidden service is REQUIRED functionality — auto-enabled whenever the `tor` binary is found on the

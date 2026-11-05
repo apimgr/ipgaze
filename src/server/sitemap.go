@@ -103,8 +103,8 @@ func (s *Server) sitemapHandler() http.HandlerFunc {
 		if r.Method == http.MethodHead {
 			return
 		}
-		w.Write([]byte(xml.Header))
-		w.Write(body)
-		w.Write([]byte("\n"))
+		_, _ = w.Write([]byte(xml.Header))
+		_, _ = w.Write(body)
+		_, _ = w.Write([]byte("\n"))
 	}
 }

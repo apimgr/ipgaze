@@ -393,6 +393,7 @@ type ServerConfig struct {
 	Database       DatabaseConfig            `yaml:"database"`
 	Schedule       ScheduleConfig            `yaml:"schedule"`
 	Metrics        MetricsConfig             `yaml:"metrics"`
+	MCP            MCPConfig                 `yaml:"mcp"`
 	Logging        LoggingConfig             `yaml:"logging"`
 	GeoIP          GeoIPConfig               `yaml:"geoip"`
 	Security       SecurityConfig            `yaml:"security"`
@@ -1315,6 +1316,11 @@ type MetricsLokiConfig struct {
 }
 
 // MetricsConfig contains metrics settings per AI.md PART 20.
+// MCPConfig controls the stateless Streamable HTTP MCP endpoint (AI.md PART 14).
+type MCPConfig struct {
+	Enabled bool `yaml:"enabled"`
+}
+
 type MetricsConfig struct {
 	Enabled bool `yaml:"enabled"`
 	// Root gates the /metrics and /metrics/{service} root aliases.
@@ -1902,6 +1908,7 @@ func DefaultConfig() *AppConfig {
 				DurationBuckets: []float64{0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10},
 				SizeBuckets:     []float64{100, 1000, 10000, 100000, 1000000, 10000000},
 			},
+			MCP: MCPConfig{Enabled: true},
 			Logging: LoggingConfig{
 				Level:        "warn",
 				AccessFormat: "apache",
@@ -2694,6 +2701,10 @@ server:
       max_entries: %d
       max_age: "%s"
 
+  mcp:
+    # Streamable HTTP MCP endpoint and aliases
+    enabled: %t
+
   # Per-class request rate limiting (read/write/health buckets + global ceiling)
   rate_limit:
     enabled: %t
@@ -3152,6 +3163,7 @@ data:
 		cfg.Server.Metrics.IncludeRuntime,
 		cfg.Server.Metrics.Loki.MaxEntries,
 		cfg.Server.Metrics.Loki.MaxAge,
+		cfg.Server.MCP.Enabled,
 		cfg.Server.RateLimit.Enabled,
 		cfg.Server.RateLimit.Read.Requests,
 		cfg.Server.RateLimit.Read.Window,

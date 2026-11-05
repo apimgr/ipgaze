@@ -24,6 +24,7 @@
 - Update IDEA.md when features change; update TODO.AI.md/TODO.md as tasks progress (never delete/empty human-owned TODO.md, only mark done)
 - Translate all new user-facing text (`t(r, "errors.*")`, `i18n.T`, `{{t .Lang "key"}}`) — add keys to `en.json` plus note for all other locale files
 - Full Web Application Architecture: every feature works via Browser (HTML), PWA, API/automation (JSON), and CLI client — one endpoint pattern for all (`/x` web ⇄ `/api/{api_version}/x` JSON)
+- MCP tools are generated from the same public API/OpenAPI operation definitions, named by `operationId`, and dispatched through the existing API handler and auth path; never maintain a second hand-written tool list
 - Security-first, secure-by-default: never weaken authn/authz, TLS, CSRF/CSP/CORS, rate limiting, or input validation to "improve" usability
 - Parameterized queries only; never `SELECT *`; never string-concatenate SQL
 - Use intent-revealing names — never generic `Mode`, `Type`, `Status`, `Config`, `Get()`, `Init()` etc. without a qualifying subject

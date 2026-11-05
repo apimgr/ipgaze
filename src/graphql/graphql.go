@@ -115,7 +115,9 @@ func handleGraphQLQuery(w http.ResponseWriter, r *http.Request) {
 	// AI.md PART 14: every JSON response is 2-space indented.
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
-	enc.Encode(result)
+	if err := enc.Encode(result); err != nil {
+		return
+	}
 }
 
 // writeGraphQLError writes a rejection (malformed body, complexity limit) in
@@ -128,7 +130,7 @@ func writeGraphQLError(w http.ResponseWriter, message string, status int) {
 	// AI.md PART 14: every JSON response is 2-space indented.
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
-	enc.Encode(map[string]interface{}{
+	_ = enc.Encode(map[string]interface{}{
 		"data":   nil,
 		"errors": []map[string]string{{"message": message}},
 	})
@@ -203,7 +205,7 @@ func serveGraphiQL(w http.ResponseWriter, r *http.Request, cfg GraphQLHandlerCon
 </html>`
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Write([]byte(html))
+	_, _ = w.Write([]byte(html))
 }
 
 // getTheme gets the current theme from cookie or defaults to dark.

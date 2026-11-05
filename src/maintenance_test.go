@@ -27,7 +27,11 @@ func openTestDB(t *testing.T) *sql.DB {
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}
-	t.Cleanup(func() { conn.Close() })
+	t.Cleanup(func() {
+		if err := conn.Close(); err != nil {
+			t.Errorf("close test database: %v", err)
+		}
+	})
 	if err := db.EnsureSchema(conn); err != nil {
 		t.Fatalf("ensure schema: %v", err)
 	}
@@ -66,7 +70,7 @@ func TestIsDatabaseEmpty_MissingTable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	if isDatabaseEmpty(conn) {
 		t.Error("isDatabaseEmpty on schemaless db = true, want false")
 	}
@@ -262,7 +266,7 @@ func TestOpenMaintenanceDB_CreatesSqliteFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("openMaintenanceDB: %v", err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	if !isDatabaseEmpty(conn) {
 		t.Error("freshly created db reported non-empty")
 	}

@@ -429,6 +429,26 @@ pipeline {
                         --exclude='*.tar.gz' \
                         -czf ${RELDIR}/${PROJECT_NAME}-${VERSION}-source.tar.gz .
                 '''
+                sh '''
+                    set -eu
+                    PREVIOUS_TAG="$(git describe --tags --abbrev=0 "${GIT_COMMIT}^" 2>/dev/null || true)"
+                    if [ -n "$PREVIOUS_TAG" ]; then
+                        REVISION_RANGE="${PREVIOUS_TAG}..${GIT_COMMIT}"
+                    else
+                        REVISION_RANGE="$GIT_COMMIT"
+                    fi
+                    {
+                        printf '# Release %s\n\n## Changes\n\n' "$VERSION"
+                        git log --no-merges --pretty=format:'- %s (%h)' "$REVISION_RANGE"
+                        printf '\n\n## Breaking changes\n\n'
+                        BREAKING="$(git log --no-merges --format='- %h %s%n%b' --grep='BREAKING CHANGE:' --grep='^[[:alnum:]_.-][^ ]*!:' "$REVISION_RANGE")"
+                        if [ -n "$BREAKING" ]; then
+                            printf '%s\n' "$BREAKING"
+                        else
+                            printf '%s\n' '- No breaking changes were declared in commit messages.'
+                        fi
+                    } > "${RELDIR}/release-notes.txt"
+                '''
                 // SBOM tooling lives in the build image, never installed on the agent
                 sh '''
                     docker run --rm \
@@ -441,9 +461,9 @@ pipeline {
                 '''
                 sh '''
                     cd ${RELDIR}
-                    FILES="$(ls)"
-                    sha256sum $FILES > sha256.txt
-                    sha512sum $FILES > sha512.txt
+                    find . -maxdepth 1 -type f ! -name 'checksums.txt' ! -name 'sha256.txt' ! -name 'sha512.txt' -printf '%f\0' | LC_ALL=C sort -z | xargs -0 sha256sum > checksums.txt
+                    cp checksums.txt sha256.txt
+                    find . -maxdepth 1 -type f ! -name 'checksums.txt' ! -name 'sha256.txt' ! -name 'sha512.txt' -printf '%f\0' | LC_ALL=C sort -z | xargs -0 sha512sum > sha512.txt
                 '''
                 archiveArtifacts artifacts: 'releases/*', fingerprint: true
             }
@@ -481,9 +501,9 @@ pipeline {
                 '''
                 sh '''
                     cd ${RELDIR}
-                    FILES="$(ls)"
-                    sha256sum $FILES > sha256.txt
-                    sha512sum $FILES > sha512.txt
+                    find . -maxdepth 1 -type f ! -name 'checksums.txt' ! -name 'sha256.txt' ! -name 'sha512.txt' -printf '%f\0' | LC_ALL=C sort -z | xargs -0 sha256sum > checksums.txt
+                    cp checksums.txt sha256.txt
+                    find . -maxdepth 1 -type f ! -name 'checksums.txt' ! -name 'sha256.txt' ! -name 'sha512.txt' -printf '%f\0' | LC_ALL=C sort -z | xargs -0 sha512sum > sha512.txt
                 '''
                 archiveArtifacts artifacts: 'releases/*', fingerprint: true
             }
@@ -521,9 +541,9 @@ pipeline {
                 '''
                 sh '''
                     cd ${RELDIR}
-                    FILES="$(ls)"
-                    sha256sum $FILES > sha256.txt
-                    sha512sum $FILES > sha512.txt
+                    find . -maxdepth 1 -type f ! -name 'checksums.txt' ! -name 'sha256.txt' ! -name 'sha512.txt' -printf '%f\0' | LC_ALL=C sort -z | xargs -0 sha256sum > checksums.txt
+                    cp checksums.txt sha256.txt
+                    find . -maxdepth 1 -type f ! -name 'checksums.txt' ! -name 'sha256.txt' ! -name 'sha512.txt' -printf '%f\0' | LC_ALL=C sort -z | xargs -0 sha512sum > sha512.txt
                 '''
                 archiveArtifacts artifacts: 'releases/*', fingerprint: true
             }

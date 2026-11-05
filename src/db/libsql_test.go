@@ -17,7 +17,11 @@ func TestOpenLibSQL_EmptyURL_ReturnsError(t *testing.T) {
 	db, err := OpenLibSQL("", "")
 	if err == nil {
 		if db != nil {
-			db.Close()
+			t.Cleanup(func() {
+				if err := db.Close(); err != nil {
+					t.Errorf("close database: %v", err)
+				}
+			})
 		}
 		t.Error("OpenLibSQL('', '') should return error, got nil")
 	}
@@ -27,7 +31,11 @@ func TestOpenLibSQL_EmptyURL_WithToken_ReturnsError(t *testing.T) {
 	db, err := OpenLibSQL("", "sometoken")
 	if err == nil {
 		if db != nil {
-			db.Close()
+			t.Cleanup(func() {
+				if err := db.Close(); err != nil {
+					t.Errorf("close database: %v", err)
+				}
+			})
 		}
 		t.Error("OpenLibSQL('', token) should return error, got nil")
 	}
@@ -41,7 +49,11 @@ func TestOpenLibSQL_WellFormedURL_DoesNotError(t *testing.T) {
 		t.Fatalf("OpenLibSQL with well-formed URL: unexpected error: %v", err)
 	}
 	if db != nil {
-		db.Close()
+		t.Cleanup(func() {
+			if err := db.Close(); err != nil {
+				t.Errorf("close database: %v", err)
+			}
+		})
 	}
 }
 
@@ -58,7 +70,11 @@ func TestOpenLibSQL_AppendsToken_WhenMissing(t *testing.T) {
 		t.Fatalf("OpenLibSQL: %v", err)
 	}
 	if db != nil {
-		db.Close()
+		t.Cleanup(func() {
+			if err := db.Close(); err != nil {
+				t.Errorf("close database: %v", err)
+			}
+		})
 	}
 }
 
@@ -71,7 +87,11 @@ func TestOpenLibSQL_DoesNotDuplicateToken(t *testing.T) {
 		t.Fatalf("OpenLibSQL with existing authToken: %v", err)
 	}
 	if db != nil {
-		db.Close()
+		t.Cleanup(func() {
+			if err := db.Close(); err != nil {
+				t.Errorf("close database: %v", err)
+			}
+		})
 	}
 }
 

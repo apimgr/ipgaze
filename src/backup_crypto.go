@@ -434,12 +434,12 @@ func addBackupDirToTar(tw *tar.Writer, srcDir, archivePrefix string, excludes ..
 
 // extractBackupArchive extracts an in-memory tar.gz archive to destDir,
 // guarding against path-traversal entries (zip-slip style attacks).
-func extractBackupArchive(archiveBytes []byte, destDir string) error {
+func extractBackupArchive(archiveBytes []byte, destDir string) (retErr error) {
 	gr, err := gzip.NewReader(bytes.NewReader(archiveBytes))
 	if err != nil {
 		return fmt.Errorf("gzip open: %w", err)
 	}
-	defer gr.Close()
+	defer func() { retErr = errors.Join(retErr, gr.Close()) }()
 
 	cleanDest := filepath.Clean(destDir)
 	tr := tar.NewReader(gr)
@@ -473,10 +473,11 @@ func extractBackupArchive(archiveBytes []byte, destDir string) error {
 				return fmt.Errorf("create %s: %w", target, ferr)
 			}
 			if _, cerr := io.Copy(f, tr); cerr != nil {
-				f.Close()
-				return fmt.Errorf("write %s: %w", target, cerr)
+				return errors.Join(fmt.Errorf("write %s: %w", target, cerr), f.Close())
 			}
-			f.Close()
+			if err := f.Close(); err != nil {
+				return fmt.Errorf("close %s: %w", target, err)
+			}
 		default:
 			// Skip symlinks, hardlinks, and other non-regular entries.
 		}

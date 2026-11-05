@@ -329,9 +329,10 @@
   "preferences": {
     "title": "Preferences",
     "heading": "Preferences",
-    "intro": "Your theme and language choices are stored in cookies on this device only. Use the link below to carry them to another browser or device.",
+    "intro": "Your theme and language choices are stored in cookies on this device only. Use the link below to carry them and your default command example to another browser or device.",
     "current_theme_label": "Current theme",
     "current_lang_label": "Current language",
+    "default_widget_label": "مثال الأمر الافتراضي",
     "save": "حفظ",
     "consent_heading": "الموافقة على ملفات تعريف الارتباط",
     "consent_intro": "اختر فئات ملفات تعريف الارتباط المسموح بها في هذا المتصفح. الملفات الأساسية مفعّلة دائمًا.",

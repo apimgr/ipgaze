@@ -138,12 +138,12 @@ func recoverAndRespond(lm *applog.Manager, rw *recoverResponseWriter, w http.Res
 	if detectClientType(r) != "html" {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
-		fmt.Fprint(w, `{"ok":false,"error":"SERVER_ERROR","message":"Internal Server Error"}`+"\n")
+		_, _ = fmt.Fprint(w, `{"ok":false,"error":"SERVER_ERROR","message":"Internal Server Error"}`+"\n")
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(http.StatusInternalServerError)
-	fmt.Fprint(w, "<!DOCTYPE html><html><head><title>500 Internal Server Error</title></head>"+
+	_, _ = fmt.Fprint(w, "<!DOCTYPE html><html><head><title>500 Internal Server Error</title></head>"+
 		"<body><h1>500</h1><p>Internal Server Error</p><a href=\"/\">Home</a></body></html>")
 }
 

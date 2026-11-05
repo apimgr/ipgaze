@@ -49,6 +49,7 @@ type AuditEvent struct {
 	ID       string         `json:"id"`
 	Time     string         `json:"time"`
 	Event    string         `json:"event"`
+	Source   string         `json:"source,omitempty"`
 	Category string         `json:"category"`
 	Severity string         `json:"severity"`
 	Actor    AuditActor     `json:"actor"`
@@ -110,7 +111,7 @@ type writer struct {
 // configured policy is due. Empty lines are dropped so a formatting failure
 // never produces a blank record.
 func (w *writer) write(line string) {
-	if w == nil || w.file == nil {
+	if w == nil {
 		return
 	}
 	line = sanitizeLine(line)
@@ -119,6 +120,9 @@ func (w *writer) write(line string) {
 	}
 	w.mu.Lock()
 	defer w.mu.Unlock()
+	if w.file == nil {
+		return
+	}
 
 	now := time.Now()
 	n := int64(len(line)) + 1
@@ -138,13 +142,36 @@ func (w *writer) write(line string) {
 
 // close closes the underlying file.
 func (w *writer) close() {
-	if w == nil || w.file == nil {
+	if w == nil {
 		return
 	}
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	_ = w.file.Close()
 	w.file = nil
+}
+
+// replace atomically switches a writer to a newly opened configuration.
+func (w *writer) replace(next *writer) {
+	if w == nil || next == nil {
+		return
+	}
+	w.mu.Lock()
+	oldFile := w.file
+	w.file = next.file
+	next.file = nil
+	w.dir = next.dir
+	w.filename = next.filename
+	w.format = next.format
+	w.size = next.size
+	w.opened = next.opened
+	w.rotate = next.rotate
+	w.keep = next.keep
+	w.compress = next.compress
+	if oldFile != nil {
+		_ = oldFile.Close()
+	}
+	w.mu.Unlock()
 }
 
 // Manager writes to multiple per-category log files.
@@ -338,6 +365,29 @@ func (m *Manager) Close() {
 	m.audit.close()
 	m.security.close()
 	m.debug.close()
+}
+
+// Reconfigure opens the replacement log files before switching any active
+// writer, then atomically changes each writer without replacing the manager
+// pointer held by request middleware.
+func (m *Manager) Reconfigure(cfg LoggerConfig) error {
+	if m == nil {
+		return nil
+	}
+	replacement, err := NewManager(m.logDir, cfg)
+	if err != nil {
+		return err
+	}
+	m.access.replace(replacement.access)
+	m.server.replace(replacement.server)
+	m.errLog.replace(replacement.errLog)
+	m.app.replace(replacement.app)
+	m.auth.replace(replacement.auth)
+	m.audit.replace(replacement.audit)
+	m.security.replace(replacement.security)
+	m.debug.replace(replacement.debug)
+	replacement.Close()
+	return nil
 }
 
 // Rotate rotates every log file whose policy is due and prunes archives that

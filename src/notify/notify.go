@@ -146,7 +146,7 @@ func postBytes(ctx context.Context, url string, b []byte, contentType string, si
 	if err != nil {
 		return fmt.Errorf("do request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	// Drain the body so the connection can be reused; a drain error is not actionable here.
 	io.Copy(io.Discard, resp.Body) //nolint:errcheck
 	if resp.StatusCode >= 400 {
@@ -377,7 +377,7 @@ func (g *GenericWebhookNotifier) Send(ctx context.Context, msg Message) error {
 	if err != nil {
 		return fmt.Errorf("do request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	// Drain the body so the connection can be reused; a drain error is not actionable here.
 	io.Copy(io.Discard, resp.Body) //nolint:errcheck
 	if resp.StatusCode >= 400 {

@@ -186,16 +186,19 @@ func (fn appHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}{false, e.jsonErrorCode(), msg}
 		b, err := json.MarshalIndent(data, "", "  ")
 		if err != nil {
-			panic(err)
+			log.Printf("error response serialization failed: request_id=%s http_status=%d err=%v",
+				RequestIDFromContext(r.Context()), e.Code, err)
+			msg = `{"ok":false,"error":"SERVER_ERROR","message":"Internal server error"}` + "\n"
+		} else {
+			msg = string(b) + "\n"
 		}
-		msg = string(b) + "\n"
 	}
 	// Set Content-Type of response if set in error
 	if e.ContentType != "" {
 		w.Header().Set("Content-Type", e.ContentType)
 	}
 	w.WriteHeader(e.Code)
-	fmt.Fprint(w, msg)
+	_, _ = fmt.Fprint(w, msg)
 }
 
 // httpStatusToErrorCode maps an HTTP status code to an UPPERCASE_SNAKE_CASE

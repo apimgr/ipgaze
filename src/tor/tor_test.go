@@ -17,7 +17,11 @@ func makeTempDirs(t *testing.T) (configDir, dataDir string) {
 	if err != nil {
 		t.Fatalf("MkdirTemp: %v", err)
 	}
-	t.Cleanup(func() { os.RemoveAll(base) })
+	t.Cleanup(func() {
+		if err := os.RemoveAll(base); err != nil {
+			t.Errorf("remove temp base: %v", err)
+		}
+	})
 	configDir = filepath.Join(base, "config")
 	dataDir = filepath.Join(base, "data")
 	return configDir, dataDir
@@ -35,7 +39,9 @@ func defaultCfg(t *testing.T) TorServiceConfig {
 }
 
 func init() {
-	os.MkdirAll(filepath.Join(os.TempDir(), "apimgr"), 0o755)
+	if err := os.MkdirAll(filepath.Join(os.TempDir(), "apimgr"), 0o755); err != nil {
+		panic(err)
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -78,8 +84,10 @@ func TestIsAvailable_ExplicitBinary_Exists(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateTemp: %v", err)
 	}
-	tmp.Close()
-	defer os.Remove(tmp.Name())
+	if err := tmp.Close(); err != nil {
+		t.Fatalf("Close temp file: %v", err)
+	}
+	defer func() { _ = os.Remove(tmp.Name()) }()
 
 	cfg := defaultCfg(t)
 	cfg.Binary = tmp.Name()
@@ -140,8 +148,10 @@ func TestStatus_StoppedWhenBinaryExistsButNotRunning(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateTemp: %v", err)
 	}
-	tmp.Close()
-	defer os.Remove(tmp.Name())
+	if err := tmp.Close(); err != nil {
+		t.Fatalf("Close temp file: %v", err)
+	}
+	defer func() { _ = os.Remove(tmp.Name()) }()
 
 	cfg := defaultCfg(t)
 	cfg.Binary = tmp.Name()
@@ -212,8 +222,10 @@ func TestStart_WithNonExecutableBinary_ReturnsError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateTemp: %v", err)
 	}
-	tmp.Close()
-	defer os.Remove(tmp.Name())
+	if err := tmp.Close(); err != nil {
+		t.Fatalf("Close temp file: %v", err)
+	}
+	defer func() { _ = os.Remove(tmp.Name()) }()
 
 	cfg := defaultCfg(t)
 	cfg.Binary = tmp.Name()
@@ -231,8 +243,10 @@ func TestStatus_ErrorAfterFailedStart(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateTemp: %v", err)
 	}
-	tmp.Close()
-	defer os.Remove(tmp.Name())
+	if err := tmp.Close(); err != nil {
+		t.Fatalf("Close temp file: %v", err)
+	}
+	defer func() { _ = os.Remove(tmp.Name()) }()
 
 	cfg := defaultCfg(t)
 	cfg.Binary = tmp.Name()
@@ -253,8 +267,10 @@ func TestStop_ClearsLastErrAfterFailedStart(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateTemp: %v", err)
 	}
-	tmp.Close()
-	defer os.Remove(tmp.Name())
+	if err := tmp.Close(); err != nil {
+		t.Fatalf("Close temp file: %v", err)
+	}
+	defer func() { _ = os.Remove(tmp.Name()) }()
 
 	cfg := defaultCfg(t)
 	cfg.Binary = tmp.Name()
@@ -332,8 +348,10 @@ func TestGetInfo_EnabledWhenBinaryExists(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateTemp: %v", err)
 	}
-	tmp.Close()
-	defer os.Remove(tmp.Name())
+	if err := tmp.Close(); err != nil {
+		t.Fatalf("Close temp file: %v", err)
+	}
+	defer func() { _ = os.Remove(tmp.Name()) }()
 
 	cfg := defaultCfg(t)
 	cfg.Binary = tmp.Name()
@@ -809,7 +827,7 @@ func TestGetRandomAvailablePort_ReturnsUsableListener(t *testing.T) {
 	if err != nil {
 		t.Fatalf("getRandomAvailablePort() error: %v", err)
 	}
-	defer ln.Close()
+	defer func() { _ = ln.Close() }()
 	if port <= 0 || port > 65535 {
 		t.Errorf("port = %d, want a valid TCP port", port)
 	}
@@ -823,13 +841,13 @@ func TestGetRandomAvailablePort_UniqueAcrossCalls(t *testing.T) {
 	if err != nil {
 		t.Fatalf("first getRandomAvailablePort() error: %v", err)
 	}
-	defer ln1.Close()
+	defer func() { _ = ln1.Close() }()
 
 	ln2, port2, err := getRandomAvailablePort()
 	if err != nil {
 		t.Fatalf("second getRandomAvailablePort() error: %v", err)
 	}
-	defer ln2.Close()
+	defer func() { _ = ln2.Close() }()
 
 	if port1 == port2 {
 		t.Errorf("expected distinct ports while both listeners are open, got %d twice", port1)
@@ -929,8 +947,10 @@ func TestStartDedicated_FailsWhenBinaryNotExecutable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateTemp: %v", err)
 	}
-	tmp.Close()
-	defer os.Remove(tmp.Name())
+	if err := tmp.Close(); err != nil {
+		t.Fatalf("Close temp file: %v", err)
+	}
+	defer func() { _ = os.Remove(tmp.Name()) }()
 	// A file that exists but is not an executable Tor binary will cause bine to fail.
 	cfg := defaultCfg(t)
 	cfg.Binary = tmp.Name()

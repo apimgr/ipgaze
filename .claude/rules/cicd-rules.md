@@ -52,6 +52,9 @@
   project-tree or fixed shared path
 - Build the full 8-platform release matrix (linux/darwin/windows/freebsd × amd64/arm64, `.exe` suffix for
   windows) in `release.yml`, triggered on `v*`/`[0-9]*.[0-9]*.[0-9]*` tag pushes
+- Generate a CycloneDX Go module SBOM from the pinned Go build container for release artifacts, and publish
+  GitHub build-provenance attestations with the required `attestations: write` permission; keep SBOM tooling
+  inside the build image rather than installing it on runners
 - Only build/scan a Docker image when the project actually ships one — gate image-build/scan steps on
   `hashFiles('docker/Dockerfile') != ''`
 - Check post-push CI status after every push and treat a red or still-running build as a bug to fix
@@ -66,5 +69,6 @@ always set explicitly per run rather than inherited from local Makefile variable
 one Actions engine — use `gitea.*`/`GITEA_*` (or Forgejo's own `forgejo.*`/`FORGEJO_*`, kept backwards
 compatible), never GitHub's `github.*`/`GITHUB_*`, in any `.gitea/workflows/` or `.forgejo/workflows/` file.
 OCI image metadata is always CI-applied (labels + manifest annotations), never a Dockerfile `LABEL`.
+Release workflows also generate CycloneDX SBOMs in the build container and attest artifact build provenance.
 
 For complete details, see AI.md PART 27.

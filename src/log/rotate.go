@@ -2,6 +2,7 @@ package log
 
 import (
 	"compress/gzip"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -294,7 +295,7 @@ func compressFile(path string) error {
 	if err != nil {
 		return err
 	}
-	defer in.Close()
+	defer func() { _ = in.Close() }()
 
 	gzPath := path + ".gz"
 	out, err := os.OpenFile(gzPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o640)
@@ -303,19 +304,13 @@ func compressFile(path string) error {
 	}
 	gz := gzip.NewWriter(out)
 	if _, err := io.Copy(gz, in); err != nil {
-		gz.Close()
-		out.Close()
-		os.Remove(gzPath)
-		return err
+		return errors.Join(err, gz.Close(), out.Close(), os.Remove(gzPath))
 	}
 	if err := gz.Close(); err != nil {
-		out.Close()
-		os.Remove(gzPath)
-		return err
+		return errors.Join(err, out.Close(), os.Remove(gzPath))
 	}
 	if err := out.Close(); err != nil {
-		os.Remove(gzPath)
-		return err
+		return errors.Join(err, os.Remove(gzPath))
 	}
 	return os.Remove(path)
 }

@@ -285,11 +285,10 @@ func isWritable(path string) bool {
 		return false
 	}
 	if err := f.Close(); err != nil {
-		os.Remove(testFile)
+		_ = os.Remove(testFile)
 		return false
 	}
-	os.Remove(testFile)
-	return true
+	return os.Remove(testFile) == nil
 }
 
 // userDirs returns OS-specific directories for an unprivileged user process.

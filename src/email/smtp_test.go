@@ -3,7 +3,7 @@ package email
 import (
 	"fmt"
 	"net"
-	"os"
+	"strconv"
 	"testing"
 )
 
@@ -145,7 +145,7 @@ func TestApplyEnvOverrides_TLS_Mode(t *testing.T) {
 }
 
 func TestApplyEnvOverrides_TLS_Empty_NoChange(t *testing.T) {
-	os.Unsetenv("SMTP_TLS")
+	t.Setenv("SMTP_TLS", "")
 	cfg := &SMTPConfig{TLS: "starttls"}
 	ApplyEnvOverrides(cfg)
 	if cfg.TLS != "starttls" {
@@ -163,12 +163,9 @@ func TestApplyEnvOverrides_From(t *testing.T) {
 }
 
 func TestApplyEnvOverrides_EmptyVars_NoChange(t *testing.T) {
-	os.Unsetenv("SMTP_HOST")
-	os.Unsetenv("SMTP_PORT")
-	os.Unsetenv("SMTP_USERNAME")
-	os.Unsetenv("SMTP_PASSWORD")
-	os.Unsetenv("SMTP_TLS")
-	os.Unsetenv("SMTP_FROM")
+	for _, key := range []string{"SMTP_HOST", "SMTP_PORT", "SMTP_USERNAME", "SMTP_PASSWORD", "SMTP_TLS", "SMTP_FROM"} {
+		t.Setenv(key, "")
+	}
 	cfg := &SMTPConfig{Host: "original.host", Port: 587}
 	ApplyEnvOverrides(cfg)
 	if cfg.Host != "original.host" {
@@ -187,24 +184,42 @@ func TestProbeSMTPPort_Reachable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("listen: %v", err)
 	}
-	defer ln.Close()
+	t.Cleanup(func() {
+		if err := ln.Close(); err != nil {
+			t.Errorf("close listener: %v", err)
+		}
+	})
 
 	go func() {
 		conn, err := ln.Accept()
 		if err != nil {
 			return
 		}
-		defer conn.Close()
+		defer func() {
+			if err := conn.Close(); err != nil {
+				t.Errorf("close SMTP test connection: %v", err)
+			}
+		}()
 		// Minimal SMTP server: send 220 greeting then handle one command.
-		fmt.Fprint(conn, "220 test.smtp.local SMTP\r\n")
+		if _, err := fmt.Fprint(conn, "220 test.smtp.local SMTP\r\n"); err != nil {
+			t.Errorf("write SMTP greeting: %v", err)
+			return
+		}
 		buf := make([]byte, 256)
 		conn.Read(buf) //nolint:errcheck
-		fmt.Fprint(conn, "250-test.smtp.local\r\n250 OK\r\n")
+		if _, err := fmt.Fprint(conn, "250-test.smtp.local\r\n250 OK\r\n"); err != nil {
+			t.Errorf("write EHLO response: %v", err)
+		}
 	}()
 
-	host, portStr, _ := net.SplitHostPort(ln.Addr().String())
-	port := 0
-	fmt.Sscanf(portStr, "%d", &port)
+	host, portStr, err := net.SplitHostPort(ln.Addr().String())
+	if err != nil {
+		t.Fatalf("split test listener address: %v", err)
+	}
+	port, err := strconv.Atoi(portStr)
+	if err != nil {
+		t.Fatalf("parse test listener port: %v", err)
+	}
 
 	if err := probeSMTPPort(host, port); err != nil {
 		t.Errorf("probeSMTPPort to local test server: %v", err)

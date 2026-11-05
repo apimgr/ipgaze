@@ -145,9 +145,9 @@ jobs:
       - name: Generate checksums
         run: |
           cd "$GITHUB_WORKSPACE/binaries"
-          FILES="$(ls)"
-          sha256sum $FILES > sha256.txt
-          sha512sum $FILES > sha512.txt
+          find . -maxdepth 1 -type f ! -name 'checksums.txt' ! -name 'sha256.txt' ! -name 'sha512.txt' -printf '%f\0' | LC_ALL=C sort -z | xargs -0 sha256sum > checksums.txt
+          cp checksums.txt sha256.txt
+          find . -maxdepth 1 -type f ! -name 'checksums.txt' ! -name 'sha256.txt' ! -name 'sha512.txt' -printf '%f\0' | LC_ALL=C sort -z | xargs -0 sha512sum > sha512.txt
 
       - name: Attest build provenance
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2

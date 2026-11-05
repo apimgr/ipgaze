@@ -138,7 +138,7 @@ func convertList(buf *strings.Builder, n *html.Node, width, indent int, ordered 
 			text := strings.TrimSpace(getTextContent(c))
 			prefix := strings.Repeat(" ", indent)
 			if ordered {
-				buf.WriteString(fmt.Sprintf("%s  %d. %s\n", prefix, counter, text))
+				fmt.Fprintf(buf, "%s  %d. %s\n", prefix, counter, text)
 				counter++
 			} else {
 				buf.WriteString(prefix + "  • " + text + "\n")

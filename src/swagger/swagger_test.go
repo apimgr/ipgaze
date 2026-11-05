@@ -26,6 +26,40 @@ func TestGenerateSpec_BasicShape(t *testing.T) {
 	}
 }
 
+func TestAPIV1RouteDefinitionsMatchOpenAPI(t *testing.T) {
+	definitions := APIV1RouteDefinitions()
+	spec := GenerateSpec(SwaggerHandlerConfig{}, "https://example.com/api/v1", "en")
+	documented := make(map[string]string)
+	for path, item := range spec.Paths {
+		for method, operation := range map[string]*Operation{
+			"GET": item.Get, "POST": item.Post, "PUT": item.Put,
+			"PATCH": item.Patch, "DELETE": item.Delete,
+		} {
+			if strings.HasPrefix(path, "/api/v1") && operation != nil {
+				documented[operation.OperationID] = method + " " + path
+			}
+		}
+	}
+	if len(definitions) != len(documented) {
+		t.Fatalf("APIV1RouteDefinitions() has %d entries, OpenAPI has %d versioned operations", len(definitions), len(documented))
+	}
+	seen := make(map[string]bool, len(definitions))
+	for _, definition := range definitions {
+		if definition.OperationID == "" || seen[definition.OperationID] {
+			t.Errorf("invalid or duplicate API operation ID %q", definition.OperationID)
+			continue
+		}
+		seen[definition.OperationID] = true
+		want := definition.Method + " " + definition.Path
+		if got := documented[definition.OperationID]; got != want {
+			t.Errorf("operation %q definition = %q, OpenAPI = %q", definition.OperationID, want, got)
+		}
+		if definition.RuntimeAlias && definition.RuntimePath == "" {
+			t.Errorf("runtime alias %q has no runtime path", definition.OperationID)
+		}
+	}
+}
+
 func TestGenerateSpec_ServersBaseURL(t *testing.T) {
 	cfg := SwaggerHandlerConfig{Version: "0.1.0"}
 	spec := GenerateSpec(cfg, "https://api.example.com", "en")
@@ -233,7 +267,9 @@ func TestHandler_BuildBaseURL_HTTP(t *testing.T) {
 	h(rec, req)
 
 	var spec OpenAPISpec
-	json.NewDecoder(rec.Body).Decode(&spec)
+	if err := json.NewDecoder(rec.Body).Decode(&spec); err != nil {
+		t.Fatalf("decode OpenAPI spec: %v", err)
+	}
 	if len(spec.Servers) == 0 {
 		t.Fatal("no servers in spec")
 	}
@@ -257,7 +293,9 @@ func TestHandler_BuildBaseURL_XForwardedProto(t *testing.T) {
 	h(rec, req)
 
 	var spec OpenAPISpec
-	json.NewDecoder(rec.Body).Decode(&spec)
+	if err := json.NewDecoder(rec.Body).Decode(&spec); err != nil {
+		t.Fatalf("decode OpenAPI spec: %v", err)
+	}
 	if len(spec.Servers) == 0 {
 		t.Fatal("no servers in spec")
 	}
@@ -281,7 +319,9 @@ func TestHandler_BuildBaseURL_XForwardedHost(t *testing.T) {
 	h(rec, req)
 
 	var spec OpenAPISpec
-	json.NewDecoder(rec.Body).Decode(&spec)
+	if err := json.NewDecoder(rec.Body).Decode(&spec); err != nil {
+		t.Fatalf("decode OpenAPI spec: %v", err)
+	}
 	if len(spec.Servers) == 0 {
 		t.Fatal("no servers in spec")
 	}

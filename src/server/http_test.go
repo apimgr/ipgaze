@@ -65,7 +65,7 @@ func httpGet(url string, acceptMediaType string, userAgent string) (string, int,
 	if err != nil {
 		return "", 0, err
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	data, err := io.ReadAll(res.Body)
 	if err != nil {
 		return "", 0, err
@@ -82,7 +82,7 @@ func httpPost(url, body string) (*http.Response, string, error) {
 	if err != nil {
 		return nil, "", err
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	data, err := io.ReadAll(res.Body)
 	if err != nil {
 		return nil, "", err

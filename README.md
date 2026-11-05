@@ -261,7 +261,7 @@ The CLI reads/writes `cli.yml` (created automatically on first run, `0600` permi
 | Linux/macOS | `~/.config/apimgr/ipgaze/cli.yml` (`$XDG_CONFIG_HOME` honored) |
 | Windows | `%APPDATA%\apimgr\ipgaze\cli.yml` |
 
-Server and token resolve in priority order: `--server`/`--token` flag > `IPGAZE_SERVER_PRIMARY`/`IPGAZE_TOKEN` env var > `cli.yml`. A flag only persists to `cli.yml` if the current config value is empty or invalid — otherwise it's used for that invocation only.
+The server resolves in priority order: `--server` flag > `server.primary` in `cli.yml` > the compiled-in official site. The token resolves through `--token`, `--token-file`, `IPGAZE_TOKEN`, and `cli.yml`. A flag only persists to `cli.yml` if the current config value is empty or invalid — otherwise it's used for that invocation only.
 
 The CLI is an unauthenticated client to ipgaze's open API by default; a token is only needed to manage resources the token owns.
 
