@@ -1,14 +1,15 @@
 # Project Audit
 
 Started: 2026-08-29
-Spec version: AI.md, 49114 lines (re-walked 2026-09-11 after the
-2026-09-10 spec update)
+Revalidated: 2026-11-05
+Spec version: AI.md, 49178 lines (last updated 2026-10-15)
 
-Full line-by-line AI.md compliance audit (PARTs 0-33). Findings from Passes
-1-6 are resolved. Remaining entries are spec contradictions, unspecified
-requirements, or documentation changes blocked by the read-only AI.md rule.
+This file tracks implementation/spec alignment findings. The unchecked items
+below were rechecked against the current spec and implementation on the date
+above. Checked historical items are retained from earlier audit passes and
+were not revalidated in this update. AI.md is read-only for this project.
 
-## Open Questions — blocked, need a ruling
+## Open Spec Gaps and Contradictions — revalidated 2026-11-05
 
 - [x] AI.md 18305 vs AI.md 19670-19681 envelope contradiction — RESOLVED.
       The user edited AI.md directly to make both sections consistent
@@ -25,13 +26,19 @@ requirements, or documentation changes blocked by the read-only AI.md rule.
       candidate cleanup). Implemented in `src/tor/vanity.go`,
       `src/server/tor_control.go` (adding `/server/tor/vanity/stop`), and
       `src/main.go` (`ipgaze tor vanity stop`).
-- [ ] Response body shapes for all seven `/server/tor/*` endpoints are
-      unspecified — only endpoint, method, auth, and classification are given.
-      Blocks the CLI-side parsing contract.
-- [ ] Tor `max_circuits` is parsed from server.yml but no Tor directive matches
-      "maximum circuits to keep open" — `MaxClientCircuitsPending` has
-      different semantics, and emitting a wrong directive aborts Tor startup.
-      Left unemitted rather than guessed.
+- [ ] AI.md PART 31.1 lists eight internal `/server/tor/*` endpoints and
+      defines their methods, loopback access, and classification. It specifies
+      the shared API envelope elsewhere and some vanity-search fields, but
+      does not define the complete request, success-payload, and error-payload
+      contract for all eight endpoints. The server and CLI currently have
+      typed request/response structures in `src/server/tor_control.go` and
+      `src/main.go`; those code-defined details are not fully anchored by
+      AI.md. This is a spec gap, not a missing CLI parser.
+- [ ] `server.tor.max_circuits` is documented as the maximum number of open
+      circuits and is parsed from `server.yml`, but the Tor manager currently
+      accepts the value without using it. AI.md PART 31.1 does not specify how
+      this setting maps to Tor behavior. Clarify the intended semantics in the
+      authoritative spec before changing runtime behavior.
 - [x] AI.md PART 16 requires app-specific guest preferences and export/import
       round-tripping. Added `ipgaze_pref_widget` with the existing landing-page
       curl-example choices (`ip`, `country`, `country-iso`, `city`, `asn`,
@@ -43,13 +50,10 @@ requirements, or documentation changes blocked by the read-only AI.md rule.
       instructions make AI.md read-only. The cookie name/value/default rule
       should be added to AI.md by its owner before that documentation item can
       be marked fully resolved.
-- [ ] AI.md PART 25 vs the FINAL CHECKPOINT checklist contradict each other on
-      the Makefile target set: PART 25's body and reference `.PHONY` line
-      mandate exactly `dev local build test release docker` plus `clean` and
-      say "Six core targets. DO NOT ADD MORE", while the FINAL CHECKPOINT
-      separately lists `make all`. No `all` target was added — resolving the
-      contradiction that way would violate PART 25's explicit rule. Which side
-      wins?
+- [ ] AI.md PART 25 says not to add targets beyond its listed Makefile set;
+      the FINAL CHECKPOINT separately lists `make all`. The Makefile follows
+      PART 25 and has no `all` target. The contradiction remains in AI.md and
+      requires its owner to reconcile the checklist with PART 25.
 - [x] The Makefile command-substitution concern is resolved: both the AI.md
       reference and repository Makefile use `GOOS=$$(go env GOOS)` and
       `GOARCH=$$(go env GOARCH)` inside `sh -c` passed to the Docker toolchain.
@@ -67,8 +71,9 @@ requirements, or documentation changes blocked by the read-only AI.md rule.
       returns it), propagated to `src/main.go`'s self-signed-cert dev
       fallback and `src/common/banner/banner.go`'s `modeEmoji()`.
 
-- [ ] AI.md 10871-10876 vs AI.md 38312-38317 contradict each other on service
-      install inside a container. PART 8's reference `detectServiceManager()`
+- [ ] AI.md PART 8's reference implementation and PART 28's Incus test
+      workflow contradict each other on service install inside a container.
+      PART 8's reference `detectServiceManager()`
       checks `isContainer()` FIRST and returns `"container"`, and its
       `isContainer()` matches LXC/Incus explicitly (`/dev/lxc`, `$container`,
       `lxc` in `/proc/1/cgroup`) — so in an Incus system container the binary
@@ -79,18 +84,9 @@ requirements, or documentation changes blocked by the read-only AI.md rule.
       validate systemd support. Both cannot hold. `src/service/service.go`
       was left matching PART 8's reference implementation verbatim (container
       check first); `tests/incus.sh` was made to fall back to starting the
-      binary directly when install is refused, so the endpoint suite still
-      runs, rather than silently changing the detection order. Should
-      `DetectServiceManager()` probe for a live init system (`/run/systemd/
-      system` + PID 1) BEFORE the container check, so system containers
-      (Incus/LXC, which do run systemd) get real service support while
-      application containers (Docker/Podman, PID 1 = the app or tini) keep
-      returning `container`? Or does PART 8's order win and PART 28's incus
-      service steps are simply unreachable?
-
-`manifest.json.version` and `.trivyignore` moved to TODO.AI.md's Open
-section per the user's ruling to leave both as open TODOs rather than
-resolve now.
+      binary directly when install is refused. AI.md needs to clarify whether
+      Incus service installation is required or container detection takes
+      precedence.
 
 - [x] AI.md PART 12 defines three config reload classes. `ConfigManager`
       classifies hot, graceful, and restart-required changes. Logging changes
