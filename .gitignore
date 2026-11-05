@@ -46,10 +46,6 @@ CLAUDE.local.md
 /ipgaze-cli
 /client
 
-# Runtime volume data (NEVER commit — only keep the placeholder)
-/volumes/*
-!/volumes/.gitkeep
-
 # Coverage
 coverage.out
 coverage.html
