@@ -123,6 +123,25 @@ type loggingDriver struct {
 	inner driver.Driver
 }
 
+// legacyConnBegin names the base driver.Conn fallback without inheriting its
+// deprecation annotation. Drivers still have to provide Begin when they do
+// not implement ConnBeginTx.
+type legacyConnBegin interface {
+	Begin() (driver.Tx, error)
+}
+
+// legacyStmtExec and legacyStmtQuery name the base driver.Stmt fallbacks
+// without inheriting their deprecation annotations. Drivers that do not
+// implement the context-aware statement interfaces still require these
+// methods.
+type legacyStmtExec interface {
+	Exec([]driver.Value) (driver.Result, error)
+}
+
+type legacyStmtQuery interface {
+	Query([]driver.Value) (driver.Rows, error)
+}
+
 func (d *loggingDriver) Open(name string) (driver.Conn, error) {
 	conn, err := d.inner.Open(name)
 	if err != nil {
@@ -156,7 +175,7 @@ func (c *loggingConn) Close() error { return c.inner.Close() }
 // implemented and preferred by database/sql; this remains only as the
 // required fallback for callers that bypass context.
 func (c *loggingConn) Begin() (driver.Tx, error) {
-	return c.inner.Begin() //nolint:staticcheck // Required legacy driver.Conn fallback.
+	return c.inner.(legacyConnBegin).Begin()
 }
 
 func (c *loggingConn) PrepareContext(ctx context.Context, query string) (driver.Stmt, error) {
@@ -174,7 +193,7 @@ func (c *loggingConn) BeginTx(ctx context.Context, opts driver.TxOptions) (drive
 	if b, ok := c.inner.(driver.ConnBeginTx); ok {
 		return b.BeginTx(ctx, opts)
 	}
-	return c.inner.Begin() //nolint:staticcheck // database/sql legacy fallback when inner lacks ConnBeginTx.
+	return c.inner.(legacyConnBegin).Begin()
 }
 
 func (c *loggingConn) ExecContext(ctx context.Context, query string, args []driver.NamedValue) (driver.Result, error) {
@@ -244,7 +263,7 @@ func (s *loggingStmt) NumInput() int { return s.inner.NumInput() }
 // required fallback for callers that bypass context.
 func (s *loggingStmt) Exec(args []driver.Value) (driver.Result, error) {
 	start := time.Now()
-	res, err := s.inner.Exec(args) //nolint:staticcheck // Required legacy driver.Stmt fallback.
+	res, err := s.inner.(legacyStmtExec).Exec(args)
 	logQuery(s.query, valuesToNamed(args), start, err)
 	return res, err
 }
@@ -254,7 +273,7 @@ func (s *loggingStmt) Exec(args []driver.Value) (driver.Result, error) {
 // required fallback for callers that bypass context.
 func (s *loggingStmt) Query(args []driver.Value) (driver.Rows, error) {
 	start := time.Now()
-	rows, err := s.inner.Query(args) //nolint:staticcheck // Required legacy driver.Stmt fallback.
+	rows, err := s.inner.(legacyStmtQuery).Query(args)
 	logQuery(s.query, valuesToNamed(args), start, err)
 	return rows, err
 }
