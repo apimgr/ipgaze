@@ -24,6 +24,10 @@ and project documentation synchronization.
   and health routes. Updated in `docs/integrations.md` and `docs/security.md`.
 - [x] Reverse-proxy and client setup examples had stale ports and defaults.
   Updated in `docs/configuration.md` and `docs/cli.md`.
+- [x] The server help page showed nonexistent lookup endpoints and curl
+  examples without the required URL scheme and standard flags. Updated in
+  `src/server/template/page/help.tmpl` and populated a request-aware base URL
+  in `src/server/handler/pages.go`.
 - [x] Server page JSON responses for about, help, privacy, contact, terms, and
   security bypassed the canonical API envelope. Updated the handlers and CLI
   content negotiation to use the shared envelope writer.
