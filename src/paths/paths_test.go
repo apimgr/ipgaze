@@ -8,6 +8,35 @@ import (
 	"testing"
 )
 
+func TestCreateProjectTempDirUsesFrozenNamespace(t *testing.T) {
+	t.Setenv("TMPDIR", t.TempDir())
+
+	dir, err := CreateProjectTempDir()
+	if err != nil {
+		t.Fatalf("CreateProjectTempDir: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := os.RemoveAll(dir); err != nil {
+			t.Errorf("remove project temp dir: %v", err)
+		}
+	})
+
+	wantParent := filepath.Join(os.TempDir(), OrgName)
+	if filepath.Dir(dir) != wantParent {
+		t.Errorf("CreateProjectTempDir() parent = %q, want %q", filepath.Dir(dir), wantParent)
+	}
+	if !strings.HasPrefix(filepath.Base(dir), internalName+"-") {
+		t.Errorf("CreateProjectTempDir() base = %q, want prefix %q", filepath.Base(dir), internalName+"-")
+	}
+	info, err := os.Stat(dir)
+	if err != nil {
+		t.Fatalf("stat project temp dir: %v", err)
+	}
+	if got := info.Mode().Perm(); got != 0o700 {
+		t.Errorf("CreateProjectTempDir() permissions = %04o, want 0700", got)
+	}
+}
+
 func newTempProjectDir(t *testing.T) string {
 	t.Helper()
 	parent := filepath.Join(os.TempDir(), "apimgr")

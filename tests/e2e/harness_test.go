@@ -112,7 +112,7 @@ func suiteTempRoot() (string, error) {
 	if err := os.MkdirAll(parent, 0o755); err != nil {
 		return "", err
 	}
-	return os.MkdirTemp(parent, "ipgaze-e2e-")
+	return os.MkdirTemp(parent, "ipgaze-")
 }
 
 // reserveServerPort picks a free port from the 64000-64999 range AI.md PART 5

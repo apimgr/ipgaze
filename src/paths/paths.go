@@ -59,6 +59,20 @@ func isElevated() bool {
 	return startedElevated
 }
 
+// CreateProjectTempDir creates an owner-only temporary directory under the
+// frozen project namespace in the OS temporary directory.
+func CreateProjectTempDir() (string, error) {
+	base := filepath.Join(os.TempDir(), OrgName)
+	if err := os.MkdirAll(base, 0o755); err != nil {
+		return "", fmt.Errorf("create project temp parent: %w", err)
+	}
+	dir, err := os.MkdirTemp(base, internalName+"-")
+	if err != nil {
+		return "", fmt.Errorf("create project temp directory: %w", err)
+	}
+	return dir, nil
+}
+
 // dirPermFor returns the directory permission for the given mode:
 // 0755 for a system (root) process, 0700 for a user process.
 // AI.md PART 8 "Directory Validation Rules".

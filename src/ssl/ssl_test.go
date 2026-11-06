@@ -94,7 +94,7 @@ func tempDir(t *testing.T) string {
 	if err := os.MkdirAll(base, 0700); err != nil {
 		t.Fatalf("mkdir base: %v", err)
 	}
-	dir, err := os.MkdirTemp(base, "ipgaze-ssl-")
+	dir, err := os.MkdirTemp(base, "ipgaze-")
 	if err != nil {
 		t.Fatalf("mkdirtemp: %v", err)
 	}

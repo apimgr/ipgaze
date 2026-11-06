@@ -15,6 +15,7 @@ import (
 	"strings"
 
 	"github.com/apimgr/ipgaze/src/client/api"
+	projectpaths "github.com/apimgr/ipgaze/src/paths"
 )
 
 // PlatformKey returns the os-arch key used in the cli_versions map (e.g. "linux-amd64").
@@ -106,11 +107,16 @@ func Do(ctx context.Context, client *api.APIClient, projectName, serverBase, cur
 
 	fmt.Printf("Updating %s-cli from %s to %s...\n", projectName, result.Current, result.Available)
 
-	// Temp directory per spec tmp-dir rules
-	tmpDir := filepath.Join(os.TempDir(), projectName+"-update")
-	if err := os.MkdirAll(tmpDir, 0700); err != nil {
+	// Create a unique project-scoped directory for the unverified download.
+	tmpDir, err := projectpaths.CreateProjectTempDir()
+	if err != nil {
 		return fmt.Errorf("create temp dir: %w", err)
 	}
+	defer func() {
+		if err := os.RemoveAll(tmpDir); err != nil {
+			fmt.Fprintf(os.Stderr, "remove temporary update directory: %v\n", err)
+		}
+	}()
 
 	tmpPath := filepath.Join(tmpDir, "cli.update.tmp")
 
@@ -158,6 +164,9 @@ func Do(ctx context.Context, client *api.APIClient, projectName, serverBase, cur
 	// Atomic swap (platform-specific)
 	if err := replaceBinary(currentPath, tmpPath); err != nil {
 		return errors.Join(fmt.Errorf("replace binary: %w", err), removeTemp(tmpPath))
+	}
+	if err := os.Remove(tmpDir); err != nil {
+		return fmt.Errorf("remove temporary update directory: %w", err)
 	}
 
 	// Audit event: cli.update_completed

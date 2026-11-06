@@ -397,12 +397,25 @@ pipeline {
             agent { label 'amd64' }
             steps {
                 sh '''
+                    TMP_BASE="${TMPDIR:-/tmp}/${PROJECT_ORG}"
+                    mkdir -p "$TMP_BASE"
+                    TMP_ROOT=$(mktemp -d "$TMP_BASE/${INTERNAL_NAME}-XXXXXX")
+                    cleanup() {
+                        [ -n "${TMP_ROOT:-}" ] || return 0
+                        [ -d "$TMP_ROOT" ] && [ ! -L "$TMP_ROOT" ] || return 0
+                        case "$TMP_ROOT" in
+                            "$TMP_BASE/${INTERNAL_NAME}-"*) rm -rf -- "$TMP_ROOT" ;;
+                        esac
+                    }
+                    trap cleanup EXIT
                     docker run --rm \
                         --name "${PROJECT_NAME}-$(tr -dc 'a-z0-9' </dev/urandom | head -c8)" \
                         -v ${WORKSPACE}:/app \
+                        -v "$TMP_ROOT:$TMP_ROOT" \
                         -v ${GO_CACHE:-$HOME/go/pkg/mod}:/usr/local/share/go/pkg/mod \
                         -v ${GO_BUILD:-$HOME/.cache/go-build/${PROJECT_NAME}}:/usr/local/share/go/cache \
                         -w /app \
+                        -e "TMPDIR=$TMP_ROOT" \
                         casjaysdev/go:latest \
                         go test -v -cover ./...
                 '''

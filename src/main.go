@@ -3683,11 +3683,15 @@ func verifyBackup(backupFile, password string, layout backupArchiveLayout) error
 	manifestChecksum, _ := manifest["checksum"].(string)
 
 	// Check 6: content extraction test — extract to temp dir and verify non-empty
-	tmpDir, err := os.MkdirTemp(os.TempDir(), "ipgaze-backup-verify-")
+	tmpDir, err := paths.CreateProjectTempDir()
 	if err != nil {
 		return fmt.Errorf("check 6 (extraction): create temp dir: %w", err)
 	}
-	defer func() { _ = os.RemoveAll(tmpDir) }()
+	defer func() {
+		if err := os.RemoveAll(tmpDir); err != nil {
+			log.Printf("backup verification: remove temp dir: %v", err)
+		}
+	}()
 	if extractErr := extractBackupArchive(archiveBytes, tmpDir); extractErr != nil {
 		return fmt.Errorf("check 6 (extraction): %w", extractErr)
 	}
@@ -3817,16 +3821,22 @@ func maintenanceRestore(backupFile, configDir, dataDir, dbDir string, cfg *confi
 	}
 
 	// Extract to a controlled temp directory — NEVER to the filesystem root.
-	tmpDir, err := os.MkdirTemp("", "ipgaze-restore-*")
+	tmpDir, err := paths.CreateProjectTempDir()
 	if err != nil {
 		log.Printf("Restore: failed to create temp directory: %v", err)
 		os.Exit(exOsErr)
 	}
-	defer func() { _ = os.RemoveAll(tmpDir) }()
+	cleanupTempDir := func() {
+		if err := os.RemoveAll(tmpDir); err != nil {
+			log.Printf("Restore: failed to remove temp directory: %v", err)
+		}
+	}
+	defer cleanupTempDir()
 
 	fmt.Printf("Restoring from backup: %s\n", backupFile)
 	if extractErr := extractBackupArchive(archiveBytes, tmpDir); extractErr != nil {
 		log.Printf("Restore: extraction failed: %v", extractErr)
+		cleanupTempDir()
 		os.Exit(exIoErr)
 	}
 
@@ -3843,11 +3853,13 @@ func maintenanceRestore(backupFile, configDir, dataDir, dbDir string, cfg *confi
 		} else if existingSSL := filepath.Join(configDir, "ssl"); dirOrFileExists(existingSSL) {
 			if copyErr := restoreCopyDir(existingSSL, extractedSSL); copyErr != nil {
 				log.Printf("Restore: failed to preserve existing SSL certs: %v", copyErr)
+				cleanupTempDir()
 				os.Exit(exIoErr)
 			}
 		}
 		if err := restoreReplaceDir(extractedConfig, configDir); err != nil {
 			log.Printf("Restore: failed to restore config: %v", err)
+			cleanupTempDir()
 			os.Exit(exIoErr)
 		}
 	}
@@ -3865,6 +3877,7 @@ func maintenanceRestore(backupFile, configDir, dataDir, dbDir string, cfg *confi
 	if _, err := os.Stat(extractedDB); err == nil {
 		if err := restoreReplaceDir(extractedDB, dbDir); err != nil {
 			log.Printf("Restore: failed to restore database: %v", err)
+			cleanupTempDir()
 			os.Exit(exIoErr)
 		}
 		dbRestored = true
@@ -3883,6 +3896,7 @@ func maintenanceRestore(backupFile, configDir, dataDir, dbDir string, cfg *confi
 	if _, err := os.Stat(extractedData); err == nil {
 		if err := restoreReplaceDir(extractedData, dataDir); err != nil {
 			log.Printf("Restore: failed to restore data: %v", err)
+			cleanupTempDir()
 			os.Exit(exIoErr)
 		}
 		dataRestored = true

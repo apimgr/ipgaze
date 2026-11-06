@@ -195,7 +195,7 @@ command -v docker >/dev/null 2>&1 || __die "docker is required — every test ru
 [ -d "${IPGAZE_E2E_ROOT}/tests/e2e" ] || __die "tests/e2e is missing from ${IPGAZE_E2E_ROOT}"
 
 mkdir -p "$IPGAZE_E2E_GO_CACHE" "$IPGAZE_E2E_GO_BUILD" "${IPGAZE_E2E_ROOT}/binaries" "${TMPDIR:-/tmp}/apimgr"
-IPGAZE_E2E_ARTIFACTS="$(mktemp -d "${TMPDIR:-/tmp}/apimgr/${IPGAZE_E2E_PROJECT}-e2e-XXXXXX")"
+IPGAZE_E2E_ARTIFACTS="$(mktemp -d "${TMPDIR:-/tmp}/apimgr/${IPGAZE_E2E_PROJECT}-XXXXXX")"
 
 trap __cleanup EXIT INT TERM
 

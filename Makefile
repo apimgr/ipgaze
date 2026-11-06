@@ -239,11 +239,20 @@ test:
 	@mkdir -p $(GO_CACHE) $(GO_BUILD)
 	@echo "Running tests with coverage..."
 	@$(GO_DOCKER) sh -c " \
-		mkdir -p \"\$${TMPDIR:-/tmp}/$(PROJECTORG)\" && \
-		COVDIR=\$$(mktemp -d \"\$${TMPDIR:-/tmp}/$(PROJECTORG)/$(INTERNALNAME)-XXXXXX\") && \
+		TEST_ROOT= && \
+		TEST_BASE=\"\$${TMPDIR:-/tmp}/$(PROJECTORG)\" && \
+		cleanup() { \
+			if [ -n \"\$$TEST_ROOT\" ] && [ -d \"\$$TEST_ROOT\" ] && [ ! -L \"\$$TEST_ROOT\" ]; then \
+				case \"\$$TEST_ROOT\" in \"\$$TEST_BASE/$(INTERNALNAME)-\"*) rm -rf -- \"\$$TEST_ROOT\" ;; esac; \
+			fi; \
+		} && \
+		trap cleanup EXIT && \
+		mkdir -p \"\$$TEST_BASE\" && \
+		TEST_ROOT=\$$(mktemp -d \"\$$TEST_BASE/$(INTERNALNAME)-XXXXXX\") && \
+		export TMPDIR=\$$TEST_ROOT && \
 		go mod download && \
-		go test -v -cover -coverprofile=\$$COVDIR/coverage.out ./... && \
-		COVERAGE=\$$(go tool cover -func=\$$COVDIR/coverage.out | grep total | awk '{print \$$3}' | sed 's/%//') && \
+		go test -v -cover -coverprofile=\$$TEST_ROOT/coverage.out ./... && \
+		COVERAGE=\$$(go tool cover -func=\$$TEST_ROOT/coverage.out | grep total | awk '{print \$$3}' | sed 's/%//') && \
 		echo \"Coverage: \$$COVERAGE%\" && \
 		if [ \$$(echo \"\$$COVERAGE < 60\" | bc -l) -eq 1 ]; then \
 			echo \"ERROR: Coverage is \$$COVERAGE%, must be >= 60%\"; exit 1; \

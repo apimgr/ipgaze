@@ -2,116 +2,98 @@
 
 Started: 2026-08-29
 Revalidated: 2026-11-05
-Spec version: AI.md, 49178 lines (last updated 2026-10-15)
+Spec version: AI.md SHA-256 `0891ecedc0882c16ef6286f5d060ee0cda8ba85296ee275d488d0f09d26ed759` (49,178 lines)
+Authority: AI.md (read-only) and IDEA.md
 
-This file tracks implementation/spec alignment findings. The unchecked items
-below were rechecked against the current spec and implementation on the date
-above. Checked historical items are retained from earlier audit passes and
-were not revalidated in this update. AI.md is read-only for this project.
+## Issues Found
 
-## Open Spec Gaps and Contradictions — revalidated 2026-11-05
+- [ ] AI.md PART 31.1 defines eight `/server/tor/*` endpoints, methods,
+  loopback access, and classification, but not complete request, success
+  payload, and error payload contracts for all endpoints. The structures in
+  `src/server/tor_control.go` and `src/main.go` include behavior not fully
+  specified by AI.md. The spec owner must define those contracts before the
+  implementation can be judged exactly.
+- [ ] `server.tor.max_circuits` is parsed and passed to the Tor manager, but
+  the manager does not use it. AI.md PART 31.1 does not define how this setting
+  maps to Tor behavior. Do not invent runtime semantics.
+- [ ] AI.md PART 16 requires app-specific guest preferences and export/import
+  round-tripping, but its required preference cookie table omits the
+  implemented `ipgaze_pref_widget` cookie and its values/default. The code and
+  IDEA document the preference; AI.md remains the implementation authority
+  and read-only, so its owner must add the cookie contract.
+- [ ] AI.md PART 25 says to have exactly its six listed Makefile targets;
+  FINAL CHECKPOINT separately requires `make all`. The Makefile follows PART
+  25. The spec owner must reconcile the conflict.
+- [ ] AI.md PART 8's reference implementation detects containers before
+  selecting a service manager and explicitly treats Incus/LXC as containers,
+  while PART 28's preferred Incus workflow requires installing and checking a
+  systemd service. `src/service/service.go` follows the PART 8 behavior and
+  `tests/incus.sh` falls back to direct binary startup. The spec owner must
+  decide whether Incus service installation is required.
+- [ ] AI.md PART 14 requires an MCP toggle in Web settings, while PART 12
+  requires file-only configuration without runtime mutation, PART 16 rules
+  out an admin panel, and PART 14's frontend rules say there are no admin
+  pages. `server.mcp.enabled` remains file-configured and hot-reloadable. The
+  spec owner must reconcile these requirements before a settings UI or route
+  can be implemented.
+- [ ] AI.md PART 14's universal API success envelope requires `{ok,data}`;
+  IDEA.md and echoip compatibility require bare responses at `/`, `/{ip}`,
+  and `/{ip}/{field}`. The routes are implemented as compatibility endpoints.
+  AI.md does not document an exception for these routes, so the spec owner
+  must define whether they are exempt from the universal JSON response rule.
+- [ ] AI.md PART 0's current `--mode debug` rule says debug mode defaults the
+  debug flag on; its Six Operational States table defines `debug` with debug
+  false; the Mode Shortcuts table defines `--mode debug` as development plus
+  debug on. `src/mode/mode.go` follows the explicit debug-mode description and
+  Six Operational States. The spec owner must reconcile the contradictory
+  table entries.
+- [ ] AI.md PART 28 mandates all temporary data under
+  `{project_org}/{internal_name}-XXXXXX`, but its PART 22 updater example
+  creates a temp file directly under the OS temp root using
+  `os.CreateTemp("", "{project_name}-update-*")`. Project temp handling now
+  follows PART 28; the spec owner should update the inconsistent example.
 
-- [x] AI.md 18305 vs AI.md 19670-19681 envelope contradiction — RESOLVED.
-      The user edited AI.md directly to make both sections consistent
-      (`{ok, data}` envelope). Verified both sections now agree; no handler
-      change was needed.
-- [x] Vanity onion address search was unspecified — RESOLVED. The user added
-      AI.md PART 31.1 "Vanity Onion Address Search", which fixes the prefix
-      rules (1-6 base32 chars, longer prefixes deferred to `mkp224o` plus
-      `tor import-keys`), the worker default (logical CPUs - 1, min 1), the
-      one-search-at-a-time rule, the `state`/`prefix`/`workers`/`attempts`/
-      `rate`/`elapsed_seconds`/`candidates` progress shape, candidate storage
-      under `{data_dir}/tor/vanity/{address}/`, and the apply handoff
-      (prefix resolution, confirmation, key swap, hostname verification,
-      candidate cleanup). Implemented in `src/tor/vanity.go`,
-      `src/server/tor_control.go` (adding `/server/tor/vanity/stop`), and
-      `src/main.go` (`ipgaze tor vanity stop`).
-- [ ] AI.md PART 31.1 lists eight internal `/server/tor/*` endpoints and
-      defines their methods, loopback access, and classification. It specifies
-      the shared API envelope elsewhere and some vanity-search fields, but
-      does not define the complete request, success-payload, and error-payload
-      contract for all eight endpoints. The server and CLI currently have
-      typed request/response structures in `src/server/tor_control.go` and
-      `src/main.go`; those code-defined details are not fully anchored by
-      AI.md. This is a spec gap, not a missing CLI parser.
-- [ ] `server.tor.max_circuits` is documented as the maximum number of open
-      circuits and is parsed from `server.yml`, but the Tor manager currently
-      accepts the value without using it. AI.md PART 31.1 does not specify how
-      this setting maps to Tor behavior. Clarify the intended semantics in the
-      authoritative spec before changing runtime behavior.
-- [x] AI.md PART 16 requires app-specific guest preferences and export/import
-      round-tripping. Added `ipgaze_pref_widget` with the existing landing-page
-      curl-example choices (`ip`, `country`, `country-iso`, `city`, `asn`,
-      `json`, `port`) to `/server/preferences`, the API mirror, and the
-      canonical export/import flow. The landing page reads the cookie per
-      request and changes only its UI widget, preserving echoip API responses.
-      `IDEA.md` records the product behavior. **Documentation remains open:**
-      AI.md requires this preference in its own cookie table, but project
-      instructions make AI.md read-only. The cookie name/value/default rule
-      should be added to AI.md by its owner before that documentation item can
-      be marked fully resolved.
-- [ ] AI.md PART 25 says not to add targets beyond its listed Makefile set;
-      the FINAL CHECKPOINT separately lists `make all`. The Makefile follows
-      PART 25 and has no `all` target. The contradiction remains in AI.md and
-      requires its owner to reconcile the checklist with PART 25.
-- [x] The Makefile command-substitution concern is resolved: both the AI.md
-      reference and repository Makefile use `GOOS=$$(go env GOOS)` and
-      `GOARCH=$$(go env GOARCH)` inside `sh -c` passed to the Docker toolchain.
-      Make passes substitution to the container shell; it does not invoke Go
-      on the host.
-- [x] AI.md 18478/18503 vs IDEA.md echoip response conflict — RESOLVED by user:
-      adhere to AI.md while preserving echoip compatibility. Bare responses
-      remain for `/`, `/{ip}`, and `/{ip}/{field}` when requested by HTTP tools.
+## Sync Required
 
-- [x] AI.md 8708-8709/9223-9252 ("Six Operational States") vs AI.md 8788
-      (`--mode debug` = development + debug) debug-mode contradiction —
-      RESOLVED. The user ruled to follow 8708-9252: `debug` is its own
-      distinct `AppMode`, not a development alias. Fixed in
-      `src/mode/mode.go` (`AppModeDebug`, `ParseModeWithDebugAlias` now
-      returns it), propagated to `src/main.go`'s self-signed-cert dev
-      fallback and `src/common/banner/banner.go`'s `modeEmoji()`.
+- [ ] AI.md must resolve the incomplete contracts and conflicting requirements
+  listed above before exact code/documentation alignment can be verified.
 
-- [ ] AI.md PART 8's reference implementation and PART 28's Incus test
-      workflow contradict each other on service install inside a container.
-      PART 8's reference `detectServiceManager()`
-      checks `isContainer()` FIRST and returns `"container"`, and its
-      `isContainer()` matches LXC/Incus explicitly (`/dev/lxc`, `$container`,
-      `lxc` in `/proc/1/cgroup`) — so in an Incus system container the binary
-      correctly refuses `--service --install` with "unsupported service
-      manager". PART 28's mandated test workflow, however, launches
-      `images:debian/trixie` and then runs `{project_name} --service --install`
-      followed by `systemctl status {project_name}` as the preferred way to
-      validate systemd support. Both cannot hold. `src/service/service.go`
-      was left matching PART 8's reference implementation verbatim (container
-      check first); `tests/incus.sh` was made to fall back to starting the
-      binary directly when install is refused. AI.md needs to clarify whether
-      Incus service installation is required or container detection takes
-      precedence.
+## Completed
 
-- [x] AI.md PART 12 defines three config reload classes. `ConfigManager`
-      classifies hot, graceful, and restart-required changes. Logging changes
-      reopen active writers, `server.baseurl` rebuilds the active router after
-      in-flight requests complete, and timeout changes hand newly accepted
-      connections to replacement HTTP servers on the existing bound listeners
-      while prior servers drain active requests.
-- [x] AI.md PART 14's MCP implementation uses Go SDK v1.8.0, which supports
-      the current `2026-07-28` revision and its header/body checks. MCP
-      operations are filtered against the registered runtime routes, ordered
-      deterministically, and audited with `source: mcp`. `APIV1RouteDefinitions`
-      now drives runtime API registration from the same route catalogue used
-      by OpenAPI; the active operation-ID registry filters MCP and llms.txt.
-      Optional GeoIP, port, GraphQL, and Swagger routes stay absent when their
-      runtime handlers are disabled. Echoip root routes remain listed and
-      unchanged. Parity tests cover definitions, active routes, and discovery.
-      Owner-token tools are not applicable: IDEA.md defines no user-owned
-      resource creation, and AI.md PART 14 only requires project-defined
-      resources and prompts when IDEA.md defines them.
-- [ ] AI.md contains an internal contradiction for the MCP setting. PART 14
-      requires an MCP toggle in Web settings, while PART 12 says configuration
-      is file-only with no runtime mutation, PART 16 says no admin web panel,
-      and PART 14's later frontend rules say there are no admin pages. The
-      user has ruled that AI.md takes precedence over IDEA.md and code, but
-      that does not choose between these conflicting AI.md requirements.
-      `server.mcp.enabled` remains file-configured, defaults to true, and is
-      hot-reloadable. Do not add a public settings route or invent an auth/UI
-      flow until AI.md resolves the contradiction.
+- `[PASS]` Runtime backup verification and restore now create unique,
+  owner-only temp directories under the project/org namespace and report
+  cleanup failures.
+- `[PASS]` CLI self-update now uses a unique project-scoped temporary
+  directory and removes it before restarting the replaced process.
+- `[PASS]` `make test` exports a project-scoped `TMPDIR` to Go test processes,
+  so `t.TempDir`, `os.TempDir`, and empty-dir temporary-file creation inherit
+  the required namespace. GitHub Actions, Gitea Actions, and Jenkins test
+  jobs likewise set a project-scoped temp root.
+- `[PASS]` Custom E2E, SSL, and Tor test temp directory prefixes now use the
+  required `{internal_name}-` prefix.
+- `[PASS]` Rechecked the Makefile Go toolchain command substitution; `go env`
+  runs inside the Docker toolchain, not on the host.
+- `[PASS]` Rechecked config reload classes, runtime route registration and
+  discovery filtering, MCP audit source, and optional route handling against
+  AI.md PARTS 12 and 14.
+- `[PASS]` No `TODO.*` files exist in the repository.
+
+## Verification
+
+- `[PASS]` `bash "$HOME/.codex/hooks/test-lint-run.sh" test -- make test` —
+  passed; coverage 60.3% (required minimum 60%).
+- `[PASS]` `bash "$HOME/.codex/hooks/test-lint-run.sh" lint -- go vet ./...` —
+  passed.
+- `[PASS]` `bash "$HOME/.codex/hooks/test-lint-run.sh" lint -- shellcheck tests/e2e.sh` —
+  passed.
+- `[PASS]` `make dev` — built server and CLI binaries successfully.
+- `[PASS]` Docker `gofmt -w` completed for changed Go files.
+- `[PASS]` `timeout 120 act --list -W .github/workflows/ci.yml` — listed
+  configured workflow jobs successfully.
+- `[FAIL]` Local Act execution of the CI `test` job failed only
+  `TestValidateNotPrivateIP_DNSFailure`: the test expects
+  `this-host-does-not-exist.invalid` to fail DNS resolution, but the Act
+  runner's resolver returned an address. The project test suite passed with
+  `make test`; hosted CI must confirm this resolver-dependent test.
+- `[NOT RUN]` `staticcheck ./...` — the test/lint wrapper rejected the
+  command before execution.

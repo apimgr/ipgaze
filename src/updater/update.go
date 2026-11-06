@@ -14,6 +14,8 @@ import (
 	"runtime"
 	"strings"
 	"time"
+
+	"github.com/apimgr/ipgaze/src/paths"
 )
 
 // Release represents a GitHub release.
@@ -146,7 +148,17 @@ func DoUpdate(ctx context.Context, release *Release) (retErr error) {
 	}
 
 	// Download new binary to temp file while simultaneously hashing.
-	tmpFile, err := os.CreateTemp("", "ipgaze-update-*")
+	tmpDir, err := paths.CreateProjectTempDir()
+	if err != nil {
+		return fmt.Errorf("cannot create update temp directory: %w", err)
+	}
+	defer func() {
+		if err := os.RemoveAll(tmpDir); err != nil {
+			retErr = errors.Join(retErr, fmt.Errorf("remove temporary update directory: %w", err))
+		}
+	}()
+
+	tmpFile, err := os.CreateTemp(tmpDir, "ipgaze-update-*")
 	if err != nil {
 		return fmt.Errorf("cannot create temp file: %w", err)
 	}

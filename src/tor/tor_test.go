@@ -13,7 +13,7 @@ import (
 // makeTempDirs creates a temp config/data dir pair for testing.
 func makeTempDirs(t *testing.T) (configDir, dataDir string) {
 	t.Helper()
-	base, err := os.MkdirTemp(filepath.Join(os.TempDir(), "apimgr"), "ipgaze-tor-")
+	base, err := os.MkdirTemp(filepath.Join(os.TempDir(), "apimgr"), "ipgaze-")
 	if err != nil {
 		t.Fatalf("MkdirTemp: %v", err)
 	}
