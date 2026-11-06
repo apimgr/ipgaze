@@ -21,15 +21,15 @@ https://ifcfg.us
 - **GeoIP Location Data** - Country, city, coordinates, timezone, ASN
 - **Full IPv6 Support** - Dual-stack IPv4 and IPv6
 - **RESTful API** - Versioned API at `/api/v1`
-- **Multiple Output Formats** - JSON, plain text, or custom
+- **Multiple Output Formats** - JSON, plain text, or server-rendered HTML
 - **Auto-Updating GeoIP** - Weekly automatic database updates
 - **Mobile-Friendly** - Responsive web interface
-- **Fast & Lightweight** - Single static binary <15MB
+- **Fast & Lightweight** - Single static binary with no runtime file dependencies
 - **No API Keys Required** - GeoIP databases auto-download
 - **VPN/Proxy & Tor Detection** - `is_vpn`, `is_proxy`, `is_tor` fields from daily-updated threat lists
 - **GraphQL Endpoint** - Flexible queries alongside the REST API
 - **OpenAPI/Swagger UI** - Interactive API documentation
-- **Prometheus Metrics** - Internal `/metrics` endpoint for operators
+- **Prometheus Metrics** - Optional authenticated metrics endpoints for operators
 - **PWA Support** - Web app manifest and service worker for offline use
 - **Tor Hidden Service** - Auto-enabled when the `tor` binary is present
 - **I2P Eepsite** - Opt-in via `server.i2p.enabled`
@@ -48,7 +48,7 @@ chmod +x ipgaze
 sudo mv ipgaze /usr/local/bin/
 
 # Or use installation script
-curl -q -LSsf https://raw.githubusercontent.com/apimgr/ipgaze/master/scripts/install.sh | sudo bash
+curl -q -LSsf https://raw.githubusercontent.com/apimgr/ipgaze/main/scripts/install.sh | sudo bash
 ```
 
 The installation script will:
@@ -66,7 +66,8 @@ sudo systemctl restart ipgaze
 sudo journalctl -u ipgaze -f
 ```
 
-**Configuration**: Edit `/etc/systemd/system/ipgaze.service`
+**Configuration**: Edit the generated `server.yml` in the configuration
+directory. Do not use the service unit as the application configuration.
 
 #### macOS
 
@@ -96,7 +97,7 @@ Invoke-WebRequest -Uri "https://github.com/apimgr/ipgaze/releases/latest/downloa
 
 **Download**:
 ```bash
-curl -q -LSsf -o docker-compose.yml https://raw.githubusercontent.com/apimgr/ipgaze/master/docker/docker-compose.yml
+curl -q -LSsf -o docker-compose.yml https://raw.githubusercontent.com/apimgr/ipgaze/main/docker/docker-compose.yml
 ```
 
 **Start**:
@@ -152,9 +153,9 @@ healthchecks, and SMTP/DOMAIN overrides).
 ```bash
 docker run -d \
   --name ipgaze \
-  -p 8080:80 \
-  -v ./data:/data \
-  -e DATA_DIR=/data \
+  -p 172.17.0.1:64580:80 \
+  -v ipgaze-config:/config \
+  -v ipgaze-data:/data \
   --restart unless-stopped \
   ghcr.io/apimgr/ipgaze:latest
 ```
@@ -171,14 +172,14 @@ per-command detail for `--service`, `--maintenance`, `--shell`, and `--update`.
 | `-h`, `--help` | Show help |
 | `-v`, `--version` | Show version information |
 | `--status` | Show server status and health (used by the container healthcheck) |
-| `--mode {production\|development}` | Application mode (default: `production`) |
+| `--mode {production\|development\|debug}` | Application mode (default: `production`) |
 | `--config DIR` | Configuration directory |
 | `--data DIR` | Data directory |
 | `--cache DIR` | Cache directory |
 | `--log DIR` | Log directory |
 | `--backup DIR` | Backup directory |
 | `--pid FILE` | PID file path |
-| `--address ADDR` | Listen address (default: `[::]`) |
+| `--address ADDR` | Listen address (default: `0.0.0.0`) |
 | `--port PORT` | Listen port (default: random `64xxx`, `80` in a container) |
 | `--baseurl PATH` | URL path prefix (default: `/`) |
 | `--daemon` | Run as a daemon (detach from the terminal) |
@@ -436,11 +437,18 @@ and 10 writes per 60-second window per client IP. Tune it under
 On the public instance at https://ifcfg.us, please keep automated use to
 **1 request per minute**.
 
+## Other
+
+- [Installation guide](https://apimgr-ipgaze.readthedocs.io/en/latest/installation/)
+- [Configuration reference](https://apimgr-ipgaze.readthedocs.io/en/latest/configuration/)
+- [Security policy](.github/SECURITY.md)
+- Report product issues at the [GitHub issue tracker](https://github.com/apimgr/ipgaze/issues).
+
 ## Development
 
 ### Requirements
 
-- **Go**: latest stable
+- **Go**: not required locally; the Makefile uses `casjaysdev/go:latest`
 - **Make**: GNU Make
 - **Docker**: For containerized testing (recommended)
 - **Git**: For version control
@@ -463,7 +471,7 @@ make test
 # Build Docker images
 make docker
 
-# Build and run locally for development
+# Quick development build in a unique OS temp directory
 make dev
 
 # Build release artifacts
@@ -490,7 +498,7 @@ cat release.txt
 # Output: 0.0.9
 
 # Version embedded in binary
-./ipgaze -version
+ipgaze --version
 # Output: 0.0.9
 ```
 
@@ -503,11 +511,11 @@ cat release.txt
 git clone https://github.com/apimgr/ipgaze.git
 cd ipgaze
 
-# Build for local testing (host OS/arch, output to a tempdir)
-make local
-
-# Build a Docker development image
+# Quick build for local testing (output to a project-scoped temp directory)
 make dev
+
+# Build local-platform binaries with version metadata
+make local
 ```
 
 #### Development Flags
@@ -520,10 +528,9 @@ make dev
 ./ipgaze --port 8080 --data data
 
 # With custom directories
-./ipgaze \
-  --port 8080 \
-  --data /tmp/ipgaze/data \
-  --config /tmp/ipgaze/config
+docker run --rm -p 127.0.0.1:8080:80 \
+  -v ipgaze-config:/config -v ipgaze-data:/data \
+  ghcr.io/apimgr/ipgaze:latest
 ```
 
 #### Debug Features
@@ -541,13 +548,13 @@ go tool pprof -http=:8081 http://localhost:8080/debug/pprof/heap
 
 #### GitHub Actions
 
-- **Triggers**: Push to main/master, monthly schedule, manual
+- **Triggers**: Push and pull request to main/master, weekly schedule, manual
 - **Workflows**:
   - `ci.yml` - Lint and test on push/PR
   - `licenses.yml` - License compatibility check on push/PR
   - `release.yml` - Binary builds for 8 platforms
   - `docker.yml` - Multi-arch Docker images (amd64, arm64)
-- **Schedule**: 1st of month, 3:00 AM UTC
+- **Schedule**: Weekly security checks
 
 #### Jenkins Pipeline
 
@@ -559,7 +566,7 @@ go tool pprof -http=:8081 http://localhost:8080/debug/pprof/heap
 ### Testing
 
 ```bash
-# Run Go tests
+# Run the Go test suite in Docker with coverage enforcement
 make test
 
 # Run integration tests (auto-detects Incus, falls back to Docker)

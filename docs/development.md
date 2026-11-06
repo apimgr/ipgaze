@@ -4,11 +4,12 @@ Guide for contributing to **ipgaze**.
 
 ## Prerequisites
 
-- Docker (required for all builds)
+- Docker (required for Go builds and tests)
 - Make
 - Git
 
-**Note:** Go is NOT required locally. All builds use Docker containers with `golang:alpine`.
+**Note:** Go is not required locally. The Makefile runs Go commands through
+`casjaysdev/go:latest` with CGO disabled.
 
 ## Getting Started
 
@@ -22,8 +23,11 @@ cd ipgaze
 ### Build
 
 ```bash
-# Build for current platform
-make build
+# Quick development build to a project-scoped OS temp directory
+make dev
+
+# Build local-platform binaries with version metadata
+make local
 
 # Build for all platforms
 make release
@@ -35,16 +39,14 @@ make release
 make dev
 ```
 
-This starts ipgaze in a Docker container with hot-reload enabled.
+This creates development binaries in a unique directory under the OS temp
+directory. It does not start a server or provide hot reload.
 
 ### Run Tests
 
 ```bash
-# All tests
+# Unit tests with coverage enforcement
 make test
-
-# With coverage
-make coverage
 ```
 
 ## Project Structure
@@ -59,10 +61,7 @@ ipgaze/
 │   ├── scheduler/          # Built-in task scheduler
 │   ├── blocklist/          # IP blocklist manager
 │   └── tor/                # Tor hidden service manager
-├── docker/                 # Docker files
-│   ├── Dockerfile          # Main Dockerfile
-│   ├── docker-compose.yml  # Production compose
-│   └── file_system/        # Container filesystem overlay
+├── docker/                 # Docker files, compose files, and rootfs overlay
 ├── docs/                   # ReadTheDocs documentation
 ├── tests/                  # Test scripts
 │   ├── run_tests.sh        # Test runner
@@ -111,13 +110,14 @@ if err != nil {
 
 ## Building
 
-### Local Build
+### Build
 
 ```bash
 make build
 ```
 
-Output: `binaries/ipgaze`
+`make build` writes artifacts under `binaries/`. `make dev` writes quick
+development binaries under the OS temporary directory.
 
 ### All Platforms
 
@@ -158,21 +158,13 @@ make test
 ./tests/docker.sh
 ```
 
-### Coverage
-
-```bash
-make coverage
-```
-
-Coverage report: `coverage.html`
-
 ## Documentation
 
 ### Build Docs Locally
 
 ```bash
 # Install dependencies
-pip install -r docs/requirements.txt
+python -m pip install -r docs/requirements.txt
 
 # Serve locally
 mkdocs serve
@@ -247,11 +239,9 @@ test: add integration tests
 | `make build` | Build for current platform |
 | `make release` | Build for all platforms |
 | `make test` | Run tests |
-| `make coverage` | Test with coverage |
-| `make dev` | Run development server |
+| `make dev` | Build quick development binaries in the OS temp directory |
 | `make docker` | Build Docker image |
 | `make clean` | Clean build artifacts |
-| `make geoip-download` | Download GeoIP databases |
 
 ## Dependencies
 
@@ -283,15 +273,15 @@ make build
 # Check Docker is running
 docker ps
 
-# Run tests with verbose output
-go test -v ./...
+# Run the project test target with verbose output
+make test
 ```
 
 ### Docker Issues
 
 ```bash
-# Reset Docker environment
-docker system prune -f
+# Check that the Docker daemon is available
+docker info
 make docker
 ```
 
@@ -299,5 +289,5 @@ make docker
 
 - [Repository](https://github.com/apimgr/ipgaze)
 - [Issues](https://github.com/apimgr/ipgaze/issues)
-- [API Documentation](/openapi)
-- [GraphQL Playground](/graphql)
+- [Swagger UI](https://ifcfg.us/server/docs/swagger)
+- [GraphQL UI](https://ifcfg.us/server/docs/graphql)

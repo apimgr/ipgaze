@@ -33,10 +33,11 @@ ipgaze publishes a machine-readable OpenAPI 3 schema and an interactive Swagger 
 
 | Endpoint | Format |
 |----------|--------|
-| `GET /openapi` | Interactive Swagger UI (HTML) |
-| `GET /openapi.json` | OpenAPI 3 schema (JSON) |
+| `GET /server/docs/swagger` | Interactive Swagger UI (HTML) |
+| `GET /api/swagger` | OpenAPI 3 schema (JSON) |
 
-Use `/openapi.json` to generate client SDKs with `openapi-generator`, `oapi-codegen`, or any OpenAPI-compatible toolchain.
+Use `/api/swagger` to generate client SDKs with `openapi-generator`,
+`oapi-codegen`, or any OpenAPI-compatible toolchain.
 
 ---
 
@@ -46,7 +47,8 @@ ipgaze exposes a GraphQL endpoint for flexible IP lookup queries:
 
 | Endpoint | Methods |
 |----------|---------|
-| `/graphql` | `GET` (query via `?query=`), `POST` (JSON body) |
+| `/server/docs/graphql` | Interactive GraphiQL UI |
+| `/api/graphql` | GraphQL query endpoint (`GET` or `POST`) |
 
 Example query:
 
@@ -69,18 +71,20 @@ Example query:
 
 ## Prometheus Metrics
 
-When enabled in configuration, ipgaze exposes a Prometheus-compatible metrics endpoint:
+When enabled in configuration, ipgaze exposes metrics endpoints under
+`/server/metrics` and `/api/v1/server/metrics`. The metrics service and its
+authentication are configured in `server.yml`.
 
 | Endpoint | Purpose |
 |----------|---------|
-| `GET /metrics` | Prometheus text exposition format |
+| `GET /server/metrics/prometheus` | Prometheus text exposition format |
 
 **Enable in `server.yml`:**
 ```yaml
 server:
   metrics:
     enabled: true
-    endpoint: /metrics
+    endpoint: /server/metrics
 ```
 
 **Available metrics:**
@@ -117,7 +121,9 @@ ipgaze ships PWA assets for installation as a home-screen app on mobile and desk
 | `GET /manifest.json` | Web App Manifest (name, icons, theme color) |
 | `GET /sw.js` | Service worker (offline support) |
 
-These endpoints are served unconditionally with no authentication.
+These endpoints are public and do not require authentication. The service
+worker and manifest are served with revalidation headers so browsers can
+detect deployed asset updates.
 
 ---
 

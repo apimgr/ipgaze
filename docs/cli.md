@@ -29,7 +29,7 @@ Only `-h` (help) and `-v` (version) have short forms.
 | `-h`, `--help` | Show help (`--help` for any command shows its help) | - |
 | `-v`, `--version` | Show version | - |
 | `--status` | Show server status and health | - |
-| `--mode {production\|development}` | Application mode | `production` |
+| `--mode {production\|development\|debug}` | Application mode; `debug` selects development mode and enables debug output unless overridden | `production` |
 | `--config DIR` | Config directory | - |
 | `--data DIR` | Data directory | - |
 | `--cache DIR` | Cache directory | - |
@@ -51,7 +51,8 @@ Only `-h` (help) and `-v` (version) have short forms.
 | `--update [CMD]` | Check/perform updates (`--update --help` for details) | - |
 
 Reverse DNS hostname lookup and port reachability testing (`/port/{port}`)
-are always enabled — no flag needed.
+are server features. Port lookup is available when enabled by the server's
+runtime configuration.
 
 ### Examples
 
@@ -104,8 +105,12 @@ ipgaze --shell completions fish > ~/.config/fish/completions/ipgaze.fish
 | Variable | Description |
 |----------|-------------|
 | `NO_COLOR` | Disable colored output (per no-color.org) |
-| `PORT` | Override listen port |
-| `DATA_DIR` | Override data directory |
+| `PORT` | Seed the listen port on first run; persisted `server.yml` takes precedence later |
+| `LISTEN` | Seed the listen address on first run |
+| `CONFIG_DIR` | Configuration directory on first run |
+| `DATA_DIR` | Data directory on first run |
+| `MODE` | Runtime mode (`production`, `development`, or `debug`) |
+| `DEBUG` | Enable debug endpoints/output when truthy |
 
 ```bash
 # Disable colors
@@ -143,6 +148,7 @@ ipgaze-cli [command]
 | `-v`, `--version` | Show version information | - |
 | `--server URL` | Server URL to query | - |
 | `--token TOKEN` | API token for authenticated operations | - |
+| `--token-file FILE` | Read an API token from a file | - |
 | `--output FORMAT` | Output format: `json`, `plain`, `auto` | `auto` |
 | `--field NAME` | Output specific field only | - |
 | `--lang CODE` | Language for output | `auto` |
@@ -208,7 +214,7 @@ On first run, the client prompts for configuration:
 $ ipgaze-cli
 Welcome to ipgaze CLI!
 
-Enter server URL [https://ifconfig.co]: https://ip.example.com
+Enter server URL [https://ifcfg.us]: https://ip.example.com
 Save configuration? [Y/n]: y
 
 Configuration saved to ~/.config/apimgr/ipgaze/cli.yml

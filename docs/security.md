@@ -36,16 +36,19 @@ The following endpoints are accessible without authentication:
 | `GET /coordinates` | Latitude/longitude for caller |
 | `GET /asn` | ASN number for caller |
 | `GET /asn-org` | ASN organization for caller |
-| `GET /healthz` | Health check (content negotiation) |
-| `GET /api/v1/healthz` | Health check (always JSON) |
-| `GET /metrics` | Prometheus metrics (if enabled) |
+| `GET /server/healthz` | Health check (content negotiation) |
+| `GET /api/v1/server/healthz` | Versioned health check |
+| `GET /api/healthz` | Direct JSON health alias |
+| `GET /healthz` | Optional health alias when enabled in `server.yml` |
+| `GET /server/metrics/...` | Metrics (when enabled; service-specific bearer token may be required) |
 | `GET /robots.txt` | Robots policy |
 | `GET /favicon.ico` | Site favicon |
 | `GET /manifest.json` | PWA manifest |
 | `GET /sw.js` | Service worker |
-| `GET /openapi` | OpenAPI documentation (HTML) |
-| `GET /openapi.json` | OpenAPI schema (JSON) |
-| `GET /graphql` | GraphQL endpoint |
+| `GET /server/docs/swagger` | OpenAPI documentation (HTML) |
+| `GET /api/swagger` | OpenAPI schema (JSON) |
+| `GET /server/docs/graphql` | GraphiQL UI when enabled |
+| `GET /api/graphql` | GraphQL endpoint when enabled |
 
 ---
 
@@ -68,7 +71,8 @@ The `security.txt` file follows [RFC 9116](https://www.rfc-editor.org/rfc/rfc911
 - All SQL queries use parameterized statements — no string interpolation
 - HTML output is escaped via Go's `html/template` package — XSS is structurally prevented
 - All untrusted input is size-capped before buffering — no unbounded reads from network streams
-- SSRF is not possible: IP lookups call only the local in-process GeoIP database, with no outbound requests
+- GeoIP lookup uses local databases. Optional port reachability checks perform
+  network connections and are controlled by the server configuration.
 
 ---
 
@@ -85,8 +89,8 @@ ipgaze logs request-level events using Apache Combined Log Format. Logged fields
 
 - Client IP, timestamp, method, path, status code, response bytes, referer, user-agent
 
-Logs never contain raw tokens. The server.token (when present) is stored as a SHA-256
-hash and is never written to log output.
+Logs never contain raw tokens. Operator and API token values are not written to
+log output.
 
 ---
 

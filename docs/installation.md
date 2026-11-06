@@ -18,8 +18,8 @@ curl -q -LSsf -o docker-compose.yml \
 # Start service
 docker-compose up -d
 
-# Test
-curl -q -LSsf http://localhost:8080/
+# Test (the published port is bound to the Docker bridge)
+curl -q -LSsf http://172.17.0.1:64580/
 ```
 
 ipgaze creates and owns everything under `/config` and `/data` itself on
@@ -30,7 +30,8 @@ first run — no manual directory creation or permission fixing needed.
 ```bash
 docker run -d \
   --name ipgaze \
-  -p 8080:80 \
+  -p 172.17.0.1:64580:80 \
+  -v ipgaze-config:/config \
   -v ipgaze-data:/data \
   --restart unless-stopped \
   ghcr.io/apimgr/ipgaze:latest
@@ -100,66 +101,20 @@ curl -q -LSsf -o ipgaze \
 chmod +x ipgaze
 ```
 
-## Systemd Service
+## System Service
 
-For production Linux deployments, use systemd.
-
-> **Run on the host yourself — not by AI.** Every command in this section
-> changes system state (creates a system account, installs a unit file,
-> enables and starts a service). Run them yourself on the target machine;
-> an AI assistant must not execute them on your behalf.
-
-### Create User
+The server installs the supported service unit and prepares its directories
+through its service command. Run the command with the privileges required by
+your operating system:
 
 ```bash
-sudo useradd -r -s /bin/false ipgaze
+sudo ipgaze --service --install
+sudo ipgaze --service status
 ```
 
-### Create Directories
-
-```bash
-sudo mkdir -p /var/lib/ipgaze /var/log/ipgaze /etc/ipgaze
-sudo chown ipgaze:ipgaze /var/lib/ipgaze /var/log/ipgaze /etc/ipgaze
-```
-
-### Service File
-
-Create `/etc/systemd/system/ipgaze.service`:
-
-```ini
-[Unit]
-Description=ipgaze - IP address lookup service
-Documentation=https://apimgr-ipgaze.readthedocs.io
-After=network-online.target
-Wants=network-online.target
-
-[Service]
-Type=simple
-User=ipgaze
-Group=ipgaze
-ExecStart=/usr/local/bin/ipgaze --listen :8080 --data /var/lib/ipgaze
-Restart=on-failure
-RestartSec=5s
-
-# Security hardening
-NoNewPrivileges=true
-PrivateTmp=true
-ProtectSystem=strict
-ProtectHome=true
-ReadWritePaths=/var/lib/ipgaze /var/log/ipgaze
-
-[Install]
-WantedBy=multi-user.target
-```
-
-### Enable and Start
-
-```bash
-sudo systemctl daemon-reload
-sudo systemctl enable ipgaze
-sudo systemctl start ipgaze
-sudo systemctl status ipgaze
-```
+Use `ipgaze --service --help` to see platform-specific service operations.
+The application reads its settings from the generated `server.yml`; do not
+edit the service unit to configure the application.
 
 ## Build from Source
 
@@ -198,7 +153,7 @@ Builds for all 8 supported platforms:
 ipgaze --version
 
 # Start server
-ipgaze --listen :8080
+ipgaze --address 0.0.0.0 --port 8080
 
 # Test (in another terminal)
 curl -q -LSsf http://localhost:8080/

@@ -32,12 +32,11 @@ reloads the new token immediately.
 
 ## Token Management (CLI)
 
-```bash
-# List all active resource tokens
-ipgaze token list
+Operator tokens are managed by the maintenance command group:
 
-# Revoke a specific resource token by prefix
-ipgaze token revoke <prefix>
+```bash
+ipgaze --maintenance token list
+ipgaze --maintenance token revoke <prefix>
 ```
 
 ## Service Management
@@ -46,9 +45,13 @@ ipgaze token revoke <prefix>
 # Install and start as a system service
 ipgaze --service --install
 
-# Stop the service (keeps all data)
+# Disable the service at startup (keeps configuration and data)
 ipgaze --service --disable
 
-# Uninstall and delete all data
+# Uninstall the service
 ipgaze --service --uninstall
 ```
+
+Back up before changing or replacing `server.yml`. The service lifecycle and
+maintenance commands are also listed by `ipgaze --help` and the relevant
+`--service --help` or `--maintenance --help` output.

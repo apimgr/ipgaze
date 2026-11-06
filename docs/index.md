@@ -1,104 +1,58 @@
-# ipgaze
+# IPGaze
 
-IP address lookup service with GeoIP information.
-
-## Overview
-
-**ipgaze** is a fast, lightweight IP address lookup service providing:
-
-- IPv4 and IPv6 support
-- GeoIP location data (country, city, coordinates)
-- ASN information
-- Reverse DNS lookups
-- Port connectivity testing
-- RESTful API with JSON responses
+IPGaze is a public IPv4 and IPv6 lookup service with GeoIP and autonomous
+system number (ASN) details, plain text and JSON responses, and a companion
+command line client.
 
 ## Quick Start
 
-### Get Your IP
+Run the production image with persistent configuration and data volumes:
 
 ```bash
-curl -q -LSsf https://ifcfg.us/
+docker run -d \
+  --name ipgaze \
+  -p 172.17.0.1:64580:80 \
+  -v ipgaze-config:/config \
+  -v ipgaze-data:/data \
+  ghcr.io/apimgr/ipgaze:latest
 ```
 
-Output: `203.0.113.42`
-
-### Get IP Information (JSON)
-
-```bash
-curl -q -LSsf https://ifcfg.us/json
-```
-
-```json
-{
-  "ip": "203.0.113.42",
-  "country": "United States",
-  "country_iso": "US",
-  "city": "Mountain View",
-  "latitude": 37.386,
-  "longitude": -122.0838,
-  "asn": "AS15169",
-  "asn_org": "Google LLC"
-}
-```
-
-### Lookup Specific IP
-
-```bash
-curl -q -LSsf https://ifcfg.us/8.8.8.8
-```
+The service listens on container port `80`. See [Installation](installation.md)
+for reverse proxy, binary, and service setup.
 
 ## Features
 
-- **Fast & Lightweight**: Single static binary, <15MB
-- **IPv6 Support**: Full dual-stack IPv4/IPv6
-- **GeoIP Data**: Country, city, ASN, coordinates, timezone
-- **Auto-Updates**: Weekly GeoIP database updates
-- **RESTful API**: Versioned `/api/v1` endpoints
-- **Multiple Formats**: JSON, plain text, HTML
-- **Port Testing**: Check port connectivity
-- **Reverse DNS**: Optional hostname lookups
+- IPv4 and IPv6 address detection and lookup
+- GeoIP country, region, city, timezone, and coordinate information
+- ASN and organization lookup
+- Plain text, JSON, and server-rendered HTML responses
+- Versioned REST API, OpenAPI, and GraphQL
+- Optional GeoIP, cache, metrics, Tor, and I2P services
+- Server rendered pages and a companion `ipgaze-cli` client
+
+Optional services and their defaults are documented in
+[Configuration](configuration.md) and [Integrations](integrations.md).
 
 ## Documentation
 
-- [Installation](installation.md) - Docker, binary, systemd setup
-- [Configuration](configuration.md) - All configuration options
-- [API Reference](api.md) - Complete API documentation
-- [CLI Reference](cli.md) - Command-line options
-- [Server Administration](admin.md) - File-based configuration
-- [Development](development.md) - Contributing guide
-
-## Installation
-
-### Docker (Recommended)
-
-```bash
-docker run -d -p 8080:80 ghcr.io/apimgr/ipgaze:latest
-curl -q -LSsf http://localhost:8080/
-```
-
-### Binary
-
-```bash
-curl -q -LSsf -o ipgaze \
-  https://github.com/apimgr/ipgaze/releases/latest/download/ipgaze-linux-amd64
-chmod +x ipgaze
-./ipgaze --listen :8080
-```
-
-See [Installation](installation.md) for detailed instructions.
-
-## API Documentation
-
-- [Swagger UI](/openapi) - Interactive REST API explorer
-- [GraphQL Playground](/graphql) - Interactive GraphQL explorer
+- [Installation](installation.md) — Docker, binaries, and service management
+- [Configuration](configuration.md) — `server.yml` and environment variables
+- [API Reference](api.md) — routes, formats, and response behavior
+- [CLI Reference](cli.md) — server and client commands
+- [Server Administration](admin.md) — file based operator workflows
+- [Security](security.md) — public endpoints and reporting
+- [Integrations](integrations.md) — discovery and protocol interfaces
+- [Development](development.md) — build, test, and contribution workflow
 
 ## Links
 
+- [Official site](https://ifcfg.us)
 - [Repository](https://github.com/apimgr/ipgaze)
 - [Releases](https://github.com/apimgr/ipgaze/releases)
-- [Issues](https://github.com/apimgr/ipgaze/issues)
+- [Swagger UI](https://ifcfg.us/server/docs/swagger)
+- [GraphQL UI](https://ifcfg.us/server/docs/graphql)
+- [ReadTheDocs](https://apimgr-ipgaze.readthedocs.io)
 
 ## License
 
-MIT License - see [LICENSE](https://github.com/apimgr/ipgaze/blob/main/LICENSE.md)
+IPGaze is licensed under the MIT License. See [LICENSE.md](../LICENSE.md).

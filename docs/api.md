@@ -1,553 +1,105 @@
 # API Reference
 
-Complete API reference for **ipgaze** - IP address lookup service.
+IPGaze accepts requests at the configured server URL. The public service is
+available at `https://ifcfg.us`. All lookup endpoints are anonymous. A
+deployment may apply rate limits and block abusive traffic.
 
-## Base URL
+## Address Lookup
 
-```
-https://ifcfg.us
-```
+| Request | Result |
+|---------|--------|
+| `GET /` | The caller's address and lookup data, negotiated as HTML, JSON, or plain text |
+| `GET /json` | The caller's lookup data as JSON |
+| `GET /ip` | The caller's IP address as plain text |
+| `GET /country` | Country name |
+| `GET /country-iso` | ISO country code |
+| `GET /city` | City |
+| `GET /coordinates` | Latitude and longitude |
+| `GET /asn` | Autonomous system number |
+| `GET /asn-org` | Autonomous system organization |
+| `GET /{ip}` | Lookup the supplied IPv4 or IPv6 address |
+| `GET /port/{port}` | Check TCP reachability for a port when port lookup is enabled |
 
----
-
-## Endpoints
-
-### Get Your IP Address
-
-#### `GET /`
-
-Returns your IP address in different formats based on the `Accept` header or User-Agent.
-
-**Request**:
-```bash
-curl -q -LSsf https://ifcfg.us/
-```
-
-**Response** (plain text):
-```
-203.0.113.42
-```
-
-**Request** (JSON):
-```bash
-curl -q -LSsf -H "Accept: application/json" https://ifcfg.us/
-```
-
-**Response** (JSON):
-```json
-{
-  "ip": "203.0.113.42",
-  "ip_decimal": 3405803306,
-  "country": "United States",
-  "country_iso": "US",
-  "city": "Mountain View",
-  "region_name": "California",
-  "region_code": "CA",
-  "latitude": 37.386,
-  "longitude": -122.0838,
-  "timezone": "America/Los_Angeles",
-  "asn": "AS15169",
-  "asn_org": "Google LLC",
-  "hostname": "dns.google"
-}
-```
-
----
-
-### Lookup Specific IP
-
-#### `GET /{ip}`
-
-Lookup information for a specific IP address (IPv4 or IPv6).
-
-**IPv4 Example**:
-```bash
-curl -q -LSsf https://ifcfg.us/8.8.8.8
-```
-
-**IPv6 Example**:
-```bash
-curl -q -LSsf https://ifcfg.us/2001:4860:4860::8888
-```
-
-**Response**:
-```json
-{
-  "ip": "8.8.8.8",
-  "ip_decimal": 134744072,
-  "country": "United States",
-  "country_iso": "US",
-  "asn": "AS15169",
-  "asn_org": "Google LLC"
-}
-```
-
----
-
-### Health Check
-
-#### `GET /healthz`
-
-Server health check endpoint with content negotiation.
-
-**Request (JSON)**:
-```bash
-curl -q -LSsf -H "Accept: application/json" https://ifcfg.us/healthz
-```
-
-**Response (JSON)**:
-```json
-{
-  "status": "healthy",
-  "version": "1.0.0",
-  "mode": "standalone",
-  "uptime": "3d 2h 15m",
-  "timestamp": "2025-01-15T10:30:00Z",
-  "node": {
-    "hostname": "server1",
-    "id": "abc123"
-  },
-  "cluster": {
-    "enabled": false
-  },
-  "checks": {
-    "database": "ok",
-    "geoip": "ok"
-  }
-}
-```
-
-**Request (Text)**:
-```bash
-curl -q -LSsf https://ifcfg.us/healthz
-```
-
-**Response (Text)**:
-```
-healthy
-```
-
-#### `GET /api/v1/healthz`
-
-API health endpoint (always returns JSON).
-
-**Request**:
-```bash
-curl -q -LSsf https://ifcfg.us/api/v1/healthz
-```
-
-**Response**: Same JSON format as above.
-```
-
----
-
-### Get Specific Fields
-
-#### `GET /ip`
-Returns just your IP address (text).
+GeoIP field routes require the corresponding database to be enabled and
+available. A `.txt` suffix forces plain text for supported field and API
+routes. The root route chooses a response based on the request's `Accept`
+header and User-Agent.
 
 ```bash
+# Caller IP as text
 curl -q -LSsf https://ifcfg.us/ip
-# Output: 203.0.113.42
-```
 
-#### `GET /country`
-Returns your country name (text).
-
-```bash
-curl -q -LSsf https://ifcfg.us/country
-# Output: United States
-```
-
-#### `GET /country-iso`
-Returns your country ISO code (text).
-
-```bash
-curl -q -LSsf https://ifcfg.us/country-iso
-# Output: US
-```
-
-#### `GET /city`
-Returns your city name (text).
-
-```bash
-curl -q -LSsf https://ifcfg.us/city
-# Output: Mountain View
-```
-
-#### `GET /coordinates`
-Returns your coordinates (text).
-
-```bash
-curl -q -LSsf https://ifcfg.us/coordinates
-# Output: 37.386,-122.0838
-```
-
-#### `GET /asn`
-Returns your Autonomous System Number (text).
-
-```bash
-curl -q -LSsf https://ifcfg.us/asn
-# Output: AS15169
-```
-
-#### `GET /asn-org`
-Returns your ASN organization (text).
-
-```bash
-curl -q -LSsf https://ifcfg.us/asn-org
-# Output: Google LLC
-```
-
----
-
-## API v1 Endpoints
-
-RESTful API with versioned endpoints.
-
-### `GET /api/v1`
-
-Get your IP information (JSON).
-
-**Request**:
-```bash
-curl -q -LSsf https://ifcfg.us/api/v1
-```
-
-**Response**:
-```json
-{
-  "ip": "203.0.113.42",
-  "ip_decimal": 3405803306,
-  "country": "United States",
-  "country_iso": "US",
-  ...
-}
-```
-
-### `GET /api/v1/ip`
-
-Get your IP address (text).
-
-**Request**:
-```bash
-curl -q -LSsf https://ifcfg.us/api/v1/ip
-```
-
-**Response**:
-```
-203.0.113.42
-```
-
-### `GET /api/v1/ip/{ip}`
-
-Lookup specific IP address (JSON).
-
-**Request**:
-```bash
-curl -q -LSsf https://ifcfg.us/api/v1/ip/8.8.8.8
-```
-
-**Response**:
-```json
-{
-  "ip": "8.8.8.8",
-  "ip_decimal": 134744072,
-  "country": "United States",
-  ...
-}
-```
-
-### `GET /api/v1/country`
-
-Get your country (text).
-
-### `GET /api/v1/city`
-
-Get your city (text).
-
-### `GET /api/v1/asn`
-
-Get your ASN (text).
-
----
-
-## Query Parameters
-
-### `?ip={address}`
-
-Lookup information for a specific IP address.
-
-**Example**:
-```bash
-curl -q -LSsf https://ifcfg.us/json?ip=8.8.8.8
-```
-
----
-
-## Port Testing
-
-### `GET /port/{port}`
-
-Test if a specific port is reachable on your IP address.
-
-**Request**:
-```bash
-curl -q -LSsf https://ifcfg.us/port/22
-```
-
-**Response**:
-```json
-{
-  "ip": "203.0.113.42",
-  "port": 22,
-  "reachable": true
-}
-```
-
----
-
-## Response Formats
-
-### JSON
-
-Use `Accept: application/json` header or access `/json` endpoint.
-
-```bash
-curl -q -LSsf -H "Accept: application/json" https://ifcfg.us/
-```
-
-### Plain Text
-
-Default for CLI tools (curl, wget, etc.).
-
-```bash
-curl -q -LSsf https://ifcfg.us/
-```
-
----
-
-## IPv6 Support
-
-### Force IPv4 or IPv6
-
-Use your client's flags:
-
-```bash
-# Force IPv4
-curl -q -LSsf -4 https://ifcfg.us/
-
-# Force IPv6
-curl -q -LSsf -6 https://ifcfg.us/
-```
-
-### IPv6 Lookups
-
-```bash
-# Lookup IPv6 address
-curl -q -LSsf https://ifcfg.us/2001:4860:4860::8888
-```
-
----
-
-## Rate Limiting
-
-**Automated Use**: Please limit requests to **1 request per minute**.
-
-Requests exceeding this limit may be rate-limited (HTTP 429) or dropped.
-
----
-
-## Error Responses
-
-### 400 Bad Request
-
-```json
-{
-  "status": 400,
-  "error": "Invalid IP address: invalid"
-}
-```
-
-### 404 Not Found
-
-```json
-{
-  "status": 404,
-  "error": "Not found"
-}
-```
-
-### 500 Internal Server Error
-
-```json
-{
-  "status": 500,
-  "error": "Internal server error"
-}
-```
-
----
-
-## Examples
-
-### cURL
-
-```bash
-curl -q -LSsf https://ifcfg.us/
+# Caller information as JSON
 curl -q -LSsf https://ifcfg.us/json
+
+# Force JSON at the root
+curl -q -LSsf -H 'Accept: application/json' https://ifcfg.us/
+
+# Lookup an address
 curl -q -LSsf https://ifcfg.us/8.8.8.8
-curl -q -LSsf https://ifcfg.us/api/v1/ip/8.8.8.8
 ```
 
-### HTTPie
+## Versioned API
 
-```bash
-http https://ifcfg.us/
-http https://ifcfg.us/json
-```
+The current API version is `v1`. API routes return JSON by default; appending
+`.txt` requests plain text where that operation supports it.
 
-### wget
+Successful JSON responses use the `{ "ok": true, "data": ... }` envelope.
+Errors use `{ "ok": false, "error": "CODE", "message": "..." }`.
+Health endpoints are the exception and return the bare health document.
 
-```bash
-wget -qO- https://ifcfg.us/
-```
+| Request | Description |
+|---------|-------------|
+| `GET /api/v1` | Caller lookup information |
+| `GET /api/v1/ip` | Caller IP |
+| `GET /api/v1/ip/{ip}` | Lookup a specific IP address |
+| `GET /api/v1/server/healthz` | Server health |
+| `GET /api/v1/version` | Version, commit, and build date |
+| `GET /api/v1/server/about` | Application information |
+| `GET /api/v1/server/help` | Help sections |
+| `GET /api/v1/server/privacy` | Current privacy and tracking configuration |
+| `GET /api/v1/server/terms` | Terms sections |
+| `GET /api/v1/server/security` | Security contact information |
+| `GET /api/v1/server/preferences` | Current guest preferences |
+| `POST /api/v1/server/preferences` | Update guest preferences |
+| `GET /api/v1/server/preferences/export` | Export guest preferences |
+| `GET /api/v1/server/preferences/import` | Import guest preferences |
+| `POST /api/v1/server/contact` | Submit the contact form |
+| `GET /api/v1/server/swagger` | OpenAPI document |
+| `GET` or `POST /api/v1/server/graphql` | GraphQL endpoint when enabled |
+| `POST /api/v1/server/mcp` | MCP Streamable HTTP endpoint when enabled |
 
-### PowerShell
+The GeoIP lookup endpoints, port check, and some protocol endpoints are
+registered only when their backing feature is available. See the live
+[OpenAPI document](https://ifcfg.us/api/swagger) for the deployed route
+inventory and request schemas.
 
-```powershell
-Invoke-RestMethod https://ifcfg.us/json
-```
+## Health Checks
 
----
+- `GET /server/healthz` serves the health page using normal content negotiation.
+- `GET /api/v1/server/healthz` returns the API health response.
+- `GET /api/healthz` is the direct versionless JSON health alias.
+- `GET /healthz` is available only when `server.healthz.root.enabled` is true.
 
-## GeoIP Data
+The health response reports status, version/build/runtime information, enabled
+features, subsystem checks, and public-safe statistics. It does not expose
+private configuration or credentials.
 
-GeoIP data is provided by [sapics/ip-location-db](https://github.com/sapics/ip-location-db) — free, no API key required. Databases download automatically at runtime via jsDelivr CDN.
+## API Documentation and Discovery
 
-- **Country**: ISO code, name, EU membership
-- **City**: Name, region, postal code
-- **Coordinates**: Latitude, longitude
-- **Timezone**: IANA timezone identifier
-- **ASN**: Autonomous System Number and organization
+| Request | Description |
+|---------|-------------|
+| `GET /server/docs/swagger` | Interactive Swagger UI |
+| `GET /api/swagger` | OpenAPI JSON, direct alias for the current API version |
+| `GET` or `POST /server/docs/graphql` | GraphiQL UI when GraphQL is enabled |
+| `GET` or `POST /api/graphql` | GraphQL direct alias when enabled |
+| `GET /api/autodiscover` | Server and client configuration discovery |
+| `GET /llms.txt` | Machine-readable service and API summary |
+| `GET /.well-known/llms.txt` | Well-known alias for the same summary |
 
-**Update Frequency**: Twice weekly (automatic)
+## Errors and Limits
 
----
-
-## Server Administration
-
-ipgaze is an anonymous public IP lookup service. There is **no admin web UI, no login,
-no admin API, and no runtime config mutation**. All administration is performed by
-editing `server.yml` on disk. See [Server Administration](admin.md) for details.
-
----
-
-## OpenAPI / Swagger
-
-Interactive API documentation using OpenAPI/Swagger.
-
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `GET /openapi` | GET | Swagger UI (HTML) |
-| `GET /openapi.json` | GET | OpenAPI spec (JSON) |
-
-**Example**:
-```bash
-# View API spec
-curl -q -LSsf https://ifcfg.us/openapi.json
-
-# Open in browser for interactive docs
-open https://ifcfg.us/openapi
-```
-
----
-
-## GraphQL
-
-GraphQL endpoint for flexible queries.
-
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `GET /graphql` | GET | GraphiQL UI |
-| `POST /graphql` | POST | Execute GraphQL query |
-
-**Example Query**:
-```bash
-curl -q -LSsf -X POST https://ifcfg.us/graphql \
-  -H "Content-Type: application/json" \
-  -d '{"query": "{ ip { address country city asn } }"}'
-```
-
-**Response**:
-```json
-{
-  "data": {
-    "ip": {
-      "address": "203.0.113.42",
-      "country": "United States",
-      "city": "Mountain View",
-      "asn": "AS15169"
-    }
-  }
-}
-```
-
----
-
-## Special Endpoints
-
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `GET /robots.txt` | GET | Robots file for crawlers |
-| `GET /favicon.ico` | GET | Site favicon (embedded default, or a redirect to `branding.favicon_url`) |
-| `GET /security.txt` | GET | Security contact information |
-| `GET /.well-known/security.txt` | GET | Security.txt (standard path) |
-| `GET /manifest.json` | GET | PWA web app manifest |
-| `GET /sw.js` | GET | Service worker for offline support |
-
----
-
-## Debug Endpoints
-
-Only available when profiling is enabled (`--profile` flag).
-
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `GET /debug/cache` | GET | Cache statistics |
-| `POST /debug/cache/resize` | POST | Resize cache |
-| `GET /debug/pprof/*` | GET | Go profiling endpoints |
-
-**Example**:
-```bash
-# Cache stats
-curl -q -LSsf https://ifcfg.us/debug/cache
-
-# Resize cache
-curl -q -LSsf -X POST -d "1000" https://ifcfg.us/debug/cache/resize
-```
-
----
-
-## Text Format Variants
-
-All field endpoints support `.txt` extension for explicit plain text output:
-
-| Endpoint | Description |
-|----------|-------------|
-| `GET /ip.txt` | Your IP as text |
-| `GET /country.txt` | Country name as text |
-| `GET /country-iso.txt` | Country ISO as text |
-| `GET /city.txt` | City name as text |
-| `GET /coordinates.txt` | Coordinates as text |
-| `GET /asn.txt` | ASN number as text |
-| `GET /asn-org.txt` | ASN organization as text |
-
----
-
-## Technical Details
-
-- **Version**: Check with `ipgaze --version`
-- **Health**: Check with `/healthz` endpoint
-- **Performance**: Sub-millisecond response times (with cache)
-- **Capacity**: Handles thousands of requests per second
+Invalid IP addresses return a client error. Rate-limited requests return
+`429 Too Many Requests`; retry behavior may include a `Retry-After` header.
+Detailed error response fields and schemas are defined by the live OpenAPI
+document.

@@ -201,11 +201,17 @@ server:
 
 ```nginx
 location / {
-    proxy_pass http://127.0.0.1:64123;
+    proxy_pass http://172.17.0.1:64580;
     proxy_set_header Host $host;
     proxy_set_header X-Real-IP $remote_addr;
     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
     proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Forwarded-Host $host;
+    proxy_set_header X-Forwarded-Port $server_port;
+    proxy_set_header X-Forwarded-Prefix $http_x_forwarded_prefix;
+    proxy_connect_timeout 3600s;
+    proxy_send_timeout 3600s;
+    proxy_read_timeout 3600s;
 }
 ```
 
@@ -213,7 +219,7 @@ location / {
 
 ```
 example.com {
-    reverse_proxy localhost:64123
+    reverse_proxy 172.17.0.1:64580
 }
 ```
 
@@ -223,7 +229,7 @@ example.com {
 labels:
   - "traefik.enable=true"
   - "traefik.http.routers.ipgaze.rule=Host(`example.com`)"
-  - "traefik.http.services.ipgaze.loadbalancer.server.port=64123"
+  - "traefik.http.services.ipgaze.loadbalancer.server.port=80"
 ```
 
 ## MCP Endpoint
@@ -284,7 +290,7 @@ server:
     write:
       requests: 10
       window: 60
-    # Health: /healthz, /readyz, /livez
+    # Health checks: /server/healthz and its configured aliases
     health:
       requests: 120
       window: 60
