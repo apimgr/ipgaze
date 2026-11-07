@@ -710,6 +710,9 @@ func main() {
 	} else {
 		log.Println("Tor binary not found, hidden service disabled")
 	}
+	if cfg.Server.Tor.UseNetwork {
+		tor.SetOutboundHTTPClient(torMgr.GetHTTPClient(true))
+	}
 
 	// Phase 8g: Drop privileges (root → ipgaze user) per AI.md PART 23. This is
 	// the final root-phase action: directories, listeners, and managed children
@@ -771,6 +774,15 @@ func main() {
 		}()
 	}
 	if serverDB != nil {
+		creditKey, keyErr := base64.StdEncoding.DecodeString(cfg.Server.Security.EncryptionKey)
+		if keyErr != nil || len(creditKey) != 32 {
+			log.Printf("Failed to initialize researcher-credit encryption key")
+			return
+		}
+		if err := security.EncryptLegacySecurityCredits(serverDB, creditKey); err != nil {
+			log.Printf("Failed to encrypt stored researcher credits: %v", err)
+			return
+		}
 		for _, secretName := range []security.SecretName{security.SecretInstallationSecret, security.SecretCookieSigningKey, security.SecretCSRFTokenSecret} {
 			if _, secretErr := security.GetOrCreateSecret(serverDB, secretName); secretErr != nil {
 				log.Printf("Failed to initialize %s: %v", secretName, secretErr)
@@ -3268,7 +3280,7 @@ func listSecurityReports(conn *sql.DB, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	if _, err := fmt.Fprintf(out, "%-22s %-12s %-14s %-24s %s\n", "TRACKING_ID", "STATUS", "SEVERITY", "COMPONENT", "CREATED_UTC"); err != nil {
 		return err
 	}
@@ -4090,7 +4102,7 @@ func readBackupManifest(archiveBytes []byte) (map[string]interface{}, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open archive: %w", err)
 	}
-	defer gr.Close()
+	defer func() { _ = gr.Close() }()
 	tr := tar.NewReader(gr)
 	for {
 		hdr, err := tr.Next()
@@ -4132,7 +4144,7 @@ func validateRestoredBackupSecrets(configDir, dbDir string, cfg *config.AppConfi
 	if err != nil {
 		return fmt.Errorf("open restored server.db: %w", err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	for _, name := range []security.SecretName{security.SecretInstallationSecret, security.SecretCookieSigningKey, security.SecretCSRFTokenSecret} {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		var encoded string
@@ -4404,7 +4416,7 @@ func maintenanceBackupTest(configDir string, cfg *config.AppConfig, dirs paths.D
 	if err != nil {
 		return fmt.Errorf("open database: %w", err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	if err := initializeBackupSecrets(conn); err != nil {
 		return fmt.Errorf("initialize backup secrets: %w", err)
 	}
@@ -4435,7 +4447,7 @@ func maintenanceBackupTest(configDir string, cfg *config.AppConfig, dirs paths.D
 	if err != nil {
 		return fmt.Errorf("open restored database: %w", err)
 	}
-	defer restoredDB.Close()
+	defer func() { _ = restoredDB.Close() }()
 	secret, err := security.GetOrCreateSecret(restoredDB, security.SecretInstallationSecret)
 	if err != nil {
 		return fmt.Errorf("load restored installation secret: %w", err)

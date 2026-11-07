@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"net/http"
 	"time"
+
+	"github.com/apimgr/ipgaze/src/tor"
 )
 
 // keyserverTimeout bounds each individual keyserver HTTP request so a slow
@@ -83,7 +85,7 @@ func publishOne(host, publicArmor string) error {
 		}
 		req.Header.Set("Content-Type", "application/json")
 
-		resp, err := http.DefaultClient.Do(req)
+		resp, err := tor.NewHTTPClient(keyserverTimeout).Do(req)
 		cancel()
 		if err != nil {
 			lastErr = fmt.Errorf("pgp: publish to %s: %w", host, err)

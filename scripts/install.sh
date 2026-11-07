@@ -11,7 +11,8 @@ PROJECT_REPO="${BINARY_URL%/releases/latest/download}"
 PROJECTNAME="${PROJECT_REPO##*/}"
 PROJECT_ORG="${PROJECT_REPO%/*}"
 PROJECT_ORG="${PROJECT_ORG##*/}"
-INTERNAL_NAME="${PROJECTNAME}"
+# Keep this stable identity aligned with IDEA.md; it must not follow PROJECTNAME.
+INTERNAL_NAME="ipgaze"
 
 # Detect architecture
 ARCH=$(uname -m)

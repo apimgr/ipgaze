@@ -190,6 +190,8 @@ type PageData struct {
 	ConsentAcceptText string
 	// CurrentYear is the current year for the footer copyright/build stamp row.
 	CurrentYear int
+	// About contains project-specific application identity, version and links.
+	About AboutResponse
 	// ProjectName is the display application name from branding config
 	// (AI.md PART 16 project.name); used in nav/footer/titles instead of a
 	// hardcoded literal. Falls back to the app default when unset.
@@ -586,10 +588,25 @@ func (h *PagesHandler) buildAboutResponse() AboutResponse {
 	if version == "" {
 		version = "dev"
 	}
+	name := "IPGaze"
+	tagline := "Fast, lightweight IP address lookup service"
+	description := "IPGaze is a lightweight, fast IP address lookup service that returns the visitor's public IP address along with comprehensive GeoIP information. It supports both IPv4 and IPv6 and provides multiple output formats (JSON, plain text, HTML)."
+	if h.Config != nil {
+		branding := h.Config.Server.Branding
+		if branding.Title != "" {
+			name = branding.Title
+		}
+		if branding.Tagline != "" {
+			tagline = branding.Tagline
+		}
+		if branding.Description != "" {
+			description = branding.Description
+		}
+	}
 	return AboutResponse{
-		Name:        "IPGaze",
-		Tagline:     "Fast, lightweight IP address lookup service",
-		Description: "IPGaze is a lightweight, fast IP address lookup service that returns the visitor's public IP address along with comprehensive GeoIP information. It supports both IPv4 and IPv6 and provides multiple output formats (JSON, plain text, HTML).",
+		Name:        name,
+		Tagline:     tagline,
+		Description: description,
 		Version:     version,
 		Features: []string{
 			"Full IPv4 and IPv6 support",
@@ -617,7 +634,11 @@ func (h *PagesHandler) buildAboutResponse() AboutResponse {
 
 // ServerAboutHandler serves /server/about under the PART 14 frontend dispatch.
 func (h *PagesHandler) ServerAboutHandler(w http.ResponseWriter, r *http.Request) {
-	h.renderNegotiated(w, r, "about.tmpl", h.NewPageData(r), h.buildAboutResponse())
+	about := h.buildAboutResponse()
+	page := h.NewPageData(r)
+	page.Version = about.Version
+	page.About = about
+	h.renderNegotiated(w, r, "about.tmpl", page, about)
 }
 
 // APIV1ServerAboutHandler serves /api/v1/server/about (JSON)
@@ -1178,10 +1199,24 @@ func (h *PagesHandler) submitSecurityReport(r *http.Request, req ContactRequest)
 		}
 	}
 	creditName := ""
-	if req.CreditPreference == "real_name" {
+	switch req.CreditPreference {
+	case "real_name":
 		creditName = req.Name
-	} else if req.CreditPreference == "handle" {
+	case "handle":
 		creditName = req.Handle
+	}
+	if creditName != "" {
+		if h.Config == nil {
+			return "", fmt.Errorf("researcher credit encryption key is unavailable")
+		}
+		creditKey, decodeErr := base64.StdEncoding.DecodeString(h.Config.Server.Security.EncryptionKey)
+		if decodeErr != nil || len(creditKey) != 32 {
+			return "", fmt.Errorf("researcher credit encryption key is unavailable")
+		}
+		creditName, err = security.EncryptSecurityCredit(creditKey, creditName)
+		if err != nil {
+			return "", err
+		}
 	}
 	if err := security.StoreSecurityReport(h.DB, security.SecurityReportMetadata{
 		TrackingID: trackingID, Ciphertext: ciphertext, Encryption: encryption,
@@ -1446,8 +1481,12 @@ func (h *PagesHandler) securityThanksResponse(ctx context.Context) SecurityThank
 	if err != nil {
 		return response
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	anonymous := 0
+	var creditKey []byte
+	if h.Config != nil {
+		creditKey, _ = base64.StdEncoding.DecodeString(h.Config.Server.Security.EncryptionKey)
+	}
 	for rows.Next() {
 		var preference, name, credit string
 		var year int
@@ -1457,6 +1496,14 @@ func (h *PagesHandler) securityThanksResponse(ctx context.Context) SecurityThank
 		if preference == "anonymous" {
 			anonymous++
 			name = fmt.Sprintf("Anonymous Researcher #%d", anonymous)
+		} else {
+			if len(creditKey) != 32 {
+				continue
+			}
+			name, err = security.DecryptSecurityCredit(creditKey, name)
+			if err != nil {
+				continue
+			}
 		}
 		if name == "" {
 			continue

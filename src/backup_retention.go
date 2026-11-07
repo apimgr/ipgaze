@@ -65,7 +65,7 @@ func listAllBackupFiles(backupDir string) ([]backupFileInfo, error) {
 	var out []backupFileInfo
 	for _, entry := range entries {
 		name := entry.Name()
-		if entry.IsDir() || !(strings.HasPrefix(name, "ipgaze_backup_") && strings.Contains(name, ".tar.gz") || backupIncrementalFileRe.MatchString(name)) {
+		if entry.IsDir() || (!strings.HasPrefix(name, "ipgaze_backup_") || !strings.Contains(name, ".tar.gz")) && !backupIncrementalFileRe.MatchString(name) {
 			continue
 		}
 		info, infoErr := entry.Info()

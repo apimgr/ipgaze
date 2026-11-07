@@ -16,6 +16,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/apimgr/ipgaze/src/tor"
 )
 
 const downloadTimeout = 2 * time.Minute
@@ -90,7 +92,7 @@ func (m *Manager) Initialize() (*Lookup, error) {
 		return nil, fmt.Errorf("threat: create dir: %w", err)
 	}
 
-	client := &http.Client{Timeout: downloadTimeout}
+	client := tor.NewHTTPClient(downloadTimeout)
 
 	for _, src := range m.sources {
 		dest := filepath.Join(m.dataDir, src.File)
@@ -118,7 +120,7 @@ func (m *Manager) Update(lk *Lookup) error {
 		return fmt.Errorf("threat: create dir: %w", err)
 	}
 
-	client := &http.Client{Timeout: downloadTimeout}
+	client := tor.NewHTTPClient(downloadTimeout)
 	var lastErr error
 	for _, src := range m.sources {
 		dest := filepath.Join(m.dataDir, src.File)

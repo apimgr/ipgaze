@@ -22,15 +22,85 @@ func TestStoreSecurityReportRejectsInvalidInput(t *testing.T) {
 		t.Fatal("StoreSecurityReport(nil) succeeded")
 	}
 	db := openMemDB(t)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	if err := StoreSecurityReport(db, SecurityReportMetadata{TrackingID: "sec_invalid", Ciphertext: []byte("encrypted"), Severity: "HIGH"}); err == nil {
 		t.Fatal("StoreSecurityReport accepted invalid severity and empty encryption metadata")
+	}
+	if err := StoreSecurityReport(db, SecurityReportMetadata{
+		TrackingID: "sec_plain_credit", Ciphertext: []byte("encrypted"), Encryption: "aes-256-gcm",
+		Severity: "high", CreditName: "Private Reporter",
+	}); err == nil {
+		t.Fatal("StoreSecurityReport accepted plaintext researcher credit")
+	}
+}
+
+func TestSecurityCreditEncryptionAndLegacyMigration(t *testing.T) {
+	db := openMemDB(t)
+	defer func() { _ = db.Close() }()
+	key := bytes.Repeat([]byte{7}, 32)
+	encrypted, err := EncryptSecurityCredit(key, "Researcher Name")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(encrypted, "Researcher Name") {
+		t.Fatal("encrypted credit contains the plaintext name")
+	}
+	decrypted, err := DecryptSecurityCredit(key, encrypted)
+	if err != nil || decrypted != "Researcher Name" {
+		t.Fatalf("DecryptSecurityCredit() = %q, %v", decrypted, err)
+	}
+	if _, err := DecryptSecurityCredit(key, "Researcher Name"); err == nil {
+		t.Fatal("DecryptSecurityCredit accepted a plaintext legacy value")
+	}
+	if err := StoreSecurityReport(db, SecurityReportMetadata{
+		TrackingID: "sec_legacy_credit", Ciphertext: []byte("encrypted"), Encryption: "aes-256-gcm",
+		Severity: "high", CreditPreference: "real_name", CreditName: "Legacy Name",
+	}); err == nil {
+		t.Fatal("StoreSecurityReport accepted a plaintext legacy credit")
+	}
+	if _, err := db.Exec(`INSERT INTO security_reports
+		(tracking_id, encrypted_body, encryption, severity, affected_component,
+		 credit_preference, credit_name, access_token_hash)
+		VALUES ('sec_legacy_credit', 'encrypted', 'aes-256-gcm', 'high', 'api',
+		 'real_name', 'Legacy Name', 'token')`); err != nil {
+		t.Fatal(err)
+	}
+	if err := EncryptLegacySecurityCredits(db, key); err != nil {
+		t.Fatal(err)
+	}
+	var stored string
+	if err := db.QueryRow(`SELECT credit_name FROM security_reports WHERE tracking_id = ?`, "sec_legacy_credit").Scan(&stored); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(stored, "Legacy Name") {
+		t.Fatalf("legacy credit remains in plaintext: %q", stored)
+	}
+	decrypted, err = DecryptSecurityCredit(key, stored)
+	if err != nil || decrypted != "Legacy Name" {
+		t.Fatalf("migrated credit decrypt = %q, %v", decrypted, err)
+	}
+	if _, err := db.Exec(`INSERT INTO security_reports
+		(tracking_id, encrypted_body, encryption, severity, affected_component,
+		 credit_preference, credit_name, access_token_hash)
+		VALUES ('sec_invalid_credit', 'encrypted', 'aes-256-gcm', 'high', 'api',
+		 'real_name', 'enc:v1:invalid', 'token')`); err != nil {
+		t.Fatal(err)
+	}
+	if err := EncryptLegacySecurityCredits(db, key); err == nil {
+		t.Fatal("legacy migration accepted a malformed encrypted credit")
+	}
+	var malformed string
+	if err := db.QueryRow(`SELECT credit_name FROM security_reports WHERE tracking_id = ?`, "sec_invalid_credit").Scan(&malformed); err != nil {
+		t.Fatal(err)
+	}
+	if malformed != "enc:v1:invalid" {
+		t.Fatalf("malformed encrypted credit changed during migration: %q", malformed)
 	}
 }
 
 func TestReencryptSecurityReports(t *testing.T) {
 	db := openMemDB(t)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	oldKey := bytes.Repeat([]byte{1}, 32)
 	newKey := bytes.Repeat([]byte{2}, 32)
 	plain := []byte("private report body")
@@ -38,8 +108,13 @@ func TestReencryptSecurityReports(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	credit, err := EncryptSecurityCredit(oldKey, "Researcher")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := StoreSecurityReport(db, SecurityReportMetadata{
 		TrackingID: "sec_rotation", Ciphertext: ciphertext, Encryption: "aes-256-gcm", Severity: "high",
+		CreditPreference: "real_name", CreditName: credit,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -57,6 +132,17 @@ func TestReencryptSecurityReports(t *testing.T) {
 	if err != nil || string(decrypted) != string(plain) {
 		t.Fatalf("rotated report decrypt = %q, %v", decrypted, err)
 	}
+	var rotatedCredit string
+	if err := db.QueryRow(`SELECT credit_name FROM security_reports WHERE tracking_id = ?`, "sec_rotation").Scan(&rotatedCredit); err != nil {
+		t.Fatal(err)
+	}
+	decryptedCredit, err := DecryptSecurityCredit(newKey, rotatedCredit)
+	if err != nil || decryptedCredit != "Researcher" {
+		t.Fatalf("rotated credit decrypt = %q, %v", decryptedCredit, err)
+	}
+	if _, err := DecryptSecurityCredit(oldKey, rotatedCredit); err == nil {
+		t.Fatal("rotated credit remained decryptable with old key")
+	}
 	if err := ReencryptSecurityReports(db, oldKey, newKey); err == nil {
 		t.Fatal("rotation accepted a report that could not be decrypted with the old key")
 	}
@@ -64,7 +150,7 @@ func TestReencryptSecurityReports(t *testing.T) {
 
 func TestUpdateSecurityReportTriage(t *testing.T) {
 	db := openMemDB(t)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	if err := StoreSecurityReport(db, SecurityReportMetadata{
 		TrackingID: "sec_triage", Ciphertext: []byte("encrypted"), Encryption: "aes-256-gcm", Severity: "high",
 	}); err != nil {
@@ -117,7 +203,7 @@ func TestValidateSecurityIDWindowsAndRotation(t *testing.T) {
 
 func TestSecurityReportTokenOneUsePerDay(t *testing.T) {
 	db := openMemDB(t)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	ciphertext, err := EncryptWithSecret(bytes.Repeat([]byte{3}, 32), []byte("encrypted report"), "security-reports")
 	if err != nil {
 		t.Fatal(err)

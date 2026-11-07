@@ -1,9 +1,15 @@
 {{template "base" .}}
 {{define "title"}}{{t .Lang "about.title"}} — {{.ProjectName}}{{end}}
 {{define "content"}}
-<h1>{{t .Lang "about.heading"}}</h1>
+<h1>{{t .Lang "about.title"}} — {{.ProjectName}}</h1>
 <section class="section-card">
+  {{if .Description}}
+  <p>{{.Description}}</p>
+  {{else}}
   <p>{{t .Lang "about.intro"}}</p>
+  {{end}}
+  <h2>{{t .Lang "about.version"}}</h2>
+  <p>{{.About.Version}}</p>
   <h2>{{t .Lang "about.features"}}</h2>
   <ul>
     <li>{{t .Lang "about.feature_ip_support"}}</li>
@@ -14,6 +20,12 @@
   </ul>
   <h2>{{t .Lang "about.api_heading"}}</h2>
   <p>{{t .Lang "about.api_description_pre"}} <code>/api/v1/</code>. {{t .Lang "about.api_description_post"}} <a href="/server/docs/swagger">/server/docs/swagger</a>.</p>
+  <h2>{{t .Lang "about.links"}}</h2>
+  <ul>
+    <li><a href="{{.About.Links.Website}}">{{.About.Links.Website}}</a></li>
+    <li><a href="{{.About.Links.Repository}}">{{.About.Links.Repository}}</a></li>
+    <li><a href="{{.About.Links.Docs}}">{{.About.Links.Docs}}</a></li>
+  </ul>
   <h2>{{t .Lang "about.attribution_heading"}}</h2>
   <p><a href="https://db-ip.com/">IP Geolocation by DB-IP</a></p>
   <p>Country and ASN data licensed CC BY 4.0 by the Number Resource Organization (NRO).</p>

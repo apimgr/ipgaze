@@ -86,6 +86,11 @@ standards and a summary of configured privacy and security controls. A
 standard flag records the operator's configured scope; it does not certify
 that the deployment meets that standard.
 
+`server.security.encryption_key` is generated and stored in `server.yml` on
+first run. It protects sensitive data stored by the application, including
+security report contents and researcher credit names. Keep the config file
+private and preserve its backup with the database.
+
 ## Configuration Precedence
 
 For values that can come from a CLI flag, an environment variable, and
@@ -207,6 +212,56 @@ GeoIP databases auto-download on first run from
 [sapics/ip-location-db](https://github.com/sapics/ip-location-db) and are
 refreshed on the schedule set by `server.schedule.geoip_update`
 (default: `weekly`).
+
+## Tor
+
+The Tor hidden service starts automatically when the `tor` binary is
+available; there is no hidden-service enable or disable flag. The optional
+`server.tor.use_network` setting defaults to `false`. When enabled, the
+managed Tor process exposes its SOCKS listener only on loopback for
+server-originated HTTP connections selected to use Tor. Requests from inbound
+hidden-service visitors cannot choose outbound destinations. This includes
+app-selected update, threat-data, GeoIP, notification, keyserver, and ACME
+HTTP requests. User-supplied remote URLs remain outside the Tor client. If Tor
+cannot provide the configured route, routed requests fail instead of falling
+back to a direct connection.
+
+```yaml
+server:
+  tor:
+    binary: ""          # Empty means auto-detect
+    use_network: false  # Route supported server-originated HTTP requests via Tor
+```
+
+In the standard Docker layout, Tor stores the onion hostname at
+`/data/ipgaze/tor/site/hostname`.
+
+## I2P
+
+I2P hosting is disabled by default. Set `server.i2p.enabled` to `true` to
+enable an eepsite. IPGaze manages an `i2pd` process when its binary is
+available; otherwise it connects to an external SAMv3 bridge. Tunnel lengths
+and quantities apply to the managed `i2pd` provider. `bootstrap_timeout` is
+expressed in seconds.
+
+```yaml
+server:
+  i2p:
+    enabled: false
+    binary: ""                   # Empty means auto-detect i2pd
+    sam_address: "127.0.0.1:7656" # External SAMv3 bridge fallback
+    virtual_port: 80
+    inbound_length: 3
+    outbound_length: 3
+    inbound_quantity: 5
+    outbound_quantity: 5
+    signature_type: 7
+    bootstrap_timeout: 300         # Seconds; 5 minutes
+```
+
+The I2P data directory and keys are stored under
+`/data/ipgaze/i2p/site/`; see [I2P integration](integrations.md#i2p-eepsite)
+for provider behavior and the persistent destination.
 
 ## Reverse Proxy
 

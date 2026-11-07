@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"database/sql"
+	"encoding/base64"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -15,6 +16,8 @@ import (
 )
 
 const securityIDWindow = int64(48 * time.Hour / time.Second)
+
+const securityCreditPrefix = "enc:v1:"
 
 // SecurityID returns the rotating security.txt token for the current 48-hour
 // window. The output is deliberately short because it is published in a URL.
@@ -98,20 +101,109 @@ type SecurityReportMetadata struct {
 	Severity          string
 	AffectedComponent string
 	CreditPreference  string
-	CreditName        string
-	ShortCredit       string
-	AccessTokenHash   string
+	// CreditName is encrypted with the server data key.
+	CreditName      string
+	ShortCredit     string
+	AccessTokenHash string
 }
 
-// StoreSecurityReport stores only encrypted report content and non-identifying
+// EncryptSecurityCredit protects a consented researcher name or handle while
+// it remains private in the report database. The public acknowledgment page
+// decrypts it only after the report is marked disclosed.
+func EncryptSecurityCredit(secret []byte, name string) (string, error) {
+	if name == "" {
+		return "", nil
+	}
+	ciphertext, err := EncryptWithSecret(secret, []byte(name), "security-report-credit")
+	if err != nil {
+		return "", fmt.Errorf("security: encrypt researcher credit: %w", err)
+	}
+	return securityCreditPrefix + base64.StdEncoding.EncodeToString(ciphertext), nil
+}
+
+// DecryptSecurityCredit decrypts a researcher credit for a report that is
+// already public. Plaintext legacy values are rejected and never rendered.
+func DecryptSecurityCredit(secret []byte, stored string) (string, error) {
+	if !strings.HasPrefix(stored, securityCreditPrefix) {
+		return "", errors.New("security: researcher credit is not encrypted")
+	}
+	ciphertext, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(stored, securityCreditPrefix))
+	if err != nil {
+		return "", fmt.Errorf("security: decode researcher credit: %w", err)
+	}
+	plaintext, err := DecryptWithSecret(secret, ciphertext, "security-report-credit")
+	if err != nil {
+		return "", fmt.Errorf("security: decrypt researcher credit: %w", err)
+	}
+	return string(plaintext), nil
+}
+
+// EncryptLegacySecurityCredits upgrades pre-encryption credit names in place.
+// Startup calls this before serving requests so existing names are not left
+// in plaintext at rest.
+func EncryptLegacySecurityCredits(db *sql.DB, secret []byte) error {
+	if db == nil || len(secret) == 0 {
+		return errors.New("security: invalid researcher-credit migration input")
+	}
+	tx, err := db.BeginTx(context.Background(), nil)
+	if err != nil {
+		return fmt.Errorf("security: begin researcher-credit migration: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	rows, err := tx.Query(`SELECT tracking_id, credit_name FROM security_reports WHERE credit_name != ''`)
+	if err != nil {
+		return fmt.Errorf("security: read legacy researcher credits: %w", err)
+	}
+	type legacyCredit struct{ trackingID, name string }
+	var credits []legacyCredit
+	for rows.Next() {
+		var credit legacyCredit
+		if err := rows.Scan(&credit.trackingID, &credit.name); err != nil {
+			_ = rows.Close()
+			return fmt.Errorf("security: read legacy researcher credit: %w", err)
+		}
+		credits = append(credits, credit)
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return fmt.Errorf("security: iterate legacy researcher credits: %w", err)
+	}
+	if err := rows.Close(); err != nil {
+		return fmt.Errorf("security: close legacy researcher credits: %w", err)
+	}
+	for _, credit := range credits {
+		if strings.HasPrefix(credit.name, securityCreditPrefix) {
+			if _, err := DecryptSecurityCredit(secret, credit.name); err != nil {
+				return fmt.Errorf("security: existing researcher credit cannot be decrypted: %w", err)
+			}
+			continue
+		}
+		encrypted, err := EncryptSecurityCredit(secret, credit.name)
+		if err != nil {
+			return err
+		}
+		if _, err := tx.Exec(`UPDATE security_reports SET credit_name = ? WHERE tracking_id = ?`, encrypted, credit.trackingID); err != nil {
+			return fmt.Errorf("security: encrypt legacy researcher credit: %w", err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("security: commit researcher-credit migration: %w", err)
+	}
+	return nil
+}
+
+// StoreSecurityReport stores encrypted report content and non-identifying
 // triage metadata. Names, email addresses, URLs, and report details belong in
-// Ciphertext and are never written to a plaintext column.
+// Ciphertext; CreditName is separately encrypted with the server data key.
 func StoreSecurityReport(db *sql.DB, report SecurityReportMetadata) error {
 	if db == nil {
 		return errors.New("security: report database unavailable")
 	}
 	if !validSecuritySeverity(report.Severity) || report.TrackingID == "" || len(report.Ciphertext) == 0 {
 		return errors.New("security: invalid report metadata")
+	}
+	if report.CreditName != "" && !strings.HasPrefix(report.CreditName, securityCreditPrefix) {
+		return errors.New("security: researcher credit must be encrypted")
 	}
 	component := SanitizeReportComponent(report.AffectedComponent)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -189,6 +281,41 @@ func ReencryptSecurityReportsTx(tx *sql.Tx, oldKey, newKey []byte) error {
 		}
 		if _, err := tx.Exec(`UPDATE security_reports SET encrypted_body = ? WHERE tracking_id = ?`, ciphertext, report.trackingID); err != nil {
 			return fmt.Errorf("security: update report %s during key rotation: %w", report.trackingID, err)
+		}
+	}
+	creditRows, err := tx.Query(`SELECT tracking_id, credit_name FROM security_reports
+		WHERE credit_name != '' AND credit_name LIKE ?`, securityCreditPrefix+"%")
+	if err != nil {
+		return fmt.Errorf("security: read credits for key rotation: %w", err)
+	}
+	type encryptedCredit struct{ trackingID, ciphertext string }
+	var credits []encryptedCredit
+	for creditRows.Next() {
+		var credit encryptedCredit
+		if err := creditRows.Scan(&credit.trackingID, &credit.ciphertext); err != nil {
+			_ = creditRows.Close()
+			return fmt.Errorf("security: read credit for key rotation: %w", err)
+		}
+		credits = append(credits, credit)
+	}
+	if err := creditRows.Err(); err != nil {
+		_ = creditRows.Close()
+		return fmt.Errorf("security: iterate credits for key rotation: %w", err)
+	}
+	if err := creditRows.Close(); err != nil {
+		return fmt.Errorf("security: close credits for key rotation: %w", err)
+	}
+	for _, credit := range credits {
+		name, err := DecryptSecurityCredit(oldKey, credit.ciphertext)
+		if err != nil {
+			return fmt.Errorf("security: decrypt credit for key rotation: %w", err)
+		}
+		encrypted, err := EncryptSecurityCredit(newKey, name)
+		if err != nil {
+			return err
+		}
+		if _, err := tx.Exec(`UPDATE security_reports SET credit_name = ? WHERE tracking_id = ?`, encrypted, credit.trackingID); err != nil {
+			return fmt.Errorf("security: rotate encrypted credit: %w", err)
 		}
 	}
 	return nil

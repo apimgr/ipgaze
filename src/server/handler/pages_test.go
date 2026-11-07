@@ -109,6 +109,37 @@ func TestBuildAboutResponse_Fields(t *testing.T) {
 	}
 }
 
+func TestServerAboutHandlerProvidesVersionAndProjectLinks(t *testing.T) {
+	h := newTestPagesHandler()
+	h.Config = &config.AppConfig{}
+	h.Config.Server.Branding.Title = "Custom IPGaze"
+	h.Config.Server.Branding.Tagline = "Project tagline"
+	h.Config.Server.Branding.Description = "Project description"
+	h.Render = func(_ http.ResponseWriter, _ *http.Request, page string, value interface{}) error {
+		data, ok := value.(PageData)
+		if !ok {
+			t.Fatalf("template data has type %T, want PageData", value)
+		}
+		if page != "about.tmpl" {
+			t.Errorf("page = %q, want about.tmpl", page)
+		}
+		if data.ProjectName != "Custom IPGaze" || data.About.Name != "Custom IPGaze" {
+			t.Errorf("about name = %q / %q, want configured branding", data.ProjectName, data.About.Name)
+		}
+		if data.Version != "1.0.0" || data.About.Version != "1.0.0" {
+			t.Errorf("about version = %q / %q, want 1.0.0", data.Version, data.About.Version)
+		}
+		if data.About.Tagline != "Project tagline" || data.About.Description != "Project description" {
+			t.Errorf("about branding = %#v, want configured tagline and description", data.About)
+		}
+		if data.About.Links.Repository == "" || data.About.Links.Docs == "" || data.About.Links.Website == "" {
+			t.Errorf("about links are incomplete: %#v", data.About.Links)
+		}
+		return nil
+	}
+	h.ServerAboutHandler(httptest.NewRecorder(), newBrowserRequest("/server/about"))
+}
+
 func TestServerAboutHandler_HTML(t *testing.T) {
 	h := newTestPagesHandler()
 	req := newBrowserRequest("/server/about")
@@ -401,7 +432,7 @@ func TestSecurityReportStatusConsumesToken(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	if err := db.EnsureSchema(conn); err != nil {
 		t.Fatal(err)
 	}
@@ -469,7 +500,7 @@ func TestAPIV1ServerContactHandler_POST(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	if _, err := db.Exec(`CREATE TABLE app_secrets (name TEXT PRIMARY KEY, value TEXT NOT NULL, previous_value TEXT, previous_until INTEGER, created_at INTEGER, rotated_at INTEGER)`); err != nil {
 		t.Fatal(err)
 	}
@@ -520,7 +551,7 @@ func TestSimpleCaptcha_ValidWrongExpiredAndTampered(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	if _, err := db.Exec(`CREATE TABLE app_secrets (name TEXT PRIMARY KEY, value TEXT NOT NULL, previous_value TEXT, previous_until INTEGER, created_at INTEGER, rotated_at INTEGER)`); err != nil {
 		t.Fatal(err)
 	}
@@ -560,7 +591,7 @@ func TestSubmitSecurityReportEncryptedAndNotifies(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	if err := db.EnsureSchema(conn); err != nil {
 		t.Fatal(err)
 	}
@@ -595,7 +626,7 @@ func TestSubmitSecurityReportEncryptedAndNotifies(t *testing.T) {
 		Name: "Reporter Name", Email: "reporter@example.net", SecurityID: securityID,
 		AffectedComponent: "API", Severity: "high", Summary: "Private vulnerability details",
 		StepsToReproduce: "Private reproduction steps", Impact: "Private impact details",
-		CreditPreference: "anonymous", CoordinatedAgreement: true,
+		CreditPreference: "real_name", CoordinatedAgreement: true,
 		Captcha: strconv.Itoa(first + second), CaptchaToken: captchaToken,
 	}
 	trackingID, err := h.submitSecurityReport(httptest.NewRequest(http.MethodPost, "https://example.test/api/v1/server/contact", nil), req)
@@ -607,7 +638,8 @@ func TestSubmitSecurityReportEncryptedAndNotifies(t *testing.T) {
 	}
 	var ciphertext []byte
 	var encryption string
-	if err := conn.QueryRow(`SELECT encrypted_body, encryption FROM security_reports WHERE tracking_id = ?`, trackingID).Scan(&ciphertext, &encryption); err != nil {
+	var creditName string
+	if err := conn.QueryRow(`SELECT encrypted_body, encryption, credit_name FROM security_reports WHERE tracking_id = ?`, trackingID).Scan(&ciphertext, &encryption, &creditName); err != nil {
 		t.Fatal(err)
 	}
 	if encryption != "aes-256-gcm" || strings.Contains(string(ciphertext), "Private vulnerability details") || strings.Contains(string(ciphertext), "reporter@example.net") {
@@ -616,6 +648,13 @@ func TestSubmitSecurityReportEncryptedAndNotifies(t *testing.T) {
 	plain, err := security.DecryptWithSecret(encryptionKey, ciphertext, "security-reports")
 	if err != nil || !strings.Contains(string(plain), "Private vulnerability details") || !strings.Contains(string(plain), "reporter@example.net") {
 		t.Fatalf("stored encrypted payload did not decrypt to the private report: err=%v", err)
+	}
+	if strings.Contains(creditName, "Reporter Name") {
+		t.Fatalf("stored researcher credit contains plaintext: %q", creditName)
+	}
+	decryptedCredit, err := security.DecryptSecurityCredit(encryptionKey, creditName)
+	if err != nil || decryptedCredit != "Reporter Name" {
+		t.Fatalf("stored researcher credit decrypt = %q, %v", decryptedCredit, err)
 	}
 	firstMessage, secondMessage := <-messages, <-messages
 	firstMessage = strings.ReplaceAll(firstMessage, "=\r\n", "")

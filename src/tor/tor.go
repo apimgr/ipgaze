@@ -56,6 +56,69 @@ type TorServiceConfig struct {
 	VirtualPort int
 }
 
+var outboundHTTP = struct {
+	sync.RWMutex
+	transport http.RoundTripper
+}{}
+
+// SetOutboundHTTPClient configures the shared transport used by server-owned
+// outbound HTTP clients. Passing nil restores direct connections.
+func SetOutboundHTTPClient(client *http.Client) {
+	outboundHTTP.Lock()
+	defer outboundHTTP.Unlock()
+	if client == nil {
+		outboundHTTP.transport = nil
+		return
+	}
+	if client.Transport == nil {
+		outboundHTTP.transport = http.DefaultTransport
+		return
+	}
+	outboundHTTP.transport = client.Transport
+}
+
+// NewHTTPClient creates a server-owned HTTP client using the configured Tor
+// transport when outbound routing is enabled.
+func NewHTTPClient(timeout time.Duration) *http.Client {
+	outboundHTTP.RLock()
+	transport := outboundHTTP.transport
+	outboundHTTP.RUnlock()
+	return &http.Client{Timeout: timeout, Transport: transport}
+}
+
+// ApplyOutboundTransport routes an existing client through Tor while keeping
+// its TLS settings. It leaves the client untouched when Tor routing is off.
+func ApplyOutboundTransport(client *http.Client) error {
+	if client == nil {
+		return errors.New("tor outbound HTTP client is nil")
+	}
+	outboundHTTP.RLock()
+	transport := outboundHTTP.transport
+	outboundHTTP.RUnlock()
+	if transport == nil {
+		return nil
+	}
+	torTransport, ok := transport.(*http.Transport)
+	if !ok {
+		return errors.New("tor outbound transport is not an HTTP transport")
+	}
+	base, ok := client.Transport.(*http.Transport)
+	if !ok {
+		if client.Transport != nil {
+			return errors.New("client transport cannot be safely routed through Tor")
+		}
+		base = http.DefaultTransport.(*http.Transport)
+	}
+	routed := base.Clone()
+	routed.Proxy = nil
+	routed.DialContext = torTransport.DialContext
+	// ACME requests are short-lived; avoid reusing a pooled connection after a
+	// managed Tor restart, when that connection may belong to the old process.
+	routed.DisableKeepAlives = true
+	client.Transport = routed
+	return nil
+}
+
 // service wraps a bine Tor instance and the hidden service details.
 // Per AI.md PART 31.1: the hidden service is declared in torrc via
 // HiddenServiceDir/HiddenServicePort — never via control-port ADD_ONION.
@@ -82,6 +145,9 @@ type TorManager struct {
 	mu      sync.RWMutex
 	svc     *service
 	running bool
+	// outboundTransport resolves the current managed Tor dialer for each new
+	// connection, so clients created before a restart follow the replacement.
+	outboundTransport *http.Transport
 	// pendingHandler is applied to the backend listener once Start()
 	// creates it, and re-applied on every Restart()/regenerate cycle.
 	pendingHandler http.Handler
@@ -157,7 +223,20 @@ func (m *TorManager) BackendPort() int {
 // NewTorManager creates a new Tor manager.
 // Auto-enabled when tor binary is found per AI.md PART 31.1.
 func NewTorManager(cfg TorServiceConfig) *TorManager {
-	return &TorManager{cfg: cfg}
+	m := &TorManager{cfg: cfg}
+	m.outboundTransport = &http.Transport{DialContext: m.dialTor}
+	return m
+}
+
+func (m *TorManager) dialTor(ctx context.Context, network, address string) (net.Conn, error) {
+	m.mu.RLock()
+	if !m.running || m.svc == nil || m.svc.dialer == nil {
+		m.mu.RUnlock()
+		return nil, errors.New("tor outbound routing is enabled but unavailable")
+	}
+	dialer := m.svc.dialer
+	m.mu.RUnlock()
+	return dialer.DialContext(ctx, network, address)
 }
 
 // resolveBinary locates the tor executable per AI.md PART 31.1's discovery
@@ -276,6 +355,9 @@ func (m *TorManager) Stop() error {
 	}
 	if m.svc.backendSrv != nil {
 		_ = m.svc.backendSrv.Close()
+	}
+	if m.outboundTransport != nil {
+		m.outboundTransport.CloseIdleConnections()
 	}
 	err := m.svc.t.Close()
 	m.svc = nil
@@ -468,16 +550,12 @@ func (m *TorManager) GetInfo() Info {
 
 // GetHTTPClient returns an HTTP client optionally routed through Tor.
 func (m *TorManager) GetHTTPClient(useTor bool) *http.Client {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	if !useTor || m.svc == nil || m.svc.dialer == nil {
+	if !useTor {
 		return &http.Client{Timeout: 30 * time.Second}
 	}
 	return &http.Client{
-		Timeout: 60 * time.Second,
-		Transport: &http.Transport{
-			DialContext: m.svc.dialer.DialContext,
-		},
+		Timeout:   60 * time.Second,
+		Transport: m.outboundTransport,
 	}
 }
 

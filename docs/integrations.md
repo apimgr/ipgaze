@@ -123,12 +123,20 @@ Scrape interval recommendation: `15s` or `30s`.
 
 ## Tor Hidden Service
 
-ipgaze automatically enables a Tor hidden service when the `tor` binary is available (included in the Docker image). The `.onion` address is written to `/data/ipgaze/tor/hostname` on startup.
+ipgaze automatically enables a Tor hidden service when the `tor` binary is available (included in the Docker image). In the standard Docker layout, the `.onion` address is written to `/data/ipgaze/tor/site/hostname` on startup.
 
 No explicit configuration is required — the binary fully manages the Tor lifecycle.
 
 Tor starts when its binary is available. The project does not expose an
 enable/disable toggle; installing Tor changes this behavior.
+
+Optional outbound Tor routing is controlled by `server.tor.use_network` and
+defaults to `false`. When enabled, the managed Tor process opens a loopback-only
+SOCKS listener for app-selected outbound HTTP requests. Requests arriving over
+the hidden service cannot choose or influence outbound destinations. If Tor
+is unavailable, routed requests fail instead of using the clearnet directly.
+App-selected update, threat-data, GeoIP, notification, keyserver, and ACME
+requests use this route; caller-supplied remote URLs remain outside it.
 
 ---
 
@@ -147,6 +155,8 @@ When enabled, IPGaze manages a dedicated `i2pd` process when the binary is
 available, or connects to an existing SAMv3 bridge at `127.0.0.1:7656`.
 The resulting `.b32.i2p` address is shown in the server information page when
 the destination is ready. I2P is used for inbound eepsite hosting only.
+All server-side I2P options and defaults are listed in
+[Configuration: I2P](configuration.md#i2p).
 
 ---
 

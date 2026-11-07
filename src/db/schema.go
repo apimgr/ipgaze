@@ -210,7 +210,7 @@ END`,
 
 	// ----------------------------------------------------------------------------
 	// security_reports — encrypted coordinated-disclosure submissions. PII and
-	// vulnerability details are stored only in encrypted_body (AI.md PART 11).
+	// vulnerability details are encrypted before storage (AI.md PART 11).
 	// ----------------------------------------------------------------------------
 	`CREATE TABLE IF NOT EXISTS security_reports (
     tracking_id        TEXT PRIMARY KEY,

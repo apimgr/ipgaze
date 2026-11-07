@@ -47,7 +47,7 @@ repository:        https://github.com/apimgr/ipgaze
 - OpenAPI/Swagger interactive documentation
 - Stateless Streamable HTTP MCP endpoint that exposes the registered public versioned API operations as tools. Example user prompts: “What is my public IP address?”, “Look up 8.8.8.8 and summarize its GeoIP data”, and “Which ASN announces 1.1.1.1?” MCP clients use anonymous public access; results depend on configured GeoIP databases. The endpoint is POST-only, sessionless, rate-limited, audited, and validates `Origin`.
 - CLI client binary (`ipgaze-cli`) for querying any ipgaze-compatible server with token-based auth
-- Tor hidden service (auto-enabled when Tor binary is present)
+- Tor hidden service (auto-enabled when Tor binary is present) with optional server-originated outbound Tor routing
 - I2P eepsite (opt-in via `server.i2p.enabled`; i2pd process preferred, external SAM bridge as fallback)
 - HOST_IPV4 / HOST_IPV6 env vars: container deployments supply the host's public IPv4/IPv6 for web UI curl examples; invalid values are silently ignored; unset = normal detection
 

@@ -72,6 +72,16 @@ Health endpoints are the exception and return the bare health document.
 | `GET /api/v1/server/preferences/export` | Export guest preferences |
 | `GET /api/v1/server/preferences/import` | Import guest preferences |
 | `POST /api/v1/server/contact` | Submit the contact form |
+| `POST /api/v1/server/consent` | Save cookie consent choices |
+| `POST /api/v1/server/ccpa` | Record a CCPA data-sale opt-out |
+| `POST /api/v1/announcements/dismiss` | Dismiss a site announcement |
+| `POST /api/v1/server/reports/csp` | Submit a Content Security Policy browser report |
+| `POST /api/v1/server/reports/nel` | Submit a Network Error Logging browser report |
+| `POST /api/v1/server/reports/deprecation` | Submit a browser deprecation report |
+| `POST /api/v1/server/reports/intervention` | Submit a browser intervention report |
+| `POST /api/v1/server/reports/crash` | Submit a browser crash report |
+| `POST /api/v1/server/reports/error` | Submit a browser error report |
+| `POST /api/v1/server/reports/default` | Submit a generic browser report |
 | `GET /api/v1/server/swagger` | OpenAPI document |
 | `GET` or `POST /api/v1/server/graphql` | GraphQL endpoint when enabled |
 | `POST /api/v1/server/mcp` | MCP Streamable HTTP endpoint when enabled |

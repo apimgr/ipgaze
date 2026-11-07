@@ -31,6 +31,7 @@ import (
 	"github.com/go-acme/lego/v4/registration"
 
 	"github.com/apimgr/ipgaze/src/security"
+	"github.com/apimgr/ipgaze/src/tor"
 )
 
 // dnsCredentialsInfo is the HKDF "info" string scoping DNS credential encryption,
@@ -175,6 +176,9 @@ func (m *SSLManager) obtainLetsEncryptCert(domains []string) (certPath, keyPath 
 	}
 
 	legoCfg := lego.NewConfig(user)
+	if err := tor.ApplyOutboundTransport(legoCfg.HTTPClient); err != nil {
+		return "", "", fmt.Errorf("configure Tor for ACME client: %w", err)
+	}
 	legoCfg.Certificate.KeyType = certcrypto.EC256
 	switch {
 	case m.config.LetsEncrypt.caDirURL != "":

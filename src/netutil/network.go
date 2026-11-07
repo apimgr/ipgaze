@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/apimgr/ipgaze/src/tor"
 )
 
 // getAccessibleURL returns the most relevant URL for accessing the server
@@ -121,7 +123,7 @@ var publicIPSources = []string{
 // response or an error if all sources fail. Used by the public_ip_refresh
 // scheduler task (AI.md PART 18).
 func FetchPublicIP() (string, error) {
-	client := &http.Client{Timeout: 10 * time.Second}
+	client := tor.NewHTTPClient(10 * time.Second)
 	var lastErr error
 	for _, src := range publicIPSources {
 		resp, err := client.Get(src)

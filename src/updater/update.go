@@ -15,6 +15,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/apimgr/ipgaze/src/tor"
+
 	"github.com/apimgr/ipgaze/src/common/updatechannel"
 
 	"github.com/apimgr/ipgaze/src/paths"
@@ -75,7 +77,7 @@ func CheckForUpdate(ctx context.Context, currentVersion, branch string, buildEpo
 	}
 	req.Header.Set("Accept", "application/vnd.github.v3+json")
 
-	client := &http.Client{Timeout: apiRequestTimeout}
+	client := tor.NewHTTPClient(apiRequestTimeout)
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
@@ -144,7 +146,7 @@ func DoUpdate(ctx context.Context, release *Release) (retErr error) {
 		return fmt.Errorf("no binary asset found for %s/%s (want %q)", runtime.GOOS, runtime.GOARCH, assetName)
 	}
 
-	client := &http.Client{Timeout: binaryDownloadTimeout}
+	client := tor.NewHTTPClient(binaryDownloadTimeout)
 
 	// Fetch expected SHA-256 from the release's sha256.txt asset — abort if
 	// unavailable. Per AI.md PART 22 the checksum is published as a single

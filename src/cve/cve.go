@@ -14,6 +14,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"time"
+
+	"github.com/apimgr/ipgaze/src/tor"
 )
 
 // NVDAPIURL is the NVD (NIST National Vulnerability Database) CVE API 2.0
@@ -64,7 +66,7 @@ func NewCVEManager(dataDir, apiURL string) *CVEManager {
 	return &CVEManager{
 		dataDir:      dataDir,
 		apiURL:       apiURL,
-		client:       &http.Client{Timeout: 5 * time.Minute},
+		client:       tor.NewHTTPClient(5 * time.Minute),
 		requestDelay: requestDelay,
 	}
 }

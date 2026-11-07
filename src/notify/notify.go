@@ -15,6 +15,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/apimgr/ipgaze/src/tor"
 )
 
 // signParams carries the outbound webhook signing data for one request, per
@@ -141,7 +143,7 @@ func postBytes(ctx context.Context, url string, b []byte, contentType string, si
 	if len(sign) > 0 {
 		applySigningHeaders(req, sign[0], b)
 	}
-	client := &http.Client{Timeout: 10 * time.Second}
+	client := tor.NewHTTPClient(10 * time.Second)
 	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("do request: %w", err)
@@ -372,7 +374,7 @@ func (g *GenericWebhookNotifier) Send(ctx context.Context, msg Message) error {
 	if sp := g.Signing.params(); len(sp) > 0 {
 		applySigningHeaders(req, sp[0], b)
 	}
-	client := &http.Client{Timeout: 10 * time.Second}
+	client := tor.NewHTTPClient(10 * time.Second)
 	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("do request: %w", err)

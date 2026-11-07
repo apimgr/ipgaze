@@ -1,6 +1,6 @@
 # Project Alignment Audit
 
-Updated: 2026-11-06
+Updated: 2026-11-07
 Source of truth: `AI.md` (read-only)
 
 ## Completed during this alignment
@@ -13,7 +13,7 @@ Source of truth: `AI.md` (read-only)
 - Updated `.github/SECURITY.md` and `docs/security.md` to make GitHub private reporting primary for repository vulnerabilities, state the in-scope targets and exclusions, provide conservative safe-harbor terms, and document the official service's 90-day disclosure policy. Corrected the MCP authentication guidance in configuration docs.
 - Updated Docker/Incus smoke checks and the SSR test for canonical security.txt behavior; `/security.txt` is checked as a 404.
 - Removed the unsupported `/security.txt` alias; `/.well-known/security.txt` remains canonical.
-- Corrected IDEA.md's duplicate MCP entry and documented that reporter details can persist only inside encrypted security reports.
+- Corrected IDEA.md's duplicate MCP entry and documented encrypted storage for consented researcher credit names and handles.
 - Searched `/root/Projects/github/apimgr/TODO.API.md` before adding each confirmed AI.md conflict or underspecified requirement found during the segmented review. AI.md remains unchanged.
 - Added PGP rotation archives retained for the 30-day grace window, re-encrypted them when the installation secret rotates, and made PGP deletion remove active and archived key material.
 - Added `--maintenance backup test` as a dry-run archive extraction and private-key decryption check using the installation secret from the extracted database. Restore now consumes keyserver publish state and republishes the restored public key when configured.
@@ -22,6 +22,12 @@ Source of truth: `AI.md` (read-only)
 - Updated third-party license versions to match go.mod and added the MCP SDK attribution from its module license.
 - Added individual compliance-standard settings and report output; an enabled standard now requires encrypted backups, and report generation is audit-logged.
 - Corrected CLI, Tor, and I2P integration documentation to match actual command and feature behavior.
+- Added the documented I2P configuration options, defaults, timeout units, and storage path to `docs/configuration.md`.
+- Completed the `/server/about` page's required version and repository, website, and documentation links; the page and JSON response now use configured branding values.
+- Updated `docs/api.md` with the missing consent, CCPA, announcement dismissal, and browser-report POST endpoints.
+- Fixed Tor startup handling so the control-port file is read only after Tor writes a valid port value; tests cover the startup behavior.
+- Encrypted researcher credit names and handles at rest, migrated existing plaintext values at startup, and re-encrypts them during key rotation.
+- Routed server-owned outbound HTTP clients through the optional Tor transport and fail closed when Tor routing is enabled but unavailable.
 - Updated ReadTheDocs to its current supported Ubuntu LTS and Python version.
 - Made service uninstall remove the OS-specific paths resolved for the current command, including CLI directory overrides.
 
@@ -30,14 +36,16 @@ Source of truth: `AI.md` (read-only)
 - AI.md PART 11 lines 14966 and 14972 conflict: the policy is described as API-editable, while server security is also declared file-configured with no administration routes. The policy uses the user-approved conservative default with read-only HTML/JSON routes; the conflict is logged in `/root/Projects/github/apimgr/TODO.API.md`.
 - AI.md PART 12 lists `recaptcha`, `hcaptcha`, and `simple` CAPTCHA choices without defining provider credentials or verification protocols. The implementation provides the built-in `simple` challenge; the missing provider contract is logged in `/root/Projects/github/apimgr/TODO.API.md`.
 - AI.md conflicts on the default tracking consent model and whether supplied invalid `security_id` values must be logged. The implementation requires affirmative consent and does not log the secret token; both conflicts are logged in `/root/Projects/github/apimgr/TODO.API.md`.
+- PART 17 leaves operator email localization and startup/shutdown event semantics unspecified; these questions are recorded in `/root/Projects/github/apimgr/TODO.API.md`.
 - Daily backup archives are still full archives rather than deltas. AI.md does not define the delta format or restore/apply contract, so this is logged for specification clarification before implementing incremental restore.
-- AI.md also leaves notification language selection and the startup/shutdown email event behavior undefined; these questions are in `/root/Projects/github/apimgr/TODO.API.md`.
-- AI.md also conflicts about whether `docker/rootfs/` is committed, whether README's Development section is absolutely last, whether configuration may be database-backed, and whether path environment variables are init-only. These are listed in `/root/Projects/github/apimgr/TODO.API.md`.
+- AI.md also conflicts about whether README's Development section is absolutely last, whether configuration may be database-backed, and whether path environment variables are init-only. These are listed in `/root/Projects/github/apimgr/TODO.API.md`.
 - AI.md PART 8 gives conflicting help syntax (`--service help`/`<command> help` versus `--service --help`); the runtime help follows the explicit server command/startup examples, and the mismatch is logged in `/root/Projects/github/apimgr/TODO.API.md`.
 - PART 11 still requires configured permanent IP blocks, abuse-triggered temporary blocking/alerting, and a `/server/dpo` contact route. The blocked-IP YAML schema, auto-block threshold semantics, and DPO contact source are underspecified and logged in `/root/Projects/github/apimgr/TODO.API.md`.
 - Fixed the concrete allowlist rate-limit bypass gap. The automatic flood-blocking trigger remains unspecified (window, threshold basis, persistence) and is logged in `/root/Projects/github/apimgr/TODO.API.md`.
 - PART 11's per-standard flags now exist, but its detailed behaviors (including breach workflows, retention, and organization-specific controls) are not fully implemented. Do not treat the flags or report as certification.
 - PART 31.2 has inconsistent I2P configuration names (`features.i2p.enabled` versus `server.i2p.enabled` and other interfaces); this is recorded in `/root/Projects/github/apimgr/TODO.API.md`.
+- PART 31.2's `bootstrap_timeout` example uses `5m`, while its struct and implementation use integer seconds; this is logged for spec correction. The docs follow the implemented integer-seconds contract.
+- PART 26 conflicts on whether production compose sets `MODE` and on whether Tor's data tree includes `site/`; PART 30's translation rule conflicts with PART 19's verbatim English data attributions. All three issues are recorded in `/root/Projects/github/apimgr/TODO.API.md`.
 - The `go-licenses` scan identifies `modernc.org/mathutil` as unknown because its module archive lacks a recognized license filename. Upstream identifies it as BSD-3-Clause; the attribution is in `LICENSE.md`. The scan did not complete successfully.
 - Segmented reviews covered PARTS 1–7 and focused portions of PARTS 8–33; they were not exhaustive line-by-line walks of every PART. Full-project compliance is not claimed.
 
@@ -47,5 +55,5 @@ Source of truth: `AI.md` (read-only)
 - `shellcheck tests/docker.sh tests/incus.sh` — passed through the lint gate.
 - `mkdocs build --strict --site-dir <project-scoped temp directory>` — passed in Python 3.14; output stayed inside the disposable container.
 - `git diff --check` — passed.
-- `go vet ./...` and `GOTOOLCHAIN=go1.26.4 staticcheck ./...` — passed in the Go container through the lint gate.
+- `golangci-lint run` — passed with zero issues after the latest Go edits.
 - Remaining AI.md questions are listed in `/root/Projects/github/apimgr/TODO.API.md`; the exhaustive checklist audit is not yet complete.

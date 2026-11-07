@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/apimgr/ipgaze/src/iputil/geo"
+	"github.com/apimgr/ipgaze/src/tor"
 	maxminddb "github.com/oschwald/maxminddb-golang"
 )
 
@@ -325,7 +326,7 @@ func (m *GeoIPManager) DownloadDatabases() error {
 // downloadFile downloads a file from URL to local path
 func (m *GeoIPManager) downloadFile(url, localPath string) error {
 	// 5-minute timeout for large GeoIP database downloads (~50 MB each)
-	client := &http.Client{Timeout: 5 * time.Minute}
+	client := tor.NewHTTPClient(5 * time.Minute)
 	resp, err := client.Get(url)
 	if err != nil {
 		return err

@@ -126,3 +126,7 @@ consented credits are available. The report form asks separately for a public
 handle when the researcher chooses handle credit. The private acknowledgment
 email provides a one-shot status link; the public status page does not expose
 report contents.
+
+Security report contents and researcher names or handles chosen for credit are
+encrypted at rest. Public credit is displayed only after a report is marked
+disclosed and the researcher opted in.

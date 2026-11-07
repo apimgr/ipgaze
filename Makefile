@@ -10,7 +10,10 @@ PROJECTORG := $(shell git remote get-url origin 2>/dev/null | sed -E 's|.*/([^/]
 
 # INTERNALNAME is frozen at first-time setup (IDEA.md ## Project variables) - used for
 # every on-disk identifier so a later PROJECTNAME rename never orphans paths (PART 3)
-INTERNALNAME := $(PROJECTNAME)
+INTERNALNAME := $(strip $(shell sed -n 's/^internal_name:[[:space:]]*//p' IDEA.md | head -n1))
+ifeq ($(INTERNALNAME),)
+$(error IDEA.md must define internal_name)
+endif
 
 # Version precedence: release.txt (wins if it exists) > VERSION env var > "devel" fallback
 VERSION := $(shell cat release.txt 2>/dev/null || echo "$${VERSION:-devel}")

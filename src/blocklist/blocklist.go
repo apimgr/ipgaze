@@ -15,6 +15,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/apimgr/ipgaze/src/tor"
 )
 
 // DefaultSources are the built-in blocklist sources.
@@ -57,7 +59,7 @@ func (m *BlocklistManager) Update() error {
 	if err := os.MkdirAll(m.dataDir, 0o755); err != nil {
 		return fmt.Errorf("blocklist: create dir: %w", err)
 	}
-	client := &http.Client{Timeout: 2 * time.Minute}
+	client := tor.NewHTTPClient(2 * time.Minute)
 	var lastErr error
 	for _, src := range m.sources {
 		if err := m.download(client, src); err != nil {

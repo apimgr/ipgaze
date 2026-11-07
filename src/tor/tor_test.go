@@ -2,7 +2,10 @@ package tor
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"errors"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -403,14 +406,21 @@ func TestGetHTTPClient_NoTor_ReturnsPlainClient(t *testing.T) {
 	}
 }
 
-func TestGetHTTPClient_UseTorTrue_SvcNil_ReturnsPlainClient(t *testing.T) {
+func TestGetHTTPClient_UseTorTrue_SvcNilFailsClosed(t *testing.T) {
 	m := NewTorManager(defaultCfg(t))
 	client := m.GetHTTPClient(true)
 	if client == nil {
 		t.Fatal("GetHTTPClient(true) with nil svc returned nil")
 	}
-	if client.Timeout == 0 {
-		t.Error("expected non-zero timeout on plain client")
+	if _, ok := client.Transport.(*http.Transport); !ok {
+		t.Fatalf("transport = %T, want managed HTTP transport", client.Transport)
+	}
+	request, err := http.NewRequest(http.MethodGet, "https://example.com", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.Do(request); err == nil || !strings.Contains(err.Error(), "tor outbound routing is enabled but unavailable") {
+		t.Fatal("Tor-unavailable transport unexpectedly allowed a direct request")
 	}
 }
 
@@ -422,26 +432,96 @@ func TestGetHTTPClient_PlainClientTimeout(t *testing.T) {
 	}
 }
 
-func TestGetHTTPClient_WithNilDialer_ReturnsPlainClient(t *testing.T) {
+func TestGetHTTPClient_WithNilDialerFailsClosed(t *testing.T) {
 	m := NewTorManager(defaultCfg(t))
 	m.mu.Lock()
 	m.running = true
 	m.svc = &service{onionAddress: "fakeonionid.onion", dialer: nil}
 	m.mu.Unlock()
 
-	// useTor=true with nil dialer still returns plain client (safety path).
+	// A Tor-routed request must never silently fall back to a direct connection.
 	client := m.GetHTTPClient(true)
 	if client == nil {
 		t.Fatal("GetHTTPClient(true) returned nil")
 	}
-	if client.Timeout != 30*time.Second {
-		t.Errorf("expected 30s timeout for nil dialer path, got %v", client.Timeout)
+	if _, ok := client.Transport.(*http.Transport); !ok {
+		t.Fatalf("transport = %T, want managed HTTP transport", client.Transport)
+	}
+	request, err := http.NewRequest(http.MethodGet, "https://example.com", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.Do(request); err == nil || !strings.Contains(err.Error(), "tor outbound routing is enabled but unavailable") {
+		t.Fatalf("request error = %v, want unavailable Tor error", err)
 	}
 
 	m.mu.Lock()
 	m.running = false
 	m.svc = nil
 	m.mu.Unlock()
+}
+
+func TestApplyOutboundTransportPreservesTLSAndFailsClosedWithoutTor(t *testing.T) {
+	manager := NewTorManager(defaultCfg(t))
+	SetOutboundHTTPClient(manager.GetHTTPClient(true))
+	t.Cleanup(func() { SetOutboundHTTPClient(nil) })
+	roots := x509.NewCertPool()
+	directDialCalled := false
+	base := &http.Transport{
+		DialContext: func(context.Context, string, string) (net.Conn, error) {
+			directDialCalled = true
+			return nil, errors.New("direct transport used")
+		},
+		TLSClientConfig:       &tls.Config{RootCAs: roots, ServerName: "acme.example"},
+		TLSHandshakeTimeout:   11 * time.Second,
+		ResponseHeaderTimeout: 17 * time.Second,
+	}
+	client := &http.Client{Transport: base}
+	if err := ApplyOutboundTransport(client); err != nil {
+		t.Fatal(err)
+	}
+	routed, ok := client.Transport.(*http.Transport)
+	if !ok {
+		t.Fatalf("transport = %T, want *http.Transport", client.Transport)
+	}
+	if routed == base || routed.TLSClientConfig == nil || routed.TLSClientConfig.RootCAs != roots || routed.TLSClientConfig.ServerName != "acme.example" {
+		t.Fatal("Tor configuration did not preserve the original TLS settings")
+	}
+	if routed.TLSHandshakeTimeout != 11*time.Second || routed.ResponseHeaderTimeout != 17*time.Second {
+		t.Fatal("Tor configuration did not preserve the original transport timeouts")
+	}
+	if routed.Proxy != nil || !routed.DisableKeepAlives {
+		t.Fatal("Tor transport must bypass environment proxies and avoid stale pooled connections")
+	}
+	if _, err := routed.DialContext(context.Background(), "tcp", "example.com:443"); err == nil || !strings.Contains(err.Error(), "tor outbound routing is enabled but unavailable") {
+		t.Fatalf("routed dial error = %v, want unavailable Tor error", err)
+	}
+	if directDialCalled {
+		t.Fatal("routed transport used its direct dialer")
+	}
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
+	return f(request)
+}
+
+func TestNewHTTPClientUsesConfiguredOutboundTransport(t *testing.T) {
+	called := false
+	SetOutboundHTTPClient(&http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		called = true
+		return nil, errors.New("transport used")
+	})})
+	t.Cleanup(func() { SetOutboundHTTPClient(nil) })
+	client := NewHTTPClient(5 * time.Second)
+	if client.Timeout != 5*time.Second {
+		t.Fatalf("client timeout = %s, want 5s", client.Timeout)
+	}
+	_, err := client.Get("https://example.com")
+	if err == nil || !called {
+		t.Fatalf("configured transport was not used: called=%t err=%v", called, err)
+	}
 }
 
 // ---------------------------------------------------------------------------
