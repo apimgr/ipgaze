@@ -12,7 +12,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"hash"
 	"io"
 	"os"
 	"path/filepath"
@@ -299,43 +298,6 @@ func backupArchiveContents(layout backupArchiveLayout) []string {
 	return contents
 }
 
-// hashBackupDirInto feeds every regular file under dir (recursively, minus
-// excludes) into h, in filepath.Walk order. Missing dirs are silently
-// skipped, matching addBackupDirToTar's behavior so the checksum always
-// matches what was archived.
-func hashBackupDirInto(h hash.Hash, dir string, excludes ...string) error {
-	info, err := os.Stat(dir)
-	if os.IsNotExist(err) {
-		return nil
-	}
-	if err != nil {
-		return fmt.Errorf("stat %s: %w", dir, err)
-	}
-	if !info.IsDir() {
-		return fmt.Errorf("%s is not a directory", dir)
-	}
-	return filepath.Walk(dir, func(p string, fi os.FileInfo, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		if isExcludedPath(p, excludes) {
-			if fi.IsDir() {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if fi.IsDir() || fi.Mode()&os.ModeSymlink != 0 {
-			return nil
-		}
-		data, readErr := os.ReadFile(p)
-		if readErr != nil {
-			return fmt.Errorf("read %s: %w", p, readErr)
-		}
-		_, _ = h.Write(data)
-		return nil
-	})
-}
-
 // computeBackupContentChecksum returns the "sha256:<hex>" digest of every
 // file this layout includes: configDir (minus ssl/ unless included), dbDir
 // (always), then dataDir (minus dbDir's subtree) if includeData. Used both to
@@ -460,17 +422,6 @@ func buildBackupArchiveFromFiles(manifest map[string]interface{}, layout backupA
 	manifest["contents"] = backupArchiveContents(layout)
 
 	return encodeBackupFiles(manifest, files)
-}
-
-// buildIncrementalBackupArchive creates a cumulative differential archive
-// from baseArchiveBytes to the current layout. The daily/hourly archive is
-// always computed against a full backup, never against the prior incremental.
-func buildIncrementalBackupArchive(manifest map[string]interface{}, layout backupArchiveLayout, baseArchiveBytes []byte, baseName, baseSHA256 string) ([]byte, error) {
-	current, err := collectBackupFiles(layout)
-	if err != nil {
-		return nil, fmt.Errorf("collect current backup files: %w", err)
-	}
-	return buildIncrementalBackupArchiveFromFiles(manifest, current, baseArchiveBytes, baseName, baseSHA256, layout)
 }
 
 func buildIncrementalBackupArchiveFromFiles(manifest map[string]interface{}, current []backupFileRecord, baseArchiveBytes []byte, baseName, baseSHA256 string, layout backupArchiveLayout) ([]byte, error) {
@@ -791,57 +742,6 @@ func addBackupFileToTar(tw *tar.Writer, name string, data []byte) error {
 		return fmt.Errorf("write content %s: %w", name, err)
 	}
 	return nil
-}
-
-func addBackupDirToTar(tw *tar.Writer, srcDir, archivePrefix string, excludes ...string) error {
-	info, err := os.Stat(srcDir)
-	if os.IsNotExist(err) {
-		return nil
-	}
-	if err != nil {
-		return fmt.Errorf("stat %s: %w", srcDir, err)
-	}
-	if !info.IsDir() {
-		return fmt.Errorf("%s is not a directory", srcDir)
-	}
-	return filepath.Walk(srcDir, func(p string, fi os.FileInfo, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		if isExcludedPath(p, excludes) {
-			if fi.IsDir() {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		rel, relErr := filepath.Rel(srcDir, p)
-		if relErr != nil {
-			return relErr
-		}
-		name := archivePrefix
-		if rel != "." {
-			name = filepath.Join(archivePrefix, rel)
-		}
-		name = filepath.ToSlash(name)
-		if fi.IsDir() {
-			return tw.WriteHeader(&tar.Header{Name: name + "/", Mode: 0o700, Typeflag: tar.TypeDir})
-		}
-		if fi.Mode()&os.ModeSymlink != 0 {
-			return nil
-		}
-		data, readErr := os.ReadFile(p)
-		if readErr != nil {
-			return fmt.Errorf("read %s: %w", p, readErr)
-		}
-		hdr := &tar.Header{Name: name, Mode: 0o600, Size: int64(len(data)), ModTime: fi.ModTime()}
-		if err := tw.WriteHeader(hdr); err != nil {
-			return fmt.Errorf("write header %s: %w", name, err)
-		}
-		if _, err := tw.Write(data); err != nil {
-			return fmt.Errorf("write content %s: %w", name, err)
-		}
-		return nil
-	})
 }
 
 // extractBackupArchive extracts an in-memory tar.gz archive to destDir,

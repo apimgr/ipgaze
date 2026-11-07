@@ -880,7 +880,7 @@ func (m *TorManager) startDedicated(ctx context.Context) (*service, error) {
 		}); err != nil {
 			_ = stopTor(child, ctrl)
 			_ = backendLn.Close()
-			return nil, fmt.Errorf("Tor bootstrap timed out or failed: %w", err)
+			return nil, fmt.Errorf("tor bootstrap timed out or failed: %w", err)
 		}
 	}
 
@@ -1020,7 +1020,7 @@ func spawnTor(ctx context.Context, binary, torrcPath string) (*managedTorProcess
 
 func (p *managedTorProcess) exitError() error {
 	if p == nil {
-		return errors.New("Tor process unavailable")
+		return errors.New("tor process unavailable")
 	}
 	select {
 	case <-p.done:
@@ -1028,7 +1028,7 @@ func (p *managedTorProcess) exitError() error {
 		err := p.waitErr
 		p.mu.Unlock()
 		if err == nil {
-			err = errors.New("Tor process exited")
+			err = errors.New("tor process exited")
 		}
 		if stderr := strings.TrimSpace(p.stderr.String()); stderr != "" {
 			return fmt.Errorf("%w; stderr: %s", err, stderr)
@@ -1049,7 +1049,7 @@ func waitControlPort(ctx context.Context, child *managedTorProcess, file string,
 	defer ticker.Stop()
 	for {
 		if err := child.exitError(); err != nil {
-			return "", fmt.Errorf("Tor exited before opening the control port: %w", err)
+			return "", fmt.Errorf("tor exited before opening the control port: %w", err)
 		}
 		if contents, err := os.ReadFile(file); err == nil {
 			if address, valid := parseControlPortFile(contents); valid {
@@ -1060,7 +1060,7 @@ func waitControlPort(ctx context.Context, child *managedTorProcess, file string,
 		case <-ctx.Done():
 			return "", ctx.Err()
 		case <-child.done:
-			return "", fmt.Errorf("Tor exited before opening the control port: %w", child.exitError())
+			return "", fmt.Errorf("tor exited before opening the control port: %w", child.exitError())
 		case <-deadline.C:
 			stderr := strings.TrimSpace(child.stderr.String())
 			if stderr != "" {
@@ -1142,7 +1142,7 @@ func waitHostname(ctx context.Context, child *managedTorProcess, file string) (s
 	defer ticker.Stop()
 	for {
 		if err := child.exitError(); err != nil {
-			return "", fmt.Errorf("Tor exited before writing hostname: %w", err)
+			return "", fmt.Errorf("tor exited before writing hostname: %w", err)
 		}
 		if contents, err := os.ReadFile(file); err == nil {
 			address := strings.TrimSpace(string(contents))
@@ -1154,7 +1154,7 @@ func waitHostname(ctx context.Context, child *managedTorProcess, file string) (s
 		case <-ctx.Done():
 			return "", ctx.Err()
 		case <-child.done:
-			return "", fmt.Errorf("Tor exited before writing hostname: %w", child.exitError())
+			return "", fmt.Errorf("tor exited before writing hostname: %w", child.exitError())
 		case <-ticker.C:
 		}
 	}
