@@ -32,6 +32,7 @@ Source of truth: `AI.md` (read-only)
 
 - `bash "$HOME/.codex/hooks/test-lint-run.sh" test -- make test` — passed with 60.1% statement coverage.
 - `go vet ./...` — passed through the Docker Go image and lint gate.
+- `staticcheck ./...` — passed through the Docker Go image and lint gate.
 - `shellcheck tests/docker.sh tests/incus.sh` — passed through the lint gate.
 - `mkdocs build --strict --site-dir /tmp/ipgaze-site` — passed in Docker; generated site output stayed inside the disposable container.
 - `git diff --check` — passed.

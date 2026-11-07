@@ -1,6 +1,7 @@
 package security
 
 import (
+	"bytes"
 	"strings"
 	"testing"
 	"time"
@@ -30,8 +31,8 @@ func TestStoreSecurityReportRejectsInvalidInput(t *testing.T) {
 func TestReencryptSecurityReports(t *testing.T) {
 	db := openMemDB(t)
 	defer db.Close()
-	oldKey := []byte("01234567890123456789012345678901")
-	newKey := []byte("abcdefghijklmnopqrstuvwxyz123456")
+	oldKey := bytes.Repeat([]byte{1}, 32)
+	newKey := bytes.Repeat([]byte{2}, 32)
 	plain := []byte("private report body")
 	ciphertext, err := EncryptWithSecret(oldKey, plain, "security-reports")
 	if err != nil {
@@ -117,7 +118,7 @@ func TestValidateSecurityIDWindowsAndRotation(t *testing.T) {
 func TestSecurityReportTokenOneUsePerDay(t *testing.T) {
 	db := openMemDB(t)
 	defer db.Close()
-	ciphertext, err := EncryptWithSecret([]byte("01234567890123456789012345678901"), []byte("encrypted report"), "security-reports")
+	ciphertext, err := EncryptWithSecret(bytes.Repeat([]byte{3}, 32), []byte("encrypted report"), "security-reports")
 	if err != nil {
 		t.Fatal(err)
 	}

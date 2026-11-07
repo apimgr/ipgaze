@@ -584,7 +584,8 @@ func TestSubmitSecurityReportEncryptedAndNotifies(t *testing.T) {
 	}
 	host, port, messages := fakeTwoMessageSMTPServer(t)
 	cfg := config.DefaultConfig()
-	cfg.Server.Security.EncryptionKey = base64.StdEncoding.EncodeToString([]byte("01234567890123456789012345678901"))
+	encryptionKey := make([]byte, 32)
+	cfg.Server.Security.EncryptionKey = base64.StdEncoding.EncodeToString(encryptionKey)
 	cfg.Server.Contact.Security.Email = "security@example.com"
 	h := newTestPagesHandler()
 	h.DB = conn
@@ -612,7 +613,7 @@ func TestSubmitSecurityReportEncryptedAndNotifies(t *testing.T) {
 	if encryption != "aes-256-gcm" || strings.Contains(string(ciphertext), "Private vulnerability details") || strings.Contains(string(ciphertext), "reporter@example.net") {
 		t.Fatalf("stored report encryption=%q body must not contain plaintext, got %q", encryption, ciphertext)
 	}
-	plain, err := security.DecryptWithSecret([]byte("01234567890123456789012345678901"), ciphertext, "security-reports")
+	plain, err := security.DecryptWithSecret(encryptionKey, ciphertext, "security-reports")
 	if err != nil || !strings.Contains(string(plain), "Private vulnerability details") || !strings.Contains(string(plain), "reporter@example.net") {
 		t.Fatalf("stored encrypted payload did not decrypt to the private report: err=%v", err)
 	}

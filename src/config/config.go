@@ -734,7 +734,7 @@ func ValidateTracking(cfg *TrackingConfig) error {
 	switch cfg.Type {
 	case "google":
 		if !regexp.MustCompile(`^(UA-[0-9]+-[0-9]+|G-[A-Z0-9]+)$`).MatchString(cfg.ID) {
-			return fmt.Errorf("invalid Google Analytics ID format")
+			return fmt.Errorf("invalid google analytics ID format")
 		}
 	case "matomo", "piwik":
 		if _, err := strconv.Atoi(cfg.ID); err != nil || cfg.ID == "" {
@@ -745,42 +745,42 @@ func ValidateTracking(cfg *TrackingConfig) error {
 		}
 	case "owa":
 		if cfg.ID == "" {
-			return fmt.Errorf("OWA requires a site ID")
+			return fmt.Errorf("owa requires a site ID")
 		}
 		if err := validateURL(true); err != nil {
-			return fmt.Errorf("OWA: %w", err)
+			return fmt.Errorf("owa: %w", err)
 		}
 	case "fathom":
 		if cfg.ID == "" {
-			return fmt.Errorf("Fathom requires a site ID")
+			return fmt.Errorf("fathom requires a site ID")
 		}
 		if err := validateURL(false); err != nil {
-			return fmt.Errorf("Fathom: %w", err)
+			return fmt.Errorf("fathom: %w", err)
 		}
 	case "plausible":
 		if !validTrackingDomain(cfg.ID) {
-			return fmt.Errorf("Plausible requires a domain name")
+			return fmt.Errorf("plausible requires a domain name")
 		}
 		if err := validateURL(false); err != nil {
-			return fmt.Errorf("Plausible: %w", err)
+			return fmt.Errorf("plausible: %w", err)
 		}
 	case "umami":
 		if _, err := uuid.Parse(cfg.ID); err != nil {
-			return fmt.Errorf("Umami ID must be a valid UUID")
+			return fmt.Errorf("umami ID must be a valid UUID")
 		}
 		if err := validateURL(true); err != nil {
-			return fmt.Errorf("Umami: %w", err)
+			return fmt.Errorf("umami: %w", err)
 		}
 	case "simple":
 		if cfg.URL != "" {
-			return fmt.Errorf("Simple Analytics does not use a URL")
+			return fmt.Errorf("simple analytics does not use a URL")
 		}
 	case "cloudflare":
 		if cfg.ID == "" {
-			return fmt.Errorf("Cloudflare Analytics requires a beacon token")
+			return fmt.Errorf("cloudflare analytics requires a beacon token")
 		}
 		if cfg.URL != "" {
-			return fmt.Errorf("Cloudflare Analytics does not use a URL")
+			return fmt.Errorf("cloudflare analytics does not use a URL")
 		}
 	default:
 		return fmt.Errorf("unknown tracking type")

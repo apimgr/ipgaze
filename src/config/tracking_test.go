@@ -29,7 +29,7 @@ func TestValidateTrackingProviders(t *testing.T) {
 		{"matomo missing URL", TrackingConfig{Type: "matomo", ID: "1"}, true},
 		{"invalid umami id", TrackingConfig{Type: "umami", ID: "not-a-uuid", URL: "https://analytics.example.com"}, true},
 		{"unsafe URL", TrackingConfig{Type: "fathom", ID: "ABCDEFGH", URL: "javascript:alert(1)"}, true},
-		{"URL credentials", TrackingConfig{Type: "fathom", ID: "ABCDEFGH", URL: "https://user:pass@analytics.example.com"}, true},
+		{"URL credentials", TrackingConfig{Type: "fathom", ID: "ABCDEFGH", URL: "https://fixture@analytics.example.com"}, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

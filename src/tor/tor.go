@@ -837,7 +837,7 @@ func waitForControlPortFile(ctx context.Context, path string, timeout time.Durat
 		case <-ctx.Done():
 			return fmt.Errorf("wait for Tor control port file: %w", ctx.Err())
 		case <-timer.C:
-			return fmt.Errorf("Tor did not write a valid control port file within %s: %w", timeout, lastErr)
+			return fmt.Errorf("tor did not write a valid control port file within %s: %w", timeout, lastErr)
 		case <-ticker.C:
 		}
 	}
