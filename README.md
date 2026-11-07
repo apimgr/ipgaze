@@ -189,7 +189,7 @@ docker run -d \
 | `--daemon` | Run as a daemon (detach from the terminal) |
 | `--debug` | Enable debug mode (unlocks `/debug/*` only — never bypasses auth) |
 | `--color {auto\|yes\|no}` | Color output (default: `auto`; `NO_COLOR` honored) |
-| `--lang CODE` | Language for output (default: auto-detect from `LANG`) |
+| `--lang CODE` | Language for output (default: auto-detect from `LANG`; supported (7): `en`, `es`, `fr`, `de`, `zh`, `ar`, `ja`) |
 | `--header HEADER` | Header to trust for the remote IP; repeatable. Replaces the default priority list when set |
 | `--include-ssl` | Include SSL/TLS private keys in a backup (default: excluded) |
 | `--include-data` | Include the full data directory in a backup (default: excluded) |
