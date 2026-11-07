@@ -14,10 +14,16 @@ Source of truth: `AI.md` (read-only)
 - Updated Docker/Incus smoke checks and the SSR test for canonical security.txt behavior; `/security.txt` is checked as a 404.
 - Removed the unsupported `/security.txt` alias; `/.well-known/security.txt` remains canonical.
 - Corrected IDEA.md's duplicate MCP entry and documented that reporter details can persist only inside encrypted security reports.
-- Searched `/root/Projects/github/apimgr/TODO.API.md` before appending four newly confirmed AI.md conflicts or underspecified requirements; it now has eight entries. AI.md remains unchanged.
+- Searched `/root/Projects/github/apimgr/TODO.API.md` before adding each confirmed AI.md conflict or underspecified requirement found during the segmented review. AI.md remains unchanged.
 - Added PGP rotation archives retained for the 30-day grace window, re-encrypted them when the installation secret rotates, and made PGP deletion remove active and archived key material.
 - Added `--maintenance backup test` as a dry-run archive extraction and private-key decryption check using the installation secret from the extracted database. Restore now consumes keyserver publish state and republishes the restored public key when configured.
 - Redacted sensitive query values from access and debug logs. Added a separate researcher handle field for handle-based credit.
+- Bounded encryption-key rotation's database transaction to AI.md's 30-second transaction deadline.
+- Updated third-party license versions to match go.mod and added the MCP SDK attribution from its module license.
+- Added individual compliance-standard settings and report output; an enabled standard now requires encrypted backups, and report generation is audit-logged.
+- Corrected CLI, Tor, and I2P integration documentation to match actual command and feature behavior.
+- Updated ReadTheDocs to its current supported Ubuntu LTS and Python version.
+- Made service uninstall remove the OS-specific paths resolved for the current command, including CLI directory overrides.
 
 ## Remaining confirmed alignment gaps
 
@@ -26,14 +32,19 @@ Source of truth: `AI.md` (read-only)
 - AI.md conflicts on the default tracking consent model and whether supplied invalid `security_id` values must be logged. The implementation requires affirmative consent and does not log the secret token; both conflicts are logged in `/root/Projects/github/apimgr/TODO.API.md`.
 - Daily backup archives are still full archives rather than deltas. AI.md does not define the delta format or restore/apply contract, so this is logged for specification clarification before implementing incremental restore.
 - AI.md also leaves notification language selection and the startup/shutdown email event behavior undefined; these questions are in `/root/Projects/github/apimgr/TODO.API.md`.
-- The AI.md checklist has not been audited line by line. The focused review covered the completed changes, update-channel rules, documentation configuration, and public security policy; it found no additional mismatch in those areas. Full-project compliance is not claimed.
+- AI.md also conflicts about whether `docker/rootfs/` is committed, whether README's Development section is absolutely last, whether configuration may be database-backed, and whether path environment variables are init-only. These are listed in `/root/Projects/github/apimgr/TODO.API.md`.
+- PART 11 still requires configured permanent IP blocks, abuse-triggered temporary blocking/alerting, and a `/server/dpo` contact route. The blocked-IP YAML schema, auto-block threshold semantics, and DPO contact source are underspecified and logged in `/root/Projects/github/apimgr/TODO.API.md`.
+- Fixed the concrete allowlist rate-limit bypass gap. The automatic flood-blocking trigger remains unspecified (window, threshold basis, persistence) and is logged in `/root/Projects/github/apimgr/TODO.API.md`.
+- PART 11's per-standard flags now exist, but its detailed behaviors (including breach workflows, retention, and organization-specific controls) are not fully implemented. Do not treat the flags or report as certification.
+- PART 31.2 has inconsistent I2P configuration names (`features.i2p.enabled` versus `server.i2p.enabled` and other interfaces); this is recorded in `/root/Projects/github/apimgr/TODO.API.md`.
+- The `go-licenses` scan identifies `modernc.org/mathutil` as unknown because its module archive lacks a recognized license filename. Upstream identifies it as BSD-3-Clause; the attribution is in `LICENSE.md`. The scan did not complete successfully.
+- Segmented reviews covered PARTS 1–7 and focused portions of PARTS 8–33; they were not exhaustive line-by-line walks of every PART. Full-project compliance is not claimed.
 
 ## Verification status
 
-- `bash "$HOME/.codex/hooks/test-lint-run.sh" test -- make test` — passed with 60.1% statement coverage.
-- `go vet ./...` — passed through the Docker Go image and lint gate.
-- `staticcheck ./...` — passed through the Docker Go image and lint gate.
+- `bash "$HOME/.codex/hooks/test-lint-run.sh" test -- make test` — passed with 60.1% statement coverage after the latest code changes.
 - `shellcheck tests/docker.sh tests/incus.sh` — passed through the lint gate.
-- `mkdocs build --strict --site-dir /tmp/ipgaze-site` — passed in Docker; generated site output stayed inside the disposable container.
+- `mkdocs build --strict --site-dir <project-scoped temp directory>` — passed in Python 3.14; output stayed inside the disposable container.
 - `git diff --check` — passed.
+- `go vet ./...` and `GOTOOLCHAIN=go1.26.4 staticcheck ./...` — passed in the Go container through the lint gate.
 - Remaining AI.md questions are listed in `/root/Projects/github/apimgr/TODO.API.md`; the exhaustive checklist audit is not yet complete.

@@ -39,7 +39,7 @@ repository:        https://github.com/apimgr/ipgaze
 - Port reachability testing (always enabled, no flag)
 - Built-in scheduler for automatic periodic maintenance (GeoIP updates, blocklist sync, CVE feed, cert renewal, token cleanup, log rotation, backups, self-health checks)
 - Email/notification delivery via SMTP (operator-configured; HTML + plain text multipart)
-- IP/domain blocklist downloads (daily, auto-applied for rate limiting and abuse detection)
+- IP/domain threat blocklist downloads (daily, auto-applied to incoming requests)
 - CVE/security database sync (daily, for vulnerability reporting)
 - PWA support: web app manifest and service worker for offline caching
 - Prometheus metrics (internal only, not public)
@@ -262,15 +262,16 @@ documented per its own exception clause)
 - Configured under `server.cache.type`; `CACHE_URL` overrides the connection
   string and upgrades a `none`/`memory` type to `valkey`
 
-**Operator Commands** (server binary subcommands)
+**Operator Commands** (server binary flags)
 - `--service start|stop|restart|reload|status|--install|--uninstall|--disable` — systemd/launchd/Windows service management
 - `--maintenance backup|restore` — backup/restore (`--include-ssl`, `--include-data` widen the archive)
 - `--maintenance update|mode|setup` — self-update alias, maintenance-mode toggle, re-run first-run setup
 - `--maintenance pgp generate|rotate|publish|export|import|delete` — server PGP keypair lifecycle
 - `--maintenance secret rotate` — rotate `server.security.encryption_key` with a 30-day grace period
 - `--maintenance token list|revoke` — operator API token management
-- `--maintenance data export|delete` — data-subject export and erasure
-- `--maintenance compliance report` — compliance status report
+- `--maintenance data export` — JSON inventory of stored operational data and the configured privacy policy
+- `--maintenance data delete` — interactively erase rate-limit and audit-log history
+- `--maintenance compliance report` — show enabled standards and configured privacy/security controls; enabled standards require encrypted backups
 - `--shell completions|init [SHELL]` — shell completions and init snippet
 - `--update check|yes|branch {stable|beta|devel}` — binary self-update from GitHub Releases; rolling-channel aliases normalize to `devel`
-- Backup format: `.tar.gz` (or `.tar.gz.enc` when encryption password is set); includes DB, config, certs
+- Backup format: `.tar.gz` (or `.tar.gz.enc` when encryption is enabled); SSL keys and the full data directory are excluded unless explicitly included

@@ -60,11 +60,31 @@ server:
     max_file_size: 512M
     max_ratio: 100
 
+  compliance:
+    enabled: false
+    gdpr: false
+    ccpa: false
+    hipaa: false
+    soc2: false
+    pci_dss: false
+    iso27001: false
+    fedramp: false
+    lgpd: false
+    pipeda: false
+    appi: false
+    pdpa: false
+
 web:
   ui:
     theme: dark
   cors: "*"
 ```
+
+Enabling `server.compliance.enabled` or any individual standard requires
+encrypted backups. `ipgaze --maintenance compliance report` prints the active
+standards and a summary of configured privacy and security controls. A
+standard flag records the operator's configured scope; it does not certify
+that the deployment meets that standard.
 
 ## Configuration Precedence
 

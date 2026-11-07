@@ -208,9 +208,10 @@ per-command detail for `--service`, `--maintenance`, `--shell`, and `--update`.
 | `--maintenance security-report list` | List non-identifying security report triage metadata |
 | `--maintenance security-report set <id> <status> [date] [comment...]` | Update a report's researcher-visible status and comment |
 | `--maintenance token list\|revoke` | List or revoke operator API tokens |
-| `--maintenance data export\|delete` | Data-subject export/erasure for a given IP |
-| `--maintenance compliance report` | Print the compliance status report |
-| `--shell completions [SHELL]` | Print shell completions (bash, zsh, fish, powershell) |
+| `--maintenance data export` | Print a JSON inventory of stored operational data and the configured privacy policy |
+| `--maintenance data delete` | Interactively erase rate-limit and audit-log history |
+| `--maintenance compliance report` | Show enabled standards and configured privacy/security controls; enabled standards require encrypted backups |
+| `--shell completions [SHELL]` | Print shell completions (bash, zsh, fish, sh, dash, ksh, powershell, pwsh) |
 | `--shell init [SHELL]` | Print the shell init snippet |
 | `--update check` | Check GitHub Releases for a newer binary |
 | `--update yes` | Download and install the newer binary |

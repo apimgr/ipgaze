@@ -335,6 +335,10 @@ func classifyRequest(r *http.Request) rateClass {
 func RateLimitMiddleware(rl *RateLimiter) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if IsAllowlisted(r.Context()) {
+				next.ServeHTTP(w, r)
+				return
+			}
 			clientIP := rl.getClientIP(r)
 			class := classifyRequest(r)
 

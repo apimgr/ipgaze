@@ -100,7 +100,8 @@ func TestMaintenanceCompliance_ReportsConfiguredValues(t *testing.T) {
 	cfg.Server.Compliance.Enabled = true
 	cfg.Server.Privacy.Data.Sold = false
 	cfg.Server.Privacy.Retention.Period = "90d"
-	out := captureStdout(func() { maintenanceCompliance(nil, cfg) })
+	logsDir := t.TempDir()
+	out := captureStdout(func() { maintenanceCompliance(nil, cfg, logsDir) })
 	if !strings.Contains(out, "IPGaze Compliance Report") {
 		t.Errorf("output missing report header: %q", out)
 	}
@@ -114,7 +115,8 @@ func TestMaintenanceCompliance_ReportsConfiguredValues(t *testing.T) {
 
 func TestMaintenanceCompliance_ReportSubcommandAccepted(t *testing.T) {
 	cfg := config.DefaultConfig()
-	out := captureStdout(func() { maintenanceCompliance([]string{"report"}, cfg) })
+	logsDir := t.TempDir()
+	out := captureStdout(func() { maintenanceCompliance([]string{"report"}, cfg, logsDir) })
 	if !strings.Contains(out, "IPGaze Compliance Report") {
 		t.Errorf("output missing report header: %q", out)
 	}

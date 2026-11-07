@@ -169,6 +169,14 @@ func TestResolveBackupEncryptionPassword_ComplianceBlocksUnencrypted(t *testing.
 	}
 }
 
+func TestResolveBackupEncryptionPassword_StandardRequiresEncryption(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Server.Compliance.GDPR = true
+	if _, err := resolveBackupEncryptionPassword(cfg, false); err == nil {
+		t.Fatal("expected an enabled standard to block unencrypted backups")
+	}
+}
+
 func TestResolveBackupEncryptionPassword_ComplianceWithPasswordConfigured(t *testing.T) {
 	cfg := config.DefaultConfig()
 	cfg.Server.Compliance.Enabled = true

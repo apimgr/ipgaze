@@ -98,6 +98,8 @@ const (
 	simpleSelectTimeout = 5 * time.Second
 	// writeQueryTimeout bounds an INSERT/UPDATE/DELETE.
 	writeQueryTimeout = 10 * time.Second
+	// transactionTimeout bounds a multi-statement transaction from BeginTx through Commit or Rollback.
+	transactionTimeout = 30 * time.Second
 )
 
 // sysexits — standard POSIX exit codes (from /usr/include/sysexits.h).
@@ -456,7 +458,7 @@ func main() {
 
 	// Handle service commands
 	if *serviceCmd != "" {
-		handleServiceCommand(*serviceCmd, configDir)
+		handleServiceCommand(*serviceCmd, dirs)
 		return
 	}
 
@@ -2183,18 +2185,20 @@ func handleShellCommand(cmd, binaryName string) {
 	case "--help":
 		fmt.Printf(`Shell integration commands:
 
-  %s --shell completions [SHELL]   Print shell completions
-  %s --shell init [SHELL]          Print shell init for eval
+  completions [SHELL]   Print shell completion script
+                        Auto-detects shell if SHELL omitted
+                        Supported: bash, zsh, fish, sh, dash, ksh, powershell, pwsh
 
-Supported shells: bash, zsh, fish
+  init [SHELL]          Print shell init command for eval
+                        Auto-detects shell if SHELL omitted
 
-Examples:
-  # Add to ~/.bashrc
-  eval "$(%s --shell init bash)"
-
-  # Or source completions directly
-  source <(%s --shell completions zsh)
-`, binaryName, binaryName, binaryName, binaryName)
+Usage:
+  %s --shell init >> ~/.bashrc
+  %s --shell init >> ~/.zshrc
+  %s --shell init >> ~/.config/fish/config.fish
+  eval "$(%s --shell init)"
+  %s --shell completions bash > /etc/bash_completion.d/%s
+`, binaryName, binaryName, binaryName, binaryName, binaryName, binaryName)
 	default:
 		fmt.Printf("Unknown shell command: %s\n", cmd)
 		fmt.Println("Available: completions, init, --help")
@@ -2248,9 +2252,30 @@ complete -c %s -l debug -d 'Enable debug mode'
 complete -c %s -l daemon -d 'Run as daemon'
 complete -c %s -l color -d 'Color output' -xa 'auto yes no'
 `, binaryName, binaryName, binaryName, binaryName, binaryName, binaryName, binaryName, binaryName, binaryName, binaryName, binaryName, binaryName)
+	case "sh", "dash", "ksh":
+		fmt.Printf(`# %s %s completions (POSIX shell function)
+_%s_complete() {
+    _ipgaze_words='--help --version --status --config --data --port --address --mode --service --maintenance --update --shell --debug --color --daemon'
+    _ipgaze_cur=${1-}
+    for _ipgaze_word in $_ipgaze_words; do
+        case $_ipgaze_word in
+            "$_ipgaze_cur"*) printf '%%s\\n' "$_ipgaze_word" ;;
+        esac
+    done
+}
+`, binaryName, shell, binaryName)
+	case "powershell", "pwsh":
+		fmt.Printf(`# %s PowerShell completions
+Register-ArgumentCompleter -Native -CommandName %s -ScriptBlock {
+    param($wordToComplete, $commandAst, $cursorPosition)
+    '--help','--version','--status','--config','--data','--port','--address','--mode','--service','--maintenance','--update','--shell','--debug','--color','--daemon' |
+        Where-Object { $_ -like "$wordToComplete*" } |
+        ForEach-Object { [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_) }
+}
+`, binaryName, binaryName)
 	default:
 		fmt.Printf("Unknown shell: %s\n", shell)
-		fmt.Println("Supported: bash, zsh, fish")
+		fmt.Println("Supported: bash, zsh, fish, sh, dash, ksh, powershell, pwsh")
 		os.Exit(exUsage)
 	}
 }
@@ -2266,6 +2291,12 @@ func printShellInit(binaryName, shell string) {
 	case "fish":
 		fmt.Printf(`%s --shell completions fish | source
 `, binaryName)
+	case "sh", "dash", "ksh":
+		fmt.Printf(`eval "$(%s --shell completions %s)"
+`, binaryName, shell)
+	case "powershell", "pwsh":
+		fmt.Printf(`Invoke-Expression (& %s --shell completions %s)
+`, binaryName, shell)
 	default:
 		fmt.Printf("Unknown shell: %s\n", shell)
 		os.Exit(exUsage)
@@ -2290,7 +2321,7 @@ func checkHealth(port string) error {
 	return nil
 }
 
-func handleServiceCommand(cmd, _ string) {
+func handleServiceCommand(cmd string, dirs paths.Directories) {
 	// Service install/uninstall require elevated privileges per AI.md PART 23.
 	// Attempt escalation if needed and the user can escalate.
 	if (cmd == "--install" || cmd == "--uninstall") && !isElevated() {
@@ -2301,9 +2332,8 @@ func handleServiceCommand(cmd, _ string) {
 			}
 			return
 		}
-		fmt.Fprintln(os.Stderr, "Error: Service management requires administrator privileges.")
-		fmt.Fprintln(os.Stderr, "You do not have sudo access. Contact your system administrator.")
-		os.Exit(exNoPerm)
+		// The service manager selects a per-user unit or agent when the current
+		// account cannot install a system service.
 	}
 
 	s := svc.NewSystemServiceManager()
@@ -2323,11 +2353,25 @@ func handleServiceCommand(cmd, _ string) {
 		err = s.Install()
 	case "--uninstall":
 		// Confirmation prompt is handled inside Uninstall().
-		err = s.Uninstall()
+		err = s.UninstallWithDirectories(dirs)
 	case "--disable":
 		err = s.Disable()
 	case "--help":
-		fmt.Println("Service commands: start, stop, restart, reload, status, --install, --uninstall, --disable")
+		fmt.Println(`Service management commands:
+
+start                                 - Start the service
+stop                                  - Stop the service
+restart                               - Restart the service
+reload                                - Reload configuration without restart
+
+--install                              - Install, enable, and start service
+--disable                              - Stop and disable service (keeps data)
+--uninstall                            - Stop, disable, and remove everything (keeps binary)
+
+Current status:`)
+		if statusErr := s.Status(); statusErr != nil {
+			fmt.Fprintf(os.Stderr, "Unable to read service status: %v\n", statusErr)
+		}
 	default:
 		fmt.Printf("Unknown service command: %s\n", cmd)
 		os.Exit(exUsage)
@@ -3113,7 +3157,9 @@ func rotateEncryptionKey(conn *sql.DB, configDir string, cfg *config.AppConfig, 
 		log.Printf("secret rotate encryption_key: re-encrypt dns_credentials: %v", err)
 		os.Exit(exSoftware)
 	}
-	tx, err := conn.BeginTx(context.Background(), nil)
+	txCtx, cancelTx := context.WithTimeout(context.Background(), transactionTimeout)
+	defer cancelTx()
+	tx, err := conn.BeginTx(txCtx, nil)
 	if err != nil {
 		log.Printf("secret rotate encryption_key: begin report re-encryption: %v", err)
 		os.Exit(exSoftware)
@@ -3363,7 +3409,7 @@ Restore:
 	case "data":
 		maintenanceData(args, cfg, logsDir, dirs)
 	case "compliance":
-		maintenanceCompliance(args, cfg)
+		maintenanceCompliance(args, cfg, logsDir)
 	default:
 		fmt.Printf("Unknown maintenance command: %s\n", cmd)
 		fmt.Println("Available commands: backup, restore, update, mode, setup, pgp, secret, security-report, token, data, compliance")
@@ -3663,19 +3709,30 @@ func maintenanceDataDelete(conn *sql.DB, logsDir string, cfg *config.AppConfig) 
 }
 
 // maintenanceCompliance implements `--maintenance compliance report` per
-// AI.md PART 21: a read-only summary of what is actually configured (this
-// project has no per-standard GDPR/HIPAA/SOC2/... flags — compliance is
-// configured entirely in server.yml, per AI.md's closing note on PART 21).
-func maintenanceCompliance(args []string, cfg *config.AppConfig) {
+// AI.md PART 11: a read-only summary of configured standards and controls.
+func maintenanceCompliance(args []string, cfg *config.AppConfig, logsDir string) {
 	if len(args) > 0 && args[0] != "report" {
 		fmt.Printf("Unknown compliance command: %s\n", args[0])
 		fmt.Println("Usage: ipgaze --maintenance compliance report")
 		os.Exit(exUsage)
 	}
+	if logMgr, err := applog.NewManager(logsDir, buildLogConfig(cfg)); err == nil {
+		logMgr.WriteAuditEvent("", "compliance.report_generated", "compliance", "info", "success", "", map[string]any{
+			"standards": cfg.Server.Compliance.EnabledStandards(),
+		})
+		logMgr.Close()
+	}
 
 	fmt.Println("IPGaze Compliance Report")
 	fmt.Println("========================")
-	fmt.Printf("Compliance mode enabled:  %t\n", cfg.Server.Compliance.Enabled)
+	fmt.Printf("Compliance mode enabled:  %t\n", cfg.Server.Compliance.IsEnabled())
+	standards := cfg.Server.Compliance.EnabledStandards()
+	if len(standards) == 0 {
+		fmt.Println("Enabled standards:       none")
+	} else {
+		fmt.Printf("Enabled standards:       %s\n", strings.Join(standards, ", "))
+	}
+	fmt.Println("Note: this report summarizes configuration; it is not a certification.")
 	fmt.Printf("Data sold to third parties: %t\n", cfg.Server.Privacy.Data.Sold)
 	fmt.Printf("Data stored on server:      %t\n", cfg.Server.Privacy.Data.StoredOnServer)
 	fmt.Printf("Retention period:  %s\n", cfg.Server.Privacy.Retention.Period)
@@ -4707,6 +4764,33 @@ func handleUpdateCommand(cmd string, cfg *config.AppConfig) {
 	ctx := context.Background()
 
 	switch cmd {
+	case "--help", "help":
+		fmt.Println(`Update management:
+
+check                                 - Check for available updates
+                                        Compares current version with latest release
+
+yes                                   - Download and install update
+                                        Downloads latest release, replaces binary, restarts
+
+branch <name>                         - Switch update branch
+  stable                              - Stable releases (default)
+  beta                                - Beta/preview releases
+  devel                               - Devel builds (development)
+
+Examples:
+  ipgaze --update check
+  ipgaze --update yes
+  ipgaze --update branch beta`)
+		fmt.Printf("\nCurrent:\n  Version:  %s\n  Branch:   %s\n", Version, branch)
+		release, err := updater.CheckForUpdate(ctx, Version, branch, buildEpoch())
+		if err != nil {
+			fmt.Printf("  Latest:   unavailable (%v)\n", err)
+		} else if release == nil {
+			fmt.Printf("  Latest:   %s\n", strings.TrimPrefix(Version, "v"))
+		} else {
+			fmt.Printf("  Latest:   %s\n", strings.TrimPrefix(release.TagName, "v"))
+		}
 	case "check":
 		release, err := updater.CheckForUpdate(ctx, Version, branch, buildEpoch())
 		if err != nil {

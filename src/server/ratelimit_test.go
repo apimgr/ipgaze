@@ -119,6 +119,26 @@ func TestRateLimitMiddlewareAllows(t *testing.T) {
 	}
 }
 
+func TestRateLimitMiddlewareAllowsAllowlistedRequests(t *testing.T) {
+	cfg := RateLimitConfig{Read: RateLimitBucket{Limit: 1, Window: time.Hour, Burst: 1}}
+	rl := NewRateLimiter(cfg, netutil.NewTrustResolver(config.TrustedProxiesConfig{}, ""))
+	defer rl.Stop()
+	allowlist := NewAllowlistLookup([]AllowlistEntry{{CIDR: "192.0.2.5/32"}})
+	handler := AllowlistMiddleware(allowlist)(RateLimitMiddleware(rl)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})))
+
+	for i := 0; i < 3; i++ {
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		req.RemoteAddr = "192.0.2.5:1234"
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("request %d: status = %d, want 200", i+1, rec.Code)
+		}
+	}
+}
+
 func TestRateLimitMiddlewareBlocks(t *testing.T) {
 	cfg := RateLimitConfig{Read: RateLimitBucket{Limit: 1, Window: time.Hour, Burst: 1}}
 	rl := NewRateLimiter(cfg, netutil.NewTrustResolver(config.TrustedProxiesConfig{}, ""))

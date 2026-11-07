@@ -154,7 +154,7 @@ func resolveBackupEncryptionPassword(cfg *config.AppConfig, interactive bool) (s
 	if cfg == nil {
 		return "", nil
 	}
-	compliance := cfg.Server.Compliance.Enabled
+	compliance := cfg.Server.Compliance.IsEnabled()
 	configured := cfg.Server.Backup.Encryption.EncryptionPassword
 	encConfigured := cfg.Server.Backup.Encryption.Enabled || configured != ""
 

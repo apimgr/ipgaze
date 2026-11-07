@@ -6,6 +6,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/apimgr/ipgaze/src/paths"
 )
 
 // ---------------------------------------------------------------------------
@@ -543,6 +545,34 @@ func TestFilterDaemonFlag_Idempotent(t *testing.T) {
 // Install/Uninstall/Start/Stop/Restart/Reload/Status
 // — all call OS service managers; skip in unit test context
 // ---------------------------------------------------------------------------
+
+func TestDeleteAllDataUsesResolvedDirectories(t *testing.T) {
+	base := t.TempDir()
+	dirs := paths.Directories{
+		Config: filepath.Join(base, "config"),
+		Data:   filepath.Join(base, "data"),
+		Cache:  filepath.Join(base, "cache"),
+		Logs:   filepath.Join(base, "logs"),
+		Backup: filepath.Join(base, "backup"),
+		PID:    filepath.Join(base, "ipgaze.pid"),
+	}
+	for _, dir := range []string{dirs.Config, dirs.Data, dirs.Cache, dirs.Logs, dirs.Backup} {
+		if err := os.MkdirAll(dir, 0700); err != nil {
+			t.Fatalf("create test directory %q: %v", dir, err)
+		}
+	}
+	if err := os.WriteFile(dirs.PID, []byte("1234\n"), 0600); err != nil {
+		t.Fatalf("create test PID file: %v", err)
+	}
+
+	deleteAllData(dirs)
+
+	for _, dir := range []string{dirs.Config, dirs.Data, dirs.Cache, dirs.Logs, dirs.Backup, dirs.PID} {
+		if _, err := os.Stat(dir); !os.IsNotExist(err) {
+			t.Errorf("path %q remains after deleteAllData: %v", dir, err)
+		}
+	}
+}
 
 func TestInstall_SkippedInUnitContext(t *testing.T) {
 	t.Skip("Install() invokes systemctl/launchctl/sc.exe — integration test only")

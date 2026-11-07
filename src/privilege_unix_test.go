@@ -142,7 +142,26 @@ func TestFindAvailableSystemID_ReturnsIDInSafeRange(t *testing.T) {
 	}
 }
 
-func TestEnsureSystemUser_ExistingUser_ReturnsItsIDs(t *testing.T) {
+func TestFindAvailableMacOSSystemID_ReturnsIDInSafeRange(t *testing.T) {
+	id, err := findAvailableMacOSSystemID()
+	if err != nil {
+		t.Fatalf("findAvailableMacOSSystemID() error = %v", err)
+	}
+	if id < 200 || id > 399 {
+		t.Errorf("findAvailableMacOSSystemID() = %d, want in range [200, 399]", id)
+	}
+	if reservedSystemIDs[id] {
+		t.Errorf("findAvailableMacOSSystemID() = %d, want a non-reserved ID", id)
+	}
+	if _, lookupErr := user.LookupId(strconv.Itoa(id)); lookupErr == nil {
+		t.Errorf("findAvailableMacOSSystemID() = %d, but UID already in use", id)
+	}
+	if _, lookupErr := user.LookupGroupId(strconv.Itoa(id)); lookupErr == nil {
+		t.Errorf("findAvailableMacOSSystemID() = %d, but GID already in use", id)
+	}
+}
+
+func TestEnsureSystemUser_ExistingUserRequiresMatchingIDs(t *testing.T) {
 	current, err := user.Current()
 	if err != nil {
 		t.Skipf("user.Current() unavailable: %v", err)
@@ -151,6 +170,12 @@ func TestEnsureSystemUser_ExistingUser_ReturnsItsIDs(t *testing.T) {
 	wantGID, _ := strconv.Atoi(current.Gid)
 
 	uid, gid, err := ensureSystemUser(current.Username, current.HomeDir)
+	if wantUID != wantGID {
+		if err == nil {
+			t.Fatalf("ensureSystemUser(%q) = (%d, %d), want mismatch error for current account IDs (%d, %d)", current.Username, uid, gid, wantUID, wantGID)
+		}
+		return
+	}
 	if err != nil {
 		t.Fatalf("ensureSystemUser(%q) error = %v", current.Username, err)
 	}

@@ -55,6 +55,20 @@ func TestDefaultConfig_ServerDefaults(t *testing.T) {
 	}
 }
 
+func TestComplianceConfig_StandardsDefaultDisabledAndOrdered(t *testing.T) {
+	var cfg ComplianceConfig
+	if cfg.IsEnabled() || len(cfg.EnabledStandards()) != 0 {
+		t.Fatalf("zero-value compliance config must be disabled, got %+v", cfg)
+	}
+	cfg = ComplianceConfig{GDPR: true, PCIDSS: true, PDPA: true}
+	if !cfg.IsEnabled() {
+		t.Fatal("an enabled standard must activate compliance mode")
+	}
+	if got, want := strings.Join(cfg.EnabledStandards(), ","), "gdpr,pci_dss,pdpa"; got != want {
+		t.Fatalf("EnabledStandards() = %q, want %q", got, want)
+	}
+}
+
 func TestDefaultConfig_ScheduleDefaults(t *testing.T) {
 	cfg := DefaultConfig()
 	s := cfg.Server.Schedule
@@ -1125,6 +1139,8 @@ func TestGenerateConfigYAML_RoundTripsNewFields(t *testing.T) {
 	original.Server.Logging.Security.Filename = "security-custom.log"
 	original.Server.Debug.LogBodies = true
 	original.Server.Debug.MaxBodyLogSize = "20KB"
+	original.Server.Compliance.GDPR = true
+	original.Server.Compliance.FedRAMP = true
 
 	yamlContent := generateConfigYAML(original)
 
@@ -1166,6 +1182,9 @@ func TestGenerateConfigYAML_RoundTripsNewFields(t *testing.T) {
 	}
 	if !loaded.Server.Debug.LogBodies || loaded.Server.Debug.MaxBodyLogSize != "20KB" {
 		t.Errorf("Round-trip Debug: got LogBodies=%v MaxBodyLogSize=%q", loaded.Server.Debug.LogBodies, loaded.Server.Debug.MaxBodyLogSize)
+	}
+	if !loaded.Server.Compliance.GDPR || !loaded.Server.Compliance.FedRAMP {
+		t.Errorf("Round-trip Compliance: got %+v", loaded.Server.Compliance)
 	}
 }
 

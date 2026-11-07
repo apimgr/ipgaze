@@ -10,7 +10,6 @@ The main `ipgaze` binary runs the IP lookup server.
 
 ```bash
 ipgaze [flags]
-ipgaze [command]
 ```
 
 ### Commands
@@ -30,8 +29,9 @@ ipgaze [command]
 | `--maintenance security-report list` | List report IDs and non-identifying triage metadata |
 | `--maintenance security-report set <id> <status> [YYYY-MM-DD] [comment...]` | Update researcher-visible triage status, disclosure date, and comment |
 | `--maintenance token list\|revoke` | List or revoke operator API tokens |
-| `--maintenance data export\|delete` | Export or erase data for an IP address |
-| `--maintenance compliance report` | Print the compliance status report |
+| `--maintenance data export` | Print a JSON inventory of stored operational data and the configured privacy policy |
+| `--maintenance data delete` | Interactively erase rate-limit and audit-log history |
+| `--maintenance compliance report` | Print enabled standards and the configured compliance controls |
 
 ### Flags
 

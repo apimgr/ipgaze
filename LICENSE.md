@@ -42,6 +42,7 @@ This software includes the following third-party libraries:
 | github.com/google/uuid | v1.6.0 | BSD-3-Clause | 2009 Google Inc |
 | github.com/graphql-go/graphql | v0.8.1 | MIT | 2015 Chris Ramon |
 | github.com/microcosm-cc/bluemonday | v1.0.27 | BSD-3-Clause | 2014 David Kitchen |
+| github.com/modelcontextprotocol/go-sdk | v1.8.0 | Apache-2.0 / MIT | 2024-2025 Model Context Protocol a Series of LF Projects, LLC |
 | github.com/oschwald/maxminddb-golang | v1.8.0 | ISC | 2015 Gregory Oschwald |
 | github.com/pires/go-proxyproto | v0.15.0 | Apache-2.0 | 2016 Paulo Pires |
 | github.com/prometheus/client_golang | v1.23.2 | Apache-2.0 | 2012-2015 The Prometheus Authors |
@@ -50,10 +51,10 @@ This software includes the following third-party libraries:
 | github.com/rs/cors | v1.11.1 | MIT | 2014 Olivier Poitrey |
 | github.com/tursodatabase/libsql-client-go | v0.0.0-20260528064733-9d5d30a29a60 | MIT | 2023 libSQL |
 | github.com/yuin/goldmark | v1.8.5 | MIT | 2019 Yusuke Inuzuka |
-| golang.org/x/crypto | v0.55.0 | BSD-3-Clause | 2009 The Go Authors |
-| golang.org/x/net | v0.58.0 | BSD-3-Clause | 2009 The Go Authors |
-| golang.org/x/sys | v0.47.0 | BSD-3-Clause | 2009 The Go Authors |
-| golang.org/x/term | v0.45.0 | BSD-3-Clause | 2009 The Go Authors |
+| golang.org/x/crypto | v0.58.0 | BSD-3-Clause | 2009 The Go Authors |
+| golang.org/x/net | v0.62.0 | BSD-3-Clause | 2009 The Go Authors |
+| golang.org/x/sys | v0.49.0 | BSD-3-Clause | 2009 The Go Authors |
+| golang.org/x/term | v0.47.0 | BSD-3-Clause | 2009 The Go Authors |
 | golang.org/x/time | v0.15.0 | BSD-3-Clause | 2009 The Go Authors |
 | gopkg.in/yaml.v3 | v3.0.1 | Apache-2.0 | 2011-2019 Canonical Ltd |
 | modernc.org/libc | v1.72.3 | BSD-3-Clause | 2017 The Libc Authors |
@@ -63,6 +64,8 @@ This software includes the following third-party libraries:
 | swagger-ui-dist (vendored static assets, `src/server/static/vendor/swagger-ui/`) | 5.32.12 | Apache-2.0 | 2018 SmartBear Software Inc |
 
 Full license texts: https://spdx.org/licenses/
+
+The v1.8.0 MCP SDK license is transitional: newly licensed contributions use Apache-2.0, while contributions without relicensing consent remain MIT-licensed, as described in the module's LICENSE file.
 
 ---
 
@@ -85,19 +88,19 @@ Full license: https://spdx.org/licenses/BSD-3-Clause.html
 Copyright (c) 2014, David Kitchen. All rights reserved.
 Full license: https://spdx.org/licenses/BSD-3-Clause.html
 
-**golang.org/x/crypto v0.55.0**
+**golang.org/x/crypto v0.58.0**
 Copyright (c) 2009 The Go Authors. All rights reserved.
 Full license: https://spdx.org/licenses/BSD-3-Clause.html
 
-**golang.org/x/net v0.58.0**
+**golang.org/x/net v0.62.0**
 Copyright (c) 2009 The Go Authors. All rights reserved.
 Full license: https://spdx.org/licenses/BSD-3-Clause.html
 
-**golang.org/x/sys v0.47.0**
+**golang.org/x/sys v0.49.0**
 Copyright (c) 2009 The Go Authors. All rights reserved.
 Full license: https://spdx.org/licenses/BSD-3-Clause.html
 
-**golang.org/x/term v0.45.0**
+**golang.org/x/term v0.47.0**
 Copyright (c) 2009 The Go Authors. All rights reserved.
 Full license: https://spdx.org/licenses/BSD-3-Clause.html
 

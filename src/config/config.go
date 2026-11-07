@@ -1942,10 +1942,65 @@ type RestoreConfig struct {
 	MaxRatio        int    `yaml:"max_ratio"`
 }
 
-// ComplianceConfig controls compliance mode per AI.md PART 21.
-// When enabled, backups are blocked unless encryption is configured.
+// ComplianceConfig enables compliance standards described in AI.md PART 11.
+// When any standard or the general flag is enabled, backup encryption is required.
 type ComplianceConfig struct {
-	Enabled bool `yaml:"enabled"`
+	Enabled  bool `yaml:"enabled"`
+	GDPR     bool `yaml:"gdpr"`
+	CCPA     bool `yaml:"ccpa"`
+	HIPAA    bool `yaml:"hipaa"`
+	SOC2     bool `yaml:"soc2"`
+	PCIDSS   bool `yaml:"pci_dss"`
+	ISO27001 bool `yaml:"iso27001"`
+	FedRAMP  bool `yaml:"fedramp"`
+	LGPD     bool `yaml:"lgpd"`
+	PIPEDA   bool `yaml:"pipeda"`
+	APPI     bool `yaml:"appi"`
+	PDPA     bool `yaml:"pdpa"`
+}
+
+// IsEnabled reports whether general compliance mode or an individual standard is active.
+func (c ComplianceConfig) IsEnabled() bool {
+	return c.Enabled || len(c.EnabledStandards()) > 0
+}
+
+// EnabledStandards returns active standards in the stable AI.md order.
+func (c ComplianceConfig) EnabledStandards() []string {
+	standards := make([]string, 0, 11)
+	if c.GDPR {
+		standards = append(standards, "gdpr")
+	}
+	if c.CCPA {
+		standards = append(standards, "ccpa")
+	}
+	if c.HIPAA {
+		standards = append(standards, "hipaa")
+	}
+	if c.SOC2 {
+		standards = append(standards, "soc2")
+	}
+	if c.PCIDSS {
+		standards = append(standards, "pci_dss")
+	}
+	if c.ISO27001 {
+		standards = append(standards, "iso27001")
+	}
+	if c.FedRAMP {
+		standards = append(standards, "fedramp")
+	}
+	if c.LGPD {
+		standards = append(standards, "lgpd")
+	}
+	if c.PIPEDA {
+		standards = append(standards, "pipeda")
+	}
+	if c.APPI {
+		standards = append(standards, "appi")
+	}
+	if c.PDPA {
+		standards = append(standards, "pdpa")
+	}
+	return standards
 }
 
 // CLIBinaryDownloadConfig controls CLI binary download authentication per AI.md PART 32.
@@ -3150,6 +3205,17 @@ server:
 
   compliance:
     enabled: %t
+    gdpr: %t
+    ccpa: %t
+    hipaa: %t
+    soc2: %t
+    pci_dss: %t
+    iso27001: %t
+    fedramp: %t
+    lgpd: %t
+    pipeda: %t
+    appi: %t
+    pdpa: %t
 
   cli:
     binary_download:
@@ -3504,6 +3570,17 @@ data:
 		cfg.Server.Backup.Retention.KeepYearly,
 		cfg.Server.Backup.Retention.MaxTotalSize,
 		cfg.Server.Compliance.Enabled,
+		cfg.Server.Compliance.GDPR,
+		cfg.Server.Compliance.CCPA,
+		cfg.Server.Compliance.HIPAA,
+		cfg.Server.Compliance.SOC2,
+		cfg.Server.Compliance.PCIDSS,
+		cfg.Server.Compliance.ISO27001,
+		cfg.Server.Compliance.FedRAMP,
+		cfg.Server.Compliance.LGPD,
+		cfg.Server.Compliance.PIPEDA,
+		cfg.Server.Compliance.APPI,
+		cfg.Server.Compliance.PDPA,
 		cfg.Server.CLI.BinaryDownload.RequireAuth,
 		cfg.Server.Debug.Pprof,
 		cfg.Server.Debug.LogQueries,

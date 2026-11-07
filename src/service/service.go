@@ -162,6 +162,12 @@ func (s *Service) Install() error {
 // Uninstall stops, disables, removes the service file, deletes ALL data, and removes the OS user.
 // Confirmation is always required before proceeding.
 func (s *Service) Uninstall() error {
+	return s.UninstallWithDirectories(paths.GetDirectories())
+}
+
+// UninstallWithDirectories removes the service and the paths resolved for the
+// current command invocation.
+func (s *Service) UninstallWithDirectories(dirs paths.Directories) error {
 	serviceType := DetectServiceManager()
 
 	fmt.Print("This will delete ALL data, configs, and the system user. Continue? [y/N] ")
@@ -179,26 +185,26 @@ func (s *Service) Uninstall() error {
 	switch serviceType {
 	case ServiceSystemd:
 		if shouldUseUserSystemd() {
-			return uninstallSystemdUser()
+			return uninstallSystemdUser(dirs)
 		}
-		return uninstallSystemd()
+		return uninstallSystemd(dirs)
 	case ServiceOpenRC:
-		return uninstallOpenRC()
+		return uninstallOpenRC(dirs)
 	case ServiceSysVinit:
-		return uninstallSysVinit()
+		return uninstallSysVinit(dirs)
 	case ServiceRunit:
-		return uninstallRunit()
+		return uninstallRunit(dirs)
 	case ServiceLaunchd:
 		if shouldUseUserLaunchAgent() {
-			return uninstallLaunchAgent()
+			return uninstallLaunchAgent(dirs)
 		}
-		return uninstallLaunchd()
+		return uninstallLaunchd(dirs)
 	case ServiceS6:
-		return uninstallS6()
+		return uninstallS6(dirs)
 	case ServiceWindows:
-		return uninstallWindows()
+		return uninstallWindows(dirs)
 	case ServiceBSDRC:
-		return uninstallBSDRC()
+		return uninstallBSDRC(dirs)
 	default:
 		return fmt.Errorf("unsupported service manager")
 	}
@@ -546,26 +552,25 @@ func GetBinaryPath() string {
 	}
 }
 
-// deleteAllData removes all runtime data dirs, the system backup directory,
-// and the PID file left by the service, per AI.md PART 23 "Service Uninstall
-// Logic" (config/data/cache/log/backup dirs + PID file).
-func deleteAllData() {
-	dirs := []string{
-		fmt.Sprintf("/etc/%s/%s", orgName, appName),
-		fmt.Sprintf("/var/lib/%s/%s", orgName, appName),
-		fmt.Sprintf("/var/cache/%s/%s", orgName, appName),
-		fmt.Sprintf("/var/log/%s/%s", orgName, appName),
-		fmt.Sprintf("/var/backups/%s/%s", orgName, appName),
+// deleteAllData removes the OS-specific config, data, cache, log, and backup
+// directories plus the PID file resolved by the paths package. This follows
+// AI.md PART 23 "Service Uninstall Logic".
+func deleteAllData(dirs paths.Directories) {
+	dirsToRemove := []string{
+		dirs.Config,
+		dirs.Data,
+		dirs.Cache,
+		dirs.Logs,
+		dirs.Backup,
 	}
-	for _, d := range dirs {
+	for _, d := range dirsToRemove {
 		if err := os.RemoveAll(d); err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: failed to remove %s: %v\n", d, err)
 		}
 	}
 
-	pidFile := fmt.Sprintf("/var/run/%s/%s.pid", orgName, appName)
-	if err := os.Remove(pidFile); err != nil && !os.IsNotExist(err) {
-		fmt.Fprintf(os.Stderr, "Warning: failed to remove %s: %v\n", pidFile, err)
+	if err := os.Remove(dirs.PID); err != nil && !os.IsNotExist(err) {
+		fmt.Fprintf(os.Stderr, "Warning: failed to remove %s: %v\n", dirs.PID, err)
 	}
 }
 
@@ -683,7 +688,7 @@ func currentBinaryPath() (string, error) {
 	return resolved, nil
 }
 
-func uninstallSystemdUser() error {
+func uninstallSystemdUser(dirs paths.Directories) error {
 	unitPath := systemdUserUnitPath()
 	_ = exec.Command("systemctl", "--user", "disable", "--now", appName).Run()
 	if unitPath != "" {
@@ -694,7 +699,7 @@ func uninstallSystemdUser() error {
 	if err := exec.Command("systemctl", "--user", "daemon-reload").Run(); err != nil {
 		return fmt.Errorf("reload user systemd units: %w", err)
 	}
-	deleteUserServiceData()
+	deleteAllData(dirs)
 	fmt.Println("User service uninstalled. Binary and user data removed.")
 	return nil
 }
@@ -824,7 +829,7 @@ func launchAgentEnabled(output, label string) bool {
 	return false
 }
 
-func uninstallLaunchAgent() error {
+func uninstallLaunchAgent(dirs paths.Directories) error {
 	if err := disableLaunchAgent(); err != nil {
 		return err
 	}
@@ -832,26 +837,9 @@ func uninstallLaunchAgent() error {
 	if err := os.Remove(plistPath); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("remove user launch agent: %w", err)
 	}
-	deleteUserServiceData()
+	deleteAllData(dirs)
 	fmt.Println("User LaunchAgent uninstalled. Binary and user data removed.")
 	return nil
-}
-
-func deleteUserServiceData() {
-	dirs := paths.GetAllDirs(appName)
-	for _, dir := range []string{dirs.Config, dirs.Data, dirs.Cache, dirs.Logs, dirs.Backup} {
-		if dir == "" {
-			continue
-		}
-		if err := os.RemoveAll(dir); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to remove %s: %v\n", dir, err)
-		}
-	}
-	if dirs.PID != "" {
-		if err := os.Remove(dirs.PID); err != nil && !os.IsNotExist(err) {
-			fmt.Fprintf(os.Stderr, "Warning: failed to remove %s: %v\n", dirs.PID, err)
-		}
-	}
 }
 
 const (
@@ -923,7 +911,7 @@ func disableS6() error {
 	return updateS6Database()
 }
 
-func uninstallS6() error {
+func uninstallS6(dirs paths.Directories) error {
 	_ = exec.Command("s6-rc", "-d", "change", s6ServiceName).Run()
 	if err := os.Remove(filepath.Join(s6UserBundleDir, s6ServiceName)); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("remove s6 user bundle entry: %w", err)
@@ -934,7 +922,7 @@ func uninstallS6() error {
 	if err := updateS6Database(); err != nil {
 		return err
 	}
-	deleteAllData()
+	deleteAllData(dirs)
 	removeSystemUser()
 	fmt.Printf("s6 service uninstalled. Delete binary manually: rm %s\n", GetBinaryPath())
 	return nil
@@ -1005,7 +993,7 @@ WantedBy=multi-user.target
 }
 
 // uninstallSystemd stops, disables, removes the service file, deletes all data, and removes the OS user.
-func uninstallSystemd() error {
+func uninstallSystemd(dirs paths.Directories) error {
 	servicePath := fmt.Sprintf("/etc/systemd/system/%s.service", appName)
 	binaryPath := GetBinaryPath()
 
@@ -1019,7 +1007,7 @@ func uninstallSystemd() error {
 	// daemon-reload is best-effort; systemd will reload on next operation if this fails.
 	exec.Command("systemctl", "daemon-reload").Run() //nolint:errcheck
 
-	deleteAllData()
+	deleteAllData(dirs)
 	removeSystemUser()
 
 	fmt.Printf("Service uninstalled. Delete binary manually: rm %s\n", binaryPath)
@@ -1085,7 +1073,7 @@ start_pre() {
 }
 
 // uninstallOpenRC removes an OpenRC service and all its data.
-func uninstallOpenRC() error {
+func uninstallOpenRC(dirs paths.Directories) error {
 	initPath := fmt.Sprintf("/etc/init.d/%s", appName)
 	binaryPath := GetBinaryPath()
 
@@ -1097,7 +1085,7 @@ func uninstallOpenRC() error {
 		return fmt.Errorf("failed to remove init script: %w", err)
 	}
 
-	deleteAllData()
+	deleteAllData(dirs)
 	removeSystemUser()
 
 	fmt.Printf("Service uninstalled. Delete binary manually: rm %s\n", binaryPath)
@@ -1192,7 +1180,7 @@ exit 0
 }
 
 // uninstallSysVinit removes a SysVinit service and all its data.
-func uninstallSysVinit() error {
+func uninstallSysVinit(dirs paths.Directories) error {
 	initPath := fmt.Sprintf("/etc/init.d/%s", appName)
 	binaryPath := GetBinaryPath()
 
@@ -1205,7 +1193,7 @@ func uninstallSysVinit() error {
 		return fmt.Errorf("failed to remove init script: %w", err)
 	}
 
-	deleteAllData()
+	deleteAllData(dirs)
 	removeSystemUser()
 
 	fmt.Printf("Service uninstalled. Delete binary manually: rm %s\n", binaryPath)
@@ -1255,7 +1243,7 @@ func installRunit() error {
 }
 
 // uninstallRunit removes a runit service and all its data.
-func uninstallRunit() error {
+func uninstallRunit(dirs paths.Directories) error {
 	svDir := fmt.Sprintf("/etc/sv/%s", appName)
 	linkPath := fmt.Sprintf("/var/service/%s", appName)
 	binaryPath := GetBinaryPath()
@@ -1267,7 +1255,7 @@ func uninstallRunit() error {
 	os.Remove(linkPath) //nolint:errcheck
 	os.RemoveAll(svDir) //nolint:errcheck
 
-	deleteAllData()
+	deleteAllData(dirs)
 	removeSystemUser()
 
 	fmt.Printf("Service uninstalled. Delete binary manually: rm %s\n", binaryPath)
@@ -1332,7 +1320,7 @@ func installLaunchd() error {
 }
 
 // uninstallLaunchd removes a macOS launchd service and all its data.
-func uninstallLaunchd() error {
+func uninstallLaunchd(dirs paths.Directories) error {
 	plistPath := launchdPlistPath()
 	binaryPath := GetBinaryPath()
 
@@ -1343,7 +1331,7 @@ func uninstallLaunchd() error {
 		return fmt.Errorf("failed to remove plist file: %w", err)
 	}
 
-	deleteAllData()
+	deleteAllData(dirs)
 	removeSystemUser()
 
 	fmt.Printf("Service uninstalled. Delete binary manually: rm %s\n", binaryPath)
@@ -1385,7 +1373,7 @@ func installWindows() error {
 }
 
 // uninstallWindows removes a Windows service and all its data.
-func uninstallWindows() error {
+func uninstallWindows(dirs paths.Directories) error {
 	binaryPath := GetBinaryPath()
 
 	// Stop errors are non-fatal during uninstall; sc.exe delete is the critical step.
@@ -1394,7 +1382,7 @@ func uninstallWindows() error {
 		return fmt.Errorf("failed to delete Windows service: %w", err)
 	}
 
-	deleteAllData()
+	deleteAllData(dirs)
 
 	fmt.Printf("Service uninstalled. Delete binary manually: del \"%s\"\n", binaryPath)
 	return nil
@@ -1448,7 +1436,7 @@ run_rc_command "$1"
 }
 
 // uninstallBSDRC removes a BSD rc.d service and all its data.
-func uninstallBSDRC() error {
+func uninstallBSDRC(dirs paths.Directories) error {
 	rcPath := fmt.Sprintf("/usr/local/etc/rc.d/%s", appName)
 	binaryPath := GetBinaryPath()
 
@@ -1460,7 +1448,7 @@ func uninstallBSDRC() error {
 		return fmt.Errorf("failed to remove rc.d script: %w", err)
 	}
 
-	deleteAllData()
+	deleteAllData(dirs)
 	removeSystemUser()
 
 	fmt.Printf("Service uninstalled. Delete binary manually: rm %s\n", binaryPath)

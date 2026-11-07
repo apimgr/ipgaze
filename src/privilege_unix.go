@@ -48,6 +48,24 @@ func findAvailableSystemID() (int, error) {
 	return 0, fmt.Errorf("no available UID/GID in safe range 200-899")
 }
 
+// findAvailableMacOSSystemID uses the narrower system account range specified
+// for macOS in AI.md PART 23.
+func findAvailableMacOSSystemID() (int, error) {
+	for id := 399; id >= 200; id-- {
+		if reservedSystemIDs[id] {
+			continue
+		}
+		if _, err := user.LookupId(strconv.Itoa(id)); err == nil {
+			continue
+		}
+		if _, err := user.LookupGroupId(strconv.Itoa(id)); err == nil {
+			continue
+		}
+		return id, nil
+	}
+	return 0, fmt.Errorf("no available UID/GID in macOS safe range 200-399")
+}
+
 // ensureSystemUser creates the dedicated {internal_name} system user/group if
 // it does not already exist, per AI.md PART 23 "System User Requirements" and
 // the Server Startup Sequence step 8a ("Server binary handles user/group
@@ -57,16 +75,31 @@ func ensureSystemUser(username, homeDir string) (uid, gid int, err error) {
 	if u, lookErr := user.Lookup(username); lookErr == nil {
 		uid, _ = strconv.Atoi(u.Uid)
 		gid, _ = strconv.Atoi(u.Gid)
+		if uid != gid {
+			return 0, 0, fmt.Errorf("existing service user %q has mismatched UID/GID %d/%d", username, uid, gid)
+		}
 		return uid, gid, nil
 	}
 
-	id, err := findAvailableSystemID()
+	findID := findAvailableSystemID
+	if runtime.GOOS == "darwin" {
+		findID = findAvailableMacOSSystemID
+	}
+	id, err := findID()
 	if err != nil {
 		return 0, 0, err
 	}
 
 	gecos := username + " service account"
-	if _, lookErr := exec.LookPath("groupadd"); lookErr == nil {
+	if runtime.GOOS == "darwin" {
+		if err := createMacOSServiceUser(username, id, homeDir); err != nil {
+			return 0, 0, err
+		}
+	} else if runtime.GOOS == "freebsd" {
+		if err := createFreeBSDServiceUser(username, id, homeDir); err != nil {
+			return 0, 0, err
+		}
+	} else if _, lookErr := exec.LookPath("groupadd"); lookErr == nil {
 		if out, cmdErr := exec.Command("groupadd", "--system", "--gid", strconv.Itoa(id), username).CombinedOutput(); cmdErr != nil {
 			return 0, 0, fmt.Errorf("groupadd: %w: %s", cmdErr, out)
 		}
@@ -88,6 +121,44 @@ func ensureSystemUser(username, homeDir string) (uid, gid int, err error) {
 	}
 
 	return id, id, nil
+}
+
+func createMacOSServiceUser(name string, id int, homeDir string) error {
+	idText := strconv.Itoa(id)
+	commands := [][]string{
+		{"dscl", ".", "-create", "/Groups/" + name},
+		{"dscl", ".", "-create", "/Groups/" + name, "PrimaryGroupID", idText},
+		{"dscl", ".", "-create", "/Groups/" + name, "Password", "*"},
+		{"dscl", ".", "-create", "/Users/" + name},
+		{"dscl", ".", "-create", "/Users/" + name, "UniqueID", idText},
+		{"dscl", ".", "-create", "/Users/" + name, "PrimaryGroupID", idText},
+		{"dscl", ".", "-create", "/Users/" + name, "UserShell", "/usr/bin/false"},
+		{"dscl", ".", "-create", "/Users/" + name, "RealName", name + " service account"},
+		{"dscl", ".", "-create", "/Users/" + name, "NFSHomeDirectory", homeDir},
+		{"dscl", ".", "-create", "/Users/" + name, "Password", "*"},
+		{"dscl", ".", "-create", "/Users/" + name, "IsHidden", "1"},
+	}
+	return runSystemAccountCommands(commands)
+}
+
+func createFreeBSDServiceUser(name string, id int, homeDir string) error {
+	idText := strconv.Itoa(id)
+	gecos := name + " service account"
+	commands := [][]string{
+		{"pw", "groupadd", "-n", name, "-g", idText},
+		{"pw", "useradd", "-n", name, "-u", idText, "-g", idText, "-d", homeDir, "-s", "/usr/sbin/nologin", "-c", gecos},
+	}
+	return runSystemAccountCommands(commands)
+}
+
+func runSystemAccountCommands(commands [][]string) error {
+	for _, args := range commands {
+		output, err := exec.Command(args[0], args[1:]...).CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("%s: %w: %s", args[0], err, output)
+		}
+	}
+	return nil
 }
 
 // chownRecursive sets ownership on path and everything beneath it, per AI.md
