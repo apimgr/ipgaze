@@ -480,7 +480,7 @@ func TestPrintHelp_ContainsUsage(t *testing.T) {
 
 func TestPrintHelp_ContainsFlags(t *testing.T) {
 	out := captureStdout(func() { printHelp("ipgaze") })
-	flags := []string{"--port", "--address", "--config", "--debug", "--service", "--version"}
+	flags := []string{"--port", "--address", "--config", "--debug", "--service", "--version", "--shell --help", "--service --help", "--maintenance --help", "--update --help"}
 	for _, f := range flags {
 		if !strings.Contains(out, f) {
 			t.Errorf("printHelp() missing flag %q", f)

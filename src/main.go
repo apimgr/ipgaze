@@ -2115,8 +2115,12 @@ Service Management:
       --maintenance CMD             Maintenance operations (--maintenance --help for details)
       --update [CMD]                Check/perform updates (--update --help for details)
 
-Run '%s <command> --help' for detailed help on any command.
-`, binaryName, Version, binaryName, binaryName)
+Detailed help:
+  %s --shell --help
+  %s --service --help
+  %s --maintenance --help
+  %s --update --help
+`, binaryName, Version, binaryName, binaryName, binaryName, binaryName, binaryName)
 }
 
 // applyModeString parses a mode string (from the MODE env var or the --mode

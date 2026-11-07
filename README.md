@@ -163,8 +163,9 @@ docker run -d \
 
 ## Server CLI
 
-`ipgaze --help` prints the full reference; `ipgaze <command> --help` prints
-per-command detail for `--service`, `--maintenance`, `--shell`, and `--update`.
+`ipgaze --help` prints the full reference. Detailed help is available with
+`ipgaze --service --help`, `ipgaze --maintenance --help`,
+`ipgaze --shell --help`, and `ipgaze --update --help`.
 
 ### Flags
 
@@ -211,6 +212,7 @@ per-command detail for `--service`, `--maintenance`, `--shell`, and `--update`.
 | `--maintenance data export` | Print a JSON inventory of stored operational data and the configured privacy policy |
 | `--maintenance data delete` | Interactively erase rate-limit and audit-log history |
 | `--maintenance compliance report` | Show enabled standards and configured privacy/security controls; enabled standards require encrypted backups |
+| `--shell --help` | Show shell integration usage and supported shells |
 | `--shell completions [SHELL]` | Print shell completions (bash, zsh, fish, sh, dash, ksh, powershell, pwsh) |
 | `--shell init [SHELL]` | Print the shell init snippet |
 | `--update check` | Check GitHub Releases for a newer binary |

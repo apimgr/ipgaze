@@ -32,6 +32,7 @@ ipgaze [flags]
 | `--maintenance data export` | Print a JSON inventory of stored operational data and the configured privacy policy |
 | `--maintenance data delete` | Interactively erase rate-limit and audit-log history |
 | `--maintenance compliance report` | Print enabled standards and the configured compliance controls |
+| `--shell --help` | Show shell integration usage and supported shells |
 
 ### Flags
 
@@ -39,7 +40,7 @@ Only `-h` (help) and `-v` (version) have short forms.
 
 | Flag | Description | Default |
 |------|-------------|---------|
-| `-h`, `--help` | Show help (`--help` for any command shows its help) | - |
+| `-h`, `--help` | Show top-level help | - |
 | `-v`, `--version` | Show version | - |
 | `--status` | Show server status and health | - |
 | `--mode {production\|development\|debug}` | Application mode; `debug` selects development mode and enables debug output unless overridden | `production` |
@@ -62,6 +63,7 @@ Only `-h` (help) and `-v` (version) have short forms.
 | `--service CMD` | Service management (`--service --help` for details) | - |
 | `--maintenance CMD` | Maintenance operations (`--maintenance --help` for details) | - |
 | `--update [CMD]` | Check/perform updates (`--update --help` for details) | - |
+| `--shell --help` | Show shell integration help | - |
 
 Reverse DNS hostname lookup and port reachability testing (`/port/{port}`)
 are server features. Port lookup is available when enabled by the server's
