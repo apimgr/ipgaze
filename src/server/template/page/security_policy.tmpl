@@ -2,6 +2,11 @@
 {{define "title"}}{{t .Lang "security.disclosure_title"}} — {{.ProjectName}}{{end}}
 {{define "content"}}
 <h1>{{t .Lang "security.disclosure_title"}}</h1>
+{{if .PolicyMarkdown}}
+<section class="section-card" aria-label="{{t .Lang "security.disclosure_title"}}">
+  {{markdownToHTML .PolicyMarkdown}}
+</section>
+{{else}}
 <section class="section-card" aria-labelledby="disclosure-window">
   <h2 id="disclosure-window">{{t .Lang "security.coordinated_disclosure"}}</h2>
   <p>{{.DisclosureWindow}}</p>
@@ -22,4 +27,5 @@
   <h2 id="reporting">{{t .Lang "security.report_vulnerability"}}</h2>
   <p>{{tf .Lang "security.disclosure_reporting_body" "github" (t .Lang "security.github_private_reporting") "security_txt" "security.txt"}}</p>
 </section>
+{{end}}
 {{end}}

@@ -1,0 +1,14 @@
+{{template "base" .}}
+{{define "title"}}{{t .Lang "privacy.dpo_title"}} — {{.ProjectName}}{{end}}
+{{define "content"}}
+<h1>{{t .Lang "privacy.dpo_title"}}</h1>
+<section class="section-card">
+  {{if .Name}}<p><strong>{{t .Lang "privacy.dpo_name"}}:</strong> {{.Name}}</p>{{end}}
+  {{if .Email}}
+  <p><strong>{{t .Lang "privacy.dpo_email"}}:</strong> <a href="mailto:{{.Email}}">{{.Email}}</a></p>
+  {{else}}
+  <p>{{t .Lang "privacy.dpo_contact_unavailable"}} <a href="/server/contact">{{t .Lang "privacy.dpo_contact_form"}}</a></p>
+  {{end}}
+  <p><a href="{{.PrivacyURL}}">{{t .Lang "privacy.title"}}</a></p>
+</section>
+{{end}}

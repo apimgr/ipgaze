@@ -231,10 +231,37 @@ server:
   tor:
     binary: ""          # Empty means auto-detect
     use_network: false  # Route supported server-originated HTTP requests via Tor
+    startup_timeout: 60  # Control-port file wait, 10-300 seconds
 ```
 
 In the standard Docker layout, Tor stores the onion hostname at
 `/data/ipgaze/tor/site/hostname`.
+
+### Request Flood Detection and Permanent IP Blocks
+
+Flood detection counts every request, including `429` responses, by client IP
+and endpoint class. Defaults detect a count greater than 10 times the class
+limit in a rolling 60-second window, block the IP for one hour, and send a
+security alert. Allowlisted addresses bypass blocking and flood counting.
+Temporary blocks persist in the database and expire automatically. Permanent
+blocks accept IPv4/IPv6 addresses or CIDRs; an allowlist entry takes precedence.
+
+```yaml
+server:
+  security:
+    abuse_detection:
+      request_flood:
+        multiplier: 10
+        window: 60s
+        block_duration: 1h
+      auto_block_ip: true
+      auto_alert: true
+    blocked_ips:
+      - cidr: 198.51.100.0/24
+        reason: "Abusive network"
+      - cidr: "2001:db8::/32"
+        reason: "Abusive IPv6 range"
+```
 
 ## I2P
 
@@ -409,13 +436,48 @@ server:
 The `id` and `url` values depend on the provider. Self-hosted Matomo, Piwik,
 OWA, and Umami require a URL; Fathom and Plausible accept an optional
 self-hosted URL. Other provider requirements are validated at startup. The
-same-origin loader waits for analytics consent, respects the CCPA opt-out and
-Global Privacy Control signal, and checks the enforced CSP script allowlist.
+generated same-origin `/server/tracking.js` endpoint waits for explicit
+analytics consent, respects the CCPA opt-out and Global Privacy Control
+signal, and checks the enforced CSP script allowlist. It returns 404 when
+tracking is disabled, consent is absent, or the request is served over Tor or
+I2P.
 Simple Analytics also uses its no-script pixel only when consent is present
 and `img-src` permits its host. For a third-party provider, add its script
 host to `web.csp.script_src_extra`.
-Clearnet tracking scripts are not loaded from onion requests; same-origin
-self-hosted analytics may be used there.
+Clearnet tracking scripts and pixels are never loaded over Tor or I2P.
+
+### Contact CAPTCHA and Disclosure Policy
+
+The contact and security report forms share `pages.contact.captcha`. The
+built-in `simple` challenge is the default and works without JavaScript. To use
+an external provider, configure both keys; startup and hot reload reject a
+missing key. Provider hosts are added only for the selected provider, and
+Tor/I2P requests always use the built-in challenge. The built-in challenge
+stores a keyed answer hash, expires after 10 minutes, and is consumed on the
+first verification attempt. Contact submissions are rate-limited per client IP.
+
+```yaml
+pages:
+  contact:
+    captcha: simple # simple, recaptcha, or hcaptcha
+    captcha_site_key: ""
+    captcha_secret_key: ""
+
+web:
+  security:
+    policy: "" # Optional public disclosure policy in Markdown
+
+server:
+  contact:
+    dpo:
+      name: ""
+      email: ""
+```
+
+The DPO page uses `server.contact.dpo.email`, falling back to the general
+contact address only. If neither is configured, the page links to the contact
+form without publishing an address. `web.security.policy` replaces the
+default disclosure policy text when non-empty.
 
 ### Security Headers
 
@@ -472,6 +534,38 @@ server:
 Each per-file block supports `rotate` (`daily`, `weekly`, `monthly`, or a
 size like `100MB`, combinable) and `keep` (`none`, `N`, `Nd`, `Nw`, `Nm`,
 `forever`) retention settings.
+
+## Backups
+
+The scheduled daily task snapshots the application once, then creates and
+verifies a cumulative daily incremental against the newest earlier full backup
+before writing the new full backup. The incremental contains changed files
+since that base, plus deletion records; it is not a chain of hourly or daily
+deltas. Keep its referenced full in the backup directory. Restore from an
+incremental verifies the base, overlays changed files, and applies deletions.
+Restore size and file-count limits apply to the combined result. The first
+scheduled run has no previous full, so it creates only a full backup.
+
+The optional hourly task is disabled by default and creates one replaceable
+cumulative incremental based on the newest full. Scheduled backups are verified
+before retention cleanup. Manual `--maintenance backup` creates a timestamped
+full archive. Configure retention under `server.backup.retention`:
+
+```yaml
+server:
+  backup:
+    retention:
+      max_backups: 1
+      keep_weekly: 0
+      keep_monthly: 0
+      keep_yearly: 0
+      max_total_size: "10%"
+```
+
+Retention protects a full backup referenced by the current daily or hourly
+incremental. `max_total_size`, when set above zero, may override count-based
+retention. The archive encryption password and compliance requirements are
+described in the backup and restore configuration generated in `server.yml`.
 
 ## Database
 

@@ -301,7 +301,12 @@
     "access_logs_body": "標準的なHTTPアクセスログは運用目的で保持され、定期的にローテーションされます。ログにはIPアドレス、リクエストパス、タイムスタンプが含まれます。",
     "no_tracking_heading": "トラッキングなし",
     "no_tracking_body": "アナリティクス、トラッキングピクセル、サードパーティのCookieは使用しません。お客様のデータを第三者に販売または共有することはありません。",
-    "contact_body_pre": "プライバシーに関するお問い合わせは："
+    "contact_body_pre": "プライバシーに関するお問い合わせは：",
+    "dpo_title": "データ保護責任者",
+    "dpo_name": "氏名",
+    "dpo_email": "メールアドレス",
+    "dpo_contact_unavailable": "データ保護に関する連絡先は設定されていません。",
+    "dpo_contact_form": "お問い合わせフォーム"
   },
 
   "terms": {

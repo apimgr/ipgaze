@@ -18,9 +18,14 @@ ipgaze [flags]
 |---------|-------------|
 | `--shell completions` | Generate shell completions |
 | `--shell init` | Initialize shell integration |
-| `--maintenance backup [file]` | Create a backup archive; SSL keys and the full data directory are excluded unless requested |
+| `--maintenance backup [file]` | Create and verify a timestamped full archive; SSL keys and the full data directory are excluded unless requested |
 | `--maintenance backup test` | Dry-run restore the backup set and verify the encrypted PGP key decrypts |
 | `--maintenance restore <file>` | Restore a backup archive |
+
+Scheduled backups create a verified full backup and a cumulative daily
+incremental. An incremental restore requires its referenced full backup in the
+same directory. Hourly incremental backups are disabled by default; see
+[configuration](configuration.md#backups).
 | `--maintenance update` | Install the latest binary |
 | `--maintenance mode [production\|development]` | Show or change maintenance mode |
 | `--maintenance setup` | Run first-time setup |

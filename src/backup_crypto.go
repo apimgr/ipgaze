@@ -16,7 +16,9 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
+	"time"
 
 	"github.com/apimgr/ipgaze/src/config"
 	"golang.org/x/crypto/argon2"
@@ -192,6 +194,16 @@ type backupArchiveLayout struct {
 	includeData bool
 }
 
+// backupFileRecord describes one regular file in a full or incremental
+// archive. Paths use slash separators and are relative to the archive root.
+type backupFileRecord struct {
+	Path    string `json:"path"`
+	Size    int64  `json:"size"`
+	ModTime string `json:"mtime"`
+	SHA256  string `json:"sha256"`
+	data    []byte `json:"-"`
+}
+
 // sslDir returns {config_dir}/ssl per AI.md PART 4/21.
 func (l backupArchiveLayout) sslDir() string {
 	return filepath.Join(l.configDir, "ssl")
@@ -331,19 +343,94 @@ func hashBackupDirInto(h hash.Hash, dir string, excludes ...string) error {
 // content integrity after extraction (AI.md PART 21 verification: "Checksum
 // valid").
 func computeBackupContentChecksum(layout backupArchiveLayout) (string, error) {
-	h := sha256.New()
-	if err := hashBackupDirInto(h, layout.configDir, layout.configExcludes()...); err != nil {
+	files, err := collectBackupFiles(layout)
+	if err != nil {
 		return "", err
 	}
-	if err := hashBackupDirInto(h, layout.dbDir); err != nil {
-		return "", err
+	return checksumBackupFiles(files), nil
+}
+
+// collectBackupFiles reads the exact regular-file set represented by layout.
+// It keeps each file's data in memory so an incremental archive is built from
+// one captured state and never needs an unencrypted staging file on disk.
+func collectBackupFiles(layout backupArchiveLayout) ([]backupFileRecord, error) {
+	var files []backupFileRecord
+	walk := func(root, prefix string, excludes ...string) error {
+		info, err := os.Stat(root)
+		if os.IsNotExist(err) {
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("stat %s: %w", root, err)
+		}
+		if !info.IsDir() {
+			return fmt.Errorf("%s is not a directory", root)
+		}
+		return filepath.Walk(root, func(path string, fi os.FileInfo, walkErr error) error {
+			if walkErr != nil {
+				return walkErr
+			}
+			if isExcludedPath(path, excludes) {
+				if fi.IsDir() {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+			if fi.IsDir() || fi.Mode()&os.ModeSymlink != 0 {
+				return nil
+			}
+			rel, err := filepath.Rel(root, path)
+			if err != nil {
+				return err
+			}
+			name := prefix
+			if rel != "." {
+				name = filepath.Join(prefix, rel)
+			}
+			name = filepath.ToSlash(name)
+			data, err := os.ReadFile(path)
+			if err != nil {
+				return fmt.Errorf("read %s: %w", path, err)
+			}
+			digest := sha256.Sum256(data)
+			files = append(files, backupFileRecord{
+				Path: name, Size: int64(len(data)), ModTime: fi.ModTime().UTC().Truncate(time.Second).Format(time.RFC3339Nano),
+				SHA256: hex.EncodeToString(digest[:]), data: data,
+			})
+			return nil
+		})
+	}
+	if err := walk(layout.configDir, filepath.Base(layout.configDir), layout.configExcludes()...); err != nil {
+		return nil, err
+	}
+	if err := walk(layout.dbDir, "db"); err != nil {
+		return nil, err
 	}
 	if layout.includeData {
-		if err := hashBackupDirInto(h, layout.dataDir, layout.dataExcludes()...); err != nil {
-			return "", err
+		if err := walk(layout.dataDir, filepath.Base(layout.dataDir), layout.dataExcludes()...); err != nil {
+			return nil, err
 		}
 	}
-	return "sha256:" + hex.EncodeToString(h.Sum(nil)), nil
+	sort.Slice(files, func(i, j int) bool { return files[i].Path < files[j].Path })
+	return files, nil
+}
+
+func checksumBackupFiles(files []backupFileRecord) string {
+	h := sha256.New()
+	for _, file := range files {
+		_, _ = io.WriteString(h, file.Path)
+		_, _ = h.Write([]byte{0})
+		_, _ = h.Write(file.data)
+	}
+	return "sha256:" + hex.EncodeToString(h.Sum(nil))
+}
+
+func backupFileManifest(files []backupFileRecord) []backupFileRecord {
+	manifest := make([]backupFileRecord, len(files))
+	for i, file := range files {
+		manifest[i] = backupFileRecord{Path: file.Path, Size: file.Size, ModTime: file.ModTime, SHA256: file.SHA256}
+	}
+	return manifest
 }
 
 // buildBackupArchive assembles an in-memory tar.gz containing manifest.json,
@@ -354,37 +441,178 @@ func computeBackupContentChecksum(layout backupArchiveLayout) (string, error) {
 // bytes before anything unencrypted touches disk. manifest["checksum"] and
 // manifest["contents"] are populated from the layout actually archived.
 func buildBackupArchive(manifest map[string]interface{}, layout backupArchiveLayout) ([]byte, error) {
-	checksum, err := computeBackupContentChecksum(layout)
+	files, err := collectBackupFiles(layout)
 	if err != nil {
-		return nil, fmt.Errorf("compute checksum: %w", err)
+		return nil, fmt.Errorf("collect backup files: %w", err)
 	}
+	return buildBackupArchiveFromFiles(manifest, layout, files)
+}
+
+func buildBackupArchiveFromFiles(manifest map[string]interface{}, layout backupArchiveLayout, files []backupFileRecord) ([]byte, error) {
+	checksum := checksumBackupFiles(files)
 	manifest["checksum"] = checksum
+	manifest["sha256"] = checksum
+	manifest["type"] = "full"
+	if _, ok := manifest["snapshot_at"]; !ok {
+		manifest["snapshot_at"] = time.Now().UTC().Format(time.RFC3339Nano)
+	}
+	manifest["files"] = backupFileManifest(files)
 	manifest["contents"] = backupArchiveContents(layout)
 
+	return encodeBackupFiles(manifest, files)
+}
+
+// buildIncrementalBackupArchive creates a cumulative differential archive
+// from baseArchiveBytes to the current layout. The daily/hourly archive is
+// always computed against a full backup, never against the prior incremental.
+func buildIncrementalBackupArchive(manifest map[string]interface{}, layout backupArchiveLayout, baseArchiveBytes []byte, baseName, baseSHA256 string) ([]byte, error) {
+	current, err := collectBackupFiles(layout)
+	if err != nil {
+		return nil, fmt.Errorf("collect current backup files: %w", err)
+	}
+	return buildIncrementalBackupArchiveFromFiles(manifest, current, baseArchiveBytes, baseName, baseSHA256, layout)
+}
+
+func buildIncrementalBackupArchiveFromFiles(manifest map[string]interface{}, current []backupFileRecord, baseArchiveBytes []byte, baseName, baseSHA256 string, layout backupArchiveLayout) ([]byte, error) {
+	baseManifest, err := readBackupManifest(baseArchiveBytes)
+	if err != nil {
+		return nil, fmt.Errorf("read base manifest: %w", err)
+	}
+	if kind, _ := baseManifest["type"].(string); kind != "full" {
+		return nil, fmt.Errorf("incremental base %q is not a full backup", baseName)
+	}
+	if !backupManifestContentsCompatible(baseManifest, layout) {
+		return nil, fmt.Errorf("incremental base %q has different optional contents from the current backup layout", baseName)
+	}
+	baseFiles, err := parseBackupFileManifest(baseManifest["files"])
+	if err != nil {
+		return nil, fmt.Errorf("read base file list: %w", err)
+	}
+	baseByPath := make(map[string]backupFileRecord, len(baseFiles))
+	for _, file := range baseFiles {
+		baseByPath[file.Path] = file
+	}
+	currentByPath := make(map[string]backupFileRecord, len(current))
+	var changed []backupFileRecord
+	for _, file := range current {
+		currentByPath[file.Path] = file
+		old, exists := baseByPath[file.Path]
+		if !exists || old.Size != file.Size || old.ModTime != file.ModTime || old.SHA256 != file.SHA256 {
+			changed = append(changed, file)
+		}
+	}
+	deleted := make([]string, 0)
+	for path := range baseByPath {
+		if _, ok := currentByPath[path]; !ok {
+			deleted = append(deleted, path)
+		}
+	}
+	sort.Strings(deleted)
+	manifest["type"] = "incremental"
+	if _, ok := manifest["snapshot_at"]; !ok {
+		manifest["snapshot_at"] = time.Now().UTC().Format(time.RFC3339Nano)
+	}
+	manifest["base_backup"] = filepath.Base(baseName)
+	manifest["base_sha256"] = baseSHA256
+	manifest["deleted"] = deleted
+	manifest["files"] = backupFileManifest(changed)
+	manifest["checksum"] = checksumBackupFiles(changed)
+	manifest["sha256"] = manifest["checksum"]
+	manifest["contents"] = []string{"incremental"}
+	return encodeBackupFiles(manifest, changed)
+}
+
+func backupManifestContentsCompatible(manifest map[string]interface{}, layout backupArchiveLayout) bool {
+	raw, ok := manifest["contents"].([]interface{})
+	if !ok {
+		return false
+	}
+	actual := make([]string, 0, len(raw))
+	for _, value := range raw {
+		name, ok := value.(string)
+		if !ok {
+			return false
+		}
+		actual = append(actual, name)
+	}
+	expected := backupArchiveContents(layout)
+	sort.Strings(actual)
+	sort.Strings(expected)
+	if len(actual) != len(expected) {
+		return false
+	}
+	for i := range actual {
+		if actual[i] != expected[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func parseBackupFileManifest(value interface{}) ([]backupFileRecord, error) {
+	entries, ok := value.([]interface{})
+	if !ok {
+		return nil, errors.New("files list is missing")
+	}
+	files := make([]backupFileRecord, 0, len(entries))
+	seen := make(map[string]struct{}, len(entries))
+	for _, entry := range entries {
+		fields, ok := entry.(map[string]interface{})
+		if !ok {
+			return nil, errors.New("invalid file record")
+		}
+		path, ok := fields["path"].(string)
+		if !ok || !validBackupArchivePath(path) {
+			return nil, fmt.Errorf("invalid file path %q", path)
+		}
+		if _, exists := seen[path]; exists {
+			return nil, fmt.Errorf("duplicate file path %q", path)
+		}
+		seen[path] = struct{}{}
+		size, ok := fields["size"].(float64)
+		if !ok || size < 0 {
+			return nil, fmt.Errorf("invalid size for %q", path)
+		}
+		mtime, ok := fields["mtime"].(string)
+		if !ok {
+			return nil, fmt.Errorf("invalid mtime for %q", path)
+		}
+		digest, ok := fields["sha256"].(string)
+		if !ok || len(digest) != sha256.Size*2 {
+			return nil, fmt.Errorf("invalid SHA-256 for %q", path)
+		}
+		if _, err := hex.DecodeString(digest); err != nil {
+			return nil, fmt.Errorf("invalid SHA-256 for %q", path)
+		}
+		if _, err := time.Parse(time.RFC3339Nano, mtime); err != nil {
+			return nil, fmt.Errorf("invalid mtime for %q", path)
+		}
+		files = append(files, backupFileRecord{Path: path, Size: int64(size), ModTime: mtime, SHA256: digest})
+	}
+	return files, nil
+}
+
+func validBackupArchivePath(name string) bool {
+	clean := filepath.ToSlash(filepath.Clean(filepath.FromSlash(name)))
+	return name != "" && clean == name && clean != "." && !strings.HasPrefix(clean, "../") && !strings.HasPrefix(clean, "/")
+}
+
+func encodeBackupFiles(manifest map[string]interface{}, files []backupFileRecord) ([]byte, error) {
 	manifestBytes, err := json.Marshal(manifest)
 	if err != nil {
 		return nil, fmt.Errorf("marshal manifest: %w", err)
 	}
-
 	var buf bytes.Buffer
 	gw := gzip.NewWriter(&buf)
 	tw := tar.NewWriter(gw)
-
 	if err := addBackupFileToTar(tw, "manifest.json", manifestBytes); err != nil {
 		return nil, err
 	}
-	if err := addBackupDirToTar(tw, layout.configDir, filepath.Base(layout.configDir), layout.configExcludes()...); err != nil {
-		return nil, err
-	}
-	if err := addBackupDirToTar(tw, layout.dbDir, "db"); err != nil {
-		return nil, err
-	}
-	if layout.includeData {
-		if err := addBackupDirToTar(tw, layout.dataDir, filepath.Base(layout.dataDir), layout.dataExcludes()...); err != nil {
+	for _, file := range files {
+		if err := addBackupFileRecordToTar(tw, file); err != nil {
 			return nil, err
 		}
 	}
-
 	if err := tw.Close(); err != nil {
 		return nil, fmt.Errorf("close tar writer: %w", err)
 	}
@@ -392,6 +620,166 @@ func buildBackupArchive(manifest map[string]interface{}, layout backupArchiveLay
 		return nil, fmt.Errorf("close gzip writer: %w", err)
 	}
 	return buf.Bytes(), nil
+}
+
+func addBackupFileRecordToTar(tw *tar.Writer, file backupFileRecord) error {
+	modTime, err := time.Parse(time.RFC3339Nano, file.ModTime)
+	if err != nil {
+		return fmt.Errorf("parse mtime for %s: %w", file.Path, err)
+	}
+	hdr := &tar.Header{Name: file.Path, Mode: 0o600, Size: int64(len(file.data)), ModTime: modTime}
+	if err := tw.WriteHeader(hdr); err != nil {
+		return fmt.Errorf("write header %s: %w", file.Path, err)
+	}
+	if _, err := tw.Write(file.data); err != nil {
+		return fmt.Errorf("write content %s: %w", file.Path, err)
+	}
+	return nil
+}
+
+// readBackupArchiveFiles reads regular files from a tar.gz while excluding
+// manifest.json, retaining their archive paths for integrity verification.
+func readBackupArchiveFiles(archiveBytes []byte) ([]backupFileRecord, error) {
+	gr, err := gzip.NewReader(bytes.NewReader(archiveBytes))
+	if err != nil {
+		return nil, fmt.Errorf("open archive: %w", err)
+	}
+	defer func() { _ = gr.Close() }()
+	tr := tar.NewReader(gr)
+	var files []backupFileRecord
+	for {
+		hdr, err := tr.Next()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return nil, fmt.Errorf("read archive: %w", err)
+		}
+		if hdr.Typeflag != tar.TypeReg || hdr.Name == "manifest.json" {
+			continue
+		}
+		name := filepath.ToSlash(hdr.Name)
+		if !validBackupArchivePath(name) {
+			return nil, fmt.Errorf("invalid archive file path %q", hdr.Name)
+		}
+		data, err := io.ReadAll(io.LimitReader(tr, hdr.Size+1))
+		if err != nil {
+			return nil, fmt.Errorf("read archive file %q: %w", hdr.Name, err)
+		}
+		if int64(len(data)) != hdr.Size {
+			return nil, fmt.Errorf("archive file %q size mismatch", hdr.Name)
+		}
+		digest := sha256.Sum256(data)
+		files = append(files, backupFileRecord{Path: name, Size: hdr.Size, ModTime: hdr.ModTime.UTC().Format(time.RFC3339Nano), SHA256: hex.EncodeToString(digest[:]), data: data})
+	}
+	sort.Slice(files, func(i, j int) bool { return files[i].Path < files[j].Path })
+	return files, nil
+}
+
+func validateBackupManifestFiles(manifest map[string]interface{}, archiveFiles []backupFileRecord) error {
+	listed, err := parseBackupFileManifest(manifest["files"])
+	if err != nil {
+		return err
+	}
+	if len(listed) != len(archiveFiles) {
+		return fmt.Errorf("manifest lists %d files but archive contains %d", len(listed), len(archiveFiles))
+	}
+	actualByPath := make(map[string]backupFileRecord, len(archiveFiles))
+	for _, file := range archiveFiles {
+		actualByPath[file.Path] = file
+	}
+	for _, listedFile := range listed {
+		actual, ok := actualByPath[listedFile.Path]
+		if !ok || actual.Size != listedFile.Size || actual.SHA256 != listedFile.SHA256 || actual.ModTime != listedFile.ModTime {
+			return fmt.Errorf("manifest file metadata mismatch for %q", listedFile.Path)
+		}
+	}
+	return nil
+}
+
+// applyBackupDeletions removes incremental tombstones from an extracted tree.
+// Each path is validated before joining to prevent archive metadata traversal.
+func applyBackupDeletions(root string, value interface{}) error {
+	entries, ok := value.([]interface{})
+	if !ok {
+		return errors.New("incremental deleted list is missing")
+	}
+	cleanRoot, err := filepath.Abs(root)
+	if err != nil {
+		return err
+	}
+	for _, raw := range entries {
+		name, ok := raw.(string)
+		if !ok || !validBackupArchivePath(name) {
+			return fmt.Errorf("invalid deleted path %q", raw)
+		}
+		target := filepath.Join(cleanRoot, filepath.FromSlash(name))
+		if target == cleanRoot || !strings.HasPrefix(target, cleanRoot+string(os.PathSeparator)) {
+			return fmt.Errorf("deleted path escapes restore directory: %q", name)
+		}
+		if err := os.Remove(target); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("delete restored path %q: %w", name, err)
+		}
+	}
+	return nil
+}
+
+func backupBytesSHA256(data []byte) string {
+	digest := sha256.Sum256(data)
+	return "sha256:" + hex.EncodeToString(digest[:])
+}
+
+// validateCombinedBackupLimits applies restore limits to all archives in an
+// incremental restore as one logical expansion, including the base archive.
+func validateCombinedBackupLimits(archives [][]byte, limits BackupRestoreLimits) error {
+	var compressed, expanded int64
+	files := 0
+	for _, archive := range archives {
+		if len(archive) == 0 || int64(len(archive)) > limits.MaxArchiveSize {
+			return fmt.Errorf("archive size %d exceeds limit %d", len(archive), limits.MaxArchiveSize)
+		}
+		compressed += int64(len(archive))
+		gr, err := gzip.NewReader(bytes.NewReader(archive))
+		if err != nil {
+			return fmt.Errorf("gzip open: %w", err)
+		}
+		tr := tar.NewReader(gr)
+		for {
+			hdr, err := tr.Next()
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			if err != nil {
+				_ = gr.Close()
+				return fmt.Errorf("tar read: %w", err)
+			}
+			if hdr.Size < 0 || hdr.Size > limits.MaxFileSize {
+				_ = gr.Close()
+				return fmt.Errorf("archive entry %q size %d exceeds limit %d", hdr.Name, hdr.Size, limits.MaxFileSize)
+			}
+			if hdr.Typeflag == tar.TypeReg {
+				files++
+				if files > limits.MaxFiles {
+					_ = gr.Close()
+					return fmt.Errorf("archive file count exceeds limit %d", limits.MaxFiles)
+				}
+			}
+			if hdr.Size > 0 {
+				if expanded > limits.MaxExpandedSize-hdr.Size {
+					_ = gr.Close()
+					return fmt.Errorf("expanded archive size exceeds limit %d", limits.MaxExpandedSize)
+				}
+				expanded += hdr.Size
+			}
+		}
+		if err := gr.Close(); err != nil {
+			return fmt.Errorf("close gzip reader: %w", err)
+		}
+	}
+	if compressed > 0 && float64(expanded)/float64(compressed) > float64(limits.MaxRatio) {
+		return fmt.Errorf("archive compression ratio exceeds limit %d", limits.MaxRatio)
+	}
+	return nil
 }
 
 func addBackupFileToTar(tw *tar.Writer, name string, data []byte) error {
@@ -434,6 +822,7 @@ func addBackupDirToTar(tw *tar.Writer, srcDir, archivePrefix string, excludes ..
 		if rel != "." {
 			name = filepath.Join(archivePrefix, rel)
 		}
+		name = filepath.ToSlash(name)
 		if fi.IsDir() {
 			return tw.WriteHeader(&tar.Header{Name: name + "/", Mode: 0o700, Typeflag: tar.TypeDir})
 		}
@@ -444,7 +833,14 @@ func addBackupDirToTar(tw *tar.Writer, srcDir, archivePrefix string, excludes ..
 		if readErr != nil {
 			return fmt.Errorf("read %s: %w", p, readErr)
 		}
-		return addBackupFileToTar(tw, name, data)
+		hdr := &tar.Header{Name: name, Mode: 0o600, Size: int64(len(data)), ModTime: fi.ModTime()}
+		if err := tw.WriteHeader(hdr); err != nil {
+			return fmt.Errorf("write header %s: %w", name, err)
+		}
+		if _, err := tw.Write(data); err != nil {
+			return fmt.Errorf("write content %s: %w", name, err)
+		}
+		return nil
 	})
 }
 

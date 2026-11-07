@@ -78,6 +78,44 @@ func listAllBackupFiles(backupDir string) ([]backupFileInfo, error) {
 	return out, nil
 }
 
+func preserveExistingDailyFull(dailyPath string, snapshotAt time.Time) error {
+	baseName := strings.TrimSuffix(filepath.Base(dailyPath), ".tar.gz")
+	baseName = strings.TrimSuffix(baseName, "_"+snapshotAt.UTC().Format("2006-01-02"))
+	dir := filepath.Dir(dailyPath)
+	stamp := snapshotAt.UTC().Format("2006-01-02_150405")
+	candidates := []string{dailyPath, dailyPath + ".enc"}
+	sequence := 0
+	for _, existing := range candidates {
+		if _, err := os.Lstat(existing); os.IsNotExist(err) {
+			continue
+		} else if err != nil {
+			return fmt.Errorf("stat existing full %s: %w", existing, err)
+		}
+		extension := ".tar.gz"
+		if strings.HasSuffix(existing, ".enc") {
+			extension += ".enc"
+		}
+		var preserved string
+		for {
+			suffix := ""
+			if sequence > 0 {
+				suffix = fmt.Sprintf("-%02d", sequence)
+			}
+			preserved = filepath.Join(dir, fmt.Sprintf("%s_%s%s%s", baseName, stamp, suffix, extension))
+			sequence++
+			if _, err := os.Lstat(preserved); os.IsNotExist(err) {
+				break
+			} else if err != nil {
+				return fmt.Errorf("check preserved backup path %s: %w", preserved, err)
+			}
+		}
+		if err := os.Rename(existing, preserved); err != nil {
+			return fmt.Errorf("preserve existing full %s as %s: %w", existing, preserved, err)
+		}
+	}
+	return nil
+}
+
 // isFalseyRetentionValue implements AI.md PART 21's "falsey values" table for
 // disabling max_total_size: 0, false, no, none, disable, disabled, off.
 func isFalseyRetentionValue(s string) bool {
@@ -198,7 +236,11 @@ func keepPeriodic(fulls []backupFileInfo, keep map[string]bool, n int, matches f
 // (max_backups, keep_weekly, keep_monthly, keep_yearly, max_total_size) on
 // the timestamped full backups in backupDir. Only called after a successful
 // backup creation + verification (PART 21 Backup Creation Flow step 7).
-func applyBackupRetention(backupDir string, retention config.BackupRetentionConfig, logMgr *applog.Manager) {
+func applyBackupRetention(backupDir string, retention config.BackupRetentionConfig, logMgr *applog.Manager, backupPasswords ...string) {
+	password := ""
+	if len(backupPasswords) > 0 {
+		password = backupPasswords[0]
+	}
 	fulls, err := listFullBackups(backupDir)
 	if err != nil {
 		log.Printf("backup retention: list backups: %v", err)
@@ -228,6 +270,17 @@ func applyBackupRetention(backupDir string, retention config.BackupRetentionConf
 	keepPeriodic(fulls, keep, retention.KeepMonthly, func(t time.Time) bool { return t.Day() == 1 })
 	keepPeriodic(fulls, keep, retention.KeepYearly, func(t time.Time) bool { return t.YearDay() == 1 })
 
+	baseReferences, referencesOK := backupIncrementalBaseReferences(backupDir, password)
+	if !referencesOK {
+		log.Printf("backup retention: cannot safely read incremental base manifests; skipping pruning")
+		return
+	}
+	for _, full := range fulls {
+		if baseReferences[full.name] {
+			keep[full.path] = true
+		}
+	}
+
 	var deleted []string
 	for _, f := range fulls {
 		if keep[f.path] {
@@ -251,14 +304,31 @@ func applyBackupRetention(backupDir string, retention config.BackupRetentionConf
 			for _, f := range remaining {
 				total += f.size
 			}
-			for i := len(remaining) - 1; i >= 0 && total > cap; i-- {
-				f := remaining[i]
-				if rmErr := os.Remove(f.path); rmErr != nil {
-					continue
+			for total > cap {
+				refs, refsOK := backupIncrementalBaseReferences(backupDir, password)
+				if !refsOK {
+					log.Printf("backup retention: cannot safely read incremental base manifests during size pruning")
+					break
 				}
-				total -= f.size
-				deleted = append(deleted, f.name)
-				remaining = remaining[:i]
+				removed := false
+				for i := len(remaining) - 1; i >= 0; i-- {
+					f := remaining[i]
+					if refs[f.name] {
+						continue
+					}
+					if rmErr := os.Remove(f.path); rmErr != nil {
+						continue
+					}
+					total -= f.size
+					deleted = append(deleted, f.name)
+					remaining = append(remaining[:i], remaining[i+1:]...)
+					removed = true
+					break
+				}
+				if !removed {
+					log.Printf("backup retention: size cap cannot be met without deleting a retained incremental base")
+					break
+				}
 			}
 		}
 	}
@@ -281,6 +351,51 @@ func applyBackupRetention(backupDir string, retention config.BackupRetentionConf
 			})
 		}
 	}
+}
+
+func backupIncrementalBaseReferences(backupDir, password string) (map[string]bool, bool) {
+	entries, err := os.ReadDir(backupDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return map[string]bool{}, true
+		}
+		return nil, false
+	}
+	refs := make(map[string]bool)
+	for _, entry := range entries {
+		if entry.IsDir() || !backupIncrementalFileRe.MatchString(entry.Name()) {
+			continue
+		}
+		path := filepath.Join(backupDir, entry.Name())
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			return nil, false
+		}
+		archive, err := decryptBackupPayload(path, raw, password)
+		if err != nil {
+			return nil, false
+		}
+		manifest, err := readBackupManifest(archive)
+		if err != nil {
+			if strings.HasSuffix(path, ".enc") {
+				return nil, false
+			}
+			continue
+		}
+		kind, _ := manifest["type"].(string)
+		if kind == "" || kind == "full" {
+			continue
+		}
+		if kind != "incremental" {
+			return nil, false
+		}
+		base, ok := manifest["base_backup"].(string)
+		if !ok || !validBackupArchivePath(base) || filepath.Base(base) != base {
+			return nil, false
+		}
+		refs[base] = true
+	}
+	return refs, true
 }
 
 // backupDiskSpaceExceeded implements AI.md PART 21 Backup Creation Flow step 2:

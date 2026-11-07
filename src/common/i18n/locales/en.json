@@ -301,7 +301,12 @@
     "access_logs_body": "Standard HTTP access logs are retained for operational purposes and rotated regularly. Logs contain IP addresses, request paths, and timestamps.",
     "no_tracking_heading": "No Tracking",
     "no_tracking_body": "We do not use analytics, tracking pixels, or third-party cookies. We do not sell or share your data with third parties.",
-    "contact_body_pre": "For privacy concerns, contact:"
+    "contact_body_pre": "For privacy concerns, contact:",
+    "dpo_title": "Data Protection Officer",
+    "dpo_name": "Name",
+    "dpo_email": "Email",
+    "dpo_contact_unavailable": "No data protection contact is configured.",
+    "dpo_contact_form": "Contact form"
   },
 
   "terms": {

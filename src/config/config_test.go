@@ -184,13 +184,100 @@ func TestDefaultConfig_PrivacyDefaults(t *testing.T) {
 	if p.Retention.Period == "" {
 		t.Error("Privacy.Retention.Period: want non-empty default")
 	}
-	// Consent.DefaultEnabled should be true by default (opt-out model, AI.md PART 12).
-	if !p.Consent.DefaultEnabled {
-		t.Error("Privacy.Consent.DefaultEnabled: want true")
+	if p.Consent.Message == "" {
+		t.Error("Privacy.Consent.Message: want a consent prompt")
 	}
 	// Data.Sold should be false by default.
 	if p.Data.Sold {
 		t.Error("Privacy.Data.Sold: want false")
+	}
+}
+
+func TestDefaultConfig_WebSecurityAndAbuseDefaults(t *testing.T) {
+	cfg := DefaultConfig()
+	if cfg.Pages.Contact.Captcha != "simple" {
+		t.Errorf("Pages.Contact.Captcha = %q, want simple", cfg.Pages.Contact.Captcha)
+	}
+	if cfg.Server.Tor.StartupTimeout != 60 {
+		t.Errorf("Tor.StartupTimeout = %d, want 60", cfg.Server.Tor.StartupTimeout)
+	}
+	flood := cfg.Server.Security.AbuseDetection.RequestFlood
+	if flood.Multiplier != 10 || flood.Window != "60s" || flood.BlockDuration != "1h" {
+		t.Errorf("request flood defaults = %+v", flood)
+	}
+	if !cfg.Server.Security.AbuseDetection.AutoBlockIP || !cfg.Server.Security.AbuseDetection.AutoAlert {
+		t.Error("abuse auto_block_ip and auto_alert should default to true")
+	}
+}
+
+func TestValidateConfigInvalidRequestFloodUsesDefaults(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Server.Security.AbuseDetection.RequestFlood = RequestFloodConfig{
+		Multiplier: -1, Window: "broken", BlockDuration: "0s",
+	}
+	validateConfig(cfg)
+	got := cfg.Server.Security.AbuseDetection.RequestFlood
+	if got.Multiplier != 10 || got.Window != "60s" || got.BlockDuration != "1h" {
+		t.Fatalf("invalid request flood config = %+v, want defaults", got)
+	}
+}
+
+func TestValidateContactCaptcha(t *testing.T) {
+	for _, provider := range []string{"simple", "recaptcha", "hcaptcha"} {
+		cfg := ContactPageConfig{Captcha: provider}
+		if provider != "simple" {
+			cfg.CaptchaSiteKey, cfg.CaptchaSecretKey = "site", "secret"
+		}
+		if err := ValidateContactCaptcha(cfg); err != nil {
+			t.Errorf("valid %s config: %v", provider, err)
+		}
+	}
+	for _, cfg := range []ContactPageConfig{
+		{Captcha: "recaptcha", CaptchaSecretKey: "secret"},
+		{Captcha: "hcaptcha", CaptchaSiteKey: "site"},
+		{Captcha: "unknown"},
+	} {
+		if err := ValidateContactCaptcha(cfg); err == nil {
+			t.Errorf("invalid captcha config accepted: %+v", cfg)
+		}
+	}
+}
+
+func TestNormalizeBlockedIPs(t *testing.T) {
+	got, err := NormalizeBlockedIPs([]BlockedIPEntry{{CIDR: "192.0.2.4", Reason: " test "}, {CIDR: "2001:db8::/32"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got[0].CIDR != "192.0.2.4/32" || got[0].Reason != "test" || got[1].CIDR != "2001:db8::/32" {
+		t.Fatalf("normalized entries = %+v", got)
+	}
+	if _, err := NormalizeBlockedIPs([]BlockedIPEntry{{CIDR: "not-an-ip"}}); err == nil {
+		t.Fatal("invalid blocked IP accepted")
+	}
+}
+
+func TestReloadConfigFromFileRejectsInvalidBlockedIPWithoutReplacingActive(t *testing.T) {
+	resetGlobals()
+	path := writeTempYAML(t, "server:\n  port: '1234'\n")
+	active, err := LoadConfigFromFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("server:\n  security:\n    blocked_ips:\n      - cidr: invalid\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := reloadConfigFromFile(); err == nil {
+		t.Fatal("reload accepted invalid permanent block")
+	}
+	if getCurrentConfig() != active {
+		t.Fatal("rejected reload replaced active configuration")
+	}
+}
+
+func TestGeneratedConfigOmitsRemovedConsentDefault(t *testing.T) {
+	generated := generateConfigYAML(DefaultConfig())
+	if strings.Contains(generated, "default_enabled:") {
+		t.Fatal("generated config still contains removed consent default_enabled")
 	}
 }
 

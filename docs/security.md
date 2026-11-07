@@ -16,7 +16,7 @@ bearer tokens stored as SHA-256 hashes.
 Security practices applied throughout:
 
 - **Token storage:** SHA-256 hashed before storage — raw tokens are never persisted
-- **Rate limiting:** All endpoints are rate-limited; abuse triggers automatic IP blocking
+- **Rate limiting:** Requests are limited by client IP and endpoint class; repeated floods can trigger persisted temporary IP blocks
 - **Constant-time comparison:** All token checks use timing-safe comparison to prevent timing attacks
 
 ---
@@ -42,6 +42,7 @@ The following endpoints are accessible without authentication:
 | `GET /api/healthz` | Direct JSON health alias |
 | `GET /healthz` | Optional health alias when enabled in `server.yml` |
 | `GET /server/security` | Security overview and reporting links |
+| `GET /server/dpo` | Public DPO contact details, with a contact form link when no email is configured |
 | `GET /server/security/policy` | Coordinated disclosure policy |
 | `GET /server/security/thanks` | Public researcher acknowledgments |
 | `GET /server/security/report/{tracking_id}` | Researcher report status using the one-shot token in the private acknowledgment link |
@@ -105,6 +106,23 @@ ipgaze logs request-level events using Apache Combined Log Format. Logged fields
 Logs never contain raw tokens. Operator and API token values are not written to
 log output.
 
+## IP Blocks and Request Floods
+
+Permanent blocks and allowlists accept both IPv4 and IPv6 addresses or CIDRs.
+Allowlisted addresses bypass blocks and flood counting. Automatic flood blocks
+are stored in the database with an expiry and survive restarts; expired blocks
+are removed automatically. The default trigger is more than 10 times the
+endpoint-class rate limit in a 60-second window, and the default block lasts
+one hour. Operators can tune the threshold, duration, alerts, and permanent
+blocks under `server.security` in `server.yml`; see the
+[configuration reference](configuration.md#request-flood-detection-and-permanent-ip-blocks).
+
+The built-in contact CAPTCHA stores only a keyed answer hash, expires after 10
+minutes, and is consumed on the first verification attempt. Contact form
+submissions are rate-limited per client IP. Optional reCAPTCHA and hCaptcha
+providers fail closed if verification is unavailable; requests over Tor or I2P
+always use the built-in challenge.
+
 ---
 
 ## Reporting a Security Vulnerability
@@ -130,3 +148,11 @@ report contents.
 Security report contents and researcher names or handles chosen for credit are
 encrypted at rest. Public credit is displayed only after a report is marked
 disclosed and the researcher opted in.
+
+The disclosure policy can be customized in `web.security.policy` using
+Markdown. Security report records are stored encrypted before email delivery;
+if SMTP is unavailable or delivery fails, the submission still returns its
+tracking ID and skips the researcher acknowledgment. Invalid `security_id`
+values are logged only as an eight-character SHA-256 prefix, alongside the
+request IP and user agent. The one-shot status response sets
+`Referrer-Policy: no-referrer`.

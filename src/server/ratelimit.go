@@ -341,8 +341,20 @@ func RateLimitMiddleware(rl *RateLimiter) func(http.Handler) http.Handler {
 			}
 			clientIP := rl.getClientIP(r)
 			class := classifyRequest(r)
+			isI2P := netutil.IsI2PRequest(r, rl.trust)
+			if isI2P {
+				// I2P streams share one loopback listener, so apply one dedicated
+				// global bucket instead of charging 127.0.0.1 to per-IP classes.
+				class = rateClassGlobal
+			}
 
-			if !rl.AllowClass(clientIP, class) {
+			var allowed bool
+			if isI2P {
+				allowed = rl.getLimiter(clientIP, rateClassGlobal).Allow()
+			} else {
+				allowed = rl.AllowClass(clientIP, class)
+			}
+			if !allowed {
 				if rl.OnBlocked != nil {
 					rl.OnBlocked(clientIP)
 				}

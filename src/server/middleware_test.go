@@ -3,8 +3,37 @@ package server
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+
+	"github.com/apimgr/ipgaze/src/config"
 )
+
+func TestContactCaptchaCSPAddsOnlySelectedProviderHosts(t *testing.T) {
+	for _, tt := range []struct {
+		provider string
+		want     string
+		reject   string
+	}{
+		{provider: "recaptcha", want: "www.google.com/recaptcha", reject: "hcaptcha.com"},
+		{provider: "hcaptcha", want: "*.hcaptcha.com", reject: "www.google.com/recaptcha"},
+		{provider: "simple", reject: "hcaptcha.com"},
+	} {
+		header := SecurityHeaderConfigFromApp(&config.AppConfig{Pages: config.PagesConfig{Contact: config.ContactPageConfig{Captcha: tt.provider}}})
+		var policy strings.Builder
+		for _, directive := range header.CSP.Directives {
+			if directive.Name == "script-src" || directive.Name == "frame-src" || directive.Name == "connect-src" {
+				policy.WriteString(directive.resolved())
+			}
+		}
+		if tt.want != "" && !strings.Contains(policy.String(), tt.want) {
+			t.Errorf("provider %s CSP omitted %q: %s", tt.provider, tt.want, policy.String())
+		}
+		if strings.Contains(policy.String(), tt.reject) {
+			t.Errorf("provider %s CSP unexpectedly contains %q", tt.provider, tt.reject)
+		}
+	}
+}
 
 func TestSecurityHeadersMiddleware(t *testing.T) {
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -17,7 +17,7 @@
   <h2>{{t .Lang "contact.form_heading"}}</h2>
   <form method="POST" action="/server/contact">
     <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
-    <input type="hidden" name="captcha_token" value="{{.CaptchaToken}}">
+    {{if eq .CaptchaProvider "simple"}}<input type="hidden" name="captcha_token" value="{{.CaptchaToken}}">{{end}}
     {{if .SecurityReportMode}}
     <input type="hidden" name="security_id" value="{{.SecurityID}}">
     <p>{{t .Lang "contact.security_report_intro"}}</p>
@@ -48,12 +48,20 @@
       <span id="message-error" class="field-error" role="alert">{{t .Lang "errors.required"}}</span>
     </div>
     {{end}}
+    {{if eq .CaptchaProvider "simple"}}
     <div class="form-group">
       <label for="captcha">{{t .Lang "contact.captcha"}}</label>
       <input type="text" id="captcha" name="captcha" class="form-control" required
              aria-describedby="captcha-help">
       <span id="captcha-help">{{.CaptchaQuestion}}</span>
     </div>
+    {{else if eq .CaptchaProvider "recaptcha"}}
+    <div class="form-group"><div class="g-recaptcha" data-sitekey="{{.CaptchaSiteKey}}"></div></div>
+    <script async defer src="https://www.google.com/recaptcha/api.js"></script>
+    {{else if eq .CaptchaProvider "hcaptcha"}}
+    <div class="form-group"><div class="h-captcha" data-sitekey="{{.CaptchaSiteKey}}"></div></div>
+    <script async defer src="https://js.hcaptcha.com/1/api.js"></script>
+    {{end}}
     {{if .SecurityReportMode}}
     <fieldset class="form-group">
       <legend>{{t .Lang "contact.report_details"}}</legend>

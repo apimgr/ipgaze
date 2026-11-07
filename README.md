@@ -34,6 +34,8 @@ https://ifcfg.us
 - **PWA Support** - Web app manifest and service worker for offline use
 - **Tor Hidden Service** - Auto-enabled when the `tor` binary is present; optional outbound Tor routing via `server.tor.use_network`
 - **I2P Eepsite** - Opt-in via `server.i2p.enabled`
+- **Privacy & Security Pages** - Consent-gated analytics, DPO contact, coordinated disclosure, and configurable form CAPTCHA
+- **Abuse Protection** - IPv4/IPv6 allowlists and blocks with persisted, temporary request-flood blocking
 - **Built-in Scheduler** - GeoIP, blocklist, threat, and CVE updates; cert renewal; backups; log rotation
 
 ## Production
@@ -198,7 +200,7 @@ docker run -d \
 |---------|-------------|
 | `--service start\|stop\|restart\|reload\|status` | Control the installed OS service |
 | `--service --install\|--uninstall\|--disable` | Install, remove, or disable the systemd/launchd/Windows service |
-| `--maintenance backup [file]` | Create a `.tar.gz` backup archive (add `--include-ssl` / `--include-data` to widen it) |
+| `--maintenance backup [file]` | Create and verify a timestamped full `.tar.gz` archive (add `--include-ssl` / `--include-data` to widen it) |
 | `--maintenance backup test` | Dry-run restore the backup set and verify the encrypted PGP key decrypts |
 | `--maintenance restore <file>` | Restore from a backup archive |
 | `--maintenance update` | Alias for `--update yes` — install the newest binary |
@@ -218,6 +220,12 @@ docker run -d \
 | `--update check` | Check GitHub Releases for a newer binary |
 | `--update yes` | Download and install the newer binary |
 | `--update branch {stable\|beta\|devel}` | Select the update channel; daily, rolling, dev, and development normalize to devel |
+
+Scheduled backups create a full archive and a cumulative daily incremental
+based on the previous full. The incremental is verified and retained with its
+base; restoring it applies both archives. Hourly incrementals are optional and
+disabled by default. See [backup configuration](docs/configuration.md#backups)
+for retention and restore details.
 
 ## Client
 

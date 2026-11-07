@@ -209,6 +209,21 @@ END`,
 	`CREATE INDEX IF NOT EXISTS idx_pgp_keypairs_revoked ON pgp_keypairs(revoked)`,
 
 	// ----------------------------------------------------------------------------
+	// ip_blocks — temporary abuse blocks survive server restarts. Permanent
+	// blocks remain operator-managed config entries (AI.md PART 11).
+	// ----------------------------------------------------------------------------
+	`CREATE TABLE IF NOT EXISTS ip_blocks (
+    ip            TEXT PRIMARY KEY,
+    reason        TEXT NOT NULL DEFAULT '',
+    blocked_at    INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+    expires_at    INTEGER NOT NULL,
+    offense_count INTEGER NOT NULL DEFAULT 1,
+    auto_blocked  INTEGER NOT NULL DEFAULT 1
+)`,
+
+	`CREATE INDEX IF NOT EXISTS idx_ip_blocks_expiry ON ip_blocks(expires_at)`,
+
+	// ----------------------------------------------------------------------------
 	// security_reports — encrypted coordinated-disclosure submissions. PII and
 	// vulnerability details are encrypted before storage (AI.md PART 11).
 	// ----------------------------------------------------------------------------
@@ -230,6 +245,14 @@ END`,
     last_access_day    INTEGER,
     created_at         INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
 )`,
+	`CREATE TABLE IF NOT EXISTS contact_captcha_challenges (
+    token_hash  TEXT PRIMARY KEY,
+    answer_hash TEXT NOT NULL,
+    created_at  INTEGER NOT NULL,
+    expires_at  INTEGER NOT NULL,
+    used_at     INTEGER
+)`,
+	`CREATE INDEX IF NOT EXISTS idx_contact_captcha_challenges_expires ON contact_captcha_challenges(expires_at)`,
 	`CREATE INDEX IF NOT EXISTS idx_security_reports_public ON security_reports(status, created_at)`,
 }
 

@@ -12,8 +12,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	bineprocess "github.com/cretz/bine/process"
 )
 
 // makeTempDirs creates a temp config/data dir pair for testing.
@@ -616,91 +614,118 @@ func TestGetTorConfig_AlwaysHasControlPort(t *testing.T) {
 	if !strings.Contains(out, "ControlPort 127.0.0.1:auto") {
 		t.Errorf("expected ControlPort 127.0.0.1:auto in config, got:\n%s", out)
 	}
+	for _, directive := range []string{"ControlPortWriteToFile", "CookieAuthentication 1", "DisableNetwork 1", "__OwningControllerProcess"} {
+		if !strings.Contains(out, directive) {
+			t.Errorf("torrc missing required startup directive %q:\n%s", directive, out)
+		}
+	}
 }
 
-func TestWaitForControlPortFileWaitsForTorToWritePort(t *testing.T) {
+func TestParseControlPortFileRequiresCompleteValidLoopbackLine(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		data string
+		want string
+	}{
+		{name: "valid", data: "PORT=127.0.0.1:12345\n", want: "127.0.0.1:12345"},
+		{name: "partial", data: "PORT=127.0.0.1:12345"},
+		{name: "empty", data: ""},
+		{name: "wrong host", data: "PORT=0.0.0.0:12345\n"},
+		{name: "zero port", data: "PORT=127.0.0.1:0\n"},
+		{name: "port overflow", data: "PORT=127.0.0.1:65536\n"},
+		{name: "crlf", data: "PORT=127.0.0.1:12345\r\n"},
+		{name: "multiple lines", data: "PORT=127.0.0.1:12345\nextra\n"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			got, ok := parseControlPortFile([]byte(test.data))
+			if test.want == "" {
+				if ok {
+					t.Fatalf("parseControlPortFile(%q) accepted as %q", test.data, got)
+				}
+				return
+			}
+			if !ok || got != test.want {
+				t.Fatalf("parseControlPortFile(%q) = %q, %t; want %q, true", test.data, got, ok, test.want)
+			}
+		})
+	}
+}
+
+func TestWaitControlPortWaitsForCompleteFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "control-port")
-	if err := os.WriteFile(path, nil, 0o600); err != nil {
+	if err := os.WriteFile(path, []byte("PORT=127.0.0.1:"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	child := &managedTorProcess{done: make(chan struct{}), stderr: &tailBuffer{}}
 	writeErr := make(chan error, 1)
 	go func() {
-		time.Sleep(30 * time.Millisecond)
-		writeErr <- os.WriteFile(path, []byte("PORT=127.0.0.1:12345\n"), 0o600)
+		time.Sleep(300 * time.Millisecond)
+		if err := os.WriteFile(path, []byte("PORT=127.0.0.1:12345\n"), 0o600); err != nil {
+			writeErr <- err
+			return
+		}
+		writeErr <- nil
 	}()
-	if err := waitForControlPortFile(context.Background(), path, time.Second); err != nil {
-		t.Fatalf("waitForControlPortFile: %v", err)
+	address, err := waitControlPort(context.Background(), child, path, 2*time.Second)
+	if err != nil {
+		t.Fatalf("waitControlPort: %v", err)
+	}
+	if address != "127.0.0.1:12345" {
+		t.Fatalf("control address = %q, want 127.0.0.1:12345", address)
 	}
 	if err := <-writeErr; err != nil {
 		t.Fatal(err)
 	}
 }
 
-func TestWaitForControlPortFileTimesOutWithUsefulError(t *testing.T) {
+func TestWaitControlPortTimesOutOnPartialFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "control-port")
-	if err := os.WriteFile(path, nil, 0o600); err != nil {
+	if err := os.WriteFile(path, []byte("PORT=127.0.0.1:"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	err := waitForControlPortFile(context.Background(), path, 30*time.Millisecond)
-	if err == nil || !strings.Contains(err.Error(), "Invalid port format") {
-		t.Fatalf("waitForControlPortFile error = %v, want invalid port format", err)
+	child := &managedTorProcess{done: make(chan struct{}), stderr: &tailBuffer{}}
+	err := func() error {
+		_, err := waitControlPort(context.Background(), child, path, 30*time.Millisecond)
+		return err
+	}()
+	if err == nil || !strings.Contains(err.Error(), "control_port file not ready") {
+		t.Fatalf("waitControlPort error = %v, want not-ready timeout", err)
 	}
 }
 
-type controlPortTestCreator struct {
-	bineprocess.Creator
-	process bineprocess.Process
-}
-
-func (c controlPortTestCreator) New(context.Context, ...string) (bineprocess.Process, error) {
-	return c.process, nil
-}
-
-type controlPortTestProcess struct {
-	bineprocess.Process
-	path string
-}
-
-func (p controlPortTestProcess) Start() error {
-	return os.WriteFile(p.path, []byte("PORT=127.0.0.1:12345\n"), 0o600)
-}
-
-func TestControlPortReadyCreatorWaitsAfterProcessStarts(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "control-port")
-	creator := controlPortReadyCreator{
-		creator: controlPortTestCreator{process: controlPortTestProcess{path: path}},
-		timeout: time.Second,
-	}
-	proc, err := creator.New(context.Background(), "--ControlPortWriteToFile", path)
-	if err != nil {
-		t.Fatalf("creator.New: %v", err)
-	}
-	if err := proc.Start(); err != nil {
-		t.Fatalf("process.Start: %v", err)
+func TestWaitControlPortFailsWhenChildExits(t *testing.T) {
+	child := &managedTorProcess{done: make(chan struct{}), stderr: &tailBuffer{}}
+	child.mu.Lock()
+	child.waitErr = errors.New("exit status 1")
+	child.mu.Unlock()
+	_, _ = child.stderr.Write([]byte("tor failed to bind\n"))
+	close(child.done)
+	_, err := waitControlPort(context.Background(), child, filepath.Join(t.TempDir(), "missing"), time.Second)
+	if err == nil || !strings.Contains(err.Error(), "tor failed to bind") {
+		t.Fatalf("waitControlPort error = %v, want child stderr", err)
 	}
 }
 
-func TestControlPortReadyProcessStartsWithoutPortFileArgument(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "started")
-	proc := &controlPortReadyProcess{
-		Process: controlPortTestProcess{path: path},
-		ctx:     context.Background(),
-		args:    []string{"--SocksPort", "9050"},
-	}
-	if err := proc.Start(); err != nil {
-		t.Fatalf("process.Start: %v", err)
-	}
-	if _, err := os.Stat(path); err != nil {
-		t.Fatalf("underlying process did not start: %v", err)
-	}
-}
-
-func TestWaitForControlPortFileHonorsCanceledContext(t *testing.T) {
+func TestWaitControlPortHonorsCanceledContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	err := waitForControlPortFile(ctx, filepath.Join(t.TempDir(), "missing"), time.Second)
+	child := &managedTorProcess{done: make(chan struct{}), stderr: &tailBuffer{}}
+	_, err := waitControlPort(ctx, child, filepath.Join(t.TempDir(), "missing"), time.Second)
 	if !errors.Is(err, context.Canceled) {
-		t.Fatalf("waitForControlPortFile error = %v, want context canceled", err)
+		t.Fatalf("waitControlPort error = %v, want context canceled", err)
+	}
+}
+
+func TestRemoveStaleControlPort(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "control-port")
+	if err := os.WriteFile(path, []byte("PORT=127.0.0.1:12\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := removeStaleControlPort(path); err != nil {
+		t.Fatalf("removeStaleControlPort: %v", err)
+	}
+	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("stale file still exists: %v", err)
 	}
 }
 

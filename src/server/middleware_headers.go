@@ -27,11 +27,30 @@ func SecurityHeaderConfigFromApp(cfg *config.AppConfig) SecurityHeaderConfig {
 
 	applyHSTSConfig(&headerCfg, cfg.Web.HSTS)
 	applyCSPConfig(&headerCfg, cfg.Web.CSP)
+	applyContactCaptchaCSP(&headerCfg, cfg.Pages.Contact.Captcha)
 	applyPermissionsPolicyConfig(&headerCfg, cfg.Web.PermissionsPolicy)
 	applyMiscHeaderConfig(&headerCfg, cfg.Web.Headers)
 	applyNELConfig(&headerCfg, cfg.Web.Headers.NEL)
 
 	return headerCfg
+}
+
+func applyContactCaptchaCSP(target *SecurityHeaderConfig, provider string) {
+	var hosts string
+	switch strings.ToLower(strings.TrimSpace(provider)) {
+	case "recaptcha":
+		hosts = "https://www.google.com/recaptcha/ https://www.gstatic.com/recaptcha/ https://www.recaptcha.net/recaptcha/"
+	case "hcaptcha":
+		hosts = "https://hcaptcha.com https://*.hcaptcha.com"
+	default:
+		return
+	}
+	for i := range target.CSP.Directives {
+		switch target.CSP.Directives[i].Name {
+		case "script-src", "frame-src", "connect-src":
+			target.CSP.Directives[i].Extra = strings.TrimSpace(target.CSP.Directives[i].Extra + " " + hosts)
+		}
+	}
 }
 
 // applyHSTSConfig overlays web.hsts. MaxAgeSeconds of 0 keeps the default,

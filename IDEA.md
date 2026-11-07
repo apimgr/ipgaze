@@ -39,6 +39,7 @@ repository:        https://github.com/apimgr/ipgaze
 - Port reachability testing (always enabled, no flag)
 - Built-in scheduler for automatic periodic maintenance (GeoIP updates, blocklist sync, CVE feed, cert renewal, token cleanup, log rotation, backups, self-health checks)
 - Email/notification delivery via SMTP (operator-configured; HTML + plain text multipart)
+- Configurable IPv4/IPv6 allowlists and permanent blocks, with persisted temporary request-flood blocks and optional security alerts
 - IP/domain threat blocklist downloads (daily, auto-applied to incoming requests)
 - CVE/security database sync (daily, for vulnerability reporting)
 - PWA support: web app manifest and service worker for offline caching
@@ -158,7 +159,8 @@ ipgaze enhancements on top of the echoip-compatible surface:
 - OpenAPI/Swagger interactive documentation
 - Prometheus metrics (internal only)
 - Standard pages: security.txt, robots.txt, privacy, terms, contact
-- Coordinated vulnerability reporting for the official service, with encrypted submissions, private status tracking, disclosure policy, and researcher acknowledgments
+- Coordinated vulnerability reporting for the official service, with encrypted submissions, private status tracking, configurable disclosure policy, selectable contact-form CAPTCHA, and researcher acknowledgments
+- Public DPO contact page/API and consent-gated, same-origin analytics loading
 
 ---
 
@@ -213,7 +215,7 @@ All tasks run continuously; state persists across restarts. Jobs are registered 
 | `cve_update` | Daily 05:00 | Download CVE/security databases |
 | `token_cleanup` | Every 15 min | Remove expired CLI operator tokens |
 | `log_rotation` | Daily 00:00 | Rotate and compress old logs |
-| `backup_daily` | Daily 02:00 | Full backup plus daily incremental — default retention: 2 files |
+| `backup_daily` | Daily 02:00 | Cumulative daily incremental plus a verified full backup; keeps the incremental's base full |
 | `backup_hourly` | Hourly | Incremental backup — disabled by default |
 | `healthcheck_self` | Every 5 min | Self-health verification |
 | `tor_health` | Every 10 min | Check Tor connectivity — registered only when Tor is detected |

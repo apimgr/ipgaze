@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
 
 	"github.com/apimgr/ipgaze/src/config"
@@ -14,7 +15,6 @@ func analyticsTestHandler() *PagesHandler {
 	cfg := config.DefaultConfig()
 	cfg.Server.Tracking = config.TrackingConfig{Type: "simple"}
 	cfg.Server.Privacy.Cookies.Analytics.Enabled = true
-	cfg.Server.Privacy.Consent.DefaultEnabled = true
 	cfg.Web.CSP.Enabled = true
 	cfg.Web.CSP.Mode = "enforce"
 	cfg.Web.CSP.ScriptSrcExtra = "https://scripts.simpleanalyticscdn.com"
@@ -27,20 +27,17 @@ func TestAnalyticsTrackingConsentAndPolicy(t *testing.T) {
 		cookie     string
 		ccpa       bool
 		gpc        string
-		defaultOn  bool
 		wantEnable bool
 	}{
-		{name: "first visit waits for consent", defaultOn: true},
-		{name: "first visit with opt-out default waits for consent", defaultOn: false},
-		{name: "consent granted", cookie: `{"analytics":true}`, defaultOn: false, wantEnable: true},
-		{name: "consent denied", cookie: `{"analytics":false}`, defaultOn: true},
-		{name: "CCPA opt out", ccpa: true, defaultOn: true},
-		{name: "global privacy control", gpc: "1", defaultOn: true},
+		{name: "first visit waits for consent"},
+		{name: "consent granted", cookie: `{"analytics":true}`, wantEnable: true},
+		{name: "consent denied", cookie: `{"analytics":false}`},
+		{name: "CCPA opt out", cookie: `{"analytics":true}`, ccpa: true},
+		{name: "global privacy control", cookie: `{"analytics":true}`, gpc: "1"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			h := analyticsTestHandler()
-			h.Config.Server.Privacy.Consent.DefaultEnabled = tt.defaultOn
 			r := httptest.NewRequest(http.MethodGet, "https://ipgaze.example/", nil)
 			if tt.cookie != "" {
 				r.AddCookie(&http.Cookie{Name: "cookie_consent", Value: url.QueryEscape(tt.cookie)})
@@ -62,6 +59,34 @@ func TestAnalyticsTrackingConsentAndPolicy(t *testing.T) {
 	}
 }
 
+func TestGeneratedTrackingEndpointConsentAndOverlayGate(t *testing.T) {
+	h := analyticsTestHandler()
+	r := httptest.NewRequest(http.MethodGet, "https://ipgaze.example/server/tracking.js", nil)
+	w := httptest.NewRecorder()
+	h.ServerTrackingScript(w, r)
+	if w.Code != http.StatusNotFound || !strings.Contains(w.Header().Get("Cache-Control"), "no-cache") {
+		t.Fatalf("no-consent response = %d cache=%q", w.Code, w.Header().Get("Cache-Control"))
+	}
+	r = httptest.NewRequest(http.MethodGet, "https://ipgaze.example/server/tracking.js", nil)
+	r.AddCookie(&http.Cookie{Name: "cookie_consent", Value: url.QueryEscape(`{"analytics":true}`)})
+	w = httptest.NewRecorder()
+	h.ServerTrackingScript(w, r)
+	if w.Code != http.StatusOK || w.Header().Get("Content-Type") != "application/javascript; charset=utf-8" {
+		t.Fatalf("consented script response = %d content-type=%q", w.Code, w.Header().Get("Content-Type"))
+	}
+	if !strings.Contains(w.Body.String(), "scripts.simpleanalyticscdn.com/latest.js") {
+		t.Fatalf("generated script omitted configured source: %s", w.Body.String())
+	}
+	h.Trust.OnionAddress = "ipgazeexample.onion"
+	onion := httptest.NewRequest(http.MethodGet, "http://ipgazeexample.onion/server/tracking.js", nil)
+	onion.AddCookie(&http.Cookie{Name: "cookie_consent", Value: url.QueryEscape(`{"analytics":true}`)})
+	w = httptest.NewRecorder()
+	h.ServerTrackingScript(w, onion)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("onion tracking response = %d, want 404", w.Code)
+	}
+}
+
 func TestAnalyticsTrackingRequiresCSPSourceAndDisablesClearnetOnion(t *testing.T) {
 	h := analyticsTestHandler()
 	r := httptest.NewRequest(http.MethodGet, "https://ipgaze.example/", nil)
@@ -79,19 +104,15 @@ func TestAnalyticsTrackingRequiresCSPSourceAndDisablesClearnetOnion(t *testing.T
 	}
 }
 
-func TestAnalyticsTrackingAllowsSameOriginSelfHostedProviderOnion(t *testing.T) {
+func TestAnalyticsTrackingDisabledOnOnionEvenForSelfHostedProvider(t *testing.T) {
 	h := analyticsTestHandler()
 	h.Config.Server.Tracking = config.TrackingConfig{Type: "matomo", ID: "1", URL: "http://ipgazeexample.onion/matomo"}
 	h.Config.Web.CSP.ScriptSrcExtra = ""
 	h.Trust.OnionAddress = "ipgazeexample.onion"
 	r := httptest.NewRequest(http.MethodGet, "http://ipgazeexample.onion/", nil)
-	r.AddCookie(&http.Cookie{Name: "cookie_consent", Value: url.QueryEscape(`{"analytics":true}`)})
 	enabled, source := h.analyticsTracking(r)
-	if !enabled {
-		t.Fatal("same-origin self-hosted analytics should be allowed on onion")
-	}
-	if source != "http://ipgazeexample.onion/matomo/matomo.js" {
-		t.Fatalf("analytics source = %q", source)
+	if enabled || source != "" {
+		t.Fatalf("analytics should be disabled on onion, got enabled=%v source=%q", enabled, source)
 	}
 }
 
@@ -115,7 +136,6 @@ func TestSimpleAnalyticsNoScriptPixelHonorsConsentCSPAndTor(t *testing.T) {
 	if h.analyticsNoScriptAllowed(onion) {
 		t.Fatal("clearnet pixel must not load for an onion request")
 	}
-	h.Config.Server.Privacy.Consent.DefaultEnabled = true
 	r.Header.Set("Sec-GPC", "1")
 	if enabled, _ := h.analyticsTracking(r); enabled {
 		t.Fatal("global privacy control must disable tracking despite stored consent")

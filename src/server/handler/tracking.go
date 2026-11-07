@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/url"
 	"strings"
@@ -11,6 +12,9 @@ import (
 
 func (h *PagesHandler) analyticsTracking(r *http.Request) (bool, string) {
 	if h.Config == nil {
+		return false, ""
+	}
+	if netutil.IsTorRequest(r, h.Trust) || netutil.IsI2PRequest(r, h.Trust) {
 		return false, ""
 	}
 	tracking := h.Config.Server.Tracking
@@ -28,6 +32,29 @@ func (h *PagesHandler) analyticsTracking(r *http.Request) (bool, string) {
 	return true, sourceURL
 }
 
+// ServerTrackingScript serves provider-specific analytics code from the live
+// configuration only when the visitor has opted in on a clearnet request.
+func (h *PagesHandler) ServerTrackingScript(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+	w.Header().Set("Pragma", "no-cache")
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	enabled, source := h.analyticsTracking(r)
+	if !enabled {
+		http.NotFound(w, r)
+		return
+	}
+	tracking := h.Config.Server.Tracking
+	provider, _ := json.Marshal(tracking.Type)
+	id, _ := json.Marshal(tracking.ID)
+	base, _ := json.Marshal(strings.TrimRight(tracking.URL, "/"))
+	script, _ := json.Marshal(source)
+	w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
+	_, _ = w.Write([]byte("(function(){'use strict';var p=" + string(provider) + ",id=" + string(id) + ",base=" + string(base) + ",src=" + string(script) + ";function add(u,a){var s=document.createElement('script');s.async=true;s.src=u;Object.keys(a||{}).forEach(function(k){s.setAttribute(k,a[k])});document.head.appendChild(s)}switch(p){case'google':if(id.indexOf('G-')===0){window.dataLayer=window.dataLayer||[];window.gtag=window.gtag||function(){window.dataLayer.push(arguments)};window.gtag('js',new Date());window.gtag('config',id);add(src+(src.indexOf('?')<0?'?':'&')+'id='+encodeURIComponent(id),{})}else{window.ga=window.ga||function(){(window.ga.q=window.ga.q||[]).push(arguments)};window.ga('create',id,'auto');window.ga('send','pageview');add(src,{})}break;case'matomo':case'piwik':window._paq=window._paq||[];window._paq.push(['trackPageView']);window._paq.push(['enableLinkTracking']);window._paq.push(['setTrackerUrl',base+'/matomo.php']);window._paq.push(['setSiteId',id]);add(src,{});break;case'owa':window.owa_baseUrl=base+'/';window.owa_cmds=window.owa_cmds||[];window.owa_cmds.push(['setSiteId',id]);window.owa_cmds.push(['trackPageView']);add(src,{});break;case'fathom':add(src,{'data-site':id});break;case'plausible':add(src,{'data-domain':id});break;case'umami':add(src,{'data-website-id':id});break;case'cloudflare':add(src,{'data-cf-beacon':JSON.stringify({token:id})});break;default:add(src,{})}})();"))
+}
+
 func (h *PagesHandler) analyticsNoScriptAllowed(r *http.Request) bool {
 	if h.Config == nil || !strings.EqualFold(strings.TrimSpace(h.Config.Server.Tracking.Type), "simple") || !h.analyticsConsentAllowed(r) {
 		return false
@@ -42,8 +69,8 @@ func (h *PagesHandler) analyticsNoScriptAllowed(r *http.Request) bool {
 		return false
 	}
 	sameOrigin := strings.EqualFold(parsed.Scheme, origin.Scheme) && strings.EqualFold(parsed.Host, origin.Host)
-	if netutil.IsTorRequest(r, h.Trust) {
-		return sameOrigin
+	if netutil.IsTorRequest(r, h.Trust) || netutil.IsI2PRequest(r, h.Trust) {
+		return false
 	}
 	if parsed.Scheme != "https" && !sameOrigin {
 		return false

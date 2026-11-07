@@ -168,11 +168,16 @@ func torCircuitIdentifier(host string) (string, bool) {
 // daemon's loopback address identifies nothing.
 const TorClientSentinel = "tor"
 
+// I2PClientSentinel gives all requests arriving through the shared loopback
+// I2P listener one rate-limit identity without exposing 127.0.0.1 as a client.
+const I2PClientSentinel = "i2p"
+
 // GetClientIdentifier returns the value to record wherever a client IP would
 // normally be logged, displayed, or used as a rate-limit key. For a Tor
 // request that is `tor:{circuit_id}` when Tor exports the circuit ID, and the
-// bare `tor` sentinel otherwise — never the loopback address of the local Tor
-// daemon. Every other request resolves through GetClientIP.
+// bare `tor` sentinel otherwise. I2P requests share one `i2p` identity because
+// their listener exposes only the local loopback peer. Other requests resolve
+// through GetClientIP.
 func GetClientIdentifier(r *http.Request, tr *TrustResolver) string {
 	if IsTorRequest(r, tr) {
 		host, _, err := net.SplitHostPort(r.RemoteAddr)
@@ -183,6 +188,9 @@ func GetClientIdentifier(r *http.Request, tr *TrustResolver) string {
 			return id
 		}
 		return TorClientSentinel
+	}
+	if IsI2PRequest(r, tr) {
+		return I2PClientSentinel
 	}
 	return GetClientIP(r, tr != nil && tr.IsTrustedPeer(r))
 }

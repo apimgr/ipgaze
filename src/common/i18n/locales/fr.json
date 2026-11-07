@@ -301,7 +301,12 @@
     "access_logs_body": "Les journaux d'accès HTTP standard sont conservés à des fins opérationnelles et régulièrement mis en rotation. Ils contiennent les adresses IP, les chemins de requête et les horodatages.",
     "no_tracking_heading": "Aucun suivi",
     "no_tracking_body": "Nous n'utilisons ni analyses, ni pixels de suivi, ni cookies tiers. Nous ne vendons ni ne partageons vos données avec des tiers.",
-    "contact_body_pre": "Pour toute question relative à la confidentialité, contactez :"
+    "contact_body_pre": "Pour toute question relative à la confidentialité, contactez :",
+    "dpo_title": "Délégué à la protection des données",
+    "dpo_name": "Nom",
+    "dpo_email": "E-mail",
+    "dpo_contact_unavailable": "Aucun contact pour la protection des données n'est configuré.",
+    "dpo_contact_form": "Formulaire de contact"
   },
 
   "terms": {

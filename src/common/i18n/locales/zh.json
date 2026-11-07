@@ -301,7 +301,12 @@
     "access_logs_body": "标准 HTTP 访问日志出于运营目的而保留，并定期轮换。日志包含 IP 地址、请求路径和时间戳。",
     "no_tracking_heading": "无跟踪",
     "no_tracking_body": "我们不使用分析、跟踪像素或第三方 Cookie。我们不会向第三方出售或共享您的数据。",
-    "contact_body_pre": "如有隐私问题，请联系："
+    "contact_body_pre": "如有隐私问题，请联系：",
+    "dpo_title": "数据保护官",
+    "dpo_name": "姓名",
+    "dpo_email": "电子邮件",
+    "dpo_contact_unavailable": "尚未配置数据保护联系信息。",
+    "dpo_contact_form": "联系表单"
   },
 
   "terms": {

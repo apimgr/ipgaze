@@ -301,7 +301,12 @@
     "access_logs_body": "Los registros de acceso HTTP estándar se conservan con fines operativos y se rotan regularmente. Los registros contienen direcciones IP, rutas de solicitud y marcas de tiempo.",
     "no_tracking_heading": "Sin seguimiento",
     "no_tracking_body": "No usamos análisis, píxeles de seguimiento ni cookies de terceros. No vendemos ni compartimos tus datos con terceros.",
-    "contact_body_pre": "Para consultas de privacidad, contacta:"
+    "contact_body_pre": "Para consultas de privacidad, contacta:",
+    "dpo_title": "Delegado de protección de datos",
+    "dpo_name": "Nombre",
+    "dpo_email": "Correo electrónico",
+    "dpo_contact_unavailable": "No hay un contacto de protección de datos configurado.",
+    "dpo_contact_form": "Formulario de contacto"
   },
 
   "terms": {

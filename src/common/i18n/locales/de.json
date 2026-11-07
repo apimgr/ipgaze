@@ -301,7 +301,12 @@
     "access_logs_body": "Standard-HTTP-Zugriffsprotokolle werden zu Betriebszwecken aufbewahrt und regelmäßig rotiert. Die Protokolle enthalten IP-Adressen, Anfragepfade und Zeitstempel.",
     "no_tracking_heading": "Kein Tracking",
     "no_tracking_body": "Wir verwenden keine Analysen, Tracking-Pixel oder Cookies von Drittanbietern. Wir verkaufen oder teilen Ihre Daten nicht mit Dritten.",
-    "contact_body_pre": "Bei Datenschutzanliegen kontaktieren Sie:"
+    "contact_body_pre": "Bei Datenschutzanliegen kontaktieren Sie:",
+    "dpo_title": "Datenschutzbeauftragte/r",
+    "dpo_name": "Name",
+    "dpo_email": "E-Mail",
+    "dpo_contact_unavailable": "Es ist kein Datenschutzkontakt konfiguriert.",
+    "dpo_contact_form": "Kontaktformular"
   },
 
   "terms": {

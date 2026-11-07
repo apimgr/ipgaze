@@ -4,12 +4,17 @@ package handler
 
 import (
 	"context"
+	"crypto/hmac"
 	cryptorand "crypto/rand"
+	"crypto/sha256"
 	"database/sql"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"html/template"
+	"io"
 	"math/big"
 	"net"
 	"net/http"
@@ -30,6 +35,7 @@ import (
 	"github.com/apimgr/ipgaze/src/notify"
 	"github.com/apimgr/ipgaze/src/pgp"
 	"github.com/apimgr/ipgaze/src/security"
+	"github.com/apimgr/ipgaze/src/tor"
 )
 
 // =============================================================================
@@ -213,6 +219,8 @@ type PageData struct {
 	SecurityReportTrackingID string
 	CaptchaQuestion          string
 	CaptchaToken             string
+	CaptchaProvider          string
+	CaptchaSiteKey           string
 	ContactError             string
 	// Version is the running application version (footer branding row).
 	Version string
@@ -317,12 +325,16 @@ type PageData struct {
 // debug, preferences, and any future admin/auth page — falls through to the
 // fail-closed default. Adding a route here is a deliberate SEO decision.
 var publicIndexableRoutes = map[string]bool{
-	"/":               true,
-	"/server/about":   true,
-	"/server/help":    true,
-	"/server/privacy": true,
-	"/server/terms":   true,
-	"/server/contact": true,
+	"/":                       true,
+	"/server/about":           true,
+	"/server/help":            true,
+	"/server/privacy":         true,
+	"/server/terms":           true,
+	"/server/contact":         true,
+	"/server/dpo":             true,
+	"/server/security":        true,
+	"/server/security/policy": true,
+	"/server/security/thanks": true,
 }
 
 // ResolveRobotsDirective returns the <meta name="robots"> value for a request
@@ -456,6 +468,10 @@ func (h *PagesHandler) NewPageData(r *http.Request) PageData {
 		data.Tracking = h.Config.Server.Tracking
 		data.AnalyticsEnabled, data.AnalyticsScriptURL = h.analyticsTracking(r)
 		data.AnalyticsNoScript = data.AnalyticsEnabled && h.analyticsNoScriptAllowed(r)
+		data.CaptchaProvider = h.contactCaptchaProvider(r)
+		if data.CaptchaProvider != "simple" {
+			data.CaptchaSiteKey = h.Config.Pages.Contact.CaptchaSiteKey
+		}
 		// SEO metadata (AI.md PART 24 "SEO Meta Tags (Generated)"). The
 		// description falls back branding.description -> branding.tagline so a
 		// half-configured install still emits a meaningful og:description
@@ -836,13 +852,48 @@ func (h *PagesHandler) APIV1ServerPrivacyHandler(w http.ResponseWriter, r *http.
 	SendAPIResponseOK(w, privacy, nil)
 }
 
+// ServerDPOHandler serves the public Data Protection Officer contact details.
+func (h *PagesHandler) ServerDPOHandler(w http.ResponseWriter, r *http.Request) {
+	response := h.buildDPOResponse()
+	data := struct {
+		PageData
+		DPOResponse
+	}{PageData: h.NewPageData(r), DPOResponse: response}
+	h.renderNegotiated(w, r, "dpo.tmpl", data, response)
+}
+
+// APIV1ServerDPOHandler serves the public DPO contact details as JSON.
+func (h *PagesHandler) APIV1ServerDPOHandler(w http.ResponseWriter, r *http.Request) {
+	SendAPIResponseOK(w, h.buildDPOResponse(), nil)
+}
+
+type DPOResponse struct {
+	Name       string `json:"name"`
+	Email      string `json:"email"`
+	PrivacyURL string `json:"privacy_url"`
+}
+
+func (h *PagesHandler) buildDPOResponse() DPOResponse {
+	response := DPOResponse{PrivacyURL: "/server/privacy"}
+	if h.Config == nil {
+		return response
+	}
+	contact := h.Config.Server.Contact.DPO
+	response.Name = strings.TrimSpace(contact.Name)
+	response.Email = strings.TrimSpace(contact.Email)
+	if response.Email == "" {
+		response.Email = strings.TrimSpace(h.Config.Server.Contact.General.Email)
+	}
+	return response
+}
+
 // ServerContactHandler serves /server/contact (GET) and accepts POST submissions.
 // Submissions are dispatched to the "general" contact role's configured
 // email + webhooks per AI.md PART 12.
 func (h *PagesHandler) ServerContactHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodPost {
 		if err := r.ParseForm(); err == nil {
-			req := contactRequestFromForm(r)
+			req := contactRequestFromForm(r, h.contactCaptchaProvider(r))
 			validSecurityID, _ := h.validSecurityID(req.SecurityID)
 			if validSecurityID {
 				if !allowContactSubmission(clientIP(r)) {
@@ -856,15 +907,23 @@ func (h *PagesHandler) ServerContactHandler(w http.ResponseWriter, r *http.Reque
 					data.SecurityReportTrackingID = id
 					h.renderNegotiated(w, r, "contact.tmpl", data, ContactResponse{Success: true, Message: translateRequest(r, "contact.report_received_body"), TrackingID: id})
 					return
+				} else if errors.Is(err, errCaptchaProviderUnavailable) {
+					h.renderContactError(w, r, http.StatusServiceUnavailable)
+				} else {
+					h.renderContactError(w, r, http.StatusBadRequest)
 				}
-				h.renderContactError(w, r, http.StatusBadRequest)
 				return
 			}
 			if !validStandardContactRequest(req) {
 				http.Redirect(w, r, "/server/contact", http.StatusSeeOther)
 				return
 			}
-			if !verifySimpleCaptcha(h.DB, req.CaptchaToken, req.Captcha, time.Now()) {
+			validCaptcha, captchaErr := h.verifyContactCaptcha(r, req.CaptchaToken, req.Captcha, time.Now())
+			if captchaErr != nil {
+				h.renderContactError(w, r, http.StatusServiceUnavailable)
+				return
+			}
+			if !validCaptcha {
 				h.renderContactError(w, r, http.StatusBadRequest)
 				return
 			}
@@ -883,14 +942,16 @@ func (h *PagesHandler) ServerContactHandler(w http.ResponseWriter, r *http.Reque
 			data.SecurityReportMode = true
 			data.SecurityID = candidate
 		} else if h.SecurityLogger != nil {
-			// AI.md also says the token must never be logged; log the event and
-			// source only, without copying the bearer token into security.log.
-			h.SecurityLogger("security.security_id_invalid", clientIP(r))
+			h.logInvalidSecurityID(r, candidate)
 		}
 	}
-	data.CaptchaQuestion, data.CaptchaToken, _ = newSimpleCaptcha(h.DB, time.Now())
+	data.CaptchaProvider, data.CaptchaQuestion, data.CaptchaToken = h.newContactCaptcha(r, time.Now())
+	if data.CaptchaProvider != "simple" && h.Config != nil {
+		data.CaptchaSiteKey = h.Config.Pages.Contact.CaptchaSiteKey
+	}
 	form := buildContactFormResponse()
 	form.CaptchaQuestion, form.CaptchaToken = data.CaptchaQuestion, data.CaptchaToken
+	form.CaptchaProvider, form.CaptchaSiteKey = data.CaptchaProvider, data.CaptchaSiteKey
 	form.SecurityReportMode = data.SecurityReportMode
 	if data.SecurityReportMode {
 		form.Fields = []string{"name", "handle", "email", "captcha", "captcha_token", "researcher_gpg", "affected_component", "affected_endpoint", "severity", "summary", "steps_to_reproduce", "impact", "suggested_fix", "cve_requested", "disclosure_days", "credit_preference", "coordinated_disclosure_agreement"}
@@ -898,7 +959,13 @@ func (h *PagesHandler) ServerContactHandler(w http.ResponseWriter, r *http.Reque
 	h.renderNegotiated(w, r, "contact.tmpl", data, form)
 }
 
-func contactRequestFromForm(r *http.Request) ContactRequest {
+func contactRequestFromForm(r *http.Request, provider string) ContactRequest {
+	captcha := strings.TrimSpace(r.FormValue("captcha"))
+	if provider == "recaptcha" {
+		captcha = strings.TrimSpace(r.FormValue("g-recaptcha-response"))
+	} else if provider == "hcaptcha" {
+		captcha = strings.TrimSpace(r.FormValue("h-captcha-response"))
+	}
 	return ContactRequest{
 		Name: strings.TrimSpace(r.FormValue("name")), Handle: strings.TrimSpace(r.FormValue("handle")), Email: strings.TrimSpace(r.FormValue("email")),
 		Subject: strings.TrimSpace(r.FormValue("subject")), Message: strings.TrimSpace(r.FormValue("message")),
@@ -909,7 +976,7 @@ func contactRequestFromForm(r *http.Request) ContactRequest {
 		SuggestedFix: strings.TrimSpace(r.FormValue("suggested_fix")), CVERequested: isCheckboxChecked(r.FormValue("cve_requested")),
 		DisclosureDays: r.FormValue("disclosure_days"), CreditPreference: strings.TrimSpace(r.FormValue("credit_preference")),
 		CoordinatedAgreement: isCheckboxChecked(r.FormValue("coordinated_disclosure_agreement")),
-		Captcha:              strings.TrimSpace(r.FormValue("captcha")), CaptchaToken: strings.TrimSpace(r.FormValue("captcha_token")),
+		Captcha:              captcha, CaptchaToken: strings.TrimSpace(r.FormValue("captcha_token")),
 	}
 }
 
@@ -922,6 +989,8 @@ type ContactFormResponse struct {
 	Fields             []string `json:"fields"`
 	CaptchaQuestion    string   `json:"captcha_question,omitempty"`
 	CaptchaToken       string   `json:"captcha_token,omitempty"`
+	CaptchaProvider    string   `json:"captcha_provider"`
+	CaptchaSiteKey     string   `json:"captcha_site_key,omitempty"`
 	SecurityReportMode bool     `json:"security_report_mode,omitempty"`
 }
 
@@ -987,7 +1056,7 @@ func (h *PagesHandler) APIV1ServerContactHandler(w http.ResponseWriter, r *http.
 
 	validSecurityID, securityIDErr := h.validSecurityID(req.SecurityID)
 	if req.SecurityID != "" && securityIDErr == nil && !validSecurityID && h.SecurityLogger != nil {
-		h.SecurityLogger("security.security_id_invalid", clientIP(r))
+		h.logInvalidSecurityID(r, req.SecurityID)
 	}
 	if securityIDErr == nil && validSecurityID {
 		if !allowContactSubmission(clientIP(r)) {
@@ -996,7 +1065,11 @@ func (h *PagesHandler) APIV1ServerContactHandler(w http.ResponseWriter, r *http.
 		}
 		trackingID, err := h.submitSecurityReport(r, req)
 		if err != nil {
-			SendAPIResponseError(w, http.StatusBadRequest, "BAD_REQUEST", i18n.T(r.Context(), "errors.bad_request"), nil)
+			if errors.Is(err, errCaptchaProviderUnavailable) {
+				SendAPIResponseError(w, http.StatusServiceUnavailable, "CAPTCHA_UNAVAILABLE", i18n.T(r.Context(), "errors.maintenance_mode"), nil)
+			} else {
+				SendAPIResponseError(w, http.StatusBadRequest, "BAD_REQUEST", i18n.T(r.Context(), "errors.bad_request"), nil)
+			}
 			return
 		}
 		SendAPIResponseOK(w, ContactResponse{Success: true, Message: translateRequest(r, "contact.report_received_body"), TrackingID: trackingID}, nil)
@@ -1011,7 +1084,12 @@ func (h *PagesHandler) APIV1ServerContactHandler(w http.ResponseWriter, r *http.
 		SendAPIResponseError(w, http.StatusTooManyRequests, "RATE_LIMITED", i18n.T(r.Context(), "errors.rate_limited"), nil)
 		return
 	default:
-		if !verifySimpleCaptcha(h.DB, req.CaptchaToken, req.Captcha, time.Now()) {
+		validCaptcha, captchaErr := h.verifyContactCaptcha(r, req.CaptchaToken, req.Captcha, time.Now())
+		if captchaErr != nil {
+			SendAPIResponseError(w, http.StatusServiceUnavailable, "CAPTCHA_UNAVAILABLE", i18n.T(r.Context(), "errors.maintenance_mode"), nil)
+			return
+		}
+		if !validCaptcha {
 			SendAPIResponseError(w, http.StatusBadRequest, "BAD_REQUEST", i18n.T(r.Context(), "errors.bad_request"), nil)
 			return
 		}
@@ -1036,10 +1114,16 @@ func (h *PagesHandler) validSecurityID(candidate string) (bool, error) {
 	return security.IsValidSecurityID(h.DB, candidate, time.Now())
 }
 
-type simpleCaptchaPayload struct {
-	Answer  string `json:"answer"`
-	Expires int64  `json:"expires"`
-	Nonce   string `json:"nonce"`
+func (h *PagesHandler) logInvalidSecurityID(r *http.Request, supplied string) {
+	if h.SecurityLogger == nil {
+		return
+	}
+	digest := sha256.Sum256([]byte(supplied))
+	userAgent := strings.TrimSpace(r.UserAgent())
+	if len(userAgent) > 256 {
+		userAgent = userAgent[:256]
+	}
+	h.SecurityLogger(fmt.Sprintf("security.security_id_invalid user_agent=%q security_id_sha256_prefix=%s", userAgent, hex.EncodeToString(digest[:4])), clientIP(r))
 }
 
 func newSimpleCaptcha(db *sql.DB, now time.Time) (string, string, error) {
@@ -1054,55 +1138,144 @@ func newSimpleCaptcha(db *sql.DB, now time.Time) (string, string, error) {
 	if err != nil {
 		return "", "", err
 	}
-	nonce := make([]byte, 16)
-	if _, err := cryptorand.Read(nonce); err != nil {
+	tokenBytes := make([]byte, 32)
+	if _, err := cryptorand.Read(tokenBytes); err != nil {
 		return "", "", err
 	}
-	payload, err := json.Marshal(simpleCaptchaPayload{
-		Answer: fmt.Sprint(first.Int64() + second.Int64()), Expires: now.Add(20 * time.Minute).Unix(),
-		Nonce: base64.RawURLEncoding.EncodeToString(nonce),
-	})
-	if err != nil {
-		return "", "", err
-	}
+	token := base64.RawURLEncoding.EncodeToString(tokenBytes)
 	secret, err := security.GetOrCreateSecret(db, security.SecretCSRFTokenSecret)
 	if err != nil {
 		return "", "", err
 	}
-	sealed, err := security.EncryptWithSecret(secret, payload, "contact-captcha")
-	if err != nil {
+	answer := fmt.Sprint(first.Int64() + second.Int64())
+	answerHash := simpleCaptchaAnswerHash(secret, answer)
+	tokenHash := sha256.Sum256([]byte(token))
+	if _, err := db.Exec(`DELETE FROM contact_captcha_challenges WHERE expires_at <= ? OR used_at IS NOT NULL`, now.Unix()); err != nil {
 		return "", "", err
 	}
-	return fmt.Sprintf("What is %d + %d?", first.Int64(), second.Int64()), base64.RawURLEncoding.EncodeToString(sealed), nil
+	if _, err := db.Exec(`INSERT INTO contact_captcha_challenges (token_hash, answer_hash, created_at, expires_at)
+VALUES (?, ?, ?, ?)`, hex.EncodeToString(tokenHash[:]), hex.EncodeToString(answerHash), now.Unix(), now.Add(10*time.Minute).Unix()); err != nil {
+		return "", "", err
+	}
+	return fmt.Sprintf("What is %d + %d?", first.Int64(), second.Int64()), token, nil
 }
 
 func verifySimpleCaptcha(db *sql.DB, token, answer string, now time.Time) bool {
 	if db == nil || token == "" || strings.TrimSpace(answer) == "" {
 		return false
 	}
-	sealed, err := base64.RawURLEncoding.DecodeString(token)
-	if err != nil {
+	if _, err := base64.RawURLEncoding.DecodeString(token); err != nil {
 		return false
 	}
 	secret, err := security.GetOrCreateSecret(db, security.SecretCSRFTokenSecret)
 	if err != nil {
 		return false
 	}
-	plain, err := security.DecryptWithSecret(secret, sealed, "contact-captcha")
+	tokenHash := sha256.Sum256([]byte(token))
+	var storedHash string
+	err = db.QueryRow(`UPDATE contact_captcha_challenges SET used_at = ?
+WHERE token_hash = ? AND used_at IS NULL AND expires_at > ?
+RETURNING answer_hash`, now.Unix(), hex.EncodeToString(tokenHash[:]), now.Unix()).Scan(&storedHash)
 	if err != nil {
 		return false
 	}
-	var payload simpleCaptchaPayload
-	if json.Unmarshal(plain, &payload) != nil || payload.Expires < now.Unix() || payload.Nonce == "" {
-		return false
+	answerHash := simpleCaptchaAnswerHash(secret, strings.TrimSpace(answer))
+	return hmac.Equal([]byte(storedHash), []byte(hex.EncodeToString(answerHash)))
+}
+
+func simpleCaptchaAnswerHash(secret []byte, answer string) []byte {
+	mac := hmac.New(sha256.New, secret)
+	_, _ = mac.Write([]byte(answer))
+	return mac.Sum(nil)
+}
+
+func (h *PagesHandler) configuredContactCaptchaProvider() string {
+	if h.Config == nil {
+		return "simple"
 	}
-	return strings.TrimSpace(answer) == payload.Answer
+	provider := strings.ToLower(strings.TrimSpace(h.Config.Pages.Contact.Captcha))
+	switch provider {
+	case "recaptcha", "hcaptcha":
+		return provider
+	default:
+		return "simple"
+	}
+}
+
+func (h *PagesHandler) contactCaptchaProvider(r *http.Request) string {
+	if netutil.IsTorRequest(r, h.Trust) || netutil.IsI2PRequest(r, h.Trust) {
+		return "simple"
+	}
+	return h.configuredContactCaptchaProvider()
+}
+
+var errCaptchaProviderUnavailable = errors.New("captcha provider unavailable")
+
+func (h *PagesHandler) newContactCaptcha(r *http.Request, now time.Time) (string, string, string) {
+	provider := h.contactCaptchaProvider(r)
+	if provider != "simple" {
+		return provider, "", ""
+	}
+	question, token, _ := newSimpleCaptcha(h.DB, now)
+	return provider, question, token
+}
+
+func (h *PagesHandler) verifyContactCaptcha(r *http.Request, token, answer string, now time.Time) (bool, error) {
+	provider := h.contactCaptchaProvider(r)
+	if provider == "simple" {
+		return verifySimpleCaptcha(h.DB, token, answer, now), nil
+	}
+	if h.Config == nil || strings.TrimSpace(answer) == "" {
+		return false, nil
+	}
+	endpoint := ""
+	values := url.Values{}
+	values.Set("secret", h.Config.Pages.Contact.CaptchaSecretKey)
+	values.Set("response", strings.TrimSpace(answer))
+	switch provider {
+	case "recaptcha":
+		endpoint = "https://www.google.com/recaptcha/api/siteverify"
+		values.Set("remoteip", clientIP(r))
+	case "hcaptcha":
+		endpoint = "https://api.hcaptcha.com/siteverify"
+	default:
+		return false, nil
+	}
+	request, err := http.NewRequestWithContext(r.Context(), http.MethodPost, endpoint, strings.NewReader(values.Encode()))
+	if err != nil {
+		return false, errCaptchaProviderUnavailable
+	}
+	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	client := tor.NewHTTPClient(5 * time.Second)
+	client.CheckRedirect = func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }
+	response, err := client.Do(request)
+	if err != nil {
+		return false, errCaptchaProviderUnavailable
+	}
+	defer func() { _ = response.Body.Close() }()
+	if response.StatusCode != http.StatusOK {
+		return false, errCaptchaProviderUnavailable
+	}
+	var result struct {
+		Success bool `json:"success"`
+	}
+	if json.NewDecoder(io.LimitReader(response.Body, 64<<10)).Decode(&result) != nil {
+		return false, errCaptchaProviderUnavailable
+	}
+	return result.Success, nil
 }
 
 func (h *PagesHandler) submitSecurityReport(r *http.Request, req ContactRequest) (string, error) {
 	if h.DB == nil || h.Config == nil || req.Name == "" || req.Email == "" || req.AffectedComponent == "" ||
 		req.Summary == "" || req.StepsToReproduce == "" || req.Impact == "" || !req.CoordinatedAgreement ||
-		!validCreditPreference(req.CreditPreference) || req.CreditPreference == "handle" && req.Handle == "" || !validSecuritySeverity(req.Severity) || !verifySimpleCaptcha(h.DB, req.CaptchaToken, req.Captcha, time.Now()) {
+		!validCreditPreference(req.CreditPreference) || req.CreditPreference == "handle" && req.Handle == "" || !validSecuritySeverity(req.Severity) {
+		return "", fmt.Errorf("security report validation failed")
+	}
+	validCaptcha, captchaErr := h.verifyContactCaptcha(r, req.CaptchaToken, req.Captcha, time.Now())
+	if captchaErr != nil {
+		return "", errCaptchaProviderUnavailable
+	}
+	if !validCaptcha {
 		return "", fmt.Errorf("security report validation failed")
 	}
 	if _, err := mail.ParseAddress(req.Email); err != nil {
@@ -1162,16 +1335,13 @@ func (h *PagesHandler) submitSecurityReport(r *http.Request, req ContactRequest)
 		return "", err
 	}
 	resolved := config.ResolveContactRole(h.Config, "security")
-	if resolved.Email == "" || h.EmailMgr == nil || !h.EmailMgr.IsEnabled() {
-		return "", fmt.Errorf("security report email delivery is unavailable")
-	}
 	appURL := strings.TrimSuffix(netutil.BuildURL(r, h.Trust, ""), "/")
 	statusURL := appURL + "/server/security/report/" + url.PathEscape(trackingID) + "?token=" + url.QueryEscape(accessToken)
 	ack := translateRequest(r, "security.report_email_body", "tracking_id", trackingID, "status_url", statusURL)
 	if len(researcherKey) > 0 {
 		ack, err = encryptResearcherAcknowledgment(string(researcherKey), ack)
 		if err != nil {
-			return "", err
+			ack = ""
 		}
 	}
 	var ciphertext []byte
@@ -1226,17 +1396,20 @@ func (h *PagesHandler) submitSecurityReport(r *http.Request, req ContactRequest)
 	}); err != nil {
 		return "", err
 	}
-	if sendErr := h.EmailMgr.SendDirect(&email.Message{To: []string{req.Email}, Subject: translateRequest(r, "security.report_email_subject", "tracking_id", trackingID), Body: ack}); sendErr != nil {
-		_, _ = h.DB.ExecContext(r.Context(), `DELETE FROM security_reports WHERE tracking_id = ?`, trackingID)
-		return "", fmt.Errorf("send researcher acknowledgment: %w", sendErr)
+	if ack != "" && h.EmailMgr != nil && h.EmailMgr.IsEnabled() {
+		if sendErr := h.EmailMgr.SendDirect(&email.Message{To: []string{req.Email}, Subject: translateRequest(r, "security.report_email_subject", "tracking_id", trackingID), Body: ack}); sendErr != nil && h.SecurityLogger != nil {
+			h.SecurityLogger("security.report_acknowledgment_failed tracking_id="+trackingID, clientIP(r))
+		}
 	}
-	notification := &email.Message{To: []string{resolved.Email}, Subject: translateWithLocale("en", "security.report_notification_subject", "tracking_id", trackingID), Body: string(ciphertext)}
-	if encryption == "aes-256-gcm" {
-		notification.Body = translateWithLocale("en", "security.report_notification_body")
-		notification.Attachments = []email.Attachment{{Filename: trackingID + ".enc", ContentType: "application/octet-stream", Data: ciphertext}}
-	}
-	if sendErr := h.EmailMgr.SendDirect(notification); sendErr != nil && h.SecurityLogger != nil {
-		h.SecurityLogger("security.report_notification_failed tracking_id="+trackingID, clientIP(r))
+	if resolved.Email != "" && h.EmailMgr != nil && h.EmailMgr.IsEnabled() {
+		notification := &email.Message{To: []string{resolved.Email}, Subject: translateWithLocale("en", "security.report_notification_subject", "tracking_id", trackingID), Body: string(ciphertext)}
+		if encryption == "aes-256-gcm" {
+			notification.Body = translateWithLocale("en", "security.report_notification_body")
+			notification.Attachments = []email.Attachment{{Filename: trackingID + ".enc", ContentType: "application/octet-stream", Data: ciphertext}}
+		}
+		if sendErr := h.EmailMgr.SendDirect(notification); sendErr != nil && h.SecurityLogger != nil {
+			h.SecurityLogger("security.report_notification_failed tracking_id="+trackingID, clientIP(r))
+		}
 	}
 	if h.SecurityLogger != nil {
 		h.SecurityLogger("security.report_received tracking_id="+trackingID+" severity="+req.Severity+" component="+security.SanitizeReportComponent(req.AffectedComponent), clientIP(r))
@@ -1279,10 +1452,14 @@ func (h *PagesHandler) renderContactError(w http.ResponseWriter, r *http.Request
 			data.SecurityID = candidate
 		}
 	}
-	data.CaptchaQuestion, data.CaptchaToken, _ = newSimpleCaptcha(h.DB, time.Now())
+	data.CaptchaProvider, data.CaptchaQuestion, data.CaptchaToken = h.newContactCaptcha(r, time.Now())
+	if data.CaptchaProvider != "simple" && h.Config != nil {
+		data.CaptchaSiteKey = h.Config.Pages.Contact.CaptchaSiteKey
+	}
 	w.WriteHeader(status)
 	form := buildContactFormResponse()
 	form.CaptchaQuestion, form.CaptchaToken = data.CaptchaQuestion, data.CaptchaToken
+	form.CaptchaProvider, form.CaptchaSiteKey = data.CaptchaProvider, data.CaptchaSiteKey
 	form.SecurityReportMode = data.SecurityReportMode
 	h.renderNegotiated(w, r, "contact.tmpl", data, form)
 }
@@ -1416,7 +1593,7 @@ func (h *PagesHandler) ServerSecurityHandler(w http.ResponseWriter, r *http.Requ
 // ServerSecurityPolicyHandler serves the default coordinated-disclosure policy.
 func (h *PagesHandler) ServerSecurityPolicyHandler(w http.ResponseWriter, r *http.Request) {
 	pageData := h.NewPageData(r)
-	response := buildSecurityPolicyResponse(pageData.Lang)
+	response := buildSecurityPolicyResponse(pageData.Lang, h.securityPolicyMarkdown())
 	data := struct {
 		PageData
 		SecurityPolicyResponse
@@ -1426,7 +1603,7 @@ func (h *PagesHandler) ServerSecurityPolicyHandler(w http.ResponseWriter, r *htt
 
 // APIV1ServerSecurityPolicyHandler serves the disclosure policy as JSON.
 func (h *PagesHandler) APIV1ServerSecurityPolicyHandler(w http.ResponseWriter, r *http.Request) {
-	SendAPIResponseOK(w, buildSecurityPolicyResponse(i18n.DetectLocale(r)), nil)
+	SendAPIResponseOK(w, buildSecurityPolicyResponse(i18n.DetectLocale(r), h.securityPolicyMarkdown()), nil)
 }
 
 // SecurityPolicyResponse describes the official service's disclosure policy.
@@ -1435,11 +1612,15 @@ type SecurityPolicyResponse struct {
 	InScope          []string `json:"in_scope"`
 	OutOfScope       []string `json:"out_of_scope"`
 	SafeHarbor       string   `json:"safe_harbor"`
+	PolicyMarkdown   string   `json:"policy_markdown,omitempty"`
 }
 
 // buildSecurityPolicyResponse returns the public policy in the requested locale.
-func buildSecurityPolicyResponse(lang string) SecurityPolicyResponse {
+func buildSecurityPolicyResponse(lang, customPolicy string) SecurityPolicyResponse {
 	ctx := i18n.WithLang(context.Background(), lang)
+	if strings.TrimSpace(customPolicy) != "" {
+		return SecurityPolicyResponse{PolicyMarkdown: customPolicy}
+	}
 	return SecurityPolicyResponse{
 		DisclosureWindow: i18n.T(ctx, "security.policy_window"),
 		InScope:          []string{i18n.T(ctx, "security.policy_scope_official")},
@@ -1450,6 +1631,13 @@ func buildSecurityPolicyResponse(lang string) SecurityPolicyResponse {
 		},
 		SafeHarbor: i18n.T(ctx, "security.policy_safe_harbor_text"),
 	}
+}
+
+func (h *PagesHandler) securityPolicyMarkdown() string {
+	if h.Config == nil {
+		return ""
+	}
+	return h.Config.Web.Security.Policy
 }
 
 // ServerSecurityThanksHandler serves the current public acknowledgments list.
@@ -1590,6 +1778,7 @@ func (h *PagesHandler) APIV1ServerSecurityHandler(w http.ResponseWriter, r *http
 // consuming the report owner's single-use-per-day access token.
 func (h *PagesHandler) ServerSecurityReportHandler(w http.ResponseWriter, r *http.Request, trackingID string) {
 	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Referrer-Policy", "no-referrer")
 	if h.DB == nil {
 		h.renderErrorPage(w, r, http.StatusNotFound, i18n.T(r.Context(), "errors.not_found"))
 		return

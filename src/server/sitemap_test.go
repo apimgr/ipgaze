@@ -30,6 +30,11 @@ func TestSitemapXML(t *testing.T) {
 	if !strings.Contains(out, "<priority>1.0</priority>") {
 		t.Errorf("sitemap missing homepage entry: %s", out)
 	}
+	for _, path := range []string{"/server/dpo", "/server/security", "/server/security/policy", "/server/security/thanks"} {
+		if !strings.Contains(out, path) {
+			t.Errorf("sitemap missing public page %q: %s", path, out)
+		}
+	}
 	if strings.Contains(out, "/api/") {
 		t.Errorf("sitemap must never list an API path: %s", out)
 	}

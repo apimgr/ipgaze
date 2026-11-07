@@ -1,6 +1,7 @@
 package tor
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"errors"
@@ -8,15 +9,19 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/textproto"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
-	bineprocess "github.com/cretz/bine/process"
+	"github.com/cretz/bine/control"
 	binetorcmd "github.com/cretz/bine/tor"
 	"github.com/pires/go-proxyproto"
 )
@@ -38,6 +43,8 @@ type TorServiceConfig struct {
 	CircuitTimeout int
 	// BootstrapTimeout is bootstrap timeout in seconds.
 	BootstrapTimeout int
+	// StartupTimeout bounds waiting for the control-port file, in seconds.
+	StartupTimeout int
 	// SafeLogging scrubs sensitive data from Tor logs.
 	SafeLogging bool
 	// MaxStreamsPerCircuit limits concurrent streams per circuit.
@@ -119,13 +126,15 @@ func ApplyOutboundTransport(client *http.Client) error {
 	return nil
 }
 
-// service wraps a bine Tor instance and the hidden service details.
+// service owns the Tor child process, its control connection and hidden service.
 // Per AI.md PART 31.1: the hidden service is declared in torrc via
 // HiddenServiceDir/HiddenServicePort — never via control-port ADD_ONION.
 // Tor itself generates and persists the v3 key + hostname under
 // HiddenServiceDir; onionAddress is simply read from that hostname file.
 type service struct {
 	t              *binetorcmd.Tor
+	cmd            *managedTorProcess
+	ctrl           *control.Conn
 	onionAddress   string
 	torBackendPort int
 	// backendLn is the dedicated PROXY-protocol loopback listener the
@@ -355,11 +364,13 @@ func (m *TorManager) Stop() error {
 	}
 	if m.svc.backendSrv != nil {
 		_ = m.svc.backendSrv.Close()
+	} else if m.svc.backendLn != nil {
+		_ = m.svc.backendLn.Close()
 	}
 	if m.outboundTransport != nil {
 		m.outboundTransport.CloseIdleConnections()
 	}
-	err := m.svc.t.Close()
+	err := stopTor(m.svc.cmd, m.svc.ctrl)
 	m.svc = nil
 	m.running = false
 	log.Println("Tor: hidden service stopped")
@@ -385,10 +396,10 @@ func (m *TorManager) HealthCheck() error {
 	running := m.running
 	m.mu.RUnlock()
 
-	if !running || svc == nil || svc.t == nil || svc.t.Control == nil {
+	if !running || svc == nil || svc.ctrl == nil {
 		return nil
 	}
-	if _, err := svc.t.Control.GetInfo("version"); err != nil {
+	if _, err := svc.ctrl.GetInfo("version"); err != nil {
 		return fmt.Errorf("tor control probe failed: %w", err)
 	}
 	return nil
@@ -402,8 +413,10 @@ func (m *TorManager) RegenerateAddress() (string, error) {
 	if m.running && m.svc != nil {
 		if m.svc.backendSrv != nil {
 			_ = m.svc.backendSrv.Close()
+		} else if m.svc.backendLn != nil {
+			_ = m.svc.backendLn.Close()
 		}
-		_ = m.svc.t.Close()
+		_ = stopTor(m.svc.cmd, m.svc.ctrl)
 		m.svc = nil
 		m.running = false
 	}
@@ -612,6 +625,7 @@ func getTorConfig(cfg TorServiceConfig, hsDir string, torBackendPort int) string
 	// AI.md PART 31 pins the Tor PID file to {data_dir}/tor/tor.pid so an
 	// operator (and the service scripts) can find the process without
 	// scanning the process table.
+	torDataDir := filepath.Join(cfg.DataDir, "tor")
 	if cfg.DataDir != "" {
 		logConfig += fmt.Sprintf("PidFile %s\n", filepath.Join(cfg.DataDir, "tor", "tor.pid"))
 	}
@@ -647,8 +661,14 @@ func getTorConfig(cfg TorServiceConfig, hsDir string, torBackendPort int) string
 # SOCKS port for outbound connections (0 = disabled, auto = runtime port)
 %s
 
-# Control connection - runtime localhost port, never hardcoded
+# Control connection - runtime localhost port, never hardcoded. Start offline
+# so the controller subscribes to bootstrap events before networking begins.
+DataDirectory %s
 ControlPort 127.0.0.1:auto
+ControlPortWriteToFile %s
+CookieAuthentication 1
+DisableNetwork 1
+__OwningControllerProcess %d
 
 SafeLogging %s
 %s
@@ -683,7 +703,7 @@ HiddenServiceVersion 3
 HiddenServicePort %d 127.0.0.1:%d
 # Export per-rendezvous-circuit ID via HAProxy PROXY protocol (opaque token, not an IP)
 HiddenServiceExportCircuitID haproxy
-%s`, socksConfig, safeLogging, logConfig, maxCircuits, circuitConfig, bwRate, bwBurst, accountingConfig, hsDir, virtualPort, torBackendPort, hsTuning)
+%s`, socksConfig, torDataDir, filepath.Join(torDataDir, "control_port"), os.Getpid(), safeLogging, logConfig, maxCircuits, circuitConfig, bwRate, bwBurst, accountingConfig, hsDir, virtualPort, torBackendPort, hsTuning)
 }
 
 // ensureTorDirs creates required Tor directories with secure permissions,
@@ -789,59 +809,100 @@ func (m *TorManager) startDedicated(ctx context.Context) (*service, error) {
 		_ = backendLn.Close()
 		return nil, fmt.Errorf("torrc: %w", err)
 	}
-
-	conf := &binetorcmd.StartConf{
-		TorrcFile:       torrcPath,
-		DataDir:         torDataDir,
-		NoAutoSocksPort: true,
-	}
 	bin := m.resolveBinary()
 	if bin == "" {
 		bin = "tor"
 	}
-	conf.ProcessCreator = controlPortReadyCreator{
-		creator: bineprocess.NewCreator(bin),
-		timeout: 30 * time.Second,
+	controlPortFile := filepath.Join(torDataDir, "control_port")
+	if err := removeStaleControlPort(controlPortFile); err != nil {
+		_ = backendLn.Close()
+		return nil, fmt.Errorf("remove stale Tor control-port file: %w", err)
 	}
-
-	t, err := binetorcmd.Start(ctx, conf)
+	child, err := spawnTor(ctx, bin, torrcPath)
 	if err != nil {
 		_ = backendLn.Close()
 		return nil, fmt.Errorf("tor start: %w", err)
 	}
 
+	startupTimeout := time.Duration(m.cfg.StartupTimeout) * time.Second
+	if startupTimeout <= 0 {
+		startupTimeout = 60 * time.Second
+	}
+	controlAddr, err := waitControlPort(ctx, child, controlPortFile, startupTimeout)
+	if err != nil {
+		_ = stopTor(child, nil)
+		_ = backendLn.Close()
+		return nil, fmt.Errorf("tor control port: %w", err)
+	}
+	ctrl, controlConn, err := dialControl(ctx, controlAddr)
+	if err != nil {
+		_ = stopTor(child, nil)
+		_ = backendLn.Close()
+		return nil, fmt.Errorf("tor control authentication: %w", err)
+	}
+
+	events := make(chan control.Event, 64)
+	if err := ctrl.AddEventListener(events, control.EventCodeStatusClient, control.EventCodeHSDesc); err != nil {
+		_ = stopTor(child, ctrl)
+		_ = backendLn.Close()
+		return nil, fmt.Errorf("subscribe to Tor events: %w", err)
+	}
 	bootstrapTimeout := time.Duration(m.cfg.BootstrapTimeout) * time.Second
-	if bootstrapTimeout == 0 {
+	if bootstrapTimeout <= 0 {
 		bootstrapTimeout = 180 * time.Second
 	}
-	dialCtx, cancel := context.WithTimeout(ctx, bootstrapTimeout)
+	bootstrapCtx, cancel := context.WithTimeout(ctx, bootstrapTimeout)
 	defer cancel()
-	if err := t.EnableNetwork(dialCtx, true); err != nil {
-		_ = t.Close()
-		_ = backendLn.Close()
-		return nil, fmt.Errorf("tor enable network: %w", err)
-	}
 
-	// The hidden service is already declared in torrc (HiddenServiceDir
-	// block). During bootstrap Tor generated (or loaded) the v3 ed25519 key
-	// and wrote the .onion into {hsDir}/hostname — no ADD_ONION involved.
-	onionBytes, err := os.ReadFile(hostnamePath)
+	// Check the current phase after subscribing so a bootstrap event that
+	// happened just before the request cannot leave startup waiting forever.
+	bootstrapped, err := torAlreadyBootstrapped(ctrl)
 	if err != nil {
-		_ = t.Close()
+		_ = stopTor(child, ctrl)
 		_ = backendLn.Close()
-		return nil, fmt.Errorf("read onion hostname: %w", err)
+		return nil, fmt.Errorf("read Tor bootstrap phase: %w", err)
 	}
-	onionAddress := strings.TrimSpace(string(onionBytes))
+	if err := ctrl.SetConf(&control.KeyVal{Key: "DisableNetwork", Val: "0"}); err != nil {
+		_ = stopTor(child, ctrl)
+		_ = backendLn.Close()
+		return nil, fmt.Errorf("enable Tor network: %w", err)
+	}
+	if !bootstrapped {
+		if err := waitForTorEvent(bootstrapCtx, ctrl, controlConn, events, func(event control.Event) (bool, error) {
+			status, ok := event.(*control.StatusEvent)
+			if !ok || status.Type != control.EventCodeStatusClient || status.Action != "BOOTSTRAP" {
+				return false, nil
+			}
+			if status.Severity == "WARN" || status.Severity == "ERR" {
+				log.Printf("Tor bootstrap status: %s", status.Raw)
+			}
+			return status.Arguments["PROGRESS"] == "100", nil
+		}); err != nil {
+			_ = stopTor(child, ctrl)
+			_ = backendLn.Close()
+			return nil, fmt.Errorf("Tor bootstrap timed out or failed: %w", err)
+		}
+	}
 
+	onionAddress, err := waitHostname(bootstrapCtx, child, hostnamePath)
+	if err != nil {
+		_ = stopTor(child, ctrl)
+		_ = backendLn.Close()
+		return nil, fmt.Errorf("wait for Tor hostname: %w", err)
+	}
+
+	t := &binetorcmd.Tor{Control: ctrl}
 	svc := &service{
 		t:              t,
+		cmd:            child,
+		ctrl:           ctrl,
 		onionAddress:   onionAddress,
 		torBackendPort: torBackendPort,
 		backendLn:      backendLn,
 	}
 
 	if m.cfg.UseNetwork {
-		dialer, dialErr := t.Dialer(ctx, nil)
+		dialer, dialErr := t.Dialer(ctx, &binetorcmd.DialConf{SkipEnableNetwork: true})
 		if dialErr != nil {
 			log.Printf("Tor: warning: failed to create dialer: %v", dialErr)
 		} else {
@@ -853,70 +914,272 @@ func (m *TorManager) startDedicated(ctx context.Context) (*service, error) {
 	// The loopback backend port is an internal implementation detail and is
 	// deliberately kept out of the startup log (AI.md PART 31.1).
 	log.Printf("Tor hidden service started: %s:%d", onionAddress, m.cfg.VirtualPort)
+	descCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
+	err = waitForTorEvent(descCtx, ctrl, controlConn, events, func(event control.Event) (bool, error) {
+		desc, ok := event.(*control.HSDescEvent)
+		if ok && desc.Action == "FAILED" {
+			log.Printf("Tor hidden service descriptor upload failed: %s", desc.Raw)
+		}
+		return ok && desc.Action == "UPLOADED", nil
+	})
+	cancel()
+	if err != nil {
+		log.Printf("Tor hidden service descriptor upload not confirmed: %v", err)
+	}
 	return svc, nil
 }
 
-type controlPortReadyCreator struct {
-	creator bineprocess.Creator
-	timeout time.Duration
-}
+var controlPortLine = regexp.MustCompile(`^PORT=(127\.0\.0\.1:[0-9]{1,5})\n$`)
+var hostnameLine = regexp.MustCompile(`^[a-z2-7]{56}\.onion$`)
 
-func (c controlPortReadyCreator) New(ctx context.Context, args ...string) (bineprocess.Process, error) {
-	proc, err := c.creator.New(ctx, args...)
-	if err != nil {
-		return nil, err
-	}
-	return &controlPortReadyProcess{Process: proc, ctx: ctx, args: args, timeout: c.timeout}, nil
-}
-
-type controlPortReadyProcess struct {
-	bineprocess.Process
-	ctx     context.Context
-	args    []string
-	timeout time.Duration
-}
-
-func (p *controlPortReadyProcess) Start() error {
-	if err := p.Process.Start(); err != nil {
+func removeStaleControlPort(path string) error {
+	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
-	}
-	for index, arg := range p.args {
-		if arg == "--ControlPortWriteToFile" && index+1 < len(p.args) {
-			return waitForControlPortFile(p.ctx, p.args[index+1], p.timeout)
-		}
 	}
 	return nil
 }
 
-func waitForControlPortFile(ctx context.Context, path string, timeout time.Duration) error {
-	if ctx == nil {
-		ctx = context.Background()
+func parseControlPortFile(contents []byte) (string, bool) {
+	match := controlPortLine.FindSubmatch(contents)
+	if match == nil {
+		return "", false
 	}
-	if timeout <= 0 {
-		timeout = 30 * time.Second
+	_, portText, err := net.SplitHostPort(string(match[1]))
+	if err != nil {
+		return "", false
 	}
-	timer := time.NewTimer(timeout)
-	defer timer.Stop()
-	ticker := time.NewTicker(100 * time.Millisecond)
-	defer ticker.Stop()
-	var lastErr error
-	for {
-		contents, err := os.ReadFile(path)
+	port, err := strconv.Atoi(portText)
+	if err != nil || port < 1 || port > 65535 {
+		return "", false
+	}
+	return string(match[1]), true
+}
+
+type managedTorProcess struct {
+	cmd     *exec.Cmd
+	done    chan struct{}
+	mu      sync.Mutex
+	waitErr error
+	stdout  *tailBuffer
+	stderr  *tailBuffer
+}
+
+type tailBuffer struct {
+	mu    sync.Mutex
+	buf   bytes.Buffer
+	limit int
+}
+
+func (b *tailBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	n := len(p)
+	if b.limit <= 0 {
+		b.limit = 8192
+	}
+	if len(p) >= b.limit {
+		b.buf.Reset()
+		p = p[len(p)-b.limit:]
+	} else if b.buf.Len()+len(p) > b.limit {
+		_, _ = b.buf.Read(make([]byte, b.buf.Len()+len(p)-b.limit))
+	}
+	_, _ = b.buf.Write(p)
+	return n, nil
+}
+
+func (b *tailBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
+
+func spawnTor(ctx context.Context, binary, torrcPath string) (*managedTorProcess, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	child := &managedTorProcess{
+		cmd:    exec.Command(binary, "-f", torrcPath),
+		done:   make(chan struct{}),
+		stdout: &tailBuffer{limit: 8192},
+		stderr: &tailBuffer{limit: 8192},
+	}
+	child.cmd.Stdout = child.stdout
+	child.cmd.Stderr = child.stderr
+	if err := child.cmd.Start(); err != nil {
+		return nil, err
+	}
+	go func() {
+		err := child.cmd.Wait()
+		child.mu.Lock()
+		child.waitErr = err
+		child.mu.Unlock()
+		close(child.done)
+	}()
+	return child, nil
+}
+
+func (p *managedTorProcess) exitError() error {
+	if p == nil {
+		return errors.New("Tor process unavailable")
+	}
+	select {
+	case <-p.done:
+		p.mu.Lock()
+		err := p.waitErr
+		p.mu.Unlock()
 		if err == nil {
-			if _, parseErr := bineprocess.ControlPortFromFileContents(string(contents)); parseErr == nil {
-				return nil
-			} else {
-				lastErr = parseErr
+			err = errors.New("Tor process exited")
+		}
+		if stderr := strings.TrimSpace(p.stderr.String()); stderr != "" {
+			return fmt.Errorf("%w; stderr: %s", err, stderr)
+		}
+		return err
+	default:
+		return nil
+	}
+}
+
+func waitControlPort(ctx context.Context, child *managedTorProcess, file string, timeout time.Duration) (string, error) {
+	if timeout <= 0 {
+		timeout = 60 * time.Second
+	}
+	deadline := time.NewTimer(timeout)
+	defer deadline.Stop()
+	ticker := time.NewTicker(250 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		if err := child.exitError(); err != nil {
+			return "", fmt.Errorf("Tor exited before opening the control port: %w", err)
+		}
+		if contents, err := os.ReadFile(file); err == nil {
+			if address, valid := parseControlPortFile(contents); valid {
+				return address, nil
 			}
-		} else {
-			lastErr = err
 		}
 		select {
 		case <-ctx.Done():
-			return fmt.Errorf("wait for Tor control port file: %w", ctx.Err())
-		case <-timer.C:
-			return fmt.Errorf("tor did not write a valid control port file within %s: %w", timeout, lastErr)
+			return "", ctx.Err()
+		case <-child.done:
+			return "", fmt.Errorf("Tor exited before opening the control port: %w", child.exitError())
+		case <-deadline.C:
+			stderr := strings.TrimSpace(child.stderr.String())
+			if stderr != "" {
+				return "", fmt.Errorf("control_port file not ready after %s; stderr: %s", timeout, stderr)
+			}
+			return "", fmt.Errorf("control_port file not ready after %s", timeout)
 		case <-ticker.C:
 		}
 	}
+}
+
+func dialControl(ctx context.Context, address string) (*control.Conn, net.Conn, error) {
+	dialer := &net.Dialer{Timeout: 5 * time.Second}
+	conn, err := dialer.DialContext(ctx, "tcp", address)
+	if err != nil {
+		return nil, nil, err
+	}
+	ctrl := control.NewConn(textproto.NewConn(conn))
+	if err := ctrl.Authenticate(""); err != nil {
+		_ = conn.Close()
+		return nil, nil, err
+	}
+	return ctrl, conn, nil
+}
+
+func torAlreadyBootstrapped(ctrl *control.Conn) (bool, error) {
+	values, err := ctrl.GetInfo("status/bootstrap-phase")
+	if err != nil {
+		return false, err
+	}
+	for _, value := range values {
+		if value.Key == "status/bootstrap-phase" && strings.Contains(value.Val, "PROGRESS=100") {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func waitForTorEvent(ctx context.Context, ctrl *control.Conn, conn net.Conn, events <-chan control.Event, match func(control.Event) (bool, error)) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if err := conn.SetReadDeadline(time.Now().Add(250 * time.Millisecond)); err != nil {
+			return err
+		}
+		err := ctrl.HandleNextEvent()
+		_ = conn.SetReadDeadline(time.Time{})
+		if err != nil {
+			var netErr net.Error
+			if errors.As(err, &netErr) && netErr.Timeout() {
+				continue
+			}
+			return err
+		}
+		for {
+			select {
+			case event := <-events:
+				matched, err := match(event)
+				if err != nil {
+					return err
+				}
+				if matched {
+					return nil
+				}
+			default:
+				goto nextEvent
+			}
+		}
+	nextEvent:
+	}
+}
+
+func waitHostname(ctx context.Context, child *managedTorProcess, file string) (string, error) {
+	ticker := time.NewTicker(250 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		if err := child.exitError(); err != nil {
+			return "", fmt.Errorf("Tor exited before writing hostname: %w", err)
+		}
+		if contents, err := os.ReadFile(file); err == nil {
+			address := strings.TrimSpace(string(contents))
+			if hostnameLine.MatchString(address) {
+				return address, nil
+			}
+		}
+		select {
+		case <-ctx.Done():
+			return "", ctx.Err()
+		case <-child.done:
+			return "", fmt.Errorf("Tor exited before writing hostname: %w", child.exitError())
+		case <-ticker.C:
+		}
+	}
+}
+
+func stopTor(child *managedTorProcess, ctrl *control.Conn) error {
+	if ctrl != nil {
+		_ = ctrl.Signal("SHUTDOWN")
+		_ = ctrl.Close()
+	}
+	if child == nil || child.cmd == nil || child.cmd.Process == nil {
+		return nil
+	}
+	select {
+	case <-child.done:
+		return nil
+	case <-time.After(10 * time.Second):
+	}
+	_ = child.cmd.Process.Signal(syscall.SIGTERM)
+	select {
+	case <-child.done:
+		return nil
+	case <-time.After(5 * time.Second):
+	}
+	_ = child.cmd.Process.Kill()
+	<-child.done
+	return nil
 }

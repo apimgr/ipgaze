@@ -314,6 +314,107 @@ func TestBuildAndExtractBackupArchive_RoundTrip(t *testing.T) {
 	}
 }
 
+func TestBuildIncrementalBackupArchive_CumulativeDiffAndRestore(t *testing.T) {
+	root := t.TempDir()
+	configDir := filepath.Join(root, "config")
+	dbDir := filepath.Join(root, "db")
+	if err := os.MkdirAll(configDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(dbDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	serverYML := filepath.Join(configDir, "server.yml")
+	removedPath := filepath.Join(configDir, "obsolete.txt")
+	dbFile := filepath.Join(dbDir, "server.db")
+	for path, content := range map[string]string{
+		serverYML:   "version: one\n",
+		removedPath: "remove me\n",
+		dbFile:      "base database\n",
+	} {
+		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	layout := backupArchiveLayout{configDir: configDir, dbDir: dbDir}
+	baseArchive, err := buildBackupArchive(map[string]interface{}{}, layout)
+	if err != nil {
+		t.Fatalf("build base: %v", err)
+	}
+	basePath := filepath.Join(root, "ipgaze_backup_2026-01-01.tar.gz")
+	if err := os.WriteFile(basePath, baseArchive, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(serverYML, []byte("version: two\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(configDir, "new.txt"), []byte("new file\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(removedPath); err != nil {
+		t.Fatal(err)
+	}
+	current, err := collectBackupFiles(layout)
+	if err != nil {
+		t.Fatal(err)
+	}
+	baseDigest := backupBytesSHA256(baseArchive)
+	incremental, err := buildIncrementalBackupArchiveFromFiles(
+		map[string]interface{}{},
+		current,
+		baseArchive,
+		filepath.Base(basePath),
+		baseDigest,
+		layout,
+	)
+	if err != nil {
+		t.Fatalf("build incremental: %v", err)
+	}
+	manifest, err := readBackupManifest(incremental)
+	if err != nil {
+		t.Fatalf("read incremental manifest: %v", err)
+	}
+	if got := manifest["type"]; got != "incremental" {
+		t.Fatalf("type = %v, want incremental", got)
+	}
+	if got := manifest["base_backup"]; got != filepath.Base(basePath) {
+		t.Fatalf("base_backup = %v, want %s", got, filepath.Base(basePath))
+	}
+	deleted, ok := manifest["deleted"].([]interface{})
+	if !ok || len(deleted) != 1 || deleted[0] != "config/obsolete.txt" {
+		t.Fatalf("deleted = %#v, want obsolete config file", manifest["deleted"])
+	}
+	changedFiles, err := readBackupArchiveFiles(incremental)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(changedFiles) != 2 {
+		t.Fatalf("incremental file count = %d, want changed config and new file", len(changedFiles))
+	}
+
+	restoreDir := t.TempDir()
+	if err := extractBackupArchive(baseArchive, restoreDir); err != nil {
+		t.Fatalf("extract base: %v", err)
+	}
+	if err := extractBackupArchive(incremental, restoreDir); err != nil {
+		t.Fatalf("extract incremental: %v", err)
+	}
+	if err := applyBackupDeletions(restoreDir, manifest["deleted"]); err != nil {
+		t.Fatalf("apply deletions: %v", err)
+	}
+	got, err := os.ReadFile(filepath.Join(restoreDir, "config", "server.yml"))
+	if err != nil || string(got) != "version: two\n" {
+		t.Fatalf("restored config = %q, err=%v", got, err)
+	}
+	if _, err := os.Stat(filepath.Join(restoreDir, "config", "obsolete.txt")); !os.IsNotExist(err) {
+		t.Fatalf("deleted file remains after restore: err=%v", err)
+	}
+	got, err = os.ReadFile(filepath.Join(restoreDir, "db", "server.db"))
+	if err != nil || string(got) != "base database\n" {
+		t.Fatalf("unchanged database = %q, err=%v", got, err)
+	}
+}
+
 func TestBuildBackupArchive_DefaultExcludesSSLAndData(t *testing.T) {
 	srcDir := t.TempDir()
 	configDir := filepath.Join(srcDir, "config")

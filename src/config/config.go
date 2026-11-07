@@ -48,7 +48,20 @@ type AppConfig struct {
 	Tor    TorIdentityConfig `yaml:"tor"`
 	Web    WebConfig         `yaml:"web"`
 	Data   DataConfig        `yaml:"data"`
+	Pages  PagesConfig       `yaml:"pages"`
 	Output OutputConfig      `yaml:"output,omitempty"`
+}
+
+// PagesConfig holds settings for public page forms per AI.md PART 12.
+type PagesConfig struct {
+	Contact ContactPageConfig `yaml:"contact"`
+}
+
+// ContactPageConfig configures the public contact form's CAPTCHA provider.
+type ContactPageConfig struct {
+	Captcha          string `yaml:"captcha"`
+	CaptchaSiteKey   string `yaml:"captcha_site_key"`
+	CaptchaSecretKey string `yaml:"captcha_secret_key"`
 }
 
 // OutputConfig controls terminal color and emoji output per AI.md PART 8
@@ -374,6 +387,8 @@ type WebSecurityConfig struct {
 	// key identity ("{app_name} Security <{contact}>"), per AI.md PART 11.
 	// Never the primary reporting channel — see report_url.
 	Contact string `yaml:"contact"`
+	// Policy is an optional operator-authored Markdown disclosure policy.
+	Policy string `yaml:"policy"`
 }
 
 // ServerConfig contains server-related settings
@@ -512,8 +527,15 @@ type ContactConfig struct {
 	Security ContactEntry `yaml:"security"`
 	// Abuse receives spam/harassment/DMCA/TOS-violation reports.
 	// Default "" — never auto-advertised (unlike security@); operator must opt in.
-	Abuse   ContactEntry `yaml:"abuse"`
-	General ContactEntry `yaml:"general"`
+	Abuse   ContactEntry     `yaml:"abuse"`
+	General ContactEntry     `yaml:"general"`
+	DPO     DPOContactConfig `yaml:"dpo"`
+}
+
+// DPOContactConfig supplies the public data protection officer contact.
+type DPOContactConfig struct {
+	Name  string `yaml:"name"`
+	Email string `yaml:"email"`
 }
 
 // ContactEntry holds an email address and optional webhook transports for a contact role.
@@ -843,7 +865,6 @@ type RetentionPolicy struct {
 // ConsentConfig controls the cookie consent banner appearance and text.
 type ConsentConfig struct {
 	ShowUntilAcknowledged bool   `yaml:"show_until_acknowledged"`
-	DefaultEnabled        bool   `yaml:"default_enabled"`
 	Message               string `yaml:"message"`
 	MessageIfSold         string `yaml:"message_if_sold"`
 	Policy                struct {
@@ -863,7 +884,6 @@ type ConsentConfig struct {
 func consentDefaults() ConsentConfig {
 	c := ConsentConfig{
 		ShowUntilAcknowledged: true,
-		DefaultEnabled:        true,
 		Message:               "In accordance with the EU GDPR law this message is being displayed. We use cookies for essential site functionality and, with your consent, for preferences and analytics. Your data is stored on our servers and is never sold.",
 		MessageIfSold:         "In accordance with the EU GDPR law this message is being displayed. We use cookies for essential site functionality and, with your consent, for preferences and analytics. Your data may be shared with or sold to third parties as described in our Privacy Policy.",
 		Position:              "bottom",
@@ -1212,6 +1232,8 @@ type TorConfig struct {
 	AllowUserPreference bool `yaml:"allow_user_preference"`
 	// MaxCircuits is the maximum open circuits (higher = faster, more memory).
 	MaxCircuits int `yaml:"max_circuits"`
+	// StartupTimeout bounds the wait for Tor's control-port file, in seconds.
+	StartupTimeout int `yaml:"startup_timeout"`
 	// CircuitTimeout is how long (in seconds) to wait before giving up on a circuit.
 	CircuitTimeout int `yaml:"circuit_timeout"`
 	// BootstrapTimeout is how long (in seconds) to wait for Tor network bootstrap.
@@ -1589,7 +1611,9 @@ func (g GeoIPConfig) expandCountryList(list []string) []string {
 
 // SecurityConfig contains server-level security settings (allowlist, etc.)
 type SecurityConfig struct {
-	Allowlist []AllowlistEntry `yaml:"allowlist"`
+	Allowlist      []AllowlistEntry     `yaml:"allowlist"`
+	BlockedIPs     []BlockedIPEntry     `yaml:"blocked_ips"`
+	AbuseDetection AbuseDetectionConfig `yaml:"abuse_detection"`
 	// EncryptionKey is the base64-encoded 32-byte AES-256-GCM key used to encrypt
 	// sensitive at-rest data (e.g. DNS-01 provider credentials), per AI.md PART 11.
 	// Auto-generated via crypto/rand on first run and persisted to server.yml.
@@ -1600,6 +1624,26 @@ type SecurityConfig struct {
 	PreviousEncryptionKey string `yaml:"previous_encryption_key,omitempty"`
 	// PreviousEncryptionKeyUntil is the Unix timestamp the grace period above ends.
 	PreviousEncryptionKeyUntil int64 `yaml:"previous_encryption_key_until,omitempty"`
+}
+
+// BlockedIPEntry is a permanent operator-configured IP/CIDR block.
+type BlockedIPEntry struct {
+	CIDR   string `yaml:"cidr"`
+	Reason string `yaml:"reason"`
+}
+
+// AbuseDetectionConfig configures automatic request-flood response.
+type AbuseDetectionConfig struct {
+	RequestFlood RequestFloodConfig `yaml:"request_flood"`
+	AutoBlockIP  bool               `yaml:"auto_block_ip"`
+	AutoAlert    bool               `yaml:"auto_alert"`
+}
+
+// RequestFloodConfig sets the class-based request flood threshold and block duration.
+type RequestFloodConfig struct {
+	Multiplier    int    `yaml:"multiplier"`
+	Window        string `yaml:"window"`
+	BlockDuration string `yaml:"block_duration"`
 }
 
 // AllowlistEntry is a trusted IP/CIDR that bypasses blocklist, rate limit, and GeoIP.
@@ -2051,6 +2095,7 @@ func DefaultConfig() *AppConfig {
 				UseNetwork:                false,
 				AllowUserPreference:       true,
 				MaxCircuits:               32,
+				StartupTimeout:            60,
 				CircuitTimeout:            60,
 				BootstrapTimeout:          180,
 				SafeLogging:               true,
@@ -2179,6 +2224,10 @@ func DefaultConfig() *AppConfig {
 			Healthz: HealthzConfig{
 				Root: RootHealthzConfig{Enabled: false},
 			},
+			Security: SecurityConfig{AbuseDetection: AbuseDetectionConfig{
+				RequestFlood: RequestFloodConfig{Multiplier: 10, Window: "60s", BlockDuration: "1h"},
+				AutoBlockIP:  true, AutoAlert: true,
+			}},
 			Contact:  ContactConfig{},
 			Tracking: TrackingConfig{},
 			Privacy: PrivacyConfig{
@@ -2368,6 +2417,7 @@ func DefaultConfig() *AppConfig {
 			Headers:           DefaultSecurityHeaders(),
 			Reports:           DefaultReportsConfig(),
 		},
+		Pages: PagesConfig{Contact: ContactPageConfig{Captcha: "simple"}},
 		Data: DataConfig{
 			CVE: CVEDataConfig{
 				Source:      "https://services.nvd.nist.gov/rest/json/cves/2.0",
@@ -2428,6 +2478,9 @@ func LoadConfigFromFile(path string) (*AppConfig, error) {
 		if envListen := os.Getenv("LISTEN"); envListen != "" {
 			cfg.Server.Address = envListen
 		}
+		if err := validateOperatorSecurityConfig(cfg); err != nil {
+			return nil, err
+		}
 		if err := saveConfig(cfg, path); err != nil {
 			return nil, fmt.Errorf("failed to create default config: %w", err)
 		}
@@ -2444,6 +2497,9 @@ func LoadConfigFromFile(path string) (*AppConfig, error) {
 	cfg := DefaultConfig()
 	if err := yaml.Unmarshal(data, cfg); err != nil {
 		return nil, fmt.Errorf("failed to parse config file: %w", err)
+	}
+	if err := validateOperatorSecurityConfig(cfg); err != nil {
+		return nil, err
 	}
 
 	validateConfig(cfg)
@@ -2485,6 +2541,33 @@ func validateConfig(cfg *AppConfig) {
 	if err := ValidateTracking(&cfg.Server.Tracking); err != nil {
 		slog.Warn("invalid server.tracking configuration; disabling analytics", "error", err)
 		cfg.Server.Tracking = def.Server.Tracking
+	}
+	if cfg.Server.Tor.StartupTimeout < 10 || cfg.Server.Tor.StartupTimeout > 300 {
+		warnConfigReplaced("server.tor.startup_timeout", cfg.Server.Tor.StartupTimeout, def.Server.Tor.StartupTimeout)
+		cfg.Server.Tor.StartupTimeout = def.Server.Tor.StartupTimeout
+	}
+	flood := &cfg.Server.Security.AbuseDetection.RequestFlood
+	defaultFlood := def.Server.Security.AbuseDetection.RequestFlood
+	if flood.Multiplier < 1 {
+		warnConfigReplaced("server.security.abuse_detection.request_flood.multiplier", flood.Multiplier, defaultFlood.Multiplier)
+		flood.Multiplier = defaultFlood.Multiplier
+	}
+	for _, item := range []struct {
+		key   string
+		value *string
+		def   string
+	}{
+		{key: "window", value: &flood.Window, def: defaultFlood.Window},
+		{key: "block_duration", value: &flood.BlockDuration, def: defaultFlood.BlockDuration},
+	} {
+		duration, err := time.ParseDuration(strings.TrimSpace(*item.value))
+		if err != nil || duration <= 0 {
+			warnConfigReplaced("server.security.abuse_detection.request_flood."+item.key, *item.value, item.def)
+			*item.value = item.def
+		}
+	}
+	if cfg.Pages.Contact.Captcha == "" {
+		cfg.Pages.Contact.Captcha = def.Pages.Contact.Captcha
 	}
 
 	// AI.md PART 16 Branding Defaults: "If title is empty, fall back to
@@ -2731,10 +2814,84 @@ func reloadConfigFromFile() error {
 	if err := yaml.Unmarshal(data, cfg); err != nil {
 		return fmt.Errorf("failed to parse config file: %w", err)
 	}
+	if err := validateOperatorSecurityConfig(cfg); err != nil {
+		return err
+	}
 
 	validateConfig(cfg)
 	current = cfg
 	return nil
+}
+
+// validateOperatorSecurityConfig rejects security-sensitive settings whose
+// invalid values must leave the currently active configuration untouched.
+func validateOperatorSecurityConfig(cfg *AppConfig) error {
+	if err := ValidateContactCaptcha(cfg.Pages.Contact); err != nil {
+		return err
+	}
+	blocked, err := NormalizeBlockedIPs(cfg.Server.Security.BlockedIPs)
+	if err != nil {
+		return err
+	}
+	cfg.Server.Security.BlockedIPs = blocked
+	return nil
+}
+
+// ValidateContactCaptcha checks that the selected public-form provider has
+// the credentials it needs. The keys are ignored for the self-hosted mode.
+func ValidateContactCaptcha(cfg ContactPageConfig) error {
+	provider := strings.ToLower(strings.TrimSpace(cfg.Captcha))
+	switch provider {
+	case "", "simple":
+		return nil
+	case "recaptcha", "hcaptcha":
+		if strings.TrimSpace(cfg.CaptchaSiteKey) == "" {
+			return fmt.Errorf("pages.contact.captcha_site_key is required when pages.contact.captcha is %q", provider)
+		}
+		if strings.TrimSpace(cfg.CaptchaSecretKey) == "" {
+			return fmt.Errorf("pages.contact.captcha_secret_key is required when pages.contact.captcha is %q", provider)
+		}
+		return nil
+	default:
+		return fmt.Errorf("pages.contact.captcha must be simple, recaptcha, or hcaptcha (got %q)", cfg.Captcha)
+	}
+}
+
+// NormalizeBlockedIPs validates and canonicalizes permanent operator blocks.
+// Bare addresses become host CIDRs; a malformed entry rejects the full config
+// so a hot reload cannot silently discard an intended security rule.
+func NormalizeBlockedIPs(entries []BlockedIPEntry) ([]BlockedIPEntry, error) {
+	result := make([]BlockedIPEntry, 0, len(entries))
+	for index, entry := range entries {
+		value := strings.TrimSpace(entry.CIDR)
+		if value == "" {
+			return nil, fmt.Errorf("server.security.blocked_ips[%d].cidr is required", index)
+		}
+		if !strings.Contains(value, "/") {
+			ip := net.ParseIP(value)
+			if ip == nil {
+				return nil, fmt.Errorf("server.security.blocked_ips[%d].cidr is invalid: %q", index, value)
+			}
+			if v4 := ip.To4(); v4 != nil {
+				value = v4.String() + "/32"
+			} else {
+				value = ip.String() + "/128"
+			}
+		}
+		ip, network, err := net.ParseCIDR(value)
+		if err != nil {
+			return nil, fmt.Errorf("server.security.blocked_ips[%d].cidr is invalid: %q", index, entry.CIDR)
+		}
+		entry.CIDR = ip.Mask(network.Mask).String() + "/" + strconv.Itoa(prefixLength(network.Mask))
+		entry.Reason = strings.TrimSpace(entry.Reason)
+		result = append(result, entry)
+	}
+	return result, nil
+}
+
+func prefixLength(mask net.IPMask) int {
+	oneBits, _ := mask.Size()
+	return oneBits
 }
 
 // saveConfig writes configuration to a YAML file
@@ -2761,6 +2918,21 @@ func formatAllowlist(entries []AllowlistEntry) string {
 	b.WriteString("    allowlist:\n")
 	for _, e := range entries {
 		fmt.Fprintf(&b, "      - cidr: %q\n        description: %q\n", e.CIDR, e.Description)
+	}
+	return b.String()
+}
+
+func formatBlockedIPs(entries []BlockedIPEntry) string {
+	if len(entries) == 0 {
+		return "    blocked_ips: []\n"
+	}
+	var b strings.Builder
+	b.WriteString("    blocked_ips:\n")
+	for _, entry := range entries {
+		fmt.Fprintf(&b, "      - cidr: %q\n", entry.CIDR)
+		if entry.Reason != "" {
+			fmt.Fprintf(&b, "        reason: %q\n", entry.Reason)
+		}
 	}
 	return b.String()
 }
@@ -2965,6 +3137,7 @@ server:
     binary: "%s"
     use_network: %t
     max_circuits: %d
+    startup_timeout: %d
     circuit_timeout: %d
     bootstrap_timeout: %d
     safe_logging: %t
@@ -3058,6 +3231,9 @@ server:
         gotify_secret: "%s"
         generic: "%s"
         generic_secret: "%s"
+    dpo:
+      name: %q
+      email: %q
 
   tracking:
     type: "%s"
@@ -3074,7 +3250,6 @@ server:
       deletion_available: %t
     consent:
       show_until_acknowledged: %t
-      default_enabled: %t
       message: "%s"
       message_if_sold: "%s"
       position: "%s"
@@ -3113,6 +3288,14 @@ server:
   security:
     encryption_key: "%s"
     # Trusted IP/CIDR entries that bypass blocklist, rate limiting, and GeoIP
+%s
+    abuse_detection:
+      request_flood:
+        multiplier: %d
+        window: %q
+        block_duration: %q
+      auto_block_ip: %t
+      auto_alert: %t
 %s
 
   maintenance:
@@ -3237,6 +3420,9 @@ tor:
   contact_email: "%s"
 
 web:
+  security:
+    # Optional Markdown disclosure policy; empty uses the built-in policy.
+    policy: %q
   ui:
     theme: "%s"
     logo: "%s"
@@ -3343,6 +3529,12 @@ data:
     # strings from the project's dependency manifest; no such mapping is
     # defined, so this stays false — see AI.md PART 20
     filter_by_cpe: %t
+
+pages:
+  contact:
+    captcha: %q
+    captcha_site_key: %q
+    captcha_secret_key: %q
 `,
 		cfg.Server.Token,
 		cfg.Server.Port,
@@ -3409,6 +3601,7 @@ data:
 		cfg.Server.Tor.Binary,
 		cfg.Server.Tor.UseNetwork,
 		cfg.Server.Tor.MaxCircuits,
+		cfg.Server.Tor.StartupTimeout,
 		cfg.Server.Tor.CircuitTimeout,
 		cfg.Server.Tor.BootstrapTimeout,
 		cfg.Server.Tor.SafeLogging,
@@ -3488,6 +3681,8 @@ data:
 		cfg.Server.Contact.General.Webhooks.GotifySecret,
 		cfg.Server.Contact.General.Webhooks.Generic,
 		cfg.Server.Contact.General.Webhooks.GenericSecret,
+		cfg.Server.Contact.DPO.Name,
+		cfg.Server.Contact.DPO.Email,
 		cfg.Server.Tracking.Type,
 		cfg.Server.Tracking.ID,
 		cfg.Server.Tracking.URL,
@@ -3497,7 +3692,6 @@ data:
 		cfg.Server.Privacy.Retention.ExportAvailable,
 		cfg.Server.Privacy.Retention.DeletionAvailable,
 		cfg.Server.Privacy.Consent.ShowUntilAcknowledged,
-		cfg.Server.Privacy.Consent.DefaultEnabled,
 		cfg.Server.Privacy.Consent.Message,
 		cfg.Server.Privacy.Consent.MessageIfSold,
 		cfg.Server.Privacy.Consent.Position,
@@ -3526,6 +3720,12 @@ data:
 		cfg.Server.SSL.LetsEncrypt.DNSCredentials.ValidatedAt,
 		cfg.Server.Security.EncryptionKey,
 		formatAllowlist(cfg.Server.Security.Allowlist),
+		cfg.Server.Security.AbuseDetection.RequestFlood.Multiplier,
+		cfg.Server.Security.AbuseDetection.RequestFlood.Window,
+		cfg.Server.Security.AbuseDetection.RequestFlood.BlockDuration,
+		cfg.Server.Security.AbuseDetection.AutoBlockIP,
+		cfg.Server.Security.AbuseDetection.AutoAlert,
+		formatBlockedIPs(cfg.Server.Security.BlockedIPs),
 		cfg.Server.Maintenance.SelfHealing.Enabled,
 		cfg.Server.Maintenance.SelfHealing.RetryInterval,
 		cfg.Server.Maintenance.SelfHealing.MaxAttempts,
@@ -3592,6 +3792,7 @@ data:
 		cfg.Server.Debug.RuntimeEndpoints,
 		cfg.Tor.OnionAddress,
 		cfg.Tor.ContactEmail,
+		cfg.Web.Security.Policy,
 		cfg.Web.UI.Theme,
 		cfg.Web.UI.Logo,
 		cfg.Web.UI.Favicon,
@@ -3651,6 +3852,9 @@ data:
 		cfg.Web.Reports.RateLimitPerIPBurst,
 		cfg.Data.CVE.Source,
 		cfg.Data.CVE.FilterByCPE,
+		cfg.Pages.Contact.Captcha,
+		cfg.Pages.Contact.CaptchaSiteKey,
+		cfg.Pages.Contact.CaptchaSecretKey,
 	)
 }
 
@@ -3796,6 +4000,9 @@ func (c *AppConfig) Sanitized() AppConfig {
 	}
 	if sanitized.Server.Security.PreviousEncryptionKey != "" {
 		sanitized.Server.Security.PreviousEncryptionKey = "xxxxx"
+	}
+	if sanitized.Pages.Contact.CaptchaSecretKey != "" {
+		sanitized.Pages.Contact.CaptchaSecretKey = "xxxxx"
 	}
 	if sanitized.Server.SSL.LetsEncrypt.DNSCredentials.CredentialsEncrypted != "" {
 		sanitized.Server.SSL.LetsEncrypt.DNSCredentials.CredentialsEncrypted = "xxxxx"

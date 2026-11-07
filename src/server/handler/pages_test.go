@@ -504,6 +504,9 @@ func TestAPIV1ServerContactHandler_POST(t *testing.T) {
 	if _, err := db.Exec(`CREATE TABLE app_secrets (name TEXT PRIMARY KEY, value TEXT NOT NULL, previous_value TEXT, previous_until INTEGER, created_at INTEGER, rotated_at INTEGER)`); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := db.Exec(`CREATE TABLE contact_captcha_challenges (token_hash TEXT PRIMARY KEY, answer_hash TEXT NOT NULL, created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL, used_at INTEGER)`); err != nil {
+		t.Fatal(err)
+	}
 	h.DB = db
 	question, token, err := newSimpleCaptcha(db, time.Now())
 	if err != nil {
@@ -555,6 +558,9 @@ func TestSimpleCaptcha_ValidWrongExpiredAndTampered(t *testing.T) {
 	if _, err := db.Exec(`CREATE TABLE app_secrets (name TEXT PRIMARY KEY, value TEXT NOT NULL, previous_value TEXT, previous_until INTEGER, created_at INTEGER, rotated_at INTEGER)`); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := db.Exec(`CREATE TABLE contact_captcha_challenges (token_hash TEXT PRIMARY KEY, answer_hash TEXT NOT NULL, created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL, used_at INTEGER)`); err != nil {
+		t.Fatal(err)
+	}
 	now := time.Date(2026, time.November, 6, 12, 0, 0, 0, time.UTC)
 	question, token, err := newSimpleCaptcha(db, now)
 	if err != nil {
@@ -576,9 +582,47 @@ func TestSimpleCaptcha_ValidWrongExpiredAndTampered(t *testing.T) {
 		t.Fatal("valid captcha answer was rejected")
 	}
 	if verifySimpleCaptcha(db, token, strconv.Itoa(answer+1), now) {
+		t.Fatal("single-use captcha was accepted more than once")
+	}
+	wrongQuestion, wrongToken, err := newSimpleCaptcha(db, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wrongParts := strings.Fields(strings.TrimSuffix(strings.TrimPrefix(wrongQuestion, "What is "), "?"))
+	wrongAnswer := 0
+	for _, part := range wrongParts {
+		if part == "+" {
+			continue
+		}
+		value, err := strconv.Atoi(part)
+		if err != nil {
+			t.Fatal(err)
+		}
+		wrongAnswer += value
+	}
+	if verifySimpleCaptcha(db, wrongToken, strconv.Itoa(wrongAnswer+1), now) {
 		t.Fatal("incorrect captcha answer was accepted")
 	}
-	if verifySimpleCaptcha(db, token, strconv.Itoa(answer), now.Add(21*time.Minute)) {
+	if verifySimpleCaptcha(db, wrongToken, strconv.Itoa(wrongAnswer), now) {
+		t.Fatal("captcha challenge was reusable after an incorrect answer")
+	}
+	expiredQuestion, expiredToken, err := newSimpleCaptcha(db, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expiredParts := strings.Fields(strings.TrimSuffix(strings.TrimPrefix(expiredQuestion, "What is "), "?"))
+	expiredAnswer := 0
+	for _, part := range expiredParts {
+		if part == "+" {
+			continue
+		}
+		value, err := strconv.Atoi(part)
+		if err != nil {
+			t.Fatal(err)
+		}
+		expiredAnswer += value
+	}
+	if verifySimpleCaptcha(db, expiredToken, strconv.Itoa(expiredAnswer), now.Add(11*time.Minute)) {
 		t.Fatal("expired captcha token was accepted")
 	}
 	if verifySimpleCaptcha(db, token+"tampered", strconv.Itoa(answer), now) {
@@ -1619,6 +1663,11 @@ func TestResolveRobotsDirective(t *testing.T) {
 		"/server/about":              "index,follow",
 		"/server/about/":             "index,follow",
 		"/server/help":               "index,follow",
+		"/server/dpo":                "index,follow",
+		"/server/security":           "index,follow",
+		"/server/security/policy":    "index,follow",
+		"/server/security/thanks":    "index,follow",
+		"/server/security/report/id": "noindex,nofollow",
 		"/server/healthz":            "noindex,nofollow",
 		"/server/preferences":        "noindex,nofollow",
 		"/api/v1/server/about":       "noindex,nofollow",

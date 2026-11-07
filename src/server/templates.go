@@ -81,23 +81,14 @@ func templateFuncMap(assetStamp string) template.FuncMap {
 			}
 			return path + sep + "v=" + assetStamp
 		},
-		// trackingScript emits only a same-origin loader with escaped config
-		// attributes. The loader performs the external request after server-side
-		// consent and CSP checks (AI.md PART 12/16 analytics tracking).
+		// trackingScript emits only the consent-gated, same-origin generated
+		// endpoint. The handler rechecks consent and overlay routing before
+		// returning provider-specific JavaScript (AI.md PART 16).
 		"trackingScript": func(tracking config.TrackingConfig, enabled bool, sourceURL string) template.HTML {
 			if !enabled || sourceURL == "" || config.ValidateTracking(&tracking) != nil {
 				return ""
 			}
-			loaderURL := "/static/js/tracking.js"
-			if assetStamp != "" {
-				loaderURL += "?v=" + assetStamp
-			}
-			markup := `<script defer src="` + template.HTMLEscapeString(loaderURL) + `" data-provider="` +
-				template.HTMLEscapeString(tracking.Type) + `" data-id="` +
-				template.HTMLEscapeString(tracking.ID) + `" data-url="` +
-				template.HTMLEscapeString(tracking.URL) + `" data-source-url="` +
-				template.HTMLEscapeString(sourceURL) + `"></script>`
-			return template.HTML(markup)
+			return template.HTML(`<script defer src="/server/tracking.js"></script>`)
 		},
 		// markdownToHTML renders operator-supplied Markdown content blocks
 		// (server.privacy.content.*) to sanitized HTML for privacy.tmpl

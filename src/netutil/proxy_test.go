@@ -394,6 +394,16 @@ func TestIsI2PRequest_NonMatchingResolver_ReturnsFalse(t *testing.T) {
 	}
 }
 
+func TestGetClientIdentifierUsesI2PSentinel(t *testing.T) {
+	tr := NewTrustResolver(testTrustCfg(), "")
+	tr.I2PAddress = "abc123.b32.i2p"
+	r := httptest.NewRequest(http.MethodGet, "http://abc123.b32.i2p/", nil)
+	r.RemoteAddr = "127.0.0.1:7654"
+	if got := GetClientIdentifier(r, tr); got != I2PClientSentinel {
+		t.Fatalf("GetClientIdentifier() = %q, want %q", got, I2PClientSentinel)
+	}
+}
+
 // --- getURLVars priority 0 Tor detection ---
 
 func TestGetURLVars_TorPriority0_ReturnsOnionProtoAndNoPort(t *testing.T) {

@@ -207,6 +207,32 @@ func TestRateLimitMiddlewareBlocks_InvokesOnBlocked(t *testing.T) {
 	}
 }
 
+func TestRateLimitMiddlewareUsesOneGlobalI2PBucket(t *testing.T) {
+	limits := DefaultRateLimitConfig()
+	limits.Global = RateLimitBucket{Limit: 1, Window: time.Minute, Burst: 1}
+	rl := NewRateLimiter(limits, netutil.NewTrustResolver(config.TrustedProxiesConfig{}, ""))
+	defer rl.Stop()
+	trust := netutil.NewTrustResolver(config.TrustedProxiesConfig{}, "")
+	trust.I2PAddress = "test.b32.i2p"
+	rl.trust = trust
+	handler := RateLimitMiddleware(rl)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	for index, method := range []string{http.MethodGet, http.MethodPost} {
+		req := httptest.NewRequest(method, "http://test.b32.i2p/", nil)
+		req.RemoteAddr = "127.0.0.1:7654"
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		want := http.StatusNoContent
+		if index == 1 {
+			want = http.StatusTooManyRequests
+		}
+		if rec.Code != want {
+			t.Errorf("request %d status = %d, want %d", index+1, rec.Code, want)
+		}
+	}
+}
+
 // TestRateLimitBodyOmitsRetryAfter locks in AI.md PART 12: the 429 body carries
 // only ok/error/message and the wait time travels in the header alone.
 func TestRateLimitBodyOmitsRetryAfter(t *testing.T) {

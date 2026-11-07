@@ -178,6 +178,105 @@ func TestApplyBackupRetention_MaxBackups(t *testing.T) {
 	}
 }
 
+func TestApplyBackupRetention_PreservesIncrementalBase(t *testing.T) {
+	dir := t.TempDir()
+	configDir := filepath.Join(dir, "config")
+	dbDir := filepath.Join(dir, "db")
+	if err := os.MkdirAll(configDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(dbDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(configDir, "server.yml"), []byte("version: one\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dbDir, "server.db"), []byte("database\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	layout := backupArchiveLayout{configDir: configDir, dbDir: dbDir}
+	baseArchive, err := buildBackupArchive(map[string]interface{}{}, layout)
+	if err != nil {
+		t.Fatal(err)
+	}
+	baseName := "ipgaze_backup_2026-01-01.tar.gz"
+	basePath := filepath.Join(dir, baseName)
+	if err := os.WriteFile(basePath, baseArchive, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(basePath, time.Now().Add(-48*time.Hour), time.Now().Add(-48*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(configDir, "server.yml"), []byte("version: two\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	current, err := collectBackupFiles(layout)
+	if err != nil {
+		t.Fatal(err)
+	}
+	daily, err := buildIncrementalBackupArchiveFromFiles(
+		map[string]interface{}{},
+		current,
+		baseArchive,
+		baseName,
+		backupBytesSHA256(baseArchive),
+		layout,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "ipgaze-daily.tar.gz"), daily, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	newest := writeBackupFile(t, dir, "ipgaze_backup_2026-01-02.tar.gz", 10, time.Now())
+
+	applyBackupRetention(dir, config.BackupRetentionConfig{MaxBackups: 1}, nil)
+
+	if _, err := os.Stat(basePath); err != nil {
+		t.Fatalf("incremental base was deleted: %v", err)
+	}
+	if _, err := os.Stat(newest); err != nil {
+		t.Fatalf("newest full was deleted: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "ipgaze-daily.tar.gz")); err != nil {
+		t.Fatalf("daily incremental was deleted: %v", err)
+	}
+}
+
+func TestPreserveExistingDailyFullMovesBothEncryptionVariants(t *testing.T) {
+	dir := t.TempDir()
+	daily := filepath.Join(dir, "ipgaze_backup_2026-11-07.tar.gz")
+	encrypted := daily + ".enc"
+	if err := os.WriteFile(daily, []byte("plain backup"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(encrypted, []byte("encrypted backup"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	snapshotAt := time.Date(2026, 11, 7, 12, 34, 56, 0, time.UTC)
+	if err := preserveExistingDailyFull(daily, snapshotAt); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []struct {
+		pattern string
+		content string
+	}{
+		{pattern: "ipgaze_backup_2026-11-07_123456.tar.gz", content: "plain backup"},
+		{pattern: "ipgaze_backup_2026-11-07_123456-01.tar.gz.enc", content: "encrypted backup"},
+	} {
+		data, err := os.ReadFile(filepath.Join(dir, want.pattern))
+		if err != nil || string(data) != want.content {
+			t.Fatalf("preserved %s = %q, err=%v", want.pattern, data, err)
+		}
+	}
+	if _, err := os.Stat(daily); !os.IsNotExist(err) {
+		t.Fatalf("daily full still occupies destination: err=%v", err)
+	}
+	if _, err := os.Stat(encrypted); !os.IsNotExist(err) {
+		t.Fatalf("encrypted daily full still occupies destination: err=%v", err)
+	}
+}
+
 func TestApplyBackupRetention_EmptyDir(t *testing.T) {
 	dir := t.TempDir()
 	applyBackupRetention(dir, config.BackupRetentionConfig{MaxBackups: 1}, nil)

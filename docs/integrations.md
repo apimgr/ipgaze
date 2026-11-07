@@ -155,6 +155,9 @@ When enabled, IPGaze manages a dedicated `i2pd` process when the binary is
 available, or connects to an existing SAMv3 bridge at `127.0.0.1:7656`.
 The resulting `.b32.i2p` address is shown in the server information page when
 the destination is ready. I2P is used for inbound eepsite hosting only.
+Requests on the I2P listener share a dedicated global rate-limit bucket. The
+server treats the loopback connection as one I2P client and never applies
+per-IP blocks to `127.0.0.1` for those requests.
 All server-side I2P options and defaults are listed in
 [Configuration: I2P](configuration.md#i2p).
 

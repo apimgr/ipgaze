@@ -949,6 +949,16 @@ func (s *Server) buildHandler() http.Handler {
 	r.Use(OnionLocationMiddleware(s.resolveOnionAddress))
 	r.Use(ClientIPMiddleware(s.getTrust()))
 	r.Use(AllowlistMiddleware(s.allowlistLookup))
+	limits := DefaultRateLimitConfig()
+	if s.rateLimiter != nil {
+		limits = s.rateLimiter.config
+	}
+	var rateLimiterAlertCallback func(string)
+	if s.rateLimiter != nil {
+		rateLimiterAlertCallback = s.rateLimiter.OnBlocked
+	}
+	policy := AbusePolicyFromConfig(s.config, limits)
+	r.Use(AbuseMiddleware(s.sqlDB, policy, s.getTrust(), s.allowlistLookup, s.logManager, rateLimiterAlertCallback))
 	r.Use(BlocklistMiddleware(s.blocklistLookup, s.logManager))
 	if s.rateLimiter != nil {
 		r.Use(RateLimitMiddleware(s.rateLimiter))
@@ -1246,8 +1256,10 @@ func (s *Server) buildHandler() http.Handler {
 	r.Get("/server/privacy", s.PagesHandler.ServerPrivacyHandler)
 	r.Get("/server/contact", s.PagesHandler.ServerContactHandler)
 	r.Post("/server/contact", s.PagesHandler.ServerContactHandler)
+	r.Get("/server/tracking.js", s.PagesHandler.ServerTrackingScript)
 	r.Get("/server/terms", s.PagesHandler.ServerTermsHandler)
 	r.Get("/server/security", s.PagesHandler.ServerSecurityHandler)
+	r.Get("/server/dpo", s.PagesHandler.ServerDPOHandler)
 	r.Get("/server/security/policy", s.PagesHandler.ServerSecurityPolicyHandler)
 	r.Get("/server/security/thanks", s.PagesHandler.ServerSecurityThanksHandler)
 	r.Get("/server/security/report/{tracking_id}", func(w http.ResponseWriter, req *http.Request) {
@@ -1318,6 +1330,7 @@ func (s *Server) buildHandler() http.Handler {
 			"v1_privacy":            http.HandlerFunc(s.PagesHandler.APIV1ServerPrivacyHandler),
 			"v1_terms":              http.HandlerFunc(s.PagesHandler.APIV1ServerTermsHandler),
 			"v1_security":           http.HandlerFunc(s.PagesHandler.APIV1ServerSecurityHandler),
+			"v1_dpo":                http.HandlerFunc(s.PagesHandler.APIV1ServerDPOHandler),
 			"v1_security_policy":    http.HandlerFunc(s.PagesHandler.APIV1ServerSecurityPolicyHandler),
 			"v1_security_thanks":    http.HandlerFunc(s.PagesHandler.APIV1ServerSecurityThanksHandler),
 			"v1_contact":            http.HandlerFunc(s.PagesHandler.APIV1ServerContactHandler),
