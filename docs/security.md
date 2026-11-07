@@ -129,6 +129,22 @@ always use the built-in challenge.
 
 **Please do not open a public GitHub issue for security vulnerabilities.**
 
+### Coordinated disclosure scope
+
+The public policy at [`/server/security/policy`](https://ifcfg.us/server/security/policy)
+and the versioned JSON endpoint at `/api/v1/server/security/policy` describe
+the official service's coordinated disclosure terms. By default, the in-scope
+asset is the official IPGaze service at `https://ifcfg.us`; self-hosted
+installations and services operated by third parties are out of scope. The
+default request is a 90-day coordinated disclosure period from acknowledgment.
+Denial-of-service testing, spam, social engineering, physical attacks,
+disruption, access to another person's data, and third-party vulnerabilities
+without demonstrated impact on the official service are excluded. The policy
+includes a good-faith safe-harbor statement for research within that scope.
+Operators can replace the hosted policy using `web.security.policy`; the API
+then returns the configured Markdown policy. See the
+[configuration reference](configuration.md#contact-captcha-and-disclosure-policy).
+
 Report repository vulnerabilities privately:
 
 1. **GitHub Private Reporting:** Use [GitHub Security Advisories](https://github.com/apimgr/ipgaze/security/advisories/new). This is the preferred channel for repository vulnerabilities.

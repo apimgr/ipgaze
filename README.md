@@ -456,6 +456,7 @@ On the public instance at https://ifcfg.us, please keep automated use to
 
 - [Installation guide](https://apimgr-ipgaze.readthedocs.io/en/latest/installation/)
 - [Configuration reference](https://apimgr-ipgaze.readthedocs.io/en/latest/configuration/)
+- [Translation guide](https://apimgr-ipgaze.readthedocs.io/en/latest/translating/)
 - [Security policy](.github/SECURITY.md)
 - Report product issues at the [GitHub issue tracker](https://github.com/apimgr/ipgaze/issues).
 

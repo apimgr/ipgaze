@@ -43,6 +43,7 @@ Optional services and their defaults are documented in
 - [Security](security.md) — public endpoints and reporting
 - [Integrations](integrations.md) — discovery and protocol interfaces
 - [Development](development.md) — build, test, and contribution workflow
+- [Translating](translating.md) — locale contribution and review guide
 
 ## Links
 
