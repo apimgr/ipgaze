@@ -8,9 +8,10 @@ ipgaze is designed with security-first principles. This page covers the security
 
 ## Authentication
 
-ipgaze is a public, anonymous IP lookup service. No login is required for any public
-endpoint. Resource ownership (for managing lookup results) uses short-lived bearer tokens
-stored client-side and validated via SHA-256 hash.
+ipgaze is a public, anonymous IP lookup service. No login is required for public
+lookup endpoints. The service does not create user accounts or persistent
+lookup-result ownership records. Operator-protected endpoints use scoped
+bearer tokens stored as SHA-256 hashes.
 
 Security practices applied throughout:
 
@@ -40,6 +41,12 @@ The following endpoints are accessible without authentication:
 | `GET /api/v1/server/healthz` | Versioned health check |
 | `GET /api/healthz` | Direct JSON health alias |
 | `GET /healthz` | Optional health alias when enabled in `server.yml` |
+| `GET /server/security` | Security overview and reporting links |
+| `GET /server/security/policy` | Coordinated disclosure policy |
+| `GET /server/security/thanks` | Public researcher acknowledgments |
+| `GET /server/security/report/{tracking_id}` | Researcher report status using the one-shot token in the private acknowledgment link |
+| `GET /.well-known/security.txt` | RFC 9116 security contact information |
+| `GET /.well-known/pgp-key.asc` | Public report encryption key when configured |
 | `GET /server/metrics/...` | Metrics (when enabled; service-specific bearer token may be required) |
 | `GET /robots.txt` | Robots policy |
 | `GET /favicon.ico` | Site favicon |
@@ -58,10 +65,16 @@ ipgaze serves the following well-known endpoints:
 
 | Endpoint | Purpose |
 |----------|---------|
-| `GET /security.txt` | Security contact and policy |
 | `GET /.well-known/security.txt` | RFC 9116 security contact |
+| `GET /.well-known/pgp-key.asc` | Public PGP key when configured |
+| `GET /.well-known/llms.txt` | Service and API summary |
 
-The `security.txt` file follows [RFC 9116](https://www.rfc-editor.org/rfc/rfc9116) and points to the security reporting channel.
+The canonical security contact file is `/.well-known/security.txt` and follows
+[RFC 9116](https://www.rfc-editor.org/rfc/rfc9116). `/security.txt` is not a
+supported canonical route. Unknown `/.well-known/*` paths return `404`.
+When a PGP key is active, the file also includes its full SHA-256 fingerprint
+as a comment; `GET /api/v1/server/security` returns the same fingerprint with
+the public-key URL.
 
 ---
 
@@ -98,11 +111,18 @@ log output.
 
 **Please do not open a public GitHub issue for security vulnerabilities.**
 
-Report vulnerabilities privately:
+Report repository vulnerabilities privately:
 
-1. **GitHub Private Reporting:** Use [GitHub Security Advisories](https://github.com/apimgr/ipgaze/security/advisories/new) (preferred)
-2. **Email:** Contact the maintainer at `apimgr@casjay.pro` with `[SECURITY]` in the subject line
+1. **GitHub Private Reporting:** Use [GitHub Security Advisories](https://github.com/apimgr/ipgaze/security/advisories/new). This is the preferred channel for repository vulnerabilities.
 
-We aim to acknowledge reports within 48 hours and provide a fix timeline within 7 days for confirmed issues.
-
-See our [Security Policy](https://github.com/apimgr/ipgaze/security/policy) for the full disclosure process.
+The coordinated disclosure policy applies to the official `ifcfg.us` service.
+For issues against that deployed service, use the security report link in
+[`security.txt`](https://ifcfg.us/.well-known/security.txt), which opens the
+security mode of the contact form. The ordinary contact mode remains for
+general questions. Repository vulnerabilities should use GitHub private
+reporting. Researcher acknowledgments are shown at
+[`/server/security/thanks`](https://ifcfg.us/server/security/thanks) when
+consented credits are available. The report form asks separately for a public
+handle when the researcher chooses handle credit. The private acknowledgment
+email provides a one-shot status link; the public status page does not expose
+report contents.

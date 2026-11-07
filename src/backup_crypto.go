@@ -38,6 +38,19 @@ const (
 	backupKeyLen = 32
 )
 
+// BackupRestoreLimits bounds archive memory and disk expansion during restore.
+type BackupRestoreLimits struct {
+	MaxArchiveSize  int64
+	MaxExpandedSize int64
+	MaxFiles        int
+	MaxFileSize     int64
+	MaxRatio        int64
+}
+
+func defaultBackupRestoreLimits() BackupRestoreLimits {
+	return BackupRestoreLimits{MaxArchiveSize: 1 << 30, MaxExpandedSize: 4 << 30, MaxFiles: 10000, MaxFileSize: 512 << 20, MaxRatio: 100}
+}
+
 // Argon2id tuning per OWASP minimum recommendations for interactive use.
 const (
 	backupArgonTime = 1
@@ -262,6 +275,9 @@ func backupArchiveContents(layout backupArchiveLayout) []string {
 	if dirExists(filepath.Join(layout.configDir, "theme")) {
 		contents = append(contents, "theme/")
 	}
+	if dirExists(filepath.Join(layout.configDir, "security")) {
+		contents = append(contents, "security/")
+	}
 	if layout.includeSSL && dirExists(layout.sslDir()) {
 		contents = append(contents, "ssl/")
 	}
@@ -435,6 +451,13 @@ func addBackupDirToTar(tw *tar.Writer, srcDir, archivePrefix string, excludes ..
 // extractBackupArchive extracts an in-memory tar.gz archive to destDir,
 // guarding against path-traversal entries (zip-slip style attacks).
 func extractBackupArchive(archiveBytes []byte, destDir string) (retErr error) {
+	return extractBackupArchiveWithLimits(archiveBytes, destDir, defaultBackupRestoreLimits())
+}
+
+func extractBackupArchiveWithLimits(archiveBytes []byte, destDir string, limits BackupRestoreLimits) (retErr error) {
+	if len(archiveBytes) == 0 || int64(len(archiveBytes)) > limits.MaxArchiveSize {
+		return fmt.Errorf("archive size %d exceeds limit %d", len(archiveBytes), limits.MaxArchiveSize)
+	}
 	gr, err := gzip.NewReader(bytes.NewReader(archiveBytes))
 	if err != nil {
 		return fmt.Errorf("gzip open: %w", err)
@@ -443,6 +466,8 @@ func extractBackupArchive(archiveBytes []byte, destDir string) (retErr error) {
 
 	cleanDest := filepath.Clean(destDir)
 	tr := tar.NewReader(gr)
+	fileCount := 0
+	var expandedSize int64
 	for {
 		hdr, terr := tr.Next()
 		if terr == io.EOF {
@@ -450,6 +475,24 @@ func extractBackupArchive(archiveBytes []byte, destDir string) (retErr error) {
 		}
 		if terr != nil {
 			return fmt.Errorf("tar read: %w", terr)
+		}
+		if hdr.Size < 0 || hdr.Size > limits.MaxFileSize {
+			return fmt.Errorf("archive entry %q size %d exceeds limit %d", hdr.Name, hdr.Size, limits.MaxFileSize)
+		}
+		if hdr.Typeflag == tar.TypeReg {
+			fileCount++
+			if fileCount > limits.MaxFiles {
+				return fmt.Errorf("archive file count exceeds limit %d", limits.MaxFiles)
+			}
+		}
+		if hdr.Size > 0 {
+			if expandedSize > limits.MaxExpandedSize-hdr.Size {
+				return fmt.Errorf("expanded archive size exceeds limit %d", limits.MaxExpandedSize)
+			}
+			expandedSize += hdr.Size
+			if float64(expandedSize)/float64(len(archiveBytes)) > float64(limits.MaxRatio) {
+				return fmt.Errorf("archive compression ratio exceeds limit %d", limits.MaxRatio)
+			}
 		}
 		cleanName := filepath.Clean(hdr.Name)
 		if cleanName == ".." || strings.HasPrefix(cleanName, ".."+string(os.PathSeparator)) || filepath.IsAbs(cleanName) {
@@ -472,7 +515,7 @@ func extractBackupArchive(archiveBytes []byte, destDir string) (retErr error) {
 			if ferr != nil {
 				return fmt.Errorf("create %s: %w", target, ferr)
 			}
-			if _, cerr := io.Copy(f, tr); cerr != nil {
+			if _, cerr := io.CopyN(f, tr, hdr.Size); cerr != nil {
 				return errors.Join(fmt.Errorf("write %s: %w", target, cerr), f.Close())
 			}
 			if err := f.Close(); err != nil {

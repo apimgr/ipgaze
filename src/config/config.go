@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -15,6 +16,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/apimgr/ipgaze/src/common/updatechannel"
+	"github.com/google/uuid"
 	"gopkg.in/yaml.v3"
 )
 
@@ -322,9 +325,11 @@ func DefaultPermissionsPolicy() map[string]string {
 		"execution-while-not-rendered":    "()",
 		"execution-while-out-of-viewport": "()",
 		"fullscreen":                      "(self)",
+		"hid":                             "()",
 		"geolocation":                     "()",
 		"gyroscope":                       "()",
 		"interest-cohort":                 "()",
+		"idle-detection":                  "()",
 		"keyboard-map":                    "()",
 		"magnetometer":                    "()",
 		"microphone":                      "()",
@@ -334,6 +339,7 @@ func DefaultPermissionsPolicy() map[string]string {
 		"picture-in-picture":              "(self)",
 		"publickey-credentials-get":       "(self)",
 		"screen-wake-lock":                "()",
+		"serial":                          "()",
 		"storage-access":                  "(self)",
 		"sync-xhr":                        "()",
 		"usb":                             "()",
@@ -416,6 +422,7 @@ type ServerConfig struct {
 	URLDetection   URLDetectionConfig        `yaml:"url_detection"`
 	Notifications  ServerNotificationsConfig `yaml:"notifications"`
 	Backup         BackupConfig              `yaml:"backup"`
+	Restore        RestoreConfig             `yaml:"restore"`
 	Compliance     ComplianceConfig          `yaml:"compliance"`
 	CLI            CLIConfig                 `yaml:"cli"`
 	Debug          DebugConfig               `yaml:"debug"`
@@ -697,6 +704,109 @@ var trackingTypeNames = map[string]string{
 // analytics platform, or "" when tracking is disabled/unrecognized.
 func (t TrackingConfig) TypeName() string {
 	return trackingTypeNames[t.Type]
+}
+
+// ValidateTracking validates analytics provider configuration before any
+// provider value can be rendered into a page or used to construct a script URL.
+func ValidateTracking(cfg *TrackingConfig) error {
+	if cfg == nil {
+		return fmt.Errorf("tracking configuration is nil")
+	}
+	cfg.Type = strings.ToLower(strings.TrimSpace(cfg.Type))
+	cfg.ID = strings.TrimSpace(cfg.ID)
+	cfg.URL = strings.TrimSpace(cfg.URL)
+	if cfg.Type == "" || cfg.Type == "none" {
+		return nil
+	}
+	validateURL := func(required bool) error {
+		if cfg.URL == "" {
+			if required {
+				return fmt.Errorf("tracking URL is required")
+			}
+			return nil
+		}
+		u, err := url.Parse(cfg.URL)
+		if err != nil || !u.IsAbs() || u.Hostname() == "" || u.User != nil || u.Fragment != "" || (u.Scheme != "https" && u.Scheme != "http") {
+			return fmt.Errorf("tracking URL must be an absolute HTTP or HTTPS URL without credentials or a fragment")
+		}
+		return nil
+	}
+	switch cfg.Type {
+	case "google":
+		if !regexp.MustCompile(`^(UA-[0-9]+-[0-9]+|G-[A-Z0-9]+)$`).MatchString(cfg.ID) {
+			return fmt.Errorf("invalid Google Analytics ID format")
+		}
+	case "matomo", "piwik":
+		if _, err := strconv.Atoi(cfg.ID); err != nil || cfg.ID == "" {
+			return fmt.Errorf("matomo/piwik ID must be an integer")
+		}
+		if err := validateURL(true); err != nil {
+			return fmt.Errorf("matomo/piwik: %w", err)
+		}
+	case "owa":
+		if cfg.ID == "" {
+			return fmt.Errorf("OWA requires a site ID")
+		}
+		if err := validateURL(true); err != nil {
+			return fmt.Errorf("OWA: %w", err)
+		}
+	case "fathom":
+		if cfg.ID == "" {
+			return fmt.Errorf("Fathom requires a site ID")
+		}
+		if err := validateURL(false); err != nil {
+			return fmt.Errorf("Fathom: %w", err)
+		}
+	case "plausible":
+		if !validTrackingDomain(cfg.ID) {
+			return fmt.Errorf("Plausible requires a domain name")
+		}
+		if err := validateURL(false); err != nil {
+			return fmt.Errorf("Plausible: %w", err)
+		}
+	case "umami":
+		if _, err := uuid.Parse(cfg.ID); err != nil {
+			return fmt.Errorf("Umami ID must be a valid UUID")
+		}
+		if err := validateURL(true); err != nil {
+			return fmt.Errorf("Umami: %w", err)
+		}
+	case "simple":
+		if cfg.URL != "" {
+			return fmt.Errorf("Simple Analytics does not use a URL")
+		}
+	case "cloudflare":
+		if cfg.ID == "" {
+			return fmt.Errorf("Cloudflare Analytics requires a beacon token")
+		}
+		if cfg.URL != "" {
+			return fmt.Errorf("Cloudflare Analytics does not use a URL")
+		}
+	default:
+		return fmt.Errorf("unknown tracking type")
+	}
+	return nil
+}
+
+func validTrackingDomain(value string) bool {
+	if len(value) == 0 || len(value) > 253 || strings.TrimSpace(value) != value || net.ParseIP(value) != nil {
+		return false
+	}
+	labels := strings.Split(value, ".")
+	if len(labels) < 2 {
+		return false
+	}
+	for _, label := range labels {
+		if len(label) == 0 || len(label) > 63 || label[0] == '-' || label[len(label)-1] == '-' {
+			return false
+		}
+		for _, r := range label {
+			if (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') && (r < '0' || r > '9') && r != '-' {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 // PrivacyConfig controls data handling, consent, cookies, and retention per AI.md PART 16.
@@ -1392,7 +1502,7 @@ type LoggingConfig struct {
 
 // UpdateConfig holds update check settings per AI.md PART 22.
 type UpdateConfig struct {
-	// Branch is the release channel: stable | beta | daily
+	// Branch is the release channel: stable | beta | devel.
 	Branch string `yaml:"branch"`
 	// AutoInstall enables automatic installation of eligible updates.
 	// Default false — the update_check task only notifies.
@@ -1823,6 +1933,15 @@ type BackupConfig struct {
 	Retention  BackupRetentionConfig  `yaml:"retention"`
 }
 
+// RestoreConfig bounds archive parsing and extraction per AI.md PART 21.
+type RestoreConfig struct {
+	MaxArchiveSize  string `yaml:"max_archive_size"`
+	MaxExpandedSize string `yaml:"max_expanded_size"`
+	MaxFiles        int    `yaml:"max_files"`
+	MaxFileSize     string `yaml:"max_file_size"`
+	MaxRatio        int    `yaml:"max_ratio"`
+}
+
 // ComplianceConfig controls compliance mode per AI.md PART 21.
 // When enabled, backups are blocked unless encryption is configured.
 type ComplianceConfig struct {
@@ -1851,11 +1970,16 @@ var (
 func DefaultConfig() *AppConfig {
 	return &AppConfig{
 		Server: ServerConfig{
-			Port:          "",
+			Port: "",
+			Restore: RestoreConfig{
+				MaxArchiveSize: "1G", MaxExpandedSize: "4G", MaxFiles: 10000,
+				MaxFileSize: "512M", MaxRatio: 100,
+			},
 			FQDN:          "",
 			Address:       "[::]",
 			Mode:          "production",
 			UpdateBranch:  "stable",
+			Update:        UpdateConfig{Branch: "stable"},
 			CLIMinVersion: "1.0.0",
 			Database: DatabaseConfig{
 				Driver:             "sqlite",
@@ -2289,6 +2413,24 @@ func applyRuntimeDatabaseEnv(cfg *AppConfig) {
 // It logs warnings but never returns an error — the server must start regardless.
 func validateConfig(cfg *AppConfig) {
 	def := DefaultConfig()
+	branch := cfg.Server.Update.Branch
+	if strings.TrimSpace(branch) == "" {
+		branch = cfg.Server.UpdateBranch
+	}
+	if strings.TrimSpace(branch) == "" {
+		branch = "stable"
+	}
+	canonicalBranch, validBranch := updatechannel.Normalize(branch)
+	if !validBranch {
+		slog.Warn("invalid server.update.branch; using stable", "branch", branch)
+		canonicalBranch = "stable"
+	}
+	cfg.Server.Update.Branch = canonicalBranch
+	cfg.Server.UpdateBranch = canonicalBranch
+	if err := ValidateTracking(&cfg.Server.Tracking); err != nil {
+		slog.Warn("invalid server.tracking configuration; disabling analytics", "error", err)
+		cfg.Server.Tracking = def.Server.Tracking
+	}
 
 	// AI.md PART 16 Branding Defaults: "If title is empty, fall back to
 	// {project_name}." A persisted server.yml with a blank title must still
@@ -2535,6 +2677,7 @@ func reloadConfigFromFile() error {
 		return fmt.Errorf("failed to parse config file: %w", err)
 	}
 
+	validateConfig(cfg)
 	current = cfg
 	return nil
 }

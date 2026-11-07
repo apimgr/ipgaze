@@ -4,11 +4,22 @@
 <h1>{{t .Lang "security.title"}}</h1>
 <section class="section-card">
   <p>{{t .Lang "security.intro"}}</p>
-  {{if .SecurityEmail}}
-  <p>{{tf .Lang "security.report_email" "email" .SecurityEmail}}</p>
-  {{end}}
-  <p>{{t .Lang "security.report_github"}} <a href="{{.RepoURL}}/security/advisories/new">{{t .Lang "security.report_github_link"}}</a>.</p>
+  <h2>{{t .Lang "security.reporting_channels"}}</h2>
+  <ol>
+    {{range .ReportingChannels}}
+    <li><a href="{{.URL}}">{{.Type}}</a></li>
+    {{end}}
+  </ol>
+  <p>{{t .Lang "security.instance_report_form"}}: <code>{{.ReportFormURL}}</code></p>
+  <p>{{t .Lang "security.contact_file_expires"}}: <time>{{.Expires}}</time></p>
+  {{if .EncryptionURL}}<p>{{t .Lang "security.pgp_encryption_key"}}: <a href="{{.EncryptionURL}}">{{.EncryptionURL}}</a></p>{{end}}
   <h2>{{t .Lang "security.txt_heading"}}</h2>
-  <p>{{t .Lang "security.txt_body"}} <a href="/.well-known/security.txt">/.well-known/security.txt</a>.</p>
+  <p>{{t .Lang "security.txt_body"}} <a href="{{.SecurityTxt}}">/.well-known/security.txt</a>.</p>
+  <h2>{{t .Lang "security.resources"}}</h2>
+  <ul>
+    <li><a href="/server/security/policy">{{t .Lang "security.disclosure_policy"}}</a></li>
+    <li><a href="/server/security/thanks">{{t .Lang "security.researcher_acknowledgments"}}</a></li>
+    {{if .PGPKeyAvailable}}<li><a href="/.well-known/pgp-key.asc">{{t .Lang "security.pgp_public_key"}}</a></li>{{end}}
+  </ul>
 </section>
 {{end}}

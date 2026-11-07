@@ -6,48 +6,49 @@
 <section class="section-card" aria-labelledby="h-basic">
   <h2 id="h-basic">{{t .Lang "api_help.basic_heading"}}</h2>
   <p>{{t .Lang "api_help.basic_intro"}}</p>
-  <div class="code-block"><code>curl -s {{.Host}}/ip</code></div>
+  <div class="code-block"><code>curl -q -LSsf {{.BaseURL}}/ip</code></div>
   <p>{{t .Lang "api_help.force_ip_version"}}</p>
   <div class="code-block"><code>curl -4 {{.Host}}</code></div>
   <div class="code-block"><code>curl -6 {{.Host}}</code></div>
 </section>
 
+<section id="features" class="section-card" aria-labelledby="help-features">
+  <h2 id="help-features">{{t .Lang "help.features"}}</h2>
+  <p>{{t .Lang "help.features_intro"}}</p>
+</section>
+
 <section class="section-card" aria-labelledby="h-json">
   <h2 id="h-json">{{t .Lang "api_help.json_heading"}}</h2>
   <p>{{t .Lang "api_help.json_intro"}}</p>
-  <div class="code-block"><code>curl -s {{.Host}}/json</code></div>
+  <div class="code-block"><code>curl -q -LSsf {{.BaseURL}}/json</code></div>
   <p>{{t .Lang "api_help.force_json"}}</p>
-  <div class="code-block"><code>curl -s -H "Accept: application/json" {{.Host}}</code></div>
+  <div class="code-block"><code>curl -q -LSsf -H "Accept: application/json" {{.BaseURL}}/</code></div>
 </section>
 
 <section class="section-card" aria-labelledby="h-fields">
   <h2 id="h-fields">{{t .Lang "api_help.fields_heading"}}</h2>
   <p>{{t .Lang "api_help.fields_intro"}}</p>
-  <div class="code-block"><code>curl -s {{.Host}}/country</code></div>
-  <div class="code-block"><code>curl -s {{.Host}}/country-iso</code></div>
-  <div class="code-block"><code>curl -s {{.Host}}/city</code></div>
-  <div class="code-block"><code>curl -s {{.Host}}/asn</code></div>
-  <div class="code-block"><code>curl -s {{.Host}}/asn-org</code></div>
-  <div class="code-block"><code>curl -s {{.Host}}/latitude</code></div>
-  <div class="code-block"><code>curl -s {{.Host}}/longitude</code></div>
-  <div class="code-block"><code>curl -s {{.Host}}/timezone</code></div>
-  <div class="code-block"><code>curl -s {{.Host}}/hostname</code></div>
-  <div class="code-block"><code>curl -s {{.Host}}/user-agent</code></div>
+  <div class="code-block"><code>curl -q -LSsf {{.BaseURL}}/country</code></div>
+  <div class="code-block"><code>curl -q -LSsf {{.BaseURL}}/country-iso</code></div>
+  <div class="code-block"><code>curl -q -LSsf {{.BaseURL}}/city</code></div>
+  <div class="code-block"><code>curl -q -LSsf {{.BaseURL}}/coordinates</code></div>
+  <div class="code-block"><code>curl -q -LSsf {{.BaseURL}}/asn</code></div>
+  <div class="code-block"><code>curl -q -LSsf {{.BaseURL}}/asn-org</code></div>
 </section>
 
 <section class="section-card" aria-labelledby="h-lookup">
   <h2 id="h-lookup">{{t .Lang "api_help.lookup_heading"}}</h2>
   <p>{{t .Lang "api_help.lookup_intro"}}</p>
-  <div class="code-block"><code>curl -s {{.Host}}/8.8.8.8</code></div>
-  <div class="code-block"><code>curl -s {{.Host}}/8.8.8.8/json</code></div>
-  <div class="code-block"><code>curl -s {{.Host}}/2001:4860:4860::8888/json</code></div>
+  <div class="code-block"><code>curl -q -LSsf {{.BaseURL}}/8.8.8.8</code></div>
+  <div class="code-block"><code>curl -q -LSsf {{.BaseURL}}/8.8.8.8/json</code></div>
+  <div class="code-block"><code>curl -q -LSsf {{.BaseURL}}/2001:4860:4860::8888/json</code></div>
 </section>
 
 <section class="section-card" aria-labelledby="h-port">
   <h2 id="h-port">{{t .Lang "api_help.port_heading"}}</h2>
   <p>{{t .Lang "api_help.port_intro"}}</p>
-  <div class="code-block"><code>curl -s {{.Host}}/port/22</code></div>
-  <div class="code-block"><code>curl -s {{.Host}}/port/443</code></div>
+  <div class="code-block"><code>curl -q -LSsf {{.BaseURL}}/port/22</code></div>
+  <div class="code-block"><code>curl -q -LSsf {{.BaseURL}}/port/443</code></div>
 </section>
 
 <section class="section-card" aria-labelledby="h-api">
@@ -58,7 +59,7 @@
     <li><strong>{{t .Lang "api_help.formats_html_label"}}</strong> — {{t .Lang "api_help.formats_html_desc_pre"}} <code>Accept: text/html</code></li>
   </ul>
   <p>{{t .Lang "api_help.append_pre"}} <code>.txt</code> {{t .Lang "api_help.append_post"}}
-    <code>curl -s {{.Host}}/country.txt</code>
+    <code>curl -q -LSsf {{.BaseURL}}/country.txt</code>
   </p>
 </section>
 
@@ -112,8 +113,35 @@
 </section>
 {{end}}
 
+<section class="section-card" aria-labelledby="h-api-docs">
+  <h2 id="h-api-docs">{{t .Lang "api_help.api_docs"}}</h2>
+  <ul>
+    <li><a href="/server/docs/swagger">{{t .Lang "swagger.swagger_description"}}</a></li>
+    <li><a href="/server/docs/graphql">{{t .Lang "swagger.graphql_description"}}</a></li>
+    {{if .MCPEnabled}}<li><a href="/server/help/mcp">{{t .Lang "api_help.mcp_guide"}}</a></li>{{end}}
+  </ul>
+</section>
+
 <section class="section-card" aria-labelledby="h-rate">
   <h2 id="h-rate">{{t .Lang "api_help.rate_heading"}}</h2>
-  <p>{{t .Lang "api_help.rate_body_pre"}} <code>429 Too Many Requests</code> {{t .Lang "api_help.rate_body_post"}}</p>
+  <p>{{t .Lang "api_help.rate_body_pre"}} <code>429</code> {{t .Lang "api_help.rate_body_post"}}</p>
+</section>
+
+<section id="faq" class="section-card" aria-labelledby="help-faq">
+  <h2 id="help-faq">{{t .Lang "help.faq"}}</h2>
+  <h3>{{t .Lang "help.faq_api_key_question"}}</h3>
+  <p>{{t .Lang "help.faq_api_key_answer"}}</p>
+  <h3>{{t .Lang "help.faq_lookup_question"}}</h3>
+  <p>{{t .Lang "help.faq_lookup_answer"}} <code>/8.8.8.8/json</code></p>
+  <h3>{{t .Lang "help.faq_geoip_question"}}</h3>
+  <p>{{t .Lang "help.faq_geoip_answer"}}</p>
+</section>
+
+<section id="troubleshooting" class="section-card" aria-labelledby="help-troubleshooting">
+  <h2 id="help-troubleshooting">{{t .Lang "help.troubleshooting"}}</h2>
+  <h3><code>429</code> {{t .Lang "help.troubleshooting_rate_title"}}</h3>
+  <p>{{t .Lang "help.troubleshooting_rate_body"}}</p>
+  <h3><code>404</code> {{t .Lang "help.troubleshooting_route_title"}}</h3>
+  <p>{{t .Lang "help.troubleshooting_route_body"}}</p>
 </section>
 {{end}}

@@ -41,6 +41,8 @@ func (s *Server) registerDebugRoutes(r chi.Router) {
 	}
 
 	r.Route("/debug", func(r chi.Router) {
+		r.Use(s.RequireOperatorToken)
+
 		// pprof endpoints — gated by server.debug.pprof per AI.md PART 6.
 		if s.config.Server.Debug.Pprof {
 			r.HandleFunc("/pprof/", pprof.Index)

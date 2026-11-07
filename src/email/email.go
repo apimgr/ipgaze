@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"crypto/tls"
 	"embed"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"html"
 	"io/fs"
+	"mime"
 	"mime/multipart"
 	"mime/quotedprintable"
 	"net"
@@ -54,10 +56,18 @@ type EmailManager struct {
 
 // Message represents an email message.
 type Message struct {
-	To      []string
-	Subject string
-	Body    string
-	HTML    bool
+	To          []string
+	Subject     string
+	Body        string
+	HTML        bool
+	Attachments []Attachment
+}
+
+// Attachment is a MIME file attachment included with a direct email.
+type Attachment struct {
+	Filename    string
+	ContentType string
+	Data        []byte
 }
 
 // Template represents a named email template per AI.md PART 17.
@@ -118,7 +128,7 @@ func (m *EmailManager) SendDirect(msg *Message) error {
 	if m.config.FromName != "" {
 		headerFrom = fmt.Sprintf("%s <%s>", m.config.FromName, m.config.From)
 	}
-	body, err := buildMultipartBody(msg.Subject, msg.Body, headerFrom, msg.To)
+	body, err := buildMultipartBodyWithAttachments(msg.Subject, msg.Body, headerFrom, msg.To, msg.Attachments)
 	if err != nil {
 		return fmt.Errorf("email: failed to build message body: %w", err)
 	}
@@ -209,6 +219,13 @@ func sendWithTLSMode(cfg SMTPConfig, to []string, body []byte) (returnErr error)
 
 // buildMultipartBody constructs a multipart/alternative MIME message with plain text and HTML parts.
 func buildMultipartBody(subject, plainText, from string, to []string) ([]byte, error) {
+	return buildMultipartBodyWithAttachments(subject, plainText, from, to, nil)
+}
+
+func buildMultipartBodyWithAttachments(subject, plainText, from string, to []string, attachments []Attachment) ([]byte, error) {
+	if len(attachments) > 0 {
+		return buildMultipartMixedBody(subject, plainText, from, to, attachments)
+	}
 	var buf bytes.Buffer
 	writer := multipart.NewWriter(&buf)
 	boundary := writer.Boundary()
@@ -260,6 +277,77 @@ func buildMultipartBody(subject, plainText, from string, to []string) ([]byte, e
 	}
 
 	return buf.Bytes(), nil
+}
+
+func buildMultipartMixedBody(subject, plainText, from string, to []string, attachments []Attachment) ([]byte, error) {
+	var alternative bytes.Buffer
+	altWriter := multipart.NewWriter(&alternative)
+	altBoundary := altWriter.Boundary()
+	for _, part := range []struct{ contentType, value string }{
+		{"text/plain; charset=UTF-8", plainText},
+		{"text/html; charset=UTF-8", plainToHTML(plainText)},
+	} {
+		header := make(textproto.MIMEHeader)
+		header.Set("Content-Type", part.contentType)
+		header.Set("Content-Transfer-Encoding", "quoted-printable")
+		bodyPart, err := altWriter.CreatePart(header)
+		if err != nil {
+			return nil, err
+		}
+		qp := quotedprintable.NewWriter(bodyPart)
+		if _, err := qp.Write([]byte(part.value)); err != nil {
+			return nil, err
+		}
+		if err := qp.Close(); err != nil {
+			return nil, err
+		}
+	}
+	if err := altWriter.Close(); err != nil {
+		return nil, err
+	}
+
+	var message bytes.Buffer
+	writer := multipart.NewWriter(&message)
+	fmt.Fprintf(&message, "From: %s\r\n", from)
+	fmt.Fprintf(&message, "To: %s\r\n", strings.Join(to, ", "))
+	fmt.Fprintf(&message, "Subject: %s\r\n", subject)
+	fmt.Fprint(&message, "MIME-Version: 1.0\r\n")
+	fmt.Fprintf(&message, "Content-Type: multipart/mixed; boundary=%q\r\n\r\n", writer.Boundary())
+	altHeader := make(textproto.MIMEHeader)
+	altHeader.Set("Content-Type", fmt.Sprintf("multipart/alternative; boundary=%q", altBoundary))
+	altPart, err := writer.CreatePart(altHeader)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := altPart.Write(alternative.Bytes()); err != nil {
+		return nil, err
+	}
+	for _, attachment := range attachments {
+		filename := mime.FormatMediaType("attachment", map[string]string{"filename": attachment.Filename})
+		contentType := attachment.ContentType
+		if contentType == "" {
+			contentType = "application/octet-stream"
+		}
+		header := make(textproto.MIMEHeader)
+		header.Set("Content-Type", contentType)
+		header.Set("Content-Disposition", filename)
+		header.Set("Content-Transfer-Encoding", "base64")
+		part, err := writer.CreatePart(header)
+		if err != nil {
+			return nil, err
+		}
+		encoder := base64.NewEncoder(base64.StdEncoding, part)
+		if _, err := encoder.Write(attachment.Data); err != nil {
+			return nil, err
+		}
+		if err := encoder.Close(); err != nil {
+			return nil, err
+		}
+	}
+	if err := writer.Close(); err != nil {
+		return nil, err
+	}
+	return message.Bytes(), nil
 }
 
 // plainToHTML converts a plain text email body to a simple styled HTML version.

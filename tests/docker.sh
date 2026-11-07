@@ -5,7 +5,6 @@ set -eo pipefail
 
 # Detect project info
 DOCKER_PROJECT_NAME=$(basename "$PWD")
-DOCKER_PROJECT_ORG=$(basename "$(dirname "$PWD")")
 
 # Build — use Makefile if present (standard for all bootstrapped projects)
 # Output always lands in binaries/
@@ -20,19 +19,19 @@ else
     mkdir -p "$DOCKER_GO_CACHE" "$DOCKER_GO_BUILD" binaries
     docker run --rm \
       --name "${DOCKER_PROJECT_NAME}-$(tr -dc 'a-z0-9' </dev/urandom | head -c8)" \
-      -v $PWD:/app \
-      -v $DOCKER_GO_CACHE:/usr/local/share/go/pkg/mod \
-      -v $DOCKER_GO_BUILD:/usr/local/share/go/cache \
+      -v "$PWD:/app" \
+      -v "$DOCKER_GO_CACHE:/usr/local/share/go/pkg/mod" \
+      -v "$DOCKER_GO_BUILD:/usr/local/share/go/cache" \
       -w /app -e CGO_ENABLED=0 -e GOFLAGS=-buildvcs=false \
-      casjaysdev/go:latest go build -buildvcs=false -trimpath -ldflags "-s -w" -o /app/binaries/${DOCKER_PROJECT_NAME} ./src
+      casjaysdev/go:latest go build -buildvcs=false -trimpath -ldflags "-s -w" -o "/app/binaries/${DOCKER_PROJECT_NAME}" ./src
     if [ -d "src/client" ]; then
         docker run --rm \
           --name "${DOCKER_PROJECT_NAME}-$(tr -dc 'a-z0-9' </dev/urandom | head -c8)" \
-          -v $PWD:/app \
-          -v $DOCKER_GO_CACHE:/usr/local/share/go/pkg/mod \
-          -v $DOCKER_GO_BUILD:/usr/local/share/go/cache \
+          -v "$PWD:/app" \
+          -v "$DOCKER_GO_CACHE:/usr/local/share/go/pkg/mod" \
+          -v "$DOCKER_GO_BUILD:/usr/local/share/go/cache" \
           -w /app -e CGO_ENABLED=0 -e GOFLAGS=-buildvcs=false \
-          casjaysdev/go:latest go build -buildvcs=false -trimpath -ldflags "-s -w" -o /app/binaries/${DOCKER_PROJECT_NAME}-cli ./src/client
+          casjaysdev/go:latest go build -buildvcs=false -trimpath -ldflags "-s -w" -o "/app/binaries/${DOCKER_PROJECT_NAME}-cli" ./src/client
     fi
 fi
 
@@ -91,8 +90,9 @@ docker run --rm \
 
     # Well-known / metadata endpoints
     curl -q -LSsf http://localhost:64580/robots.txt | grep -qi -- 'user-agent' || echo 'FAILED: /robots.txt'
-    curl -q -LSsf http://localhost:64580/security.txt | grep -qi -- 'contact' || echo 'FAILED: /security.txt'
     curl -q -LSsf http://localhost:64580/.well-known/security.txt | grep -qi -- 'contact' || echo 'FAILED: /.well-known/security.txt'
+    DOCKER_SECURITY_TXT_STATUS=\$(curl -q -LSs -o /dev/null -w '%{http_code}' http://localhost:64580/security.txt)
+    [ \"\$DOCKER_SECURITY_TXT_STATUS\" = 404 ] || echo 'FAILED: /security.txt should be 404'
 
     # API v1 field routes
     curl -q -LSsf http://localhost:64580/api/v1/ | grep -q -- '\"ip\"' || echo 'FAILED: /api/v1/ JSON'

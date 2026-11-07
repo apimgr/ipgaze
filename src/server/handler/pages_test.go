@@ -1,8 +1,12 @@
 package handler
 
 import (
+	"bufio"
+	"database/sql"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -12,7 +16,11 @@ import (
 	"time"
 
 	"github.com/apimgr/ipgaze/src/config"
+	"github.com/apimgr/ipgaze/src/db"
+	"github.com/apimgr/ipgaze/src/email"
 	"github.com/apimgr/ipgaze/src/netutil"
+	"github.com/apimgr/ipgaze/src/security"
+	_ "modernc.org/sqlite"
 )
 
 // browserUserAgent is a graphical-browser User-Agent. Frontend page tests that
@@ -47,6 +55,15 @@ func TestNewPagesHandler(t *testing.T) {
 	}
 	if h.Render == nil {
 		t.Error("Render = nil, want non-nil")
+	}
+}
+
+func TestFormatUserTimestamp(t *testing.T) {
+	if got := formatUserTimestamp("2026-11-06T16:00:00Z"); !strings.HasPrefix(got, "November 06, 2026 at ") {
+		t.Errorf("formatUserTimestamp() = %q, want localized human-readable date", got)
+	}
+	if got := formatUserTimestamp("N/A"); got != "N/A" {
+		t.Errorf("formatUserTimestamp(N/A) = %q, want unchanged fallback", got)
 	}
 }
 
@@ -144,15 +161,22 @@ func TestAPIV1ServerAboutHandler(t *testing.T) {
 		t.Errorf("Content-Type = %q, want %q", ct, "application/json")
 	}
 
-	var body AboutResponse
+	var body APIResponse
 	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
 		t.Fatalf("decode error: %v", err)
 	}
-	if body.Name != "IPGaze" {
-		t.Errorf("Name = %q, want %q", body.Name, "IPGaze")
+	if !body.OK {
+		t.Fatal("OK = false, want success envelope")
 	}
-	if body.Version != "1.0.0" {
-		t.Errorf("Version = %q, want %q", body.Version, "1.0.0")
+	data, ok := body.Data.(map[string]interface{})
+	if !ok {
+		t.Fatalf("Data type = %T, want object", body.Data)
+	}
+	if data["name"] != "IPGaze" {
+		t.Errorf("Name = %v, want IPGaze", data["name"])
+	}
+	if data["version"] != "1.0.0" {
+		t.Errorf("Version = %v, want 1.0.0", data["version"])
 	}
 }
 
@@ -180,12 +204,118 @@ func TestAPIV1ServerHelpHandler(t *testing.T) {
 	if res.StatusCode != http.StatusOK {
 		t.Errorf("StatusCode = %d, want %d", res.StatusCode, http.StatusOK)
 	}
-	var body HelpResponse
+	var body APIResponse
 	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
 		t.Fatalf("decode error: %v", err)
 	}
-	if len(body.Sections) == 0 {
-		t.Error("Sections is empty")
+	data, ok := body.Data.(map[string]interface{})
+	if !body.OK || !ok || len(data["sections"].([]interface{})) == 0 {
+		t.Error("success envelope has no help sections")
+		return
+	}
+	sections := data["sections"].([]interface{})
+	ids := make(map[string]bool, len(sections))
+	for _, sectionValue := range sections {
+		section, ok := sectionValue.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		ids[section["id"].(string)] = true
+	}
+	for _, id := range []string{"getting-started", "features", "faq", "troubleshooting"} {
+		if !ids[id] {
+			t.Errorf("help response is missing required %q section", id)
+		}
+	}
+}
+
+func TestAPIV1ServerMCPHelpHandler(t *testing.T) {
+	h := newTestPagesHandler()
+	h.MCPEnabled = true
+	h.MCPTools = func(*http.Request) []MCPToolDescription {
+		return []MCPToolDescription{{Name: "lookup_ip", Description: "Look up an IP address"}}
+	}
+	req := httptest.NewRequest(http.MethodGet, "https://example.test/api/v1/server/help/mcp", nil)
+	w := httptest.NewRecorder()
+	h.APIV1ServerMCPHelpHandler(w, req)
+
+	var body APIResponse
+	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
+		t.Fatalf("decode error: %v", err)
+	}
+	data, ok := body.Data.(map[string]interface{})
+	if !body.OK || !ok {
+		t.Fatalf("response data = %T, want success object", body.Data)
+	}
+	if data["url"] != "https://example.test/api/v1/server/mcp" {
+		t.Errorf("url = %v, want request-aware MCP URL", data["url"])
+	}
+	tools, ok := data["tools"].([]interface{})
+	if !ok || len(tools) != 1 || tools[0].(map[string]interface{})["name"] != "lookup_ip" {
+		t.Errorf("tools = %#v, want the registered tool", data["tools"])
+	}
+}
+
+func TestAPIV1ServerMCPHelpHandlerDisabled(t *testing.T) {
+	h := newTestPagesHandler()
+	w := httptest.NewRecorder()
+	h.APIV1ServerMCPHelpHandler(w, httptest.NewRequest(http.MethodGet, "/api/v1/server/help/mcp", nil))
+	if w.Code != http.StatusNotFound {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusNotFound)
+	}
+	var body APIResponse
+	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
+		t.Fatalf("decode error response: %v", err)
+	}
+	if body.OK || body.Error != "NOT_FOUND" {
+		t.Errorf("error envelope = %#v, want NOT_FOUND", body)
+	}
+}
+
+func TestSecurityPolicyPageAndAPI(t *testing.T) {
+	h := newTestPagesHandler()
+	pageResponse := httptest.NewRecorder()
+	h.ServerSecurityPolicyHandler(pageResponse, newBrowserRequest("/server/security/policy"))
+	if !strings.Contains(pageResponse.Body.String(), "security_policy.tmpl") {
+		t.Fatalf("page body = %q, want security policy template", pageResponse.Body.String())
+	}
+
+	apiResponse := httptest.NewRecorder()
+	h.APIV1ServerSecurityPolicyHandler(apiResponse, httptest.NewRequest(http.MethodGet, "/api/v1/server/security/policy", nil))
+	var envelope APIResponse
+	if err := json.NewDecoder(apiResponse.Body).Decode(&envelope); err != nil {
+		t.Fatalf("decode policy response: %v", err)
+	}
+	data, ok := envelope.Data.(map[string]interface{})
+	if !envelope.OK || !ok || data["disclosure_window"] == "" || len(data["in_scope"].([]interface{})) == 0 {
+		t.Fatalf("policy envelope = %#v, want populated policy", envelope)
+	}
+
+	localizedRequest := httptest.NewRequest(http.MethodGet, "/api/v1/server/security/policy", nil)
+	localizedRequest.Header.Set("Accept-Language", "es")
+	localizedResponse := httptest.NewRecorder()
+	h.APIV1ServerSecurityPolicyHandler(localizedResponse, localizedRequest)
+	var localizedEnvelope APIResponse
+	if err := json.NewDecoder(localizedResponse.Body).Decode(&localizedEnvelope); err != nil {
+		t.Fatalf("decode localized policy response: %v", err)
+	}
+	localizedData, ok := localizedEnvelope.Data.(map[string]interface{})
+	if !localizedEnvelope.OK || !ok || !strings.HasPrefix(localizedData["disclosure_window"].(string), "Solicitamos") {
+		t.Fatalf("localized policy envelope = %#v, want Spanish disclosure policy", localizedEnvelope)
+	}
+}
+
+func TestSecurityThanksAPI(t *testing.T) {
+	h := newTestPagesHandler()
+	w := httptest.NewRecorder()
+	h.APIV1ServerSecurityThanksHandler(w, httptest.NewRequest(http.MethodGet, "/api/v1/server/security/thanks", nil))
+	var envelope APIResponse
+	if err := json.NewDecoder(w.Body).Decode(&envelope); err != nil {
+		t.Fatalf("decode acknowledgments response: %v", err)
+	}
+	data, ok := envelope.Data.(map[string]interface{})
+	if !envelope.OK || !ok || len(data["researchers"].([]interface{})) != 0 {
+		t.Fatalf("acknowledgments envelope = %#v, want empty list", envelope)
 	}
 }
 
@@ -213,18 +343,97 @@ func TestAPIV1ServerPrivacyHandler(t *testing.T) {
 	if res.StatusCode != http.StatusOK {
 		t.Errorf("StatusCode = %d, want %d", res.StatusCode, http.StatusOK)
 	}
-	var body PrivacyResponse
+	var body APIResponse
 	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
 		t.Fatalf("decode error: %v", err)
 	}
-	if body.Summary.DataStoredOnServer {
+	data, ok := body.Data.(map[string]interface{})
+	if !body.OK || !ok {
+		t.Fatalf("response = %#v, want success envelope", body)
+	}
+	summary, ok := data["summary"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("summary = %#v, want object", data["summary"])
+	}
+	if summary["data_stored_on_server"].(bool) {
 		t.Error("DataStoredOnServer = true, want false")
 	}
-	if body.Summary.DataSold {
+	if summary["data_sold"].(bool) {
 		t.Error("DataSold = true, want false")
 	}
-	if !body.Summary.UserControl {
+	if !summary["user_control"].(bool) {
 		t.Error("UserControl = false, want true")
+	}
+}
+
+func TestAPIV1ServerSecurityHandler(t *testing.T) {
+	h := newTestPagesHandler()
+	h.PGPFingerprint = func() string { return strings.Repeat("a", 64) }
+	w := httptest.NewRecorder()
+	h.APIV1ServerSecurityHandler(w, httptest.NewRequest(http.MethodGet, "https://example.test/api/v1/server/security", nil))
+	var envelope APIResponse
+	if err := json.NewDecoder(w.Body).Decode(&envelope); err != nil {
+		t.Fatal(err)
+	}
+	data, ok := envelope.Data.(map[string]interface{})
+	if !envelope.OK || !ok || data["security_txt"] != "https://example.test/.well-known/security.txt" {
+		t.Fatalf("security response = %#v, want request-aware security.txt URL", envelope)
+	}
+	if data["fingerprint"] != strings.Repeat("a", 64) {
+		t.Fatalf("fingerprint = %v, want full SHA-256 fingerprint", data["fingerprint"])
+	}
+}
+
+func TestSecurityReportStatusWithoutDatabaseReturnsNotFound(t *testing.T) {
+	h := newTestPagesHandler()
+	w := httptest.NewRecorder()
+	h.ServerSecurityReportHandler(w, newBrowserRequest("/server/security/report/sec_missing?token=invalid"), "sec_missing")
+	if w.Code != http.StatusNotFound {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusNotFound)
+	}
+	if got := w.Header().Get("Cache-Control"); got != "no-store" {
+		t.Errorf("Cache-Control = %q, want no-store", got)
+	}
+}
+
+func TestSecurityReportStatusConsumesToken(t *testing.T) {
+	conn, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	if err := db.EnsureSchema(conn); err != nil {
+		t.Fatal(err)
+	}
+	trackingID, err := security.NewSecurityTrackingID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	token, tokenHash, err := security.NewSecurityAccessToken()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := security.StoreSecurityReport(conn, security.SecurityReportMetadata{
+		TrackingID: trackingID, Ciphertext: []byte("encrypted report"), Encryption: "aes-256-gcm",
+		Severity: "high", AccessTokenHash: tokenHash,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	h := newTestPagesHandler()
+	h.DB = conn
+	request := newBrowserRequest("/server/security/report/" + trackingID + "?token=" + token)
+	response := httptest.NewRecorder()
+	h.ServerSecurityReportHandler(response, request, trackingID)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "security_report_status.tmpl") {
+		t.Fatalf("status response = %d %q, want rendered report status", response.Code, response.Body.String())
+	}
+	if response.Header().Get("Cache-Control") != "no-store" {
+		t.Errorf("Cache-Control = %q, want no-store", response.Header().Get("Cache-Control"))
+	}
+	reused := httptest.NewRecorder()
+	h.ServerSecurityReportHandler(reused, request, trackingID)
+	if reused.Code != http.StatusNotFound {
+		t.Errorf("reused token status = %d, want %d", reused.Code, http.StatusNotFound)
 	}
 }
 
@@ -256,7 +465,36 @@ func TestServerContactHandler_POST(t *testing.T) {
 
 func TestAPIV1ServerContactHandler_POST(t *testing.T) {
 	h := newTestPagesHandler()
-	reqBody := strings.NewReader(`{"email":"user@example.com","message":"hello"}`)
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(`CREATE TABLE app_secrets (name TEXT PRIMARY KEY, value TEXT NOT NULL, previous_value TEXT, previous_until INTEGER, created_at INTEGER, rotated_at INTEGER)`); err != nil {
+		t.Fatal(err)
+	}
+	h.DB = db
+	question, token, err := newSimpleCaptcha(db, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	parts := strings.Fields(strings.TrimSuffix(strings.TrimPrefix(question, "What is "), "?"))
+	answer := 0
+	for _, part := range parts {
+		if part == "+" {
+			continue
+		}
+		value, err := strconv.Atoi(part)
+		if err != nil {
+			t.Fatal(err)
+		}
+		answer += value
+	}
+	encoded, err := json.Marshal(ContactRequest{Name: "Example User", Email: "user@example.com", Subject: "Question", Message: "hello", Captcha: strconv.Itoa(answer), CaptchaToken: token})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reqBody := strings.NewReader(string(encoded))
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/server/contact", reqBody)
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -267,12 +505,188 @@ func TestAPIV1ServerContactHandler_POST(t *testing.T) {
 	if res.StatusCode != http.StatusOK {
 		t.Errorf("StatusCode = %d, want %d", res.StatusCode, http.StatusOK)
 	}
-	var body ContactResponse
+	var body APIResponse
 	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
 		t.Fatalf("decode error: %v", err)
 	}
-	if !body.Success {
-		t.Error("Success = false, want true")
+	data, ok := body.Data.(map[string]interface{})
+	if !body.OK || !ok || data["success"] != true {
+		t.Errorf("response = %#v, want successful envelope (question %s)", body, question)
+	}
+}
+
+func TestSimpleCaptcha_ValidWrongExpiredAndTampered(t *testing.T) {
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(`CREATE TABLE app_secrets (name TEXT PRIMARY KEY, value TEXT NOT NULL, previous_value TEXT, previous_until INTEGER, created_at INTEGER, rotated_at INTEGER)`); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, time.November, 6, 12, 0, 0, 0, time.UTC)
+	question, token, err := newSimpleCaptcha(db, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parts := strings.Fields(strings.TrimSuffix(strings.TrimPrefix(question, "What is "), "?"))
+	answer := 0
+	for _, part := range parts {
+		if part == "+" {
+			continue
+		}
+		value, err := strconv.Atoi(part)
+		if err != nil {
+			t.Fatal(err)
+		}
+		answer += value
+	}
+	if !verifySimpleCaptcha(db, token, strconv.Itoa(answer), now) {
+		t.Fatal("valid captcha answer was rejected")
+	}
+	if verifySimpleCaptcha(db, token, strconv.Itoa(answer+1), now) {
+		t.Fatal("incorrect captcha answer was accepted")
+	}
+	if verifySimpleCaptcha(db, token, strconv.Itoa(answer), now.Add(21*time.Minute)) {
+		t.Fatal("expired captcha token was accepted")
+	}
+	if verifySimpleCaptcha(db, token+"tampered", strconv.Itoa(answer), now) {
+		t.Fatal("tampered captcha token was accepted")
+	}
+}
+
+func TestSubmitSecurityReportEncryptedAndNotifies(t *testing.T) {
+	conn, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	if err := db.EnsureSchema(conn); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	securityID, err := security.CurrentSecurityID(conn, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	question, captchaToken, err := newSimpleCaptcha(conn, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parts := strings.Fields(strings.TrimSuffix(strings.TrimPrefix(question, "What is "), "?"))
+	first, err := strconv.Atoi(parts[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := strconv.Atoi(parts[2])
+	if err != nil {
+		t.Fatal(err)
+	}
+	host, port, messages := fakeTwoMessageSMTPServer(t)
+	cfg := config.DefaultConfig()
+	cfg.Server.Security.EncryptionKey = base64.StdEncoding.EncodeToString([]byte("01234567890123456789012345678901"))
+	cfg.Server.Contact.Security.Email = "security@example.com"
+	h := newTestPagesHandler()
+	h.DB = conn
+	h.Config = cfg
+	h.EmailMgr = email.NewEmailManager(email.SMTPConfig{Enabled: true, Host: host, Port: port, From: "noreply@example.com", TLS: "none"}, "")
+	req := ContactRequest{
+		Name: "Reporter Name", Email: "reporter@example.net", SecurityID: securityID,
+		AffectedComponent: "API", Severity: "high", Summary: "Private vulnerability details",
+		StepsToReproduce: "Private reproduction steps", Impact: "Private impact details",
+		CreditPreference: "anonymous", CoordinatedAgreement: true,
+		Captcha: strconv.Itoa(first + second), CaptchaToken: captchaToken,
+	}
+	trackingID, err := h.submitSecurityReport(httptest.NewRequest(http.MethodPost, "https://example.test/api/v1/server/contact", nil), req)
+	if err != nil {
+		t.Fatalf("submitSecurityReport: %v", err)
+	}
+	if !strings.HasPrefix(trackingID, "sec_") {
+		t.Fatalf("tracking ID = %q, want sec_ prefix", trackingID)
+	}
+	var ciphertext []byte
+	var encryption string
+	if err := conn.QueryRow(`SELECT encrypted_body, encryption FROM security_reports WHERE tracking_id = ?`, trackingID).Scan(&ciphertext, &encryption); err != nil {
+		t.Fatal(err)
+	}
+	if encryption != "aes-256-gcm" || strings.Contains(string(ciphertext), "Private vulnerability details") || strings.Contains(string(ciphertext), "reporter@example.net") {
+		t.Fatalf("stored report encryption=%q body must not contain plaintext, got %q", encryption, ciphertext)
+	}
+	plain, err := security.DecryptWithSecret([]byte("01234567890123456789012345678901"), ciphertext, "security-reports")
+	if err != nil || !strings.Contains(string(plain), "Private vulnerability details") || !strings.Contains(string(plain), "reporter@example.net") {
+		t.Fatalf("stored encrypted payload did not decrypt to the private report: err=%v", err)
+	}
+	firstMessage, secondMessage := <-messages, <-messages
+	firstMessage = strings.ReplaceAll(firstMessage, "=\r\n", "")
+	if !strings.Contains(firstMessage, "/server/security/report/"+trackingID+"?token=3D") || !strings.Contains(secondMessage, trackingID+".enc") {
+		t.Errorf("notification messages missing acknowledgment status URL or encrypted attachment")
+	}
+}
+
+func fakeTwoMessageSMTPServer(t *testing.T) (string, int, <-chan string) {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = listener.Close() })
+	messages := make(chan string, 2)
+	go func() {
+		for range 2 {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			serveFakeSMTPConnection(conn, messages)
+		}
+	}()
+	host, portString, err := net.SplitHostPort(listener.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	port, err := strconv.Atoi(portString)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return host, port, messages
+}
+
+func serveFakeSMTPConnection(conn net.Conn, messages chan<- string) {
+	defer func() { _ = conn.Close() }()
+	write := func(response string) { _, _ = fmt.Fprint(conn, response) }
+	reader := bufio.NewReader(conn)
+	write("220 test.smtp.local ESMTP\r\n")
+	var message strings.Builder
+	inData := false
+	for {
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			return
+		}
+		command := strings.ToUpper(strings.TrimSpace(line))
+		switch {
+		case inData:
+			if strings.TrimRight(line, "\r\n") == "." {
+				messages <- message.String()
+				inData = false
+				write("250 OK queued\r\n")
+			} else {
+				message.WriteString(line)
+			}
+		case strings.HasPrefix(command, "EHLO"):
+			write("250-test.smtp.local\r\n250 OK\r\n")
+		case strings.HasPrefix(command, "MAIL FROM"), strings.HasPrefix(command, "RCPT TO"):
+			write("250 OK\r\n")
+		case command == "DATA":
+			inData = true
+			message.Reset()
+			write("354 Start mail input\r\n")
+		case command == "QUIT":
+			write("221 Bye\r\n")
+			return
+		default:
+			write("500 unrecognized command\r\n")
+		}
 	}
 }
 
@@ -287,6 +701,13 @@ func TestAPIV1ServerContactHandler_EmptyBody_BadRequest(t *testing.T) {
 	res := w.Result()
 	if res.StatusCode != http.StatusBadRequest {
 		t.Errorf("StatusCode = %d, want %d for empty email/message", res.StatusCode, http.StatusBadRequest)
+	}
+	var body APIResponse
+	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
+		t.Fatalf("decode error: %v", err)
+	}
+	if body.OK || body.Error != "BAD_REQUEST" {
+		t.Errorf("response = %#v, want BAD_REQUEST error envelope", body)
 	}
 }
 
@@ -327,14 +748,15 @@ func TestAPIV1ServerTermsHandler(t *testing.T) {
 	if res.StatusCode != http.StatusOK {
 		t.Errorf("StatusCode = %d, want %d", res.StatusCode, http.StatusOK)
 	}
-	var body TermsResponse
+	var body APIResponse
 	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
 		t.Fatalf("decode error: %v", err)
 	}
-	if len(body.Sections) == 0 {
-		t.Error("Sections is empty")
+	data, ok := body.Data.(map[string]interface{})
+	if !body.OK || !ok || len(data["sections"].([]interface{})) == 0 {
+		t.Error("success envelope has no terms sections")
 	}
-	if body.LastUpdated == "" {
+	if data["last_updated"] == "" {
 		t.Error("LastUpdated is empty")
 	}
 }
@@ -1232,12 +1654,13 @@ func TestRenderNegotiated_OurCLIGetsJSON(t *testing.T) {
 	if ct := res.Header.Get("Content-Type"); ct != "application/json" {
 		t.Errorf("Content-Type = %q, want %q", ct, "application/json")
 	}
-	var body AboutResponse
+	var body APIResponse
 	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
 		t.Fatalf("decode error: %v", err)
 	}
-	if body.Name != "IPGaze" {
-		t.Errorf("Name = %q, want %q", body.Name, "IPGaze")
+	data, ok := body.Data.(map[string]interface{})
+	if !body.OK || !ok || data["name"] != "IPGaze" {
+		t.Errorf("response = %#v, want IPGaze success envelope", body)
 	}
 }
 

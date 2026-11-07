@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	bineprocess "github.com/cretz/bine/process"
 	binetorcmd "github.com/cretz/bine/tor"
 	"github.com/pires/go-proxyproto"
 )
@@ -30,9 +31,8 @@ type TorServiceConfig struct {
 	Binary string
 	// UseNetwork routes outbound connections through Tor.
 	UseNetwork bool
-	// MaxCircuits is the maximum open circuits. Accepted from server.yml for
-	// forward compatibility, but not emitted into torrc: Tor exposes no
-	// directive capping total open circuits, and AI.md PART 31.1 names none.
+	// MaxCircuits caps Tor circuits under construction; AI.md PART 31.1 maps
+	// this to MaxClientCircuitsPending with a default of 32.
 	MaxCircuits int
 	// CircuitTimeout is circuit timeout in seconds.
 	CircuitTimeout int
@@ -518,6 +518,10 @@ func getTorConfig(cfg TorServiceConfig, hsDir string, torBackendPort int) string
 	if virtualPort == 0 {
 		virtualPort = 80
 	}
+	maxCircuits := cfg.MaxCircuits
+	if maxCircuits <= 0 {
+		maxCircuits = 32
+	}
 
 	// AI.md PART 31.1 pins the Tor log to {log_dir}/tor.log. Without this
 	// directive Tor logged to stdout only and the documented file never
@@ -571,6 +575,7 @@ ControlPort 127.0.0.1:auto
 SafeLogging %s
 %s
 MaxCircuitDirtiness 600
+MaxClientCircuitsPending %d
 %s
 BandwidthRate %s
 BandwidthBurst %s
@@ -579,6 +584,7 @@ BandwidthBurst %s
 ExitRelay 0
 ExitPolicy reject *:*
 PublishServerDescriptor 0
+ORPort 0
 DirPort 0
 
 # Guard-discovery-attack defense (vanguards-lite) - built into Tor >= 0.4.7
@@ -599,7 +605,7 @@ HiddenServiceVersion 3
 HiddenServicePort %d 127.0.0.1:%d
 # Export per-rendezvous-circuit ID via HAProxy PROXY protocol (opaque token, not an IP)
 HiddenServiceExportCircuitID haproxy
-%s`, socksConfig, safeLogging, logConfig, circuitConfig, bwRate, bwBurst, accountingConfig, hsDir, virtualPort, torBackendPort, hsTuning)
+%s`, socksConfig, safeLogging, logConfig, maxCircuits, circuitConfig, bwRate, bwBurst, accountingConfig, hsDir, virtualPort, torBackendPort, hsTuning)
 }
 
 // ensureTorDirs creates required Tor directories with secure permissions,
@@ -711,8 +717,13 @@ func (m *TorManager) startDedicated(ctx context.Context) (*service, error) {
 		DataDir:         torDataDir,
 		NoAutoSocksPort: true,
 	}
-	if bin := m.resolveBinary(); bin != "" {
-		conf.ExePath = bin
+	bin := m.resolveBinary()
+	if bin == "" {
+		bin = "tor"
+	}
+	conf.ProcessCreator = controlPortReadyCreator{
+		creator: bineprocess.NewCreator(bin),
+		timeout: 30 * time.Second,
 	}
 
 	t, err := binetorcmd.Start(ctx, conf)
@@ -765,4 +776,69 @@ func (m *TorManager) startDedicated(ctx context.Context) (*service, error) {
 	// deliberately kept out of the startup log (AI.md PART 31.1).
 	log.Printf("Tor hidden service started: %s:%d", onionAddress, m.cfg.VirtualPort)
 	return svc, nil
+}
+
+type controlPortReadyCreator struct {
+	creator bineprocess.Creator
+	timeout time.Duration
+}
+
+func (c controlPortReadyCreator) New(ctx context.Context, args ...string) (bineprocess.Process, error) {
+	proc, err := c.creator.New(ctx, args...)
+	if err != nil {
+		return nil, err
+	}
+	return &controlPortReadyProcess{Process: proc, ctx: ctx, args: args, timeout: c.timeout}, nil
+}
+
+type controlPortReadyProcess struct {
+	bineprocess.Process
+	ctx     context.Context
+	args    []string
+	timeout time.Duration
+}
+
+func (p *controlPortReadyProcess) Start() error {
+	if err := p.Process.Start(); err != nil {
+		return err
+	}
+	for index, arg := range p.args {
+		if arg == "--ControlPortWriteToFile" && index+1 < len(p.args) {
+			return waitForControlPortFile(p.ctx, p.args[index+1], p.timeout)
+		}
+	}
+	return nil
+}
+
+func waitForControlPortFile(ctx context.Context, path string, timeout time.Duration) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if timeout <= 0 {
+		timeout = 30 * time.Second
+	}
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+	var lastErr error
+	for {
+		contents, err := os.ReadFile(path)
+		if err == nil {
+			if _, parseErr := bineprocess.ControlPortFromFileContents(string(contents)); parseErr == nil {
+				return nil
+			} else {
+				lastErr = parseErr
+			}
+		} else {
+			lastErr = err
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("wait for Tor control port file: %w", ctx.Err())
+		case <-timer.C:
+			return fmt.Errorf("Tor did not write a valid control port file within %s: %w", timeout, lastErr)
+		case <-ticker.C:
+		}
+	}
 }

@@ -43,8 +43,9 @@ type Keypair struct {
 func newConfig() *packet.Config {
 	return &packet.Config{
 		DefaultHash:     crypto.SHA512,
-		Algorithm:       packet.PubKeyAlgoEdDSA,
+		Algorithm:       packet.PubKeyAlgoEd25519,
 		Curve:           packet.Curve25519,
+		V6Keys:          true,
 		KeyLifetimeSecs: uint32(KeyLifetime / time.Second),
 		SigLifetimeSecs: uint32(KeyLifetime / time.Second),
 		Time:            time.Now,
@@ -164,4 +165,39 @@ func Fingerprint(entity *openpgp.Entity) string {
 // public key for storage/publication.
 func ArmorPublic(entity *openpgp.Entity) (string, error) {
 	return armorSerialize(entity.Serialize, openpgp.PublicKeyType)
+}
+
+// EncryptFor encrypts plaintext to the recipients in an ASCII-armored public
+// key ring and returns an ASCII-armored PGP message.
+func EncryptFor(publicArmor string, plaintext []byte) ([]byte, error) {
+	recipients, err := openpgp.ReadArmoredKeyRing(bytes.NewReader([]byte(publicArmor)))
+	if err != nil {
+		return nil, fmt.Errorf("pgp: read recipient public key: %w", err)
+	}
+	if len(recipients) == 0 {
+		return nil, fmt.Errorf("pgp: recipient public key ring is empty")
+	}
+	var encrypted bytes.Buffer
+	armored, err := armor.Encode(&encrypted, "PGP MESSAGE", nil)
+	if err != nil {
+		return nil, fmt.Errorf("pgp: create message armor: %w", err)
+	}
+	writer, err := openpgp.Encrypt(armored, recipients, nil, nil, nil)
+	if err != nil {
+		_ = armored.Close()
+		return nil, fmt.Errorf("pgp: encrypt message: %w", err)
+	}
+	if _, err := writer.Write(plaintext); err != nil {
+		_ = writer.Close()
+		_ = armored.Close()
+		return nil, fmt.Errorf("pgp: write encrypted message: %w", err)
+	}
+	if err := writer.Close(); err != nil {
+		_ = armored.Close()
+		return nil, fmt.Errorf("pgp: finalize encrypted message: %w", err)
+	}
+	if err := armored.Close(); err != nil {
+		return nil, fmt.Errorf("pgp: finalize message armor: %w", err)
+	}
+	return encrypted.Bytes(), nil
 }

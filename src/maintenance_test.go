@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
@@ -272,6 +273,33 @@ func TestOpenMaintenanceDB_CreatesSqliteFile(t *testing.T) {
 	}
 }
 
+func TestMaintenanceBackupTestDecryptsExtractedKey(t *testing.T) {
+	tmpDir := t.TempDir()
+	configDir := filepath.Join(tmpDir, "config")
+	dirs := paths.Directories{Data: tmpDir, DB: filepath.Join(tmpDir, "db")}
+	cfg := config.DefaultConfig()
+	cfg.Server.Database.Driver = "sqlite"
+	conn, err := openMaintenanceDB(cfg, dirs)
+	if err != nil {
+		t.Fatalf("openMaintenanceDB: %v", err)
+	}
+	secret, err := security.GetOrCreateSecret(conn, security.SecretInstallationSecret)
+	if err != nil {
+		_ = conn.Close()
+		t.Fatalf("GetOrCreateSecret: %v", err)
+	}
+	if err := conn.Close(); err != nil {
+		t.Fatalf("close database: %v", err)
+	}
+	const wantArmor = "-----BEGIN PGP PRIVATE KEY BLOCK-----\ntest\n-----END PGP PRIVATE KEY BLOCK-----\n"
+	if err := pgp.SaveKeypair(configDir, &pgp.Keypair{PublicArmor: "public", PrivateArmor: wantArmor}, secret); err != nil {
+		t.Fatalf("SaveKeypair: %v", err)
+	}
+	if err := maintenanceBackupTest(configDir, cfg, dirs); err != nil {
+		t.Fatalf("maintenanceBackupTest: %v", err)
+	}
+}
+
 // TestRotateInstallationSecret_ReencryptsPGPKey covers the installation_secret
 // branch of `--maintenance secret rotate` (AI.md PART 11 "Secret Rotation"):
 // the secret must change and the on-disk PGP private key must remain
@@ -325,7 +353,7 @@ func TestRotateEncryptionKey_RotatesAndPersists(t *testing.T) {
 	oldKeyB64 := base64.StdEncoding.EncodeToString(oldKey)
 	cfg.Server.Security.EncryptionKey = oldKeyB64
 
-	rotateEncryptionKey(t.TempDir(), cfg, nil)
+	rotateEncryptionKey(openTestDB(t), t.TempDir(), cfg, nil)
 
 	if cfg.Server.Security.EncryptionKey == oldKeyB64 {
 		t.Fatal("encryption_key did not change after rotation")
@@ -343,6 +371,53 @@ func TestRotateEncryptionKey_RotatesAndPersists(t *testing.T) {
 	}
 	if reloaded.Server.Security.EncryptionKey != cfg.Server.Security.EncryptionKey {
 		t.Error("rotated encryption_key was not persisted to server.yml")
+	}
+}
+
+func TestSecurityReportMaintenanceHelpers(t *testing.T) {
+	handleSecurityReportMaintenance([]string{"help"}, "", nil)
+	now := time.Date(2026, time.November, 6, 12, 0, 0, 0, time.UTC)
+	id, status, date, comment, err := parseSecurityReportSetArgs([]string{"sec_test", "Disclosed", "2027-02-03", "Fix", "released"}, now)
+	if err != nil || id != "sec_test" || status != "Disclosed" || comment != "Fix released" || date == nil || date.Format("2006-01-02") != "2027-02-03" {
+		t.Fatalf("parsed triage args = (%q, %q, %v, %q, %v)", id, status, date, comment, err)
+	}
+	_, _, defaultDate, _, err := parseSecurityReportSetArgs([]string{"sec_test", "Disclosed"}, now)
+	if err != nil || defaultDate == nil || !defaultDate.Equal(now) {
+		t.Fatalf("default disclosure date = %v, %v; want %v", defaultDate, err, now)
+	}
+	if _, _, _, _, err := parseSecurityReportSetArgs([]string{"sec_test"}, now); err == nil {
+		t.Fatal("triage args without status were accepted")
+	}
+
+	conn := openTestDB(t)
+	if err := security.StoreSecurityReport(conn, security.SecurityReportMetadata{
+		TrackingID: "sec_list", Ciphertext: []byte("encrypted private report"), Encryption: "aes-256-gcm",
+		Severity: "high", AffectedComponent: "api", AccessTokenHash: "hash",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var output bytes.Buffer
+	if err := listSecurityReports(conn, &output); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output.String(), "sec_list") || !strings.Contains(output.String(), "Received") || strings.Contains(output.String(), "encrypted private report") {
+		t.Errorf("security report list exposed unexpected data: %q", output.String())
+	}
+}
+
+func TestMaintenanceOperatorIP(t *testing.T) {
+	t.Setenv("SSH_CONNECTION", "2001:db8::1 43210 22")
+	t.Setenv("SSH_CLIENT", "192.0.2.44 43210 22")
+	if got := maintenanceOperatorIP(); got != "2001:db8::1" {
+		t.Errorf("maintenanceOperatorIP() = %q, want SSH client address", got)
+	}
+	t.Setenv("SSH_CONNECTION", "")
+	if got := maintenanceOperatorIP(); got != "192.0.2.44" {
+		t.Errorf("maintenanceOperatorIP() fallback = %q, want SSH_CLIENT address", got)
+	}
+	t.Setenv("SSH_CLIENT", "")
+	if got := maintenanceOperatorIP(); got != "127.0.0.1" {
+		t.Errorf("maintenanceOperatorIP() local = %q, want loopback", got)
 	}
 }
 

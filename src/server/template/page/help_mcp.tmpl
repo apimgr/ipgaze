@@ -1,0 +1,76 @@
+{{template "base" .}}
+{{define "title"}}{{t .Lang "api_help.mcp_title"}} — {{.ProjectName}}{{end}}
+{{define "content"}}
+<h1>{{t .Lang "api_help.mcp_title"}}</h1>
+<section class="section-card" aria-labelledby="overview">
+  <h2 id="overview">{{t .Lang "api_help.mcp_overview"}}</h2>
+  <p>{{t .Lang "api_help.mcp_overview_body"}}</p>
+</section>
+<section class="section-card" aria-labelledby="endpoint">
+  <h2 id="endpoint">{{t .Lang "api_help.mcp_endpoint"}}</h2>
+  <p>{{t .Lang "api_help.mcp_endpoint_body"}}</p>
+  <div class="onion-address-row">
+    <code class="select-all">{{.URL}}</code>
+    <button type="button" class="copy-btn" data-copy="{{.URL}}" data-copied-label="{{t .Lang "common.copied"}}" aria-label="{{t .Lang "common.copy"}}">
+      <span class="copy-icon" aria-hidden="true">⧉</span>
+      <span class="copy-text">{{t .Lang "common.copy"}}</span>
+    </button>
+  </div>
+  <ul>{{range .Aliases}}<li><code class="select-all">{{.}}</code></li>{{end}}</ul>
+  <p>{{t .Lang "api_help.mcp_select_url"}}</p>
+</section>
+<section class="section-card" aria-labelledby="authentication">
+  <h2 id="authentication">{{t .Lang "api_help.mcp_authentication"}}</h2>
+  <p>{{t .Lang "api_help.mcp_authentication_body"}}</p>
+</section>
+<section class="section-card" aria-labelledby="connect">
+  <h2 id="connect">{{t .Lang "api_help.mcp_connect"}}</h2>
+  <h3>{{t .Lang "api_help.mcp_claude_code"}}</h3>
+  <pre><code>claude mcp add --transport http ipgaze {{.URL}}</code></pre>
+  <p>{{t .Lang "api_help.mcp_token_body"}}</p>
+  <pre><code>claude mcp add --transport http ipgaze {{.URL}} --header "Authorization: Bearer $MCP_TOKEN"</code></pre>
+  <h3>{{t .Lang "api_help.mcp_generic_config"}}</h3>
+  <pre><code>{
+  "mcpServers": {
+    "ipgaze": {
+      "type": "http",
+      "url": "{{.URL}}",
+      "headers": {
+        "Authorization": "Bearer $MCP_TOKEN"
+      }
+    }
+  }
+}</code></pre>
+  <h3>{{t .Lang "api_help.mcp_verify"}}</h3>
+  <pre><code>curl -q -LSsf -X POST '{{.URL}}' \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: application/json, text/event-stream' \
+  -H 'MCP-Protocol-Version: 2025-03-26' \
+  -H "Authorization: Bearer $MCP_TOKEN" \
+  --data '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"curl","version":"1.0"}}}'</code></pre>
+  <p>{{t .Lang "api_help.mcp_omit_auth"}}</p>
+</section>
+<section class="section-card" aria-labelledby="tools">
+  <h2 id="tools">{{t .Lang "api_help.mcp_tools"}}</h2>
+  <p>{{t .Lang "api_help.mcp_tools_body"}}</p>
+  <ul>{{range .Tools}}<li><code>{{.Name}}</code> — {{.Description}}</li>{{else}}<li>{{t .Lang "api_help.mcp_no_tools"}}</li>{{end}}</ul>
+</section>
+<section class="section-card" aria-labelledby="limits">
+  <h2 id="limits">{{t .Lang "api_help.mcp_behavior_limits"}}</h2>
+  <ul><li>{{t .Lang "api_help.mcp_post_stateless"}}</li><li>{{t .Lang "api_help.mcp_rate_audit"}}</li><li>{{t .Lang "api_help.mcp_origin_rejected"}}</li><li>{{t .Lang "api_help.mcp_protocol_versions"}}</li></ul>
+</section>
+<section class="section-card" aria-labelledby="troubleshooting">
+  <h2 id="troubleshooting">{{t .Lang "api_help.mcp_troubleshooting"}}</h2>
+  <table><thead><tr><th>{{t .Lang "api_help.mcp_status"}}</th><th>{{t .Lang "api_help.mcp_cause"}}</th><th>{{t .Lang "api_help.mcp_fix"}}</th></tr></thead><tbody>
+    <tr><td>400</td><td>{{t .Lang "api_help.mcp_400_cause"}}</td><td>{{t .Lang "api_help.mcp_400_fix"}}</td></tr>
+    <tr><td>401</td><td>{{t .Lang "api_help.mcp_401_cause"}}</td><td>{{t .Lang "api_help.mcp_401_fix"}}</td></tr>
+    <tr><td>403</td><td>{{t .Lang "api_help.mcp_403_cause"}}</td><td>{{t .Lang "api_help.mcp_403_fix"}}</td></tr>
+    <tr><td>404</td><td>{{t .Lang "api_help.mcp_404_cause"}}</td><td>{{t .Lang "api_help.mcp_404_fix"}}</td></tr>
+    <tr><td>405</td><td>{{t .Lang "api_help.mcp_405_cause"}}</td><td>{{t .Lang "api_help.mcp_405_fix"}}</td></tr>
+  </tbody></table>
+</section>
+<section class="section-card" aria-labelledby="project">
+  <h2 id="project">{{t .Lang "api_help.mcp_project_tools"}}</h2>
+  {{markdownToHTML .Project}}
+</section>
+{{end}}

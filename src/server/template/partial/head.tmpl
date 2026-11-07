@@ -5,6 +5,7 @@
   <title>{{block "title" .}}{{.ProjectName}}{{end}}</title>
   <meta name="description" content="{{block "meta_description" .}}{{if .Description}}{{.Description}}{{else}}{{t .Lang "app.description"}}{{end}}{{end}}">
   <meta name="theme-color" content="{{themeColor .Theme}}">
+  {{trackingScript .Tracking .AnalyticsEnabled .AnalyticsScriptURL}}
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="{{.ProjectName}}">

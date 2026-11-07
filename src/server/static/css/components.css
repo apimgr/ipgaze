@@ -837,6 +837,11 @@ dialog.modal::backdrop {
   white-space: nowrap;
 }
 
+.select-all {
+  user-select: all;
+  overflow-wrap: anywhere;
+}
+
 /* ============================================================================
    Data Table
    ============================================================================ */

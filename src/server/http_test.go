@@ -73,6 +73,46 @@ func httpGet(url string, acceptMediaType string, userAgent string) (string, int,
 	return string(data), res.StatusCode, nil
 }
 
+func httpGetBearer(url, acceptMediaType, userAgent, token string) (string, int, error) {
+	r, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return "", 0, err
+	}
+	if acceptMediaType != "" {
+		r.Header.Set("Accept", acceptMediaType)
+	}
+	r.Header.Set("User-Agent", userAgent)
+	r.Header.Set("Authorization", "Bearer "+token)
+	res, err := http.DefaultClient.Do(r)
+	if err != nil {
+		return "", 0, err
+	}
+	defer func() { _ = res.Body.Close() }()
+	data, err := io.ReadAll(res.Body)
+	if err != nil {
+		return "", 0, err
+	}
+	return string(data), res.StatusCode, nil
+}
+
+func httpPostBearer(url, body, token string) (*http.Response, string, error) {
+	r, err := http.NewRequest(http.MethodPost, url, strings.NewReader(body))
+	if err != nil {
+		return nil, "", err
+	}
+	r.Header.Set("Authorization", "Bearer "+token)
+	res, err := http.DefaultClient.Do(r)
+	if err != nil {
+		return nil, "", err
+	}
+	defer func() { _ = res.Body.Close() }()
+	data, err := io.ReadAll(res.Body)
+	if err != nil {
+		return nil, "", err
+	}
+	return res, string(data), nil
+}
+
 func httpPost(url, body string) (*http.Response, string, error) {
 	r, err := http.NewRequest(http.MethodPost, url, strings.NewReader(body))
 	if err != nil {
@@ -259,8 +299,9 @@ func TestCacheHandler(t *testing.T) {
 	srv := testServer()
 	// debug mode is now via s.config.IsDebug() — no profile field
 	srv.SetConfig(&config.AppConfig{Server: config.ServerConfig{Debug: config.DebugConfig{RuntimeEndpoints: true}}})
+	srv.SetOperatorToken("debug-token")
 	s := httptest.NewServer(srv.Handler())
-	got, _, err := httpGet(s.URL+"/debug/cache", jsonMediaType, "")
+	got, _, err := httpGetBearer(s.URL+"/debug/cache", jsonMediaType, "", "debug-token")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -276,14 +317,41 @@ func TestCacheResizeHandler(t *testing.T) {
 	srv := testServer()
 	// debug mode is now via s.config.IsDebug() — no profile field
 	srv.SetConfig(&config.AppConfig{Server: config.ServerConfig{Debug: config.DebugConfig{RuntimeEndpoints: true}}})
+	srv.SetOperatorToken("debug-token")
 	s := httptest.NewServer(srv.Handler())
-	_, got, err := httpPost(s.URL+"/debug/cache/resize", "10")
+	_, got, err := httpPostBearer(s.URL+"/debug/cache/resize", "10", "debug-token")
 	if err != nil {
 		t.Fatal(err)
 	}
 	want := "{\n  \"message\": \"Cache capacity updated\",\n  \"capacity\": 10\n}\n"
 	if got != want {
 		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+func TestDebugEndpointsRequireOperatorBearer(t *testing.T) {
+	t.Setenv("DEBUG", "true")
+	srv := testServer()
+	srv.SetConfig(&config.AppConfig{Server: config.ServerConfig{Debug: config.DebugConfig{Pprof: true, RuntimeEndpoints: true}}})
+	srv.SetOperatorToken("debug-token")
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	for _, endpoint := range []string{"/debug/vars", "/debug/pprof/cmdline"} {
+		_, status, err := httpGet(ts.URL+endpoint, "application/json", "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if status != http.StatusUnauthorized {
+			t.Errorf("unauthorized GET %s status = %d, want %d", endpoint, status, http.StatusUnauthorized)
+		}
+		_, status, err = httpGetBearer(ts.URL+endpoint, "application/json", "", "debug-token")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if status != http.StatusOK {
+			t.Errorf("authorized GET %s status = %d, want %d", endpoint, status, http.StatusOK)
+		}
 	}
 }
 

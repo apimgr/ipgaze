@@ -253,7 +253,6 @@ func TestSSRWellKnownAndMetadataEndpoints(t *testing.T) {
 		fragment string
 	}{
 		{"/robots.txt", "User-agent"},
-		{"/security.txt", "Contact"},
 		{"/.well-known/security.txt", "Contact"},
 		{"/llms.txt", "ipgaze"},
 	}
@@ -333,6 +332,10 @@ func TestSSRAPIDocsPagesRender(t *testing.T) {
 		if res.StatusCode == http.StatusNotFound {
 			t.Errorf("OpenAPI spec documents %s but the server returns 404 for it", path)
 		}
+	}
+	status, _, _ := getBody(t, "/security.txt", nil)
+	if status != http.StatusNotFound {
+		t.Errorf("GET /security.txt returned %d, want 404", status)
 	}
 }
 

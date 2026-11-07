@@ -38,11 +38,12 @@ func TestMatchesBranch(t *testing.T) {
 		{"prerelease excluded from stable", Release{TagName: "v1.2.3-beta", Prerelease: true}, "stable", false},
 		{"beta release matches beta", Release{TagName: "v1.2.3-beta", Prerelease: true}, "beta", true},
 		{"stable release matches beta (cumulative)", Release{TagName: "v1.2.3", Prerelease: false}, "beta", true},
-		{"rolling daily tag matches daily", Release{TagName: "daily", Prerelease: true}, "daily", true},
-		{"rolling daily tag does not match beta", Release{TagName: "daily", Prerelease: true}, "beta", false},
-		{"rolling daily tag does not match stable", Release{TagName: "daily", Prerelease: true}, "stable", false},
-		{"beta matches daily (cumulative)", Release{TagName: "v1.2.3-beta", Prerelease: true}, "daily", true},
-		{"stable matches daily (cumulative)", Release{TagName: "v1.2.3", Prerelease: false}, "daily", true},
+		{"rolling devel tag matches devel", Release{TagName: "devel", Prerelease: true}, "devel", true},
+		{"daily alias matches devel tag", Release{TagName: "devel", Prerelease: true}, "daily", true},
+		{"rolling devel tag does not match beta", Release{TagName: "devel", Prerelease: true}, "beta", false},
+		{"rolling devel tag does not match stable", Release{TagName: "devel", Prerelease: true}, "stable", false},
+		{"beta matches devel (cumulative)", Release{TagName: "v1.2.3-beta", Prerelease: true}, "devel", true},
+		{"stable matches devel (cumulative)", Release{TagName: "v1.2.3", Prerelease: false}, "devel", true},
 		{"unknown branch acts like stable", Release{TagName: "v1.2.3", Prerelease: false}, "unknown", true},
 		{"prerelease excluded from unknown", Release{TagName: "v1.2.3-beta", Prerelease: true}, "unknown", false},
 	}
@@ -102,6 +103,29 @@ func TestCheckForUpdateStable_NewVersion(t *testing.T) {
 	}
 	if got.TagName != "v1.1.0" {
 		t.Errorf("got tag %q; want %q", got.TagName, "v1.1.0")
+	}
+}
+
+func TestCheckForUpdateDevelChannelDetectsNewNightly(t *testing.T) {
+	release := Release{TagName: "devel", Prerelease: true, PublishedAt: time.Now().UTC().Format(time.RFC3339)}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode([]Release{release}); err != nil {
+			t.Errorf("encode devel release response: %v", err)
+		}
+	}))
+	defer srv.Close()
+
+	origAll := githubReleasesAll
+	githubReleasesAll = srv.URL
+	defer func() { githubReleasesAll = origAll }()
+
+	got, err := CheckForUpdate(context.Background(), "1.0.0", "daily", time.Now().Add(-24*time.Hour).Unix())
+	if err != nil {
+		t.Fatalf("CheckForUpdate error: %v", err)
+	}
+	if got == nil || got.TagName != "devel" {
+		t.Fatalf("CheckForUpdate() = %#v, want the newer devel release", got)
 	}
 }
 

@@ -45,6 +45,7 @@ repository:        https://github.com/apimgr/ipgaze
 - Prometheus metrics (internal only, not public)
 - GraphQL endpoint for flexible queries
 - OpenAPI/Swagger interactive documentation
+- Stateless Streamable HTTP MCP endpoint that exposes the registered public versioned API operations as tools. Example user prompts: “What is my public IP address?”, “Look up 8.8.8.8 and summarize its GeoIP data”, and “Which ASN announces 1.1.1.1?” MCP clients use anonymous public access; results depend on configured GeoIP databases. The endpoint is POST-only, sessionless, rate-limited, audited, and validates `Origin`.
 - CLI client binary (`ipgaze-cli`) for querying any ipgaze-compatible server with token-based auth
 - Tor hidden service (auto-enabled when Tor binary is present)
 - I2P eepsite (opt-in via `server.i2p.enabled`; i2pd process preferred, external SAM bridge as fallback)
@@ -82,7 +83,7 @@ There is exactly one role. ipgaze is a public, anonymous service with no user ac
 - Tor keys: `{data_dir}/tor/`
 - Logs: `{log_dir}/` (access logs in Apache CLF format, no PII beyond IP)
 
-No user accounts. No passwords. No sessions. No database of user PII.
+No user accounts, passwords, or user sessions. Security reports may retain reporter contact details and vulnerability content in encrypted form for coordinated disclosure; plaintext report content is never stored in the database.
 CLI operator tokens are stored server-side (DB) and cleaned up by the `token_cleanup` scheduler task. The CLI client stores its own token in `{config_dir}/cli.yml`. Public IP/GeoIP endpoints require no authentication.
 
 ### Trust boundaries & external services
@@ -141,6 +142,7 @@ CLI operator tokens are stored server-side (DB) and cleaned up by the `token_cle
 | `unsafe` Go package: NOT used | CGO_ENABLED=0, pure Go static binary — no unsafe memory operations |
 | Tor binary in container but not started by entrypoint | Binary controls Tor lifecycle per AI.md PART 31; entrypoint only sets env vars and execs binary |
 | Proxy client-IP headers are gated by `trusted_proxies` | Trusting headers from arbitrary peers enables IP spoofing; only a configured trusted proxy may supply the client IP, with `r.RemoteAddr` as fallback |
+| Coordinated disclosure defaults to the official `ifcfg.us` service and a 90-day window | Keep third-party and self-hosted systems outside the project's authority; exclude disruptive or non-technical testing and protect good-faith research |
 
 ---
 
@@ -156,6 +158,7 @@ ipgaze enhancements on top of the echoip-compatible surface:
 - OpenAPI/Swagger interactive documentation
 - Prometheus metrics (internal only)
 - Standard pages: security.txt, robots.txt, privacy, terms, contact
+- Coordinated vulnerability reporting for the official service, with encrypted submissions, private status tracking, disclosure policy, and researcher acknowledgments
 
 ---
 
@@ -210,7 +213,7 @@ All tasks run continuously; state persists across restarts. Jobs are registered 
 | `cve_update` | Daily 05:00 | Download CVE/security databases |
 | `token_cleanup` | Every 15 min | Remove expired CLI operator tokens |
 | `log_rotation` | Daily 00:00 | Rotate and compress old logs |
-| `backup_daily` | Daily 02:00 | Full backup — default retention: 2 files |
+| `backup_daily` | Daily 02:00 | Full backup plus daily incremental — default retention: 2 files |
 | `backup_hourly` | Hourly | Incremental backup — disabled by default |
 | `healthcheck_self` | Every 5 min | Self-health verification |
 | `tor_health` | Every 10 min | Check Tor connectivity — registered only when Tor is detected |
@@ -269,5 +272,5 @@ documented per its own exception clause)
 - `--maintenance data export|delete` — data-subject export and erasure
 - `--maintenance compliance report` — compliance status report
 - `--shell completions|init [SHELL]` — shell completions and init snippet
-- `--update check|yes|branch {stable|beta|daily}` — binary self-update from GitHub Releases
+- `--update check|yes|branch {stable|beta|devel}` — binary self-update from GitHub Releases; rolling-channel aliases normalize to `devel`
 - Backup format: `.tar.gz` (or `.tar.gz.enc` when encryption password is set); includes DB, config, certs

@@ -2,6 +2,7 @@ package server
 
 import (
 	"html/template"
+	"strings"
 	"testing"
 )
 
@@ -47,6 +48,47 @@ func TestTemplateFuncMap_Humanize(t *testing.T) {
 func TestInitTemplates_Parses(t *testing.T) {
 	if err := InitTemplates(); err != nil {
 		t.Fatalf("InitTemplates() error = %v", err)
+	}
+}
+
+func TestRequiredServerPageContracts(t *testing.T) {
+	tests := []struct {
+		name string
+		file string
+		need []string
+	}{
+		{
+			name: "privacy contact",
+			file: "template/page/privacy.tmpl",
+			need: []string{`href="/server/contact"`},
+		},
+		{
+			name: "help sections",
+			file: "template/page/help.tmpl",
+			need: []string{`id="features"`, `id="faq"`, `id="troubleshooting"`},
+		},
+		{
+			name: "MCP anchors and endpoint controls",
+			file: "template/page/help_mcp.tmpl",
+			need: []string{
+				`id="overview"`, `id="endpoint"`, `id="authentication"`, `id="connect"`,
+				`id="tools"`, `id="limits"`, `id="troubleshooting"`,
+				`class="select-all"`, `class="copy-btn"`,
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			content, err := templateFS.ReadFile(tt.file)
+			if err != nil {
+				t.Fatalf("read embedded template: %v", err)
+			}
+			for _, token := range tt.need {
+				if !strings.Contains(string(content), token) {
+					t.Errorf("%s is missing required markup %q", tt.file, token)
+				}
+			}
+		})
 	}
 }
 

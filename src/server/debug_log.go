@@ -21,7 +21,7 @@ func debugLogRequest(lm *applog.Manager, debug bool, r *http.Request, status int
 
 	method := r.Method
 	path := sanitizeLogValue(r.URL.Path)
-	query := sanitizeLogValue(r.URL.RawQuery)
+	query := sanitizeLogQuery(r.URL.RawQuery)
 	remoteAddr := sanitizeLogValue(r.RemoteAddr)
 	userAgent := sanitizeLogValue(r.UserAgent())
 	referer := sanitizeLogValue(r.Referer())

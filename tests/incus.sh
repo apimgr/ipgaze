@@ -11,13 +11,12 @@ fi
 
 # Detect project info
 INCUS_PROJECT_NAME=$(basename "$PWD")
-INCUS_PROJECT_ORG=$(basename "$(dirname "$PWD")")
 INCUS_CONTAINER_NAME="test-${INCUS_PROJECT_NAME}-$$"
 
 # Incus image - use latest Debian stable (update when new stable releases)
 INCUS_IMAGE="images:debian/trixie"
 
-trap "incus delete \"$INCUS_CONTAINER_NAME\" --force 2>/dev/null || true" EXIT
+trap 'incus delete "$INCUS_CONTAINER_NAME" --force 2>/dev/null || true' EXIT
 
 # Build — use Makefile if present (standard for all bootstrapped projects)
 # Output always lands in binaries/
@@ -32,19 +31,19 @@ else
     mkdir -p "$INCUS_GO_CACHE" "$INCUS_GO_BUILD" binaries
     docker run --rm \
       --name "${INCUS_PROJECT_NAME}-$(tr -dc 'a-z0-9' </dev/urandom | head -c8)" \
-      -v $PWD:/app \
-      -v $INCUS_GO_CACHE:/usr/local/share/go/pkg/mod \
-      -v $INCUS_GO_BUILD:/usr/local/share/go/cache \
+      -v "$PWD:/app" \
+      -v "$INCUS_GO_CACHE:/usr/local/share/go/pkg/mod" \
+      -v "$INCUS_GO_BUILD:/usr/local/share/go/cache" \
       -w /app -e CGO_ENABLED=0 -e GOFLAGS=-buildvcs=false \
-      casjaysdev/go:latest go build -buildvcs=false -trimpath -ldflags "-s -w" -o /app/binaries/${INCUS_PROJECT_NAME} ./src
+      casjaysdev/go:latest go build -buildvcs=false -trimpath -ldflags "-s -w" -o "/app/binaries/${INCUS_PROJECT_NAME}" ./src
     if [ -d "src/client" ]; then
         docker run --rm \
           --name "${INCUS_PROJECT_NAME}-$(tr -dc 'a-z0-9' </dev/urandom | head -c8)" \
-          -v $PWD:/app \
-          -v $INCUS_GO_CACHE:/usr/local/share/go/pkg/mod \
-          -v $INCUS_GO_BUILD:/usr/local/share/go/cache \
+          -v "$PWD:/app" \
+          -v "$INCUS_GO_CACHE:/usr/local/share/go/pkg/mod" \
+          -v "$INCUS_GO_BUILD:/usr/local/share/go/cache" \
           -w /app -e CGO_ENABLED=0 -e GOFLAGS=-buildvcs=false \
-          casjaysdev/go:latest go build -buildvcs=false -trimpath -ldflags "-s -w" -o /app/binaries/${INCUS_PROJECT_NAME}-cli ./src/client
+          casjaysdev/go:latest go build -buildvcs=false -trimpath -ldflags "-s -w" -o "/app/binaries/${INCUS_PROJECT_NAME}-cli" ./src/client
     fi
 fi
 
@@ -133,7 +132,9 @@ incus exec "$INCUS_CONTAINER_NAME" -- bash -c "
     curl -q -LSsf http://localhost:80/country.txt || echo 'FAILED: /country.txt'
     curl -q -LSsf http://localhost:80/asn.txt || echo 'FAILED: /asn.txt'
     curl -q -LSsf http://localhost:80/robots.txt | grep -qi -- 'user-agent' || echo 'FAILED: /robots.txt'
-    curl -q -LSsf http://localhost:80/security.txt | grep -qi -- 'contact' || echo 'FAILED: /security.txt'
+    curl -q -LSsf http://localhost:80/.well-known/security.txt | grep -qi -- 'contact' || echo 'FAILED: /.well-known/security.txt'
+    INCUS_SECURITY_TXT_STATUS=\$(curl -q -LSs -o /dev/null -w '%{http_code}' http://localhost:80/security.txt)
+    [ \"\$INCUS_SECURITY_TXT_STATUS\" = 404 ] || echo 'FAILED: /security.txt should be 404'
     curl -q -LSsf http://localhost:80/api/v1/ | grep -q -- '\"ip\"' || echo 'FAILED: /api/v1/ JSON'
     curl -q -LSsf http://localhost:80/api/v1/ip || echo 'FAILED: /api/v1/ip'
 

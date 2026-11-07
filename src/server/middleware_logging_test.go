@@ -86,6 +86,40 @@ func TestNonHealthRequestIsLogged(t *testing.T) {
 	}
 }
 
+func TestRequestURIForLogRedactsSensitiveQueryValues(t *testing.T) {
+	lm, dir := newTestLogManager(t)
+	serveThrough(t, lm, false, http.MethodGet, "/server/security/report/sec_test?token=one-shot-secret&security_id=rotating-secret&keep=visible")
+	lm.Close()
+	logged := readLogFile(t, dir, "access.log")
+	for _, secret := range []string{"one-shot-secret", "rotating-secret"} {
+		if strings.Contains(logged, secret) {
+			t.Errorf("access log contains sensitive query value %q: %s", secret, logged)
+		}
+	}
+	for _, redacted := range []string{"token=xxxxx", "security_id=xxxxx", "keep=visible"} {
+		if !strings.Contains(logged, redacted) {
+			t.Errorf("access log does not contain %q: %s", redacted, logged)
+		}
+	}
+	if got := sanitizeLogQuery("%74oken=hidden&api-key=another-secret&keep=visible"); got != "%74oken=xxxxx&api-key=xxxxx&keep=visible" {
+		t.Errorf("sanitizeLogQuery() = %q", got)
+	}
+	debugConfig := applog.DefaultConfig()
+	debugConfig.Debug.Enabled = true
+	debugDir := t.TempDir()
+	debugManager, err := applog.NewManager(debugDir, debugConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	debugRequest := httptest.NewRequest(http.MethodGet, "/server/security/report/sec_test?token=one-shot-secret", nil)
+	debugLogRequest(debugManager, true, debugRequest, http.StatusOK, time.Millisecond, 0)
+	debugManager.Close()
+	debugLog := readLogFile(t, debugDir, "debug.log")
+	if strings.Contains(debugLog, "one-shot-secret") || !strings.Contains(debugLog, "query=token=xxxxx") {
+		t.Errorf("debug log failed to redact query token: %s", debugLog)
+	}
+}
+
 func TestSuppressAccessLog(t *testing.T) {
 	tests := []struct {
 		name   string

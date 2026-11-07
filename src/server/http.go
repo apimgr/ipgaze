@@ -26,7 +26,9 @@ import (
 	"github.com/apimgr/ipgaze/src/iputil/geo"
 	applog "github.com/apimgr/ipgaze/src/log"
 	"github.com/apimgr/ipgaze/src/netutil"
+	"github.com/apimgr/ipgaze/src/pgp"
 	"github.com/apimgr/ipgaze/src/scheduler"
+	"github.com/apimgr/ipgaze/src/security"
 	"github.com/apimgr/ipgaze/src/server/handler"
 	"github.com/apimgr/ipgaze/src/server/model"
 	"github.com/apimgr/ipgaze/src/server/service"
@@ -1017,9 +1019,29 @@ func (s *Server) buildHandler() http.Handler {
 	// Wire the PGP keypair (AI.md PART 11 "GPG Keypair Management") into SpecialHandler
 	// so SecurityTxtHandler can emit the Encryption: line and PGPKeyHandler can serve the key.
 	if s.config != nil {
-		s.SpecialHandler.SecurityContact = s.config.Web.Security.Contact
+		site := strings.TrimSpace(s.config.Server.BaseURL)
+		if site == "" && strings.TrimSpace(s.config.Server.FQDN) != "" {
+			site = "https://" + strings.TrimSpace(s.config.Server.FQDN)
+		}
+		if site != "" {
+			s.SpecialHandler.OfficialSite = strings.TrimRight(site, "/")
+		}
+		s.SpecialHandler.SecurityContact = config.ResolveContactRole(s.config, "security").Email
+		s.SpecialHandler.SecurityReportURL = "https://github.com/apimgr/ipgaze/security/advisories/new"
 		s.SpecialHandler.PublishPGPKey = s.config.Web.Security.PublishPGPKey
 		s.SpecialHandler.PGPPublicKeyPath = filepath.Join(s.ConfigDir, "security", "pgp.pub.asc")
+	}
+	if s.sqlDB != nil {
+		s.SpecialHandler.SecurityID = func() (string, error) {
+			return security.CurrentSecurityID(s.sqlDB, time.Now())
+		}
+		s.SpecialHandler.PGPFingerprint = func() string {
+			record, err := pgp.ActiveRecord(s.sqlDB)
+			if err != nil || record == nil {
+				return ""
+			}
+			return record.Fingerprint
+		}
 	}
 	// Wire the per-AI-crawler robots.txt policy (AI.md PART 14 "robots.txt" ->
 	// "AI Crawler Rules") so RobotsTxtHandler emits a Disallow stanza per denied bot.
@@ -1042,7 +1064,6 @@ func (s *Server) buildHandler() http.Handler {
 	// than fall through to the 404 page (AI.md PART 24 "Static Files").
 	r.Get("/favicon.ico", s.faviconHandler())
 	r.Head("/favicon.ico", s.faviconHandler())
-	r.Get("/security.txt", s.SpecialHandler.SecurityTxtHandler)
 	r.Get("/.well-known/security.txt", s.SpecialHandler.SecurityTxtHandler)
 	r.Get("/.well-known/pgp-key.asc", s.SpecialHandler.PGPKeyHandler)
 	r.Get("/llms.txt", s.SpecialHandler.LLMsTxtHandler)
@@ -1183,6 +1204,26 @@ func (s *Server) buildHandler() http.Handler {
 	s.PagesHandler.TorStatus = s.TorStatus
 	s.PagesHandler.I2PStatus = s.I2PStatus
 	s.PagesHandler.EmailMgr = s.emailMgr
+	s.PagesHandler.DB = s.sqlDB
+	s.PagesHandler.CommitID = s.CommitID
+	if s.ConfigDir != "" {
+		s.PagesHandler.PGPPublicKeyPath = filepath.Join(s.ConfigDir, "security", "pgp.pub.asc")
+	}
+	s.PagesHandler.SecurityLogger = func(message, ip string) {
+		if s.logManager != nil {
+			s.logManager.WriteSecurity(message, ip)
+		}
+	}
+	if s.config != nil {
+		s.PagesHandler.MCPEnabled = s.config.Server.MCP.Enabled
+	}
+	s.PagesHandler.MCPTools = func(r *http.Request) []handler.MCPToolDescription {
+		return s.registeredMCPTools(r)
+	}
+	if s.SpecialHandler != nil {
+		s.PagesHandler.PGPKeyAvailable = s.SpecialHandler.PGPKeyAvailable
+		s.PagesHandler.PGPFingerprint = s.SpecialHandler.PGPFingerprint
+	}
 	// Wire healthz template renderer — must happen after PagesHandler is set up.
 	s.HealthHandler.Render = NewPageRenderer(s.AssetStamp())
 	s.HealthHandler.PageDataFunc = s.PagesHandler.NewPageData
@@ -1199,11 +1240,19 @@ func (s *Server) buildHandler() http.Handler {
 	r.Get("/server", s.PagesHandler.ServerRedirectHandler)
 	r.Get("/server/about", s.PagesHandler.ServerAboutHandler)
 	r.Get("/server/help", s.PagesHandler.ServerHelpHandler)
+	if s.config != nil && s.config.Server.MCP.Enabled {
+		r.Get("/server/help/mcp", s.PagesHandler.ServerMCPHelpHandler)
+	}
 	r.Get("/server/privacy", s.PagesHandler.ServerPrivacyHandler)
 	r.Get("/server/contact", s.PagesHandler.ServerContactHandler)
 	r.Post("/server/contact", s.PagesHandler.ServerContactHandler)
 	r.Get("/server/terms", s.PagesHandler.ServerTermsHandler)
 	r.Get("/server/security", s.PagesHandler.ServerSecurityHandler)
+	r.Get("/server/security/policy", s.PagesHandler.ServerSecurityPolicyHandler)
+	r.Get("/server/security/thanks", s.PagesHandler.ServerSecurityThanksHandler)
+	r.Get("/server/security/report/{tracking_id}", func(w http.ResponseWriter, req *http.Request) {
+		s.PagesHandler.ServerSecurityReportHandler(w, req, chi.URLParam(req, "tracking_id"))
+	})
 	r.Post("/server/consent", s.PagesHandler.ConsentHandler)
 	r.Post("/server/ccpa", s.PagesHandler.CCPAHandler)
 	r.Post("/server/preferences", s.PagesHandler.ServerPreferencesUpdateHandler)
@@ -1265,9 +1314,12 @@ func (s *Server) buildHandler() http.Handler {
 			"v1_version":            versionHandler,
 			"v1_about":              http.HandlerFunc(s.PagesHandler.APIV1ServerAboutHandler),
 			"v1_help":               http.HandlerFunc(s.PagesHandler.APIV1ServerHelpHandler),
+			"v1_help_mcp":           http.HandlerFunc(s.PagesHandler.APIV1ServerMCPHelpHandler),
 			"v1_privacy":            http.HandlerFunc(s.PagesHandler.APIV1ServerPrivacyHandler),
 			"v1_terms":              http.HandlerFunc(s.PagesHandler.APIV1ServerTermsHandler),
 			"v1_security":           http.HandlerFunc(s.PagesHandler.APIV1ServerSecurityHandler),
+			"v1_security_policy":    http.HandlerFunc(s.PagesHandler.APIV1ServerSecurityPolicyHandler),
+			"v1_security_thanks":    http.HandlerFunc(s.PagesHandler.APIV1ServerSecurityThanksHandler),
 			"v1_contact":            http.HandlerFunc(s.PagesHandler.APIV1ServerContactHandler),
 			"v1_preferences":        http.HandlerFunc(s.PagesHandler.APIV1ServerPreferencesHandler),
 			"v1_preferences_update": http.HandlerFunc(s.PagesHandler.APIV1ServerPreferencesUpdateHandler),

@@ -8,6 +8,7 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/apimgr/ipgaze/src/common/i18n"
 	"github.com/apimgr/ipgaze/src/common/theme"
@@ -28,6 +29,10 @@ type SpecialHandler struct {
 	// SecurityContact is web.security.contact (AI.md PART 11): the mailto: CC
 	// address used in security.txt's Contact: line.
 	SecurityContact string
+	// SecurityReportURL is the repository's private vulnerability reporting URL.
+	SecurityReportURL string
+	// SecurityID returns the current rotating security.txt token.
+	SecurityID func() (string, error)
 	// PublishPGPKey mirrors web.security.publish_pgp_key (AI.md PART 11). When
 	// true and a keypair exists on disk, SecurityTxtHandler emits the
 	// Encryption: line and PGPKeyHandler serves the public key.
@@ -35,6 +40,8 @@ type SpecialHandler struct {
 	// PGPPublicKeyPath is {config_dir}/security/pgp.pub.asc (AI.md PART 11
 	// "GPG Keypair Management"). Empty or missing file means no keypair yet.
 	PGPPublicKeyPath string
+	// PGPFingerprint returns the active keypair fingerprint for security.txt comments.
+	PGPFingerprint func() string
 	// CommitID is the running build's short commit hash. Embedded into the
 	// service worker's CACHE_VERSION (AI.md PART 16 "Cache Versioning &
 	// Updates") so sw.js changes byte-for-byte on every deploy — without
@@ -147,6 +154,11 @@ func (h *SpecialHandler) hasPGPKey() bool {
 	return err == nil
 }
 
+// PGPKeyAvailable reports whether the configured public key can be served.
+func (h *SpecialHandler) PGPKeyAvailable() bool {
+	return h.hasPGPKey()
+}
+
 // SecurityTxtHandler serves security.txt.
 // When the request is a Tor request (Host matches tor.onion_address), a Tor-safe
 // variant is served per AI.md PART 12: all URLs use the onion address, no clearnet
@@ -155,17 +167,22 @@ func (h *SpecialHandler) hasPGPKey() bool {
 // exists and web.security.publish_pgp_key is enabled.
 func (h *SpecialHandler) SecurityTxtHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/plain")
+	w.Header().Set("Cache-Control", "public, max-age=300")
+	expires := time.Now().UTC().AddDate(1, 0, 0).Format("2006-01-02T15:04:05.000Z")
 	if h.isTorRequest(r) {
 		// Tor variant: all URLs use the onion address, no clearnet FQDN (AI.md PART 12).
 		base := "http://" + h.OnionAddress
-		_, _ = fmt.Fprintln(w, "Contact: "+base+"/server/contact")
+		if securityID, err := h.currentSecurityID(); err == nil && securityID != "" {
+			_, _ = fmt.Fprintln(w, "Contact: "+base+"/server/contact?security_id="+securityID)
+		}
 		if h.TorContactEmail != "" {
 			_, _ = fmt.Fprintln(w, "Contact: mailto:"+h.TorContactEmail)
 		}
-		_, _ = fmt.Fprintln(w, "Expires: 2026-12-31T23:59:59.000Z")
+		_, _ = fmt.Fprintln(w, "Expires: "+expires)
 		_, _ = fmt.Fprintln(w, "Policy: "+base+"/server/security")
 		if h.hasPGPKey() {
 			_, _ = fmt.Fprintln(w, "Encryption: "+base+"/.well-known/pgp-key.asc")
+			h.writePGPFingerprintComment(w)
 		}
 		_, _ = fmt.Fprintln(w, "Canonical: "+base+"/.well-known/security.txt")
 		return
@@ -174,13 +191,48 @@ func (h *SpecialHandler) SecurityTxtHandler(w http.ResponseWriter, r *http.Reque
 	if contact == "" {
 		contact = "security@apimgr.us"
 	}
+	if h.SecurityReportURL != "" {
+		_, _ = fmt.Fprintln(w, "Contact: "+h.SecurityReportURL)
+	}
+	if securityID, err := h.currentSecurityID(); err == nil && securityID != "" {
+		_, _ = fmt.Fprintf(w, "Contact: %s/server/contact?security_id=%s\n", h.OfficialSite, securityID)
+	}
 	_, _ = fmt.Fprintln(w, "Contact: mailto:"+contact)
-	_, _ = fmt.Fprintln(w, "Expires: 2026-12-31T23:59:59.000Z")
+	_, _ = fmt.Fprintln(w, "Expires: "+expires)
 	if h.hasPGPKey() {
 		_, _ = fmt.Fprintf(w, "Encryption: %s/.well-known/pgp-key.asc\n", h.OfficialSite)
+		h.writePGPFingerprintComment(w)
 	}
 	_, _ = fmt.Fprintln(w, "Preferred-Languages: en")
 	_, _ = fmt.Fprintf(w, "Canonical: %s/.well-known/security.txt\n", h.OfficialSite)
+}
+
+func (h *SpecialHandler) writePGPFingerprintComment(w http.ResponseWriter) {
+	if h.PGPFingerprint == nil {
+		return
+	}
+	if fingerprint := h.PGPFingerprint(); isValidPGPFingerprint(fingerprint) {
+		_, _ = fmt.Fprintln(w, "# PGP Fingerprint: "+fingerprint)
+	}
+}
+
+func isValidPGPFingerprint(value string) bool {
+	if len(value) != 64 {
+		return false
+	}
+	for _, char := range value {
+		if (char < '0' || char > '9') && (char < 'a' || char > 'f') && (char < 'A' || char > 'F') {
+			return false
+		}
+	}
+	return true
+}
+
+func (h *SpecialHandler) currentSecurityID() (string, error) {
+	if h.SecurityID == nil {
+		return "", nil
+	}
+	return h.SecurityID()
 }
 
 // PGPKeyHandler serves the project's PGP public key (AI.md PART 11

@@ -14,6 +14,24 @@ import (
 	"github.com/apimgr/ipgaze/src/paths"
 )
 
+func TestRuntimeLogWriterKeepsNormalActivityOffConsole(t *testing.T) {
+	var console bytes.Buffer
+	writer := runtimeLogWriter{stderr: &console}
+	message := "ipgaze: main.go:1: scheduler: task completed\n"
+	if n, err := writer.Write([]byte(message)); err != nil || n != len(message) {
+		t.Fatalf("Write() = (%d, %v), want (%d, nil)", n, err, len(message))
+	}
+	if console.Len() != 0 {
+		t.Fatalf("normal scheduler activity reached console: %q", console.String())
+	}
+	if _, err := writer.Write([]byte("ipgaze: main.go:2: Warning: scheduler task skipped\n")); err != nil {
+		t.Fatalf("Write warning: %v", err)
+	}
+	if !strings.Contains(console.String(), "Warning: scheduler task skipped") {
+		t.Fatalf("warning was not surfaced to console: %q", console.String())
+	}
+}
+
 func TestMultiValueFlagString(t *testing.T) {
 	var xmvf = []struct {
 		values multiValueFlag

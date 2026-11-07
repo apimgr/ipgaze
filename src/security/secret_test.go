@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"database/sql"
 	"testing"
+	"time"
 
 	_ "modernc.org/sqlite"
 
@@ -206,6 +207,33 @@ func TestRotateSecret_ChangesCurrentAndKeepsPrevious(t *testing.T) {
 	}
 	if !bytes.Equal(prev, before) {
 		t.Errorf("PreviousSecret() = %v, want previous value %v", prev, before)
+	}
+}
+
+func TestRotateSecretIfDue(t *testing.T) {
+	conn := openMemDB(t)
+	before, err := GetOrCreateSecret(conn, SecretCookieSigningKey)
+	if err != nil {
+		t.Fatalf("GetOrCreateSecret: %v", err)
+	}
+	now := time.Now().UTC()
+	rotated, err := RotateSecretIfDue(conn, SecretCookieSigningKey, 90*24*time.Hour, now)
+	if err != nil || rotated {
+		t.Fatalf("RotateSecretIfDue on fresh secret = %v, %v; want false, nil", rotated, err)
+	}
+	if _, err := conn.Exec(`UPDATE app_secrets SET rotated_at = ? WHERE name = ?`, now.Add(-91*24*time.Hour).Unix(), string(SecretCookieSigningKey)); err != nil {
+		t.Fatalf("make secret overdue: %v", err)
+	}
+	rotated, err = RotateSecretIfDue(conn, SecretCookieSigningKey, 90*24*time.Hour, now)
+	if err != nil || !rotated {
+		t.Fatalf("RotateSecretIfDue on overdue secret = %v, %v; want true, nil", rotated, err)
+	}
+	after, err := GetOrCreateSecret(conn, SecretCookieSigningKey)
+	if err != nil {
+		t.Fatalf("GetOrCreateSecret after rotation: %v", err)
+	}
+	if bytes.Equal(before, after) {
+		t.Fatal("overdue secret value did not change")
 	}
 }
 

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/apimgr/ipgaze/src/client/paths"
+	"github.com/apimgr/ipgaze/src/common/updatechannel"
 	"github.com/apimgr/ipgaze/src/config"
 	"gopkg.in/yaml.v3"
 )
@@ -177,7 +178,7 @@ type UpdateConfig struct {
 	Auto Truthy `yaml:"auto,omitempty"`
 	// CheckInterval is per_invocation for the CLI (short-lived; no background poll).
 	CheckInterval string `yaml:"check_interval,omitempty"`
-	// Channel is the update channel: stable, beta, daily.
+	// Channel is the update channel: stable, beta, devel.
 	Channel string `yaml:"channel,omitempty"`
 }
 
@@ -347,7 +348,11 @@ func (c *CLIConfig) UpdateAuto() bool {
 
 // UpdateChannel returns the configured update channel.
 func (c *CLIConfig) UpdateChannel() string {
-	return stringOr(c.Update.Channel, DefaultUpdateChannel)
+	value := stringOr(c.Update.Channel, DefaultUpdateChannel)
+	if canonical, ok := updatechannel.Normalize(value); ok {
+		return canonical
+	}
+	return DefaultUpdateChannel
 }
 
 // DefaultCLIConfig returns a CLIConfig populated with every compiled default.
@@ -483,7 +488,7 @@ update:
   auto: false
   # The CLI is short-lived, so updates are checked per invocation
   check_interval: per_invocation
-  # stable, beta, daily
+  # stable, beta, devel
   channel: stable
 
 # Interactive display mode
@@ -536,6 +541,7 @@ func LoadCLIConfigFrom(path string) (*CLIConfig, error) {
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return nil, err
 	}
+	cfg.Update.Channel = cfg.UpdateChannel()
 	return &cfg, nil
 }
 
@@ -585,6 +591,7 @@ func ValidateToken(s string) bool {
 // directory when missing. path is the resolved --config target so a profile
 // loaded with --config is written back to that same file.
 func SaveCLIConfigToFile(cfg *CLIConfig, path string) error {
+	cfg.Update.Channel = cfg.UpdateChannel()
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}

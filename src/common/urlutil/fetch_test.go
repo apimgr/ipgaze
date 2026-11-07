@@ -2,6 +2,7 @@ package urlutil
 
 import (
 	"context"
+	"errors"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -103,7 +104,12 @@ func TestIsBlockedFetchIP(t *testing.T) {
 }
 
 func TestValidateNotPrivateIP_DNSFailure(t *testing.T) {
-	if err := validateNotPrivateIP("this-host-does-not-exist.invalid"); err == nil {
+	if err := validateNotPrivateIPWithLookup("unresolvable.example", func(hostname string) ([]net.IP, error) {
+		if hostname != "unresolvable.example" {
+			t.Fatalf("lookup hostname = %q, want unresolvable.example", hostname)
+		}
+		return nil, errors.New("DNS lookup failed")
+	}); err == nil {
 		t.Fatal("expected DNS lookup failure to error")
 	}
 }

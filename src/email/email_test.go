@@ -2,6 +2,7 @@ package email
 
 import (
 	"bufio"
+	"encoding/base64"
 	"fmt"
 	"mime"
 	"mime/multipart"
@@ -612,5 +613,20 @@ func TestSendWithTLSMode_TLSModeDialError(t *testing.T) {
 	err := sendWithTLSMode(cfg, []string{"to@example.com"}, []byte("Subject: hi\r\n\r\nbody\r\n"))
 	if err == nil {
 		t.Error("sendWithTLSMode(tls) against a plaintext server: want error, got nil")
+	}
+}
+
+func TestBuildMultipartBodyWithEncryptedAttachment(t *testing.T) {
+	ciphertext := []byte{0x01, 0x02, 0x03, 0xfe}
+	body, err := buildMultipartBodyWithAttachments("Security report", "Encrypted attachment", "from@example.com", []string{"security@example.com"}, []Attachment{{
+		Filename: "sec_1234.enc", ContentType: "application/octet-stream", Data: ciphertext,
+	}})
+	if err != nil {
+		t.Fatalf("buildMultipartBodyWithAttachments: %v", err)
+	}
+	for _, want := range []string{"multipart/mixed", "multipart/alternative", "filename=sec_1234.enc", base64.StdEncoding.EncodeToString(ciphertext)} {
+		if !strings.Contains(string(body), want) {
+			t.Errorf("multipart body missing %q", want)
+		}
 	}
 }

@@ -178,10 +178,11 @@ func TestDebugMemoryHandler(t *testing.T) {
 	srv := testServer()
 	cfg := &config.AppConfig{Server: config.ServerConfig{Debug: config.DebugConfig{RuntimeEndpoints: true}}}
 	srv.SetConfig(cfg)
+	srv.SetOperatorToken("debug-token")
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
-	out, status, err := httpGet(ts.URL+"/debug/memory", "application/json", "")
+	out, status, err := httpGetBearer(ts.URL+"/debug/memory", "application/json", "", "debug-token")
 	if err != nil {
 		t.Fatal(err)
 	}

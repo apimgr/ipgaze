@@ -16,11 +16,7 @@ import (
 	applog "github.com/apimgr/ipgaze/src/log"
 )
 
-// backupFullFileRe matches the timestamped full-backup filenames produced by
-// both scheduled ("_YYYY-MM-DD") and manual/CLI ("_YYYY-MM-DD_HHMMSS") backups
-// per AI.md PART 21. The always-replaced ipgaze-daily.tar.gz / ipgaze-hourly.tar.gz
-// incrementals are excluded — they are not subject to retention.
-var backupFullFileRe = regexp.MustCompile(`^ipgaze_backup_\d{4}-\d{2}-\d{2}(_\d{6})?\.tar\.gz(\.enc)?$`)
+var backupIncrementalFileRe = regexp.MustCompile(`^ipgaze-(daily|hourly)\.tar\.gz(\.enc)?$`)
 
 type backupFileInfo struct {
 	path string
@@ -40,7 +36,7 @@ func listFullBackups(backupDir string) ([]backupFileInfo, error) {
 	}
 	var out []backupFileInfo
 	for _, e := range entries {
-		if e.IsDir() || !backupFullFileRe.MatchString(e.Name()) {
+		if e.IsDir() || !strings.HasPrefix(e.Name(), "ipgaze_backup_") || !strings.Contains(e.Name(), ".tar.gz") {
 			continue
 		}
 		info, ierr := e.Info()
@@ -53,6 +49,30 @@ func listFullBackups(backupDir string) ([]backupFileInfo, error) {
 			mod:  info.ModTime(),
 			size: info.Size(),
 		})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].mod.After(out[j].mod) })
+	return out, nil
+}
+
+func listAllBackupFiles(backupDir string) ([]backupFileInfo, error) {
+	entries, err := os.ReadDir(backupDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	var out []backupFileInfo
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !(strings.HasPrefix(name, "ipgaze_backup_") && strings.Contains(name, ".tar.gz") || backupIncrementalFileRe.MatchString(name)) {
+			continue
+		}
+		info, infoErr := entry.Info()
+		if infoErr != nil {
+			continue
+		}
+		out = append(out, backupFileInfo{path: filepath.Join(backupDir, name), name: name, mod: info.ModTime(), size: info.Size()})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].mod.After(out[j].mod) })
 	return out, nil
@@ -132,9 +152,13 @@ func parseBackupSizeCap(spec, backupDir string) (capBytes int64, ok bool, err er
 		if dsErr != nil {
 			return 0, false, dsErr
 		}
-		used, sizeErr := backupDirSize(backupDir)
-		if sizeErr != nil {
-			return 0, false, sizeErr
+		files, listErr := listAllBackupFiles(backupDir)
+		if listErr != nil {
+			return 0, false, listErr
+		}
+		var used int64
+		for _, file := range files {
+			used += file.size
 		}
 		// Approximate volume total as free + currently used backup size; this
 		// is a soft cap and does not require statfs's raw block-total field.
@@ -180,7 +204,12 @@ func applyBackupRetention(backupDir string, retention config.BackupRetentionConf
 		log.Printf("backup retention: list backups: %v", err)
 		return
 	}
-	if len(fulls) == 0 {
+	allFiles, err := listAllBackupFiles(backupDir)
+	if err != nil {
+		log.Printf("backup retention: list all backup files: %v", err)
+		return
+	}
+	if len(fulls) == 0 && len(allFiles) == 0 {
 		return
 	}
 
@@ -211,18 +240,18 @@ func applyBackupRetention(backupDir string, retention config.BackupRetentionConf
 		deleted = append(deleted, f.name)
 	}
 
-	// Hard size cap overrides count-based retention: delete oldest kept
-	// backups until under cap, always leaving at least one backup.
+	// Hard size cap applies to all backup archives, including the one daily
+	// and one hourly incremental that are excluded from count retention.
 	if cap, ok, capErr := parseBackupSizeCap(retention.MaxTotalSize, backupDir); capErr != nil {
 		log.Printf("backup retention: max_total_size: %v", capErr)
 	} else if ok {
-		remaining, lerr := listFullBackups(backupDir)
+		remaining, lerr := listAllBackupFiles(backupDir)
 		if lerr == nil {
 			var total int64
 			for _, f := range remaining {
 				total += f.size
 			}
-			for i := len(remaining) - 1; i >= 0 && total > cap && len(remaining) > 1; i-- {
+			for i := len(remaining) - 1; i >= 0 && total > cap; i-- {
 				f := remaining[i]
 				if rmErr := os.Remove(f.path); rmErr != nil {
 					continue
@@ -245,7 +274,7 @@ func applyBackupRetention(backupDir string, retention config.BackupRetentionConf
 					"reason":   "retention",
 				})
 			}
-			remaining, _ := listFullBackups(backupDir)
+			remaining, _ := listAllBackupFiles(backupDir)
 			logMgr.WriteAuditEvent("", "backup.retention_cleanup", "backup", "info", "success", "", map[string]any{
 				"deleted":   deleted,
 				"remaining": len(remaining),

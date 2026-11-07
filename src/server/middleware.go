@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -40,6 +41,46 @@ func sanitizeLogValue(s string) string {
 		}
 	}
 	return string(b)
+}
+
+// sanitizeLogQuery redacts query parameters that can carry credentials or
+// rotating security tokens before request URLs are written to any log sink.
+func sanitizeLogQuery(rawQuery string) string {
+	if rawQuery == "" {
+		return ""
+	}
+	parts := strings.Split(rawQuery, "&")
+	for i, part := range parts {
+		key, _, hasValue := strings.Cut(part, "=")
+		decodedKey, err := url.QueryUnescape(key)
+		if err == nil && isSensitiveLogQueryKey(decodedKey) && hasValue {
+			parts[i] = key + "=xxxxx"
+		}
+	}
+	return strings.Join(parts, "&")
+}
+
+func isSensitiveLogQueryKey(key string) bool {
+	switch strings.ToLower(strings.ReplaceAll(key, "-", "_")) {
+	case "token", "security_id", "access_token", "api_key", "apikey", "csrf_token", "password", "secret":
+		return true
+	default:
+		return false
+	}
+}
+
+func requestURIForLog(r *http.Request) string {
+	path := r.URL.EscapedPath()
+	if path == "" {
+		path = "/"
+	}
+	query := sanitizeLogQuery(r.URL.RawQuery)
+	if query != "" {
+		path += "?" + query
+	} else if r.URL.ForceQuery {
+		path += "?"
+	}
+	return sanitizeLogValue(path)
 }
 
 // langContextKey is the context key for the resolved locale string.
@@ -663,7 +704,7 @@ func LoggingMiddleware(tr *netutil.TrustResolver, lm *applog.Manager, debug bool
 				userAgent = "-"
 			}
 
-			requestURI := sanitizeLogValue(r.URL.RequestURI())
+			requestURI := requestURIForLog(r)
 			requestID := sanitizeLogValue(RequestIDFromContext(r.Context()))
 
 			debugLogRequest(lm, debug, r, wrapped.statusCode, time.Since(start), wrapped.bytesWritten)

@@ -53,6 +53,13 @@ server:
   database:
     driver: sqlite
 
+  restore:
+    max_archive_size: 1G
+    max_expanded_size: 4G
+    max_files: 10000
+    max_file_size: 512M
+    max_ratio: 100
+
 web:
   ui:
     theme: dark
@@ -244,8 +251,10 @@ server:
     enabled: true
 ```
 
-MCP uses the same public API operations and Bearer authorization as REST.
-It does not accept cookies or issue separate MCP tokens.
+MCP exposes the anonymous public API operations without authentication. The
+endpoint is stateless, accepts POST requests, validates the `Origin` header,
+and applies the server's rate limits. It does not accept cookies or issue
+MCP-specific tokens.
 
 ## Caching
 
@@ -308,16 +317,44 @@ web:
   cors: "*"
 ```
 
+## Analytics Tracking
+
+Configure an analytics provider under `server.tracking`. Supported types are
+`google`, `matomo`, `piwik`, `owa`, `fathom`, `plausible`, `umami`, `simple`,
+and `cloudflare`; set `type: none` to disable tracking.
+
+```yaml
+server:
+  tracking:
+    type: plausible
+    id: "example.com"
+    url: ""
+```
+
+The `id` and `url` values depend on the provider. Self-hosted Matomo, Piwik,
+OWA, and Umami require a URL; Fathom and Plausible accept an optional
+self-hosted URL. Other provider requirements are validated at startup. The
+same-origin loader waits for analytics consent, respects the CCPA opt-out and
+Global Privacy Control signal, and checks the enforced CSP script allowlist.
+Simple Analytics also uses its no-script pixel only when consent is present
+and `img-src` permits its host. For a third-party provider, add its script
+host to `web.csp.script_src_extra`.
+Clearnet tracking scripts are not loaded from onion requests; same-origin
+self-hosted analytics may be used there.
+
 ### Security Headers
 
-Security headers are automatically added:
+Security headers are automatically added from secure defaults and can be
+adjusted under `web.hsts`, `web.csp`, `web.permissions_policy`, and
+`web.headers`:
 
-- `X-Content-Type-Options: nosniff`
-- `X-Frame-Options: SAMEORIGIN`
-- `X-XSS-Protection: 1; mode=block`
-- `Referrer-Policy: strict-origin-when-cross-origin`
-- `Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'`
-- `Permissions-Policy: geolocation=(), microphone=(), camera=()`
+- The default Content-Security-Policy uses `script-src 'self'`; inline scripts
+  are blocked. Add a provider host to `web.csp.script_src_extra` only when the
+  service is intentionally configured. Analytics loads only after analytics
+  consent, and clearnet providers are suppressed for onion requests.
+- HSTS is emitted for TLS-enabled service endpoints.
+- Permissions Policy and the remaining response headers use the defaults in
+  `AI.md` PART 11; per-header configuration can extend or override them.
 
 ## Server Administration
 

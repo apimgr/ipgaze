@@ -360,6 +360,31 @@ func TestRequestTimeout_InvalidFallsBackToDefault(t *testing.T) {
 	}
 }
 
+func TestUpdateChannelAliasesNormalizeOnLoadAndSave(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "cli.yml")
+	if err := os.WriteFile(path, []byte("update:\n  channel: development\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadCLIConfigFrom(path)
+	if err != nil {
+		t.Fatalf("LoadCLIConfigFrom: %v", err)
+	}
+	if cfg.Update.Channel != "devel" || cfg.UpdateChannel() != "devel" {
+		t.Fatalf("loaded update channel = %q (%q), want canonical devel", cfg.Update.Channel, cfg.UpdateChannel())
+	}
+	cfg.Update.Channel = "daily"
+	if err := SaveCLIConfigToFile(cfg, path); err != nil {
+		t.Fatalf("SaveCLIConfigToFile: %v", err)
+	}
+	contents, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(contents), "channel: devel") {
+		t.Fatalf("saved cli.yml did not normalize daily alias:\n%s", contents)
+	}
+}
+
 func TestLogFilePath_EmptyUsesPathsLogFile(t *testing.T) {
 	cfg := &CLIConfig{}
 	if got := cfg.LogFilePath(); got != paths.LogFile() {

@@ -4,10 +4,24 @@
 <h1>{{t .Lang "contact.title"}}</h1>
 <section class="section-card">
   <p>{{t .Lang "contact.support_intro"}}</p>
+  {{if .SecurityReportSubmitted}}
+  <h2>{{t .Lang "contact.report_received"}}</h2>
+  <p>{{t .Lang "contact.report_received_body"}}</p>
+  <p>{{t .Lang "contact.tracking_id"}}: <code>{{.SecurityReportTrackingID}}</code></p>
+  {{end}}
+  {{if .ContactError}}
+  <p class="form-error" role="alert">{{.ContactError}}</p>
+  {{end}}
+  {{if not .SecurityReportSubmitted}}
   {{if .CSRFToken}}
   <h2>{{t .Lang "contact.form_heading"}}</h2>
   <form method="POST" action="/server/contact">
     <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+    <input type="hidden" name="captcha_token" value="{{.CaptchaToken}}">
+    {{if .SecurityReportMode}}
+    <input type="hidden" name="security_id" value="{{.SecurityID}}">
+    <p>{{t .Lang "contact.security_report_intro"}}</p>
+    {{end}}
     <div class="form-group">
       <label for="name">{{t .Lang "contact.name"}}</label>
       <input type="text" id="name" name="name" class="form-control" required
@@ -20,6 +34,7 @@
              aria-describedby="email-error">
       <span id="email-error" class="field-error" role="alert">{{t .Lang "errors.invalid_email"}}</span>
     </div>
+    {{if not .SecurityReportMode}}
     <div class="form-group">
       <label for="subject">{{t .Lang "contact.subject"}}</label>
       <input type="text" id="subject" name="subject" class="form-control" required
@@ -32,8 +47,82 @@
                 aria-describedby="message-error"></textarea>
       <span id="message-error" class="field-error" role="alert">{{t .Lang "errors.required"}}</span>
     </div>
+    {{end}}
+    <div class="form-group">
+      <label for="captcha">{{t .Lang "contact.captcha"}}</label>
+      <input type="text" id="captcha" name="captcha" class="form-control" required
+             aria-describedby="captcha-help">
+      <span id="captcha-help">{{.CaptchaQuestion}}</span>
+    </div>
+    {{if .SecurityReportMode}}
+    <fieldset class="form-group">
+      <legend>{{t .Lang "contact.report_details"}}</legend>
+      <div class="form-group">
+        <label for="researcher-gpg">{{t .Lang "contact.researcher_key"}}</label>
+        <textarea id="researcher-gpg" name="researcher_gpg" class="form-control" rows="4"></textarea>
+      </div>
+      <div class="form-group">
+        <label for="affected-component">{{t .Lang "contact.affected_component"}}</label>
+        <input type="text" id="affected-component" name="affected_component" class="form-control" required>
+      </div>
+      <div class="form-group">
+        <label for="affected-endpoint">{{t .Lang "contact.affected_endpoint"}}</label>
+        <input type="url" id="affected-endpoint" name="affected_endpoint" class="form-control">
+      </div>
+      <div class="form-group">
+        <label for="severity">{{t .Lang "contact.severity"}}</label>
+        <select id="severity" name="severity" class="form-control" required>
+          <option value="critical">{{t .Lang "contact.severity_critical"}}</option>
+          <option value="high">{{t .Lang "contact.severity_high"}}</option>
+          <option value="medium">{{t .Lang "contact.severity_medium"}}</option>
+          <option value="low">{{t .Lang "contact.severity_low"}}</option>
+          <option value="informational">{{t .Lang "contact.severity_informational"}}</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label for="summary">{{t .Lang "contact.vulnerability_summary"}}</label>
+        <input type="text" id="summary" name="summary" class="form-control" required>
+      </div>
+      <div class="form-group">
+        <label for="steps-to-reproduce">{{t .Lang "contact.reproduction_steps"}}</label>
+        <textarea id="steps-to-reproduce" name="steps_to_reproduce" class="form-control" rows="6" required></textarea>
+      </div>
+      <div class="form-group">
+        <label for="impact">{{t .Lang "contact.impact"}}</label>
+        <textarea id="impact" name="impact" class="form-control" rows="4" required></textarea>
+      </div>
+      <div class="form-group">
+        <label for="suggested-fix">{{t .Lang "contact.suggested_fix"}}</label>
+        <textarea id="suggested-fix" name="suggested_fix" class="form-control" rows="4"></textarea>
+      </div>
+      <div class="form-group">
+        <label><input type="checkbox" name="cve_requested" value="true"> {{t .Lang "contact.request_cve"}}</label>
+      </div>
+      <div class="form-group">
+        <label for="disclosure-days">{{t .Lang "contact.disclosure_period"}}</label>
+        <input type="number" id="disclosure-days" name="disclosure_days" class="form-control" min="1" max="365">
+      </div>
+      <div class="form-group">
+        <label for="credit-preference">{{t .Lang "contact.credit_preference"}}</label>
+        <select id="credit-preference" name="credit_preference" class="form-control" required>
+          <option value="real_name">{{t .Lang "contact.credit_real_name"}}</option>
+          <option value="handle">{{t .Lang "contact.credit_handle"}}</option>
+          <option value="no">{{t .Lang "contact.credit_no"}}</option>
+          <option value="anonymous">{{t .Lang "contact.credit_anonymous"}}</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label for="researcher-handle">{{t .Lang "contact.researcher_handle"}}</label>
+        <input type="text" id="researcher-handle" name="handle" class="form-control" maxlength="100" autocomplete="nickname">
+      </div>
+      <div class="form-group">
+        <label><input type="checkbox" name="coordinated_disclosure_agreement" value="true" required> {{t .Lang "contact.coordinated_disclosure_agreement"}}</label>
+      </div>
+    </fieldset>
+    {{end}}
     <button type="submit" id="contact-send-btn" class="btn btn-primary" data-loading-text="{{t .Lang "contact.sending"}}">{{t .Lang "contact.send"}}</button>
   </form>
+  {{end}}
   {{end}}
   <h2>{{t .Lang "contact.security_issues"}}</h2>
   <p>{{t .Lang "contact.security_issues_body"}} <a href="/server/security">{{t .Lang "contact.security_policy_link"}}</a>.</p>
@@ -43,6 +132,5 @@
   {{else}}
   <p>{{t .Lang "contact.abuse_reports_body"}}</p>
   {{end}}
-  <p>{{t .Lang "contact.github"}}: <a href="{{.RepoURL}}">{{.RepoURL}}</a></p>
 </section>
 {{end}}

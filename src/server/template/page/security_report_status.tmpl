@@ -1,0 +1,25 @@
+{{template "base" .}}
+{{define "title"}}{{t .Lang "security.report_status_title"}} — {{.ProjectName}}{{end}}
+{{define "content"}}
+<h1>{{t .Lang "security.report_status_title"}}</h1>
+<section class="section-card" aria-labelledby="report-status">
+  <h2 id="report-status">{{t .Lang "security.report_label"}} {{.SecurityReportStatus.TrackingID}}</h2>
+  <dl>
+    <dt>{{t .Lang "security.status"}}</dt>
+    <dd>{{if eq .SecurityReportStatus.Status "Received"}}{{t .Lang "security.status_received"}}{{else if eq .SecurityReportStatus.Status "Triaged"}}{{t .Lang "security.status_triaged"}}{{else if eq .SecurityReportStatus.Status "Confirmed"}}{{t .Lang "security.status_confirmed"}}{{else if eq .SecurityReportStatus.Status "Patching"}}{{t .Lang "security.status_patching"}}{{else if eq .SecurityReportStatus.Status "Disclosed"}}{{t .Lang "security.status_disclosed"}}{{else if eq .SecurityReportStatus.Status "Won't Fix"}}{{t .Lang "security.status_wont_fix"}}{{else}}{{.SecurityReportStatus.Status}}{{end}}</dd>
+    {{if .SecurityReportStatus.MaintainerComment}}
+    <dt>{{t .Lang "security.maintainer_update"}}</dt>
+    <dd>{{.SecurityReportStatus.MaintainerComment}}</dd>
+    {{end}}
+    {{if .SecurityReportStatus.DisclosureDate}}
+    <dt>{{t .Lang "security.expected_disclosure_date"}}</dt>
+    <dd>{{.SecurityReportStatus.DisclosureDate.Format "2006-01-02"}}</dd>
+    {{end}}
+    {{if .SecurityReportStatus.ClosedAt}}
+    <dt>{{t .Lang "security.closed"}}</dt>
+    <dd>{{.SecurityReportStatus.ClosedAt.Format "2006-01-02"}}</dd>
+    {{end}}
+  </dl>
+  <p>{{t .Lang "security.report_status_help"}}</p>
+</section>
+{{end}}

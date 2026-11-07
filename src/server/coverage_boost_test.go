@@ -222,6 +222,7 @@ func TestDebugHandlersViaHTTP(t *testing.T) {
 	srv := testServer()
 	cfg := &config.AppConfig{Server: config.ServerConfig{Debug: config.DebugConfig{RuntimeEndpoints: true}}}
 	srv.SetConfig(cfg)
+	srv.SetOperatorToken("debug-token")
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
@@ -236,7 +237,7 @@ func TestDebugHandlersViaHTTP(t *testing.T) {
 	for _, ep := range debugEndpoints {
 		ep := ep
 		t.Run(ep, func(t *testing.T) {
-			out, status, err := httpGet(ts.URL+ep, "application/json", "")
+			out, status, err := httpGetBearer(ts.URL+ep, "application/json", "", "debug-token")
 			if err != nil {
 				t.Fatalf("httpGet %s: %v", ep, err)
 			}

@@ -19,6 +19,19 @@ ipgaze [command]
 |---------|-------------|
 | `--shell completions` | Generate shell completions |
 | `--shell init` | Initialize shell integration |
+| `--maintenance backup [file]` | Create a backup archive; SSL keys and the full data directory are excluded unless requested |
+| `--maintenance backup test` | Dry-run restore the backup set and verify the encrypted PGP key decrypts |
+| `--maintenance restore <file>` | Restore a backup archive |
+| `--maintenance update` | Install the latest binary |
+| `--maintenance mode [production\|development]` | Show or change maintenance mode |
+| `--maintenance setup` | Run first-time setup |
+| `--maintenance pgp <action>` | Manage the server PGP keypair (`generate`, `rotate`, `publish`, `export`, `import`, `delete`) |
+| `--maintenance secret rotate <name>` | Rotate `installation_secret` or `encryption_key` |
+| `--maintenance security-report list` | List report IDs and non-identifying triage metadata |
+| `--maintenance security-report set <id> <status> [YYYY-MM-DD] [comment...]` | Update researcher-visible triage status, disclosure date, and comment |
+| `--maintenance token list\|revoke` | List or revoke operator API tokens |
+| `--maintenance data export\|delete` | Export or erase data for an IP address |
+| `--maintenance compliance report` | Print the compliance status report |
 
 ### Flags
 
@@ -64,13 +77,13 @@ ipgaze
 ipgaze --port 9090
 
 # With custom data directory
-ipgaze --port 8080 --data /var/lib/ipgaze
+ipgaze --port 64580 --data /var/lib/ipgaze
 
 # Debug mode with colors
 ipgaze --debug --color yes
 
 # Run as daemon
-ipgaze --port 8080 --daemon --pid /var/run/ipgaze.pid
+ipgaze --port 64580 --daemon --pid /var/run/ipgaze.pid
 ```
 
 ### Version Output
@@ -78,8 +91,8 @@ ipgaze --port 8080 --daemon --pid /var/run/ipgaze.pid
 ```bash
 $ ipgaze --version
 ipgaze 1.0.0
-Built: 2026-01-15T10:30:00Z
-Go: go1.24.0
+Built: {build_date}
+Go: {go_version}
 OS/Arch: linux/amd64
 ```
 

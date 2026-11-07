@@ -69,6 +69,25 @@ Example query:
 
 ---
 
+## Model Context Protocol (MCP)
+
+When `server.mcp.enabled` is true, IPGaze exposes its registered public API
+operations as tools over stateless Streamable HTTP:
+
+| Endpoint | Purpose |
+|----------|---------|
+| `POST /api/v1/server/mcp` | Canonical MCP endpoint |
+| `POST /api/mcp`, `POST /mcp` | Direct aliases |
+| `GET /server/help/mcp` | Client setup guide, available tools, and troubleshooting |
+| `GET /api/v1/server/help/mcp` | MCP help data as JSON |
+
+IPGaze exposes public lookup operations, so MCP clients can connect without a
+token. There is no MCP-specific token. The guide at `/server/help/mcp` shows
+the resolved endpoint URL, available tools, and a client initialization
+example.
+
+---
+
 ## Prometheus Metrics
 
 When enabled in configuration, ipgaze exposes metrics endpoints under

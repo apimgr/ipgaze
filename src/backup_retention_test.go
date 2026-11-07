@@ -187,6 +187,32 @@ func TestApplyBackupRetention_EmptyDir(t *testing.T) {
 	}
 }
 
+func TestApplyBackupRetention_CleansUnclassifiedAndCapsIncrementals(t *testing.T) {
+	dir := t.TempDir()
+	now := time.Now()
+	writeBackupFile(t, dir, "ipgaze_backup_2026-01-01.tar.gz", 10, now.Add(-4*time.Hour))
+	writeBackupFile(t, dir, "ipgaze_backup_2026-01-02.tar.gz", 10, now.Add(-3*time.Hour))
+	writeBackupFile(t, dir, "ipgaze_backup_unknown.tar.gz", 10, now.Add(-2*time.Hour))
+	writeBackupFile(t, dir, "ipgaze-daily.tar.gz", 10, now.Add(-time.Hour))
+	writeBackupFile(t, dir, "ipgaze-hourly.tar.gz", 10, now)
+
+	applyBackupRetention(dir, config.BackupRetentionConfig{MaxBackups: 2, MaxTotalSize: "25"}, nil)
+	files, err := listAllBackupFiles(dir)
+	if err != nil {
+		t.Fatalf("listAllBackupFiles: %v", err)
+	}
+	var total int64
+	for _, file := range files {
+		total += file.size
+	}
+	if total > 25 {
+		t.Fatalf("backup total size = %d, want <= 25 including incrementals", total)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "ipgaze_backup_unknown.tar.gz")); !os.IsNotExist(err) {
+		t.Fatalf("unclassified backup file remains after count retention: err=%v", err)
+	}
+}
+
 func TestBackupDiskSpaceExceeded_UsesRealFilesystem(t *testing.T) {
 	dir := t.TempDir()
 	// The real filesystem underlying t.TempDir() should have well under 100%

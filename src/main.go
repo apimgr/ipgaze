@@ -11,6 +11,7 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -18,7 +19,6 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -32,6 +32,7 @@ import (
 	"github.com/apimgr/ipgaze/src/common/banner"
 	"github.com/apimgr/ipgaze/src/common/display"
 	"github.com/apimgr/ipgaze/src/common/i18n"
+	"github.com/apimgr/ipgaze/src/common/updatechannel"
 	"github.com/apimgr/ipgaze/src/config"
 	"github.com/apimgr/ipgaze/src/cve"
 	"github.com/apimgr/ipgaze/src/db"
@@ -72,7 +73,7 @@ var (
 )
 
 // buildEpoch parses the embedded BuildEpoch ldflag; 0 when unset or invalid.
-// Passed to updater.CheckForUpdate so the daily channel's rolling "daily" tag
+// Passed to updater.CheckForUpdate so the devel channel's rolling "devel" tag
 // can be compared against this binary's own build time.
 func buildEpoch() int64 {
 	n, err := strconv.ParseInt(BuildEpoch, 10, 64)
@@ -231,7 +232,7 @@ func main() {
 	serviceCmd := flag.String("service", "", "Service commands: start, stop, restart, reload, status, --install, --uninstall, --disable, --help")
 
 	// Maintenance commands
-	maintenanceCmd := flag.String("maintenance", "", "Maintenance commands: backup, restore, update, mode, setup, pgp, secret, token, data, compliance")
+	maintenanceCmd := flag.String("maintenance", "", "Maintenance commands: backup, restore, update, mode, setup, pgp, secret, security-report, token, data, compliance")
 
 	// Backup content opt-ins (AI.md PART 21) — backups exclude SSL private
 	// keys and the full data directory by default (non-credential by default).
@@ -243,7 +244,7 @@ func main() {
 
 	// Mode and update flags
 	modeFlag := flag.String("mode", "", "Application mode: production, development, debug")
-	updateCmd := flag.String("update", "", "Update commands: check, yes, branch {stable|beta|daily}")
+	updateCmd := flag.String("update", "", "Update commands: check, yes, branch {stable|beta|devel}")
 
 	var headers multiValueFlag
 	flag.Var(&headers, "header", "Additional header to trust for remote IP, if present (e.g. X-Real-IP); replaces the default priority list below when set")
@@ -515,8 +516,9 @@ func main() {
 		logMgr = nil
 	} else {
 		defer logMgr.Close()
-		log.Printf("File-based logging active in %s", resolvedLogDir)
 	}
+	log.SetOutput(runtimeLogWriter{manager: logMgr, stderr: os.Stderr})
+	log.Printf("File-based logging active in %s", resolvedLogDir)
 
 	// Auto-generate operator token on first run per AI.md PART 11.
 	// Format: tok_ prefix + 32 URL-safe random base62 chars.
@@ -765,6 +767,27 @@ func main() {
 				log.Printf("Warning: close server database: %v", err)
 			}
 		}()
+	}
+	if serverDB != nil {
+		for _, secretName := range []security.SecretName{security.SecretInstallationSecret, security.SecretCookieSigningKey, security.SecretCSRFTokenSecret} {
+			if _, secretErr := security.GetOrCreateSecret(serverDB, secretName); secretErr != nil {
+				log.Printf("Failed to initialize %s: %v", secretName, secretErr)
+				return
+			}
+		}
+		for _, rotation := range []struct {
+			name     security.SecretName
+			lifetime time.Duration
+		}{{security.SecretCookieSigningKey, 90 * 24 * time.Hour}, {security.SecretCSRFTokenSecret, 180 * 24 * time.Hour}} {
+			rotated, rotationErr := security.RotateSecretIfDue(serverDB, rotation.name, rotation.lifetime, time.Now())
+			if rotationErr != nil {
+				log.Printf("Failed to check automatic secret rotation for %s: %v", rotation.name, rotationErr)
+				return
+			}
+			if rotated {
+				log.Printf("Automatically rotated %s", rotation.name)
+			}
+		}
 	}
 
 	// Initialize SSL manager per AI.md PART 15.
@@ -2207,7 +2230,7 @@ _arguments \
     '--daemon[Run as daemon]' \
     '--color[Color output]:(auto yes no)' \
     '--service[Service command]:(start stop restart reload status --install --uninstall --disable --help)' \
-    '--maintenance[Maintenance command]:(backup restore update mode setup)' \
+    '--maintenance[Maintenance command]:(backup restore update mode setup pgp secret security-report token data compliance)' \
     '--update[Update command]:(check yes branch --help)' \
     '--shell[Shell command]:(completions init --help)'
 `, binaryName)
@@ -2417,6 +2440,31 @@ func buildLogConfig(cfg *config.AppConfig) applog.LoggerConfig {
 	}
 }
 
+type runtimeLogWriter struct {
+	manager *applog.Manager
+	stderr  io.Writer
+}
+
+func (w runtimeLogWriter) Write(p []byte) (int, error) {
+	message := strings.TrimSpace(string(p))
+	level := "INFO"
+	lower := strings.ToLower(message)
+	if strings.Contains(lower, "error") || strings.Contains(lower, "failed") || strings.Contains(lower, "failure") {
+		level = "ERROR"
+	} else if strings.Contains(lower, "warning") || strings.Contains(lower, "warn:") {
+		level = "WARN"
+	}
+	if w.manager != nil {
+		w.manager.WriteServer(level, message)
+	}
+	if (level == "WARN" || level == "ERROR") && w.stderr != nil {
+		if _, err := fmt.Fprintln(w.stderr, message); err != nil {
+			return 0, err
+		}
+	}
+	return len(p), nil
+}
+
 // requireOperatorAuth implements the AI.md PART 5 "Sensitive Operations"
 // authorization gate: root/elevated processes pass automatically; anyone
 // else must supply the current server.token (constant-time compared).
@@ -2442,6 +2490,18 @@ func requireTypedConfirmation(expected, prompt string) bool {
 	reader := bufio.NewReader(os.Stdin)
 	entered, _ := reader.ReadString('\n')
 	return strings.TrimSpace(entered) == expected
+}
+
+func maintenanceOperatorIP() string {
+	for _, variable := range []string{"SSH_CONNECTION", "SSH_CLIENT"} {
+		fields := strings.Fields(os.Getenv(variable))
+		if len(fields) > 0 {
+			if ip := net.ParseIP(fields[0]); ip != nil {
+				return ip.String()
+			}
+		}
+	}
+	return "127.0.0.1"
 }
 
 // openMaintenanceDB opens server.db independently of the main server
@@ -2567,7 +2627,7 @@ func handlePGPMaintenance(args []string, configDir, logsDir string, cfg *config.
 				fmt.Println("Usage: ipgaze --maintenance pgp export private <path>")
 				os.Exit(exUsage)
 			}
-			pgpExportPrivate(conn, configDir, rest[1], logMgr)
+			pgpExportPrivate(conn, configDir, rest[1], cfg, logMgr)
 		default:
 			fmt.Printf("Unknown export target: %s (expected public or private)\n", rest[0])
 			os.Exit(exUsage)
@@ -2648,6 +2708,12 @@ func pgpRotate(conn *sql.DB, configDir, appName, securityContact string, cfg *co
 	if err != nil {
 		log.Printf("pgp rotate: %v", err)
 		os.Exit(exSoftware)
+	}
+	if oldRec != nil {
+		if err := pgp.ArchiveCurrentKeypair(configDir, oldRec.Fingerprint, time.Now().Add(pgp.RotationGrace)); err != nil {
+			log.Printf("pgp rotate: retain previous private key: %v", err)
+			os.Exit(exIoErr)
+		}
 	}
 	if err := pgp.SaveKeypair(configDir, kp, secret); err != nil {
 		log.Printf("pgp rotate: save: %v", err)
@@ -2757,7 +2823,7 @@ func pgpExportPublic(configDir, path string) {
 // (AI.md PART 11 "Export private"): typed confirmation, 1/hour/operator
 // rate limit, a logged reason, mode-0600 output, and an audit event
 // recording the operator's typed reason.
-func pgpExportPrivate(conn *sql.DB, configDir, path string, logMgr *applog.Manager) {
+func pgpExportPrivate(conn *sql.DB, configDir, path string, cfg *config.AppConfig, logMgr *applog.Manager) {
 	if !requireTypedConfirmation("EXPORT PRIVATE KEY",
 		"WARNING: this exposes the raw, decrypted PGP private key.\n"+
 			"Type EXPORT PRIVATE KEY to confirm: ") {
@@ -2778,6 +2844,10 @@ func pgpExportPrivate(conn *sql.DB, configDir, path string, logMgr *applog.Manag
 		fmt.Println("A reason is required for this sensitive operation.")
 		os.Exit(exUsage)
 	}
+	if !requireOperatorAuth(cfg, "Re-enter the operator token to authorize private-key export: ") {
+		fmt.Println("Authorization failed; private key was not exported.")
+		os.Exit(exNoPerm)
+	}
 
 	secret, err := security.GetOrCreateSecret(conn, security.SecretInstallationSecret)
 	if err != nil {
@@ -2797,7 +2867,7 @@ func pgpExportPrivate(conn *sql.DB, configDir, path string, logMgr *applog.Manag
 
 	rec, _ := pgp.ActiveRecord(conn)
 	if logMgr != nil {
-		logMgr.WriteAuditEvent("", "security.private_key_exported", "security", "warn", "success", "", map[string]any{
+		logMgr.WriteAuditEvent("", "security.private_key_exported", "security", "warn", "success", maintenanceOperatorIP(), map[string]any{
 			"fingerprint": oldRecFingerprint(rec),
 			"path":        path,
 			"reason":      reason,
@@ -2974,7 +3044,7 @@ func handleSecretMaintenance(args []string, configDir, logsDir string, cfg *conf
 	case "installation_secret":
 		rotateInstallationSecret(conn, configDir, logMgr)
 	case "encryption_key":
-		rotateEncryptionKey(configDir, cfg, logMgr)
+		rotateEncryptionKey(conn, configDir, cfg, logMgr)
 	}
 }
 
@@ -3015,10 +3085,10 @@ func rotateInstallationSecret(conn *sql.DB, configDir string, logMgr *applog.Man
 
 // rotateEncryptionKey implements the encryption_key branch of
 // `--maintenance secret rotate` (AI.md PART 11): generates a new at-rest
-// encryption key, re-encrypts DNS-01 provider credentials (the only
-// currently-implemented data encrypted under this key), keeps the previous
-// key valid for a 30-day grace window, and persists everything to server.yml.
-func rotateEncryptionKey(configDir string, cfg *config.AppConfig, logMgr *applog.Manager) {
+// encryption key, re-encrypts DNS-01 credentials and AES-encrypted security
+// reports, keeps the previous key valid for a 30-day grace window, and saves
+// the updated configuration.
+func rotateEncryptionKey(conn *sql.DB, configDir string, cfg *config.AppConfig, logMgr *applog.Manager) {
 	oldKeyB64 := cfg.Server.Security.EncryptionKey
 	oldKey, err := base64.StdEncoding.DecodeString(oldKeyB64)
 	if err != nil {
@@ -3043,15 +3113,43 @@ func rotateEncryptionKey(configDir string, cfg *config.AppConfig, logMgr *applog
 		log.Printf("secret rotate encryption_key: re-encrypt dns_credentials: %v", err)
 		os.Exit(exSoftware)
 	}
+	tx, err := conn.BeginTx(context.Background(), nil)
+	if err != nil {
+		log.Printf("secret rotate encryption_key: begin report re-encryption: %v", err)
+		os.Exit(exSoftware)
+	}
+	defer func() { _ = tx.Rollback() }()
+	if err := security.ReencryptSecurityReportsTx(tx, oldKey, newKey); err != nil {
+		log.Printf("secret rotate encryption_key: re-encrypt security reports: %v", err)
+		os.Exit(exSoftware)
+	}
 
+	oldPreviousKey := cfg.Server.Security.PreviousEncryptionKey
+	oldPreviousUntil := cfg.Server.Security.PreviousEncryptionKeyUntil
+	oldDNSCredentials := cfg.Server.SSL.LetsEncrypt.DNSCredentials.CredentialsEncrypted
 	cfg.Server.Security.PreviousEncryptionKey = oldKeyB64
 	cfg.Server.Security.PreviousEncryptionKeyUntil = time.Now().Add(30 * 24 * time.Hour).Unix()
 	cfg.Server.Security.EncryptionKey = newKeyB64
 	cfg.Server.SSL.LetsEncrypt.DNSCredentials.CredentialsEncrypted = reencryptedDNS
 
 	if err := config.SaveConfigToFile(); err != nil {
+		cfg.Server.Security.EncryptionKey = oldKeyB64
+		cfg.Server.Security.PreviousEncryptionKey = oldPreviousKey
+		cfg.Server.Security.PreviousEncryptionKeyUntil = oldPreviousUntil
+		cfg.Server.SSL.LetsEncrypt.DNSCredentials.CredentialsEncrypted = oldDNSCredentials
 		log.Printf("secret rotate encryption_key: save config: %v", err)
 		os.Exit(exIoErr)
+	}
+	if err := tx.Commit(); err != nil {
+		cfg.Server.Security.EncryptionKey = oldKeyB64
+		cfg.Server.Security.PreviousEncryptionKey = oldPreviousKey
+		cfg.Server.Security.PreviousEncryptionKeyUntil = oldPreviousUntil
+		cfg.Server.SSL.LetsEncrypt.DNSCredentials.CredentialsEncrypted = oldDNSCredentials
+		if restoreErr := config.SaveConfigToFile(); restoreErr != nil {
+			log.Printf("secret rotate encryption_key: failed to restore old config after database commit error: %v", restoreErr)
+		}
+		log.Printf("secret rotate encryption_key: commit report re-encryption: %v", err)
+		os.Exit(exSoftware)
 	}
 
 	if logMgr != nil {
@@ -3064,16 +3162,111 @@ func rotateEncryptionKey(configDir string, cfg *config.AppConfig, logMgr *applog
 	fmt.Println("Previous value remains valid for 30 days (grace period).")
 }
 
+func handleSecurityReportMaintenance(args []string, logsDir string, cfg *config.AppConfig) {
+	if len(args) == 0 || args[0] == "--help" || args[0] == "help" {
+		fmt.Println("Usage: ipgaze --maintenance security-report <list|set>")
+		fmt.Println("  list: show report IDs and non-identifying triage metadata")
+		fmt.Println("  set <tracking_id> <status> [YYYY-MM-DD] [comment...]")
+		fmt.Println("       statuses: Received, Triaged, Confirmed, Patching, Disclosed, \"Won't Fix\"")
+		return
+	}
+	if !requireOperatorAuth(cfg, "This is a sensitive security-report operation. Enter operator token to confirm: ") {
+		fmt.Println("Authorization required: run as root/administrator, or provide a valid operator token.")
+		os.Exit(exNoPerm)
+	}
+	conn, err := openMaintenanceDB(cfg, paths.GetDirectories())
+	if err != nil {
+		log.Printf("security-report: failed to open database: %v", err)
+		os.Exit(exIoErr)
+	}
+	defer func() { _ = conn.Close() }()
+	if args[0] == "list" {
+		if err := listSecurityReports(conn, os.Stdout); err != nil {
+			log.Printf("security-report: list reports: %v", err)
+			os.Exit(exIoErr)
+		}
+		return
+	}
+	if args[0] != "set" || len(args) < 3 {
+		fmt.Println("Usage: ipgaze --maintenance security-report set <tracking_id> <status> [YYYY-MM-DD] [comment...]")
+		os.Exit(exUsage)
+	}
+	trackingID, status, disclosureDate, comment, err := parseSecurityReportSetArgs(args[1:], time.Now())
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(exUsage)
+	}
+	if err := security.UpdateSecurityReportTriage(conn, trackingID, status, comment, disclosureDate, time.Now()); err != nil {
+		log.Printf("security-report: update failed: %v", err)
+		os.Exit(exSoftware)
+	}
+	logMgr, logErr := applog.NewManager(logsDir, buildLogConfig(cfg))
+	if logErr == nil {
+		logMgr.WriteAuditEvent("", "security.report_triage_updated", "security", "info", "success", "", map[string]any{
+			"tracking_id": trackingID, "status": status,
+		})
+		logMgr.Close()
+	}
+	fmt.Printf("Updated security report %s to %s.\n", trackingID, status)
+}
+
+func listSecurityReports(conn *sql.DB, out io.Writer) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	rows, err := conn.QueryContext(ctx, `SELECT tracking_id, status, severity, affected_component, created_at
+		FROM security_reports ORDER BY created_at DESC`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	if _, err := fmt.Fprintf(out, "%-22s %-12s %-14s %-24s %s\n", "TRACKING_ID", "STATUS", "SEVERITY", "COMPONENT", "CREATED_UTC"); err != nil {
+		return err
+	}
+	for rows.Next() {
+		var trackingID, status, severity, component string
+		var created int64
+		if err := rows.Scan(&trackingID, &status, &severity, &component, &created); err != nil {
+			return err
+		}
+		if _, err := fmt.Fprintf(out, "%-22s %-12s %-14s %-24s %s\n", trackingID, status, severity, component, time.Unix(created, 0).UTC().Format(time.RFC3339)); err != nil {
+			return err
+		}
+	}
+	return rows.Err()
+}
+
+func parseSecurityReportSetArgs(args []string, now time.Time) (string, string, *time.Time, string, error) {
+	if len(args) < 2 || strings.TrimSpace(args[0]) == "" || strings.TrimSpace(args[1]) == "" {
+		return "", "", nil, "", fmt.Errorf("expected tracking ID and status")
+	}
+	trackingID, status := strings.TrimSpace(args[0]), strings.TrimSpace(args[1])
+	var disclosureDate *time.Time
+	commentArgs := args[2:]
+	if len(commentArgs) > 0 {
+		if parsed, err := time.Parse("2006-01-02", commentArgs[0]); err == nil {
+			date := parsed.UTC()
+			disclosureDate = &date
+			commentArgs = commentArgs[1:]
+		}
+	}
+	if status == "Disclosed" && disclosureDate == nil {
+		date := now.UTC()
+		disclosureDate = &date
+	}
+	return trackingID, status, disclosureDate, strings.Join(commentArgs, " "), nil
+}
+
 func handleMaintenanceCommand(cmd, configDir, dataDir, logsDir, configPath string, cfg *config.AppConfig, includeSSL, includeData bool) {
 	args := flag.Args()
 	dirs := paths.GetDirectories()
 
 	switch cmd {
 	case "--help":
-		fmt.Println(`Maintenance commands: backup, restore, update, mode, setup, pgp, secret, token, data, compliance
+		fmt.Println(`Maintenance commands: backup, restore, update, mode, setup, pgp, secret, security-report, token, data, compliance
 
 Backup:
   --maintenance backup [file]     Create a backup archive
+  --maintenance backup test       Decrypt-check the backed-up PGP key
       --include-ssl                Include SSL/TLS private keys (default: excluded)
       --include-data               Include the full data directory (default: excluded)
 
@@ -3095,8 +3288,21 @@ Restore:
 
   Example:
     ipgaze --maintenance restore /path/to/backup.tar.gz`)
+		fmt.Println(`Security reports:
+  --maintenance security-report list
+      Lists report IDs and non-identifying triage metadata.
+  --maintenance security-report set <tracking_id> <status> [YYYY-MM-DD] [comment...]
+      Updates researcher-visible triage status, disclosure date, and comment.
+      Requires operator authorization.`)
 		return
 	case "backup":
+		if len(args) > 0 && args[0] == "test" {
+			if err := maintenanceBackupTest(configDir, cfg, dirs); err != nil {
+				log.Printf("Backup key test failed: %v", err)
+				os.Exit(exIoErr)
+			}
+			return
+		}
 		backupFile := ""
 		if len(args) > 0 {
 			backupFile = args[0]
@@ -3150,6 +3356,8 @@ Restore:
 		handlePGPMaintenance(args, configDir, logsDir, cfg)
 	case "secret":
 		handleSecretMaintenance(args, configDir, logsDir, cfg)
+	case "security-report":
+		handleSecurityReportMaintenance(args, logsDir, cfg)
 	case "token":
 		maintenanceToken(args, cfg, logsDir, dirs)
 	case "data":
@@ -3158,7 +3366,7 @@ Restore:
 		maintenanceCompliance(args, cfg)
 	default:
 		fmt.Printf("Unknown maintenance command: %s\n", cmd)
-		fmt.Println("Available commands: backup, restore, update, mode, setup, pgp, secret, token, data, compliance")
+		fmt.Println("Available commands: backup, restore, update, mode, setup, pgp, secret, security-report, token, data, compliance")
 		os.Exit(exUsage)
 	}
 }
@@ -3507,6 +3715,17 @@ func enabledFor(defaultEnabled bool, taskCfg config.TaskScheduleConfig) bool {
 // controlling terminal — scheduled/background backups must pass false.
 func maintenanceBackup(cfg *config.AppConfig, configDir, dataDir, dbDir, backupFile string, includeSSL, includeData, interactive bool, logMgr *applog.Manager) (backupErr error) {
 	fmt.Printf("Creating backup: %s\n", backupFile)
+	conn, dbErr := openMaintenanceDB(cfg, paths.Directories{DB: dbDir})
+	if dbErr != nil {
+		return fmt.Errorf("backup: open database for secret initialization: %w", dbErr)
+	}
+	if err := initializeBackupSecrets(conn); err != nil {
+		_ = conn.Close()
+		return fmt.Errorf("backup: initialize required secrets: %w", err)
+	}
+	if err := conn.Close(); err != nil {
+		return fmt.Errorf("backup: close database after secret initialization: %w", err)
+	}
 
 	// AI.md PART 21 requires a backup.failed audit event for every failed
 	// backup. Emitted from a defer so no error path can skip it, and skipped
@@ -3547,6 +3766,12 @@ func maintenanceBackup(cfg *config.AppConfig, configDir, dataDir, dbDir, backupF
 		"created_by":  "scheduler",
 		"app_version": Version,
 		"encrypted":   encrypted,
+		"required_secrets": []string{
+			string(security.SecretInstallationSecret),
+			string(security.SecretCookieSigningKey),
+			string(security.SecretCSRFTokenSecret),
+			"server.security.encryption_key",
+		},
 	}
 	if interactive {
 		manifest["created_by"] = "operator"
@@ -3681,6 +3906,9 @@ func verifyBackup(backupFile, password string, layout backupArchiveLayout) error
 		return fmt.Errorf("check 5 (manifest readable): parse manifest: %w", jerr)
 	}
 	manifestChecksum, _ := manifest["checksum"].(string)
+	if err := validateRequiredSecretManifest(manifest["required_secrets"]); err != nil {
+		return fmt.Errorf("check 5 (manifest readable): %w", err)
+	}
 
 	// Check 6: content extraction test — extract to temp dir and verify non-empty
 	tmpDir, err := paths.CreateProjectTempDir()
@@ -3694,6 +3922,9 @@ func verifyBackup(backupFile, password string, layout backupArchiveLayout) error
 	}()
 	if extractErr := extractBackupArchive(archiveBytes, tmpDir); extractErr != nil {
 		return fmt.Errorf("check 6 (extraction): %w", extractErr)
+	}
+	if err := validateRestoredBackupSecrets(filepath.Join(tmpDir, filepath.Base(layout.configDir)), filepath.Join(tmpDir, "db"), nil); err != nil {
+		return fmt.Errorf("check 6 (required secrets): %w", err)
 	}
 	entries, err := os.ReadDir(tmpDir)
 	if err != nil || len(entries) == 0 {
@@ -3719,33 +3950,141 @@ func verifyBackup(backupFile, password string, layout backupArchiveLayout) error
 		}
 	}
 
-	// Check 7: database integrity — find any .db file and run SQLite integrity_check
-	var dbErr error
+	// Check 7: database integrity — find every .db and run SQLite integrity_check.
+	var dbFiles []string
 	err = filepath.Walk(tmpDir, func(p string, fi os.FileInfo, e error) error {
-		if e != nil || dbErr != nil {
-			return nil
+		if e != nil {
+			return e
 		}
 		if strings.HasSuffix(p, ".db") {
-			integrityCmd := exec.Command("sqlite3", p, "PRAGMA integrity_check;")
-			out, err := integrityCmd.Output()
-			if err != nil {
-				dbErr = fmt.Errorf("sqlite3 not available or db unreadable: %w", err)
-				return nil
-			}
-			if !strings.Contains(strings.TrimSpace(string(out)), "ok") {
-				dbErr = fmt.Errorf("integrity_check failed: %s", strings.TrimSpace(string(out)))
-			}
+			dbFiles = append(dbFiles, p)
 		}
 		return nil
 	})
 	if err != nil {
 		return fmt.Errorf("check 7 (db integrity): walk error: %w", err)
 	}
-	// Only fail on db integrity if sqlite3 is available and returned a real error
-	if dbErr != nil && !strings.Contains(dbErr.Error(), "not available") {
-		return fmt.Errorf("check 7 (db integrity): %w", dbErr)
+	if len(dbFiles) == 0 {
+		return fmt.Errorf("check 7 (db integrity): backup contains no database file")
+	}
+	for _, dbFile := range dbFiles {
+		integrityDB, openErr := db.OpenSQLite(dbFile)
+		if openErr != nil {
+			return fmt.Errorf("check 7 (db integrity): open %s: %w", filepath.Base(dbFile), openErr)
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		var integrity string
+		queryErr := integrityDB.QueryRowContext(ctx, `PRAGMA integrity_check`).Scan(&integrity)
+		cancel()
+		closeErr := integrityDB.Close()
+		if queryErr != nil {
+			return fmt.Errorf("check 7 (db integrity): query %s: %w", filepath.Base(dbFile), queryErr)
+		}
+		if closeErr != nil {
+			return fmt.Errorf("check 7 (db integrity): close %s: %w", filepath.Base(dbFile), closeErr)
+		}
+		if integrity != "ok" {
+			return fmt.Errorf("check 7 (db integrity): %s: %s", filepath.Base(dbFile), integrity)
+		}
 	}
 
+	return nil
+}
+
+func initializeBackupSecrets(conn *sql.DB) error {
+	for _, name := range []security.SecretName{security.SecretInstallationSecret, security.SecretCookieSigningKey, security.SecretCSRFTokenSecret} {
+		if _, err := security.GetOrCreateSecret(conn, name); err != nil {
+			return fmt.Errorf("initialize %s: %w", name, err)
+		}
+	}
+	return nil
+}
+
+func validateRequiredSecretManifest(value interface{}) error {
+	entries, ok := value.([]interface{})
+	if !ok {
+		return errors.New("required_secrets list is missing")
+	}
+	present := make(map[string]bool, len(entries))
+	for _, entry := range entries {
+		if name, ok := entry.(string); ok {
+			present[name] = true
+		}
+	}
+	for _, required := range []string{
+		string(security.SecretInstallationSecret),
+		string(security.SecretCookieSigningKey),
+		string(security.SecretCSRFTokenSecret),
+		"server.security.encryption_key",
+	} {
+		if !present[required] {
+			return fmt.Errorf("manifest does not declare required secret %q", required)
+		}
+	}
+	return nil
+}
+
+func readBackupManifest(archiveBytes []byte) (map[string]interface{}, error) {
+	gr, err := gzip.NewReader(bytes.NewReader(archiveBytes))
+	if err != nil {
+		return nil, fmt.Errorf("open archive: %w", err)
+	}
+	defer gr.Close()
+	tr := tar.NewReader(gr)
+	for {
+		hdr, err := tr.Next()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return nil, fmt.Errorf("read archive: %w", err)
+		}
+		if hdr.Name != "manifest.json" {
+			continue
+		}
+		data, err := io.ReadAll(io.LimitReader(tr, 1<<20))
+		if err != nil {
+			return nil, fmt.Errorf("read manifest: %w", err)
+		}
+		var manifest map[string]interface{}
+		if err := json.Unmarshal(data, &manifest); err != nil {
+			return nil, fmt.Errorf("parse manifest: %w", err)
+		}
+		return manifest, nil
+	}
+	return nil, errors.New("manifest.json is missing")
+}
+
+func validateRestoredBackupSecrets(configDir, dbDir string, cfg *config.AppConfig) error {
+	if cfg == nil {
+		loaded, err := config.LoadConfigFromFile(filepath.Join(configDir, "server.yml"))
+		if err != nil {
+			return fmt.Errorf("load restored server.yml: %w", err)
+		}
+		cfg = loaded
+	}
+	encryptionKey, err := base64.StdEncoding.DecodeString(cfg.Server.Security.EncryptionKey)
+	if err != nil || len(encryptionKey) != 32 {
+		return errors.New("restored server.security.encryption_key is missing or invalid")
+	}
+	conn, err := db.OpenSQLite(filepath.Join(dbDir, "server.db"))
+	if err != nil {
+		return fmt.Errorf("open restored server.db: %w", err)
+	}
+	defer conn.Close()
+	for _, name := range []security.SecretName{security.SecretInstallationSecret, security.SecretCookieSigningKey, security.SecretCSRFTokenSecret} {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		var encoded string
+		queryErr := conn.QueryRowContext(ctx, `SELECT value FROM app_secrets WHERE name = ?`, string(name)).Scan(&encoded)
+		cancel()
+		if queryErr != nil {
+			return fmt.Errorf("restored database is missing %s: %w", name, queryErr)
+		}
+		secret, decodeErr := base64.StdEncoding.DecodeString(encoded)
+		if decodeErr != nil || len(secret) != 32 {
+			return fmt.Errorf("restored %s is invalid", name)
+		}
+	}
 	return nil
 }
 
@@ -3758,6 +4097,7 @@ func verifyBackup(backupFile, password string, layout backupArchiveLayout) error
 // (ssl/, data/) is simply left untouched, and the operator is told what was
 // and wasn't restored.
 func maintenanceRestore(backupFile, configDir, dataDir, dbDir string, cfg *config.AppConfig, dirs paths.Directories, logMgr *applog.Manager) {
+	restoreLimits := backupRestoreLimits(cfg)
 	// Authorization per AI.md PART 5 "Restore authorization flow": allowed on
 	// first-run (nothing to protect), otherwise requires server.token OR root
 	// (requireOperatorAuth already grants root a bypass via isElevated()).
@@ -3774,8 +4114,17 @@ func maintenanceRestore(backupFile, configDir, dataDir, dbDir string, cfg *confi
 		os.Exit(exNoPerm)
 	}
 
-	if _, err := os.Stat(backupFile); os.IsNotExist(err) {
+	backupInfo, statErr := os.Stat(backupFile)
+	if os.IsNotExist(statErr) {
 		log.Printf("Backup file not found: %s", backupFile)
+		os.Exit(exIoErr)
+	}
+	if statErr != nil {
+		log.Printf("Restore: cannot stat backup file: %v", statErr)
+		os.Exit(exIoErr)
+	}
+	if backupInfo.Size() > restoreLimits.MaxArchiveSize {
+		log.Printf("Restore: archive size %d exceeds configured limit %d", backupInfo.Size(), restoreLimits.MaxArchiveSize)
 		os.Exit(exIoErr)
 	}
 
@@ -3809,6 +4158,15 @@ func maintenanceRestore(backupFile, configDir, dataDir, dbDir string, cfg *confi
 	} else {
 		_ = gr.Close()
 	}
+	manifest, manifestErr := readBackupManifest(archiveBytes)
+	if manifestErr != nil {
+		log.Printf("Restore: invalid manifest: %v", manifestErr)
+		os.Exit(exIoErr)
+	}
+	if err := validateRequiredSecretManifest(manifest["required_secrets"]); err != nil {
+		log.Printf("Restore: manifest secret check failed: %v", err)
+		os.Exit(exIoErr)
+	}
 
 	fmt.Printf("WARNING: Restoring from %s will overwrite current data in:\n", backupFile)
 	fmt.Printf("  Config: %s\n", configDir)
@@ -3834,8 +4192,14 @@ func maintenanceRestore(backupFile, configDir, dataDir, dbDir string, cfg *confi
 	defer cleanupTempDir()
 
 	fmt.Printf("Restoring from backup: %s\n", backupFile)
-	if extractErr := extractBackupArchive(archiveBytes, tmpDir); extractErr != nil {
+	if extractErr := extractBackupArchiveWithLimits(archiveBytes, tmpDir, restoreLimits); extractErr != nil {
 		log.Printf("Restore: extraction failed: %v", extractErr)
+		cleanupTempDir()
+		os.Exit(exIoErr)
+	}
+	extractedConfig := filepath.Join(tmpDir, filepath.Base(configDir))
+	if err := validateRestoredBackupSecrets(extractedConfig, filepath.Join(tmpDir, "db"), nil); err != nil {
+		log.Printf("Restore: %v", err)
 		cleanupTempDir()
 		os.Exit(exIoErr)
 	}
@@ -3844,7 +4208,6 @@ func maintenanceRestore(backupFile, configDir, dataDir, dbDir string, cfg *confi
 	// omitted ssl/ (created without --include-ssl per AI.md PART 21), copy
 	// the operator's existing SSL certs forward first so the atomic swap
 	// below preserves rather than destroys them.
-	extractedConfig := filepath.Join(tmpDir, filepath.Base(configDir))
 	sslRestored := false
 	if _, err := os.Stat(extractedConfig); err == nil {
 		extractedSSL := filepath.Join(extractedConfig, "ssl")
@@ -3906,6 +4269,37 @@ func maintenanceRestore(backupFile, configDir, dataDir, dbDir string, cfg *confi
 	} else {
 		fmt.Println("  data:   not in archive — existing data directory left untouched")
 	}
+	restoredConfig := cfg
+	if loadedConfig, loadErr := config.LoadConfigFromFile(filepath.Join(configDir, "server.yml")); loadErr == nil {
+		restoredConfig = loadedConfig
+	} else {
+		log.Printf("Restore: load restored server.yml: %v", loadErr)
+	}
+	if conn, openErr := openMaintenanceDB(restoredConfig, dirs); openErr == nil {
+		if rec, recErr := pgp.ActiveRecord(conn); recErr == nil && rec != nil {
+			if published, stateErr := pgp.ReadKeyserversState(configDir, rec.Fingerprint); stateErr != nil {
+				log.Printf("Restore: read keyserver publish state: %v", stateErr)
+			} else {
+				for host, unix := range published {
+					if _, exists := rec.KeyserversPublished[host]; !exists {
+						_ = pgp.RecordKeyserverPublish(conn, rec.Fingerprint, host, time.Unix(unix, 0))
+					}
+				}
+				if restoredConfig.Web.Security.PublishPGPKey && len(restoredConfig.Web.Security.Keyservers) > 0 {
+					if publicKey, keyErr := pgp.LoadPublic(configDir); keyErr == nil {
+						publishToKeyservers(conn, configDir, rec.Fingerprint, publicKey, restoredConfig.Web.Security.Keyservers)
+					} else {
+						log.Printf("Restore: load public PGP key: %v", keyErr)
+					}
+				}
+			}
+		}
+		if closeErr := conn.Close(); closeErr != nil {
+			log.Printf("Restore: close restored database: %v", closeErr)
+		}
+	} else {
+		log.Printf("Restore: open restored database: %v", openErr)
+	}
 
 	// AI.md PART 21 requires a backup.restored audit event on every successful
 	// restore; only the filename is recorded.
@@ -3916,6 +4310,92 @@ func maintenanceRestore(backupFile, configDir, dataDir, dbDir string, cfg *confi
 	}
 
 	fmt.Println("Restore completed successfully")
+}
+
+func backupRestoreLimits(cfg *config.AppConfig) BackupRestoreLimits {
+	limits := defaultBackupRestoreLimits()
+	if cfg == nil {
+		return limits
+	}
+	setting := cfg.Server.Restore
+	if size, err := parseByteSize(setting.MaxArchiveSize); err == nil && size > 0 {
+		limits.MaxArchiveSize = size
+	}
+	if size, err := parseByteSize(setting.MaxExpandedSize); err == nil && size > 0 {
+		limits.MaxExpandedSize = size
+	}
+	if setting.MaxFiles > 0 {
+		limits.MaxFiles = setting.MaxFiles
+	}
+	if size, err := parseByteSize(setting.MaxFileSize); err == nil && size > 0 {
+		limits.MaxFileSize = size
+	}
+	if setting.MaxRatio > 0 {
+		limits.MaxRatio = int64(setting.MaxRatio)
+	}
+	return limits
+}
+
+// maintenanceBackupTest confirms that the encrypted PGP key in the current
+// backup set can be restored with its backed-up installation secret.
+func maintenanceBackupTest(configDir string, cfg *config.AppConfig, dirs paths.Directories) error {
+	conn, err := openMaintenanceDB(cfg, dirs)
+	if err != nil {
+		return fmt.Errorf("open database: %w", err)
+	}
+	defer conn.Close()
+	if err := initializeBackupSecrets(conn); err != nil {
+		return fmt.Errorf("initialize backup secrets: %w", err)
+	}
+	archive, err := buildBackupArchive(map[string]interface{}{"version": Version, "created_at": time.Now().UTC().Format(time.RFC3339), "created_by": "operator", "app_version": Version}, backupArchiveLayout{
+		configDir: configDir,
+		dbDir:     dirs.DB,
+	})
+	if err != nil {
+		return fmt.Errorf("build dry-run backup: %w", err)
+	}
+	tmpDir, err := paths.CreateProjectTempDir()
+	if err != nil {
+		return fmt.Errorf("create dry-run restore directory: %w", err)
+	}
+	defer func() {
+		if err := os.RemoveAll(tmpDir); err != nil {
+			log.Printf("backup test: remove temporary restore directory: %v", err)
+		}
+	}()
+	if err := extractBackupArchive(archive, tmpDir); err != nil {
+		return fmt.Errorf("extract dry-run backup: %w", err)
+	}
+	restoredDirs := dirs
+	restoredDirs.DB = filepath.Join(tmpDir, "db")
+	restoredCfg := *cfg
+	restoredCfg.Server.Database.Driver = "sqlite"
+	restoredDB, err := openMaintenanceDB(&restoredCfg, restoredDirs)
+	if err != nil {
+		return fmt.Errorf("open restored database: %w", err)
+	}
+	defer restoredDB.Close()
+	secret, err := security.GetOrCreateSecret(restoredDB, security.SecretInstallationSecret)
+	if err != nil {
+		return fmt.Errorf("load restored installation secret: %w", err)
+	}
+	restoredConfigDir := filepath.Join(tmpDir, filepath.Base(configDir))
+	armor, err := pgp.LoadPrivateArmor(restoredConfigDir, secret)
+	if errors.Is(err, os.ErrNotExist) {
+		fmt.Println("No encrypted PGP private key is present; backup key check is not applicable.")
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(armor) == "" {
+		return errors.New("decrypted PGP private key is empty")
+	}
+	if _, err := pgp.LoadPublic(restoredConfigDir); err != nil {
+		return fmt.Errorf("load PGP public key: %w", err)
+	}
+	fmt.Println("Encrypted PGP private key decrypted successfully with the installation secret.")
+	return nil
 }
 
 // dirOrFileExists reports whether p exists on disk (any type).
@@ -4218,6 +4698,11 @@ func handleUpdateCommand(cmd string, cfg *config.AppConfig) {
 	if branch == "" {
 		branch = "stable"
 	}
+	if canonical, ok := updatechannel.Normalize(branch); ok {
+		branch = canonical
+	} else {
+		branch = "stable"
+	}
 
 	ctx := context.Background()
 
@@ -4265,17 +4750,18 @@ func handleUpdateCommand(cmd string, cfg *config.AppConfig) {
 			fmt.Printf("Current branch: %s\n", branch)
 			return
 		}
-		if args[0] != "stable" && args[0] != "beta" && args[0] != "daily" {
+		canonical, ok := updatechannel.Normalize(args[0])
+		if !ok {
 			fmt.Printf("Invalid branch: %s\n", args[0])
-			fmt.Println("Valid branches: stable, beta, daily")
+			fmt.Println("Valid branches: stable, beta, devel")
 			os.Exit(exUsage)
 		}
-		cfg.Server.Update.Branch = args[0]
-		cfg.Server.UpdateBranch = args[0]
+		cfg.Server.Update.Branch = canonical
+		cfg.Server.UpdateBranch = canonical
 		if err := config.SaveConfigToFile(); err != nil {
 			log.Printf("Failed to save config: %v", err)
 		}
-		fmt.Printf("Branch set to: %s\n", args[0])
+		fmt.Printf("Branch set to: %s\n", canonical)
 	default:
 		fmt.Printf("Unknown update command: %s\n", cmd)
 		fmt.Println("Available commands: check, yes, branch")

@@ -1,6 +1,8 @@
 package service
 
 import (
+	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
@@ -31,6 +33,23 @@ func TestServiceTypeConstants_Order(t *testing.T) {
 		if tc.got != tc.want {
 			t.Errorf("%s = %d, want %d", tc.name, tc.got, tc.want)
 		}
+	}
+}
+
+func TestLaunchAgentStatusParsing(t *testing.T) {
+	state, pid := launchAgentProcessStatus("state = waiting\npid = 0\n")
+	if state != "stopped" || pid != "" {
+		t.Fatalf("waiting launch agent = (%q, %q), want stopped with no pid", state, pid)
+	}
+	state, pid = launchAgentProcessStatus("state = running\npid = 4312\n")
+	if state != "running" || pid != "4312" {
+		t.Fatalf("running launch agent = (%q, %q), want running pid 4312", state, pid)
+	}
+	if !launchAgentEnabled("disabled services = {\n\t\"io.github.apimgr.ipgaze\" => enabled\n}", "io.github.apimgr.ipgaze") {
+		t.Fatal("enabled launch agent override was not detected")
+	}
+	if launchAgentEnabled("disabled services = {\n\t\"io.github.apimgr.ipgaze\" => disabled\n}", "io.github.apimgr.ipgaze") {
+		t.Fatal("disabled launch agent override was reported as enabled")
 	}
 }
 
@@ -85,6 +104,70 @@ func TestLaunchdPlistPath_Consistency(t *testing.T) {
 	// Calling twice must return the same value — no randomness or clock-based suffix.
 	if a, b := launchdPlistPath(), launchdPlistPath(); a != b {
 		t.Errorf("launchdPlistPath() not idempotent: %q vs %q", a, b)
+	}
+}
+
+func TestSystemdUserUnitPathUsesXDGConfigHome(t *testing.T) {
+	configHome := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", configHome)
+	got := systemdUserUnitPath()
+	want := filepath.Join(configHome, "systemd", "user", appName+".service")
+	if got != want {
+		t.Fatalf("systemdUserUnitPath() = %q, want %q", got, want)
+	}
+}
+
+func TestSystemdUserUnitPathUsesHomeWhenXDGUnset(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", "")
+	t.Setenv("HOME", home)
+	got := systemdUserUnitPath()
+	want := filepath.Join(home, ".config", "systemd", "user", appName+".service")
+	if got != want {
+		t.Fatalf("systemdUserUnitPath() = %q, want %q", got, want)
+	}
+}
+
+func TestSystemdEscapeQuotesAndEscapesPath(t *testing.T) {
+	got := systemdEscape(`/home/test user/a"b`)
+	want := `"/home/test user/a\"b"`
+	if got != want {
+		t.Fatalf("systemdEscape() = %q, want %q", got, want)
+	}
+}
+
+func TestShellQuoteEscapesSingleQuotes(t *testing.T) {
+	got := shellQuote(`/usr/local/bin/owner's app`)
+	want := `'/usr/local/bin/owner'\''s app'`
+	if got != want {
+		t.Fatalf("shellQuote() = %q, want %q", got, want)
+	}
+}
+
+func TestLaunchAgentPlistPathUsesCurrentUsersLibrary(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	got := launchAgentPlistPath()
+	want := filepath.Join(home, "Library", "LaunchAgents", launchdLabel()+".plist")
+	if got != want {
+		t.Fatalf("launchAgentPlistPath() = %q, want %q", got, want)
+	}
+}
+
+func TestS6ServicePathsUseServiceName(t *testing.T) {
+	if got, want := s6ServiceDir(), filepath.Join(s6RCSourceDir, appName); got != want {
+		t.Fatalf("s6ServiceDir() = %q, want %q", got, want)
+	}
+	if got, want := s6UserBundleDir, filepath.Join("/etc/s6-overlay/user-bundles.d/user/contents.d"); got != want {
+		t.Fatalf("s6UserBundleDir = %q, want %q", got, want)
+	}
+}
+
+func TestSystemdUserUnitPathDoesNotRequireExistingDirectory(t *testing.T) {
+	configHome := filepath.Join(os.TempDir(), "ipgaze-nonexistent-user-config")
+	t.Setenv("XDG_CONFIG_HOME", configHome)
+	if got := systemdUserUnitPath(); got == "" {
+		t.Fatal("systemdUserUnitPath() returned empty for configured XDG_CONFIG_HOME")
 	}
 }
 

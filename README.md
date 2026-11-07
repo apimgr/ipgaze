@@ -29,6 +29,7 @@ https://ifcfg.us
 - **VPN/Proxy & Tor Detection** - `is_vpn`, `is_proxy`, `is_tor` fields from daily-updated threat lists
 - **GraphQL Endpoint** - Flexible queries alongside the REST API
 - **OpenAPI/Swagger UI** - Interactive API documentation
+- **Model Context Protocol (MCP)** - Anonymous Streamable HTTP tools for public API operations
 - **Prometheus Metrics** - Optional authenticated metrics endpoints for operators
 - **PWA Support** - Web app manifest and service worker for offline use
 - **Tor Hidden Service** - Auto-enabled when the `tor` binary is present
@@ -78,7 +79,7 @@ chmod +x ipgaze
 sudo mv ipgaze /usr/local/bin/
 
 # Run
-ipgaze --port 8080
+ipgaze --port 64580
 ```
 
 #### Windows
@@ -88,7 +89,7 @@ ipgaze --port 8080
 Invoke-WebRequest -Uri "https://github.com/apimgr/ipgaze/releases/latest/download/ipgaze-windows-amd64.exe" -OutFile "ipgaze.exe"
 
 # Run
-.\ipgaze.exe --port 8080
+.\ipgaze.exe --port 64580
 ```
 
 ### Docker Deployment
@@ -197,12 +198,15 @@ per-command detail for `--service`, `--maintenance`, `--shell`, and `--update`.
 | `--service start\|stop\|restart\|reload\|status` | Control the installed OS service |
 | `--service --install\|--uninstall\|--disable` | Install, remove, or disable the systemd/launchd/Windows service |
 | `--maintenance backup [file]` | Create a `.tar.gz` backup archive (add `--include-ssl` / `--include-data` to widen it) |
+| `--maintenance backup test` | Dry-run restore the backup set and verify the encrypted PGP key decrypts |
 | `--maintenance restore <file>` | Restore from a backup archive |
 | `--maintenance update` | Alias for `--update yes` — install the newest binary |
 | `--maintenance mode` | Show or set maintenance mode |
 | `--maintenance setup` | Re-run first-run setup |
 | `--maintenance pgp generate\|rotate\|publish\|export\|import\|delete` | Manage the server PGP keypair |
 | `--maintenance secret rotate` | Rotate `server.security.encryption_key` (30-day grace period) |
+| `--maintenance security-report list` | List non-identifying security report triage metadata |
+| `--maintenance security-report set <id> <status> [date] [comment...]` | Update a report's researcher-visible status and comment |
 | `--maintenance token list\|revoke` | List or revoke operator API tokens |
 | `--maintenance data export\|delete` | Data-subject export/erasure for a given IP |
 | `--maintenance compliance report` | Print the compliance status report |
@@ -210,7 +214,7 @@ per-command detail for `--service`, `--maintenance`, `--shell`, and `--update`.
 | `--shell init [SHELL]` | Print the shell init snippet |
 | `--update check` | Check GitHub Releases for a newer binary |
 | `--update yes` | Download and install the newer binary |
-| `--update branch {stable\|beta\|daily}` | Select the update channel |
+| `--update branch {stable\|beta\|devel}` | Select the update channel; daily, rolling, dev, and development normalize to devel |
 
 ## Client
 
@@ -450,7 +454,7 @@ On the public instance at https://ifcfg.us, please keep automated use to
 
 - **Go**: not required locally; the Makefile uses `casjaysdev/go:latest`
 - **Make**: GNU Make
-- **Docker**: For containerized testing (recommended)
+- **Docker**: Required for Go builds, tests, and binary execution
 - **Git**: For version control
 
 ### Build System & Testing
@@ -497,9 +501,8 @@ Version managed in `release.txt`:
 cat release.txt
 # Output: 0.0.9
 
-# Version embedded in binary
-ipgaze --version
-# Output: 0.0.9
+# Build the server and client in the approved Go container
+make local
 ```
 
 ### Development Mode
@@ -521,14 +524,12 @@ make local
 #### Development Flags
 
 ```bash
-# Minimal (no GeoIP)
-./ipgaze --port 8080
-
-# With GeoIP
-./ipgaze --port 8080 --data data
+# Run the service in its container with development mode enabled
+docker run --rm -p 64580:80 -e MODE=development \
+  ghcr.io/apimgr/ipgaze:latest
 
 # With custom directories
-docker run --rm -p 127.0.0.1:8080:80 \
+docker run --rm -p 64580:80 \
   -v ipgaze-config:/config -v ipgaze-data:/data \
   ghcr.io/apimgr/ipgaze:latest
 ```
@@ -537,11 +538,13 @@ docker run --rm -p 127.0.0.1:8080:80 \
 
 ```bash
 # Enable debug mode (unlocks /debug/*, /debug/pprof/*, /debug/vars)
-./ipgaze --port 8080 --debug
+docker run --rm -p 64580:80 -e MODE=debug -e DEBUG=true \
+  ghcr.io/apimgr/ipgaze:latest
 
 # Access profiler
-curl -q -LSsf http://localhost:8080/debug/pprof/
-go tool pprof -http=:8081 http://localhost:8080/debug/pprof/heap
+curl -q -LSsf http://localhost:64580/debug/pprof/
+docker run --rm --network host casjaysdev/go:latest \
+  go tool pprof -http=:8081 http://127.0.0.1:64580/debug/pprof/heap
 ```
 
 ### CI/CD

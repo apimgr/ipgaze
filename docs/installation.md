@@ -103,18 +103,31 @@ chmod +x ipgaze
 
 ## System Service
 
-The server installs the supported service unit and prepares its directories
-through its service command. Run the command with the privileges required by
-your operating system:
+The service command detects the active service manager and installs, enables,
+and starts ipgaze. On Linux, systemd, OpenRC, runit, SysVinit, and s6-overlay
+are supported; macOS uses launchd, and BSD uses rc.d. Run with `sudo` to
+install a system service. Without elevation, Linux systemd and macOS launchd
+install a service for the current user:
 
 ```bash
+# System service
 sudo ipgaze --service --install
 sudo ipgaze --service status
+
+# Per-user service (Linux systemd or macOS launchd)
+ipgaze --service --install
+ipgaze --service status
 ```
 
-Use `ipgaze --service --help` to see platform-specific service operations.
-The application reads its settings from the generated `server.yml`; do not
-edit the service unit to configure the application.
+For s6-overlay, run the install command in the s6-overlay environment with
+the permissions needed to write `/etc/s6-overlay/s6-rc.d` and update its live
+service database. Installation enables and starts the service.
+
+Use `ipgaze --service --help` to see the available service operations. The
+application reads its settings from `server.yml`; do not edit the service unit
+to configure the application. Uninstall prompts before deleting configuration
+and data. It keeps the executable in place and prints its path for manual
+removal.
 
 ## Build from Source
 
@@ -153,10 +166,10 @@ Builds for all 8 supported platforms:
 ipgaze --version
 
 # Start server
-ipgaze --address 0.0.0.0 --port 8080
+ipgaze --address 0.0.0.0 --port 64580
 
 # Test (in another terminal)
-curl -q -LSsf http://localhost:8080/
+curl -q -LSsf http://localhost:64580/
 ```
 
 ## Next Steps

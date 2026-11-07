@@ -54,15 +54,7 @@ func (h *PagesHandler) renderNegotiated(w http.ResponseWriter, r *http.Request, 
 	ua := r.Header.Get("User-Agent")
 
 	if httputil.IsOurCliClient(ua) && apiData != nil {
-		b, err := json.MarshalIndent(apiData, "", "  ")
-		if err != nil {
-			http.Error(w, i18n.T(r.Context(), "errors.server_error"), http.StatusInternalServerError)
-			return
-		}
-		w.Header().Set("Content-Type", jsonMediaType)
-		// Write errors are unrecoverable once headers are sent; log is not actionable here.
-		w.Write(b)            //nolint:errcheck
-		w.Write([]byte("\n")) //nolint:errcheck
+		SendAPIResponseOK(w, apiData, nil)
 		return
 	}
 

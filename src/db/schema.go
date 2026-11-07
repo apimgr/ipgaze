@@ -207,6 +207,30 @@ END`,
 )`,
 
 	`CREATE INDEX IF NOT EXISTS idx_pgp_keypairs_revoked ON pgp_keypairs(revoked)`,
+
+	// ----------------------------------------------------------------------------
+	// security_reports — encrypted coordinated-disclosure submissions. PII and
+	// vulnerability details are stored only in encrypted_body (AI.md PART 11).
+	// ----------------------------------------------------------------------------
+	`CREATE TABLE IF NOT EXISTS security_reports (
+    tracking_id        TEXT PRIMARY KEY,
+    encrypted_body     BLOB NOT NULL,
+    encryption         TEXT NOT NULL CHECK (encryption IN ('pgp', 'aes-256-gcm')),
+    severity           TEXT NOT NULL,
+    affected_component TEXT NOT NULL,
+    credit_preference  TEXT NOT NULL DEFAULT 'No',
+    credit_name        TEXT NOT NULL DEFAULT '',
+    disclosed_year     INTEGER,
+    short_credit       TEXT NOT NULL DEFAULT '',
+    status             TEXT NOT NULL DEFAULT 'Received',
+    maintainer_comment TEXT,
+    disclosure_date    INTEGER,
+    closed_at          INTEGER,
+    access_token_hash  TEXT NOT NULL,
+    last_access_day    INTEGER,
+    created_at         INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
+)`,
+	`CREATE INDEX IF NOT EXISTS idx_security_reports_public ON security_reports(status, created_at)`,
 }
 
 // schemaUpdates are idempotent ALTER TABLE / CREATE INDEX statements applied

@@ -15,6 +15,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/apimgr/ipgaze/src/common/updatechannel"
+
 	"github.com/apimgr/ipgaze/src/paths"
 )
 
@@ -52,8 +54,13 @@ const binaryDownloadTimeout = 10 * time.Minute
 // CheckForUpdate checks GitHub releases for a newer version.
 // Returns nil, nil when already up to date or no matching release found.
 // buildEpoch is the caller's own embedded BuildEpoch — needed to detect a
-// newer nightly published under the daily channel's rolling "daily" tag.
+// newer nightly published under the devel channel's rolling "devel" tag.
 func CheckForUpdate(ctx context.Context, currentVersion, branch string, buildEpoch int64) (*Release, error) {
+	if canonical, ok := updatechannel.Normalize(branch); ok {
+		branch = canonical
+	} else {
+		branch = "stable"
+	}
 	var apiURL string
 	switch branch {
 	case "stable":
@@ -107,7 +114,7 @@ func CheckForUpdate(ctx context.Context, currentVersion, branch string, buildEpo
 		}
 		// Rolling tag: the tag name never changes, so a newer nightly exists
 		// only when the release was published after this binary was built
-		if r.TagName == "daily" {
+		if r.TagName == "devel" {
 			if publishedAfter(r, buildEpoch) {
 				return r, nil
 			}
@@ -302,20 +309,23 @@ func publishedAfter(r *Release, buildEpoch int64) bool {
 }
 
 // matchesBranch reports whether a release belongs to the requested update channel.
-// Channels are cumulative: daily ⊇ beta ⊇ stable.
+// Channels are cumulative: devel ⊇ beta ⊇ stable.
 func matchesBranch(r Release, branch string) bool {
-	// stable releases match every channel
-	if !r.Prerelease {
-		return true
+	if canonical, ok := updatechannel.Normalize(branch); ok {
+		branch = canonical
+	} else {
+		branch = "stable"
 	}
 	isBeta := strings.HasSuffix(r.TagName, "-beta")
-	// The daily channel is a single rolling release: tag "daily", rebuilt nightly
-	isDaily := r.TagName == "daily"
+	isDevel := r.TagName == "devel"
+	isStable := !r.Prerelease && !isDevel
 	switch branch {
+	case "stable":
+		return isStable
 	case "beta":
-		return isBeta
-	case "daily":
-		return isBeta || isDaily
+		return isStable || isBeta
+	case "devel":
+		return isStable || isBeta || isDevel
 	default:
 		return false
 	}

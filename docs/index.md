@@ -55,4 +55,5 @@ Optional services and their defaults are documented in
 
 ## License
 
-IPGaze is licensed under the MIT License. See [LICENSE.md](../LICENSE.md).
+IPGaze is licensed under the MIT License. See the
+[repository license](https://github.com/apimgr/ipgaze/blob/main/LICENSE.md).

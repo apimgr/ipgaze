@@ -78,7 +78,11 @@ func ValidateRemoteURL(rawURL string, cfg FetchRemoteImageConfig) error {
 
 // validateNotPrivateIP checks if hostname resolves to a private IP.
 func validateNotPrivateIP(hostname string) error {
-	ips, err := net.LookupIP(hostname)
+	return validateNotPrivateIPWithLookup(hostname, net.LookupIP)
+}
+
+func validateNotPrivateIPWithLookup(hostname string, lookupIP func(string) ([]net.IP, error)) error {
+	ips, err := lookupIP(hostname)
 	if err != nil {
 		return fmt.Errorf("DNS lookup failed: %w", err)
 	}

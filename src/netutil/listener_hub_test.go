@@ -6,6 +6,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"sync"
 	"testing"
 	"time"
 )
@@ -90,7 +91,14 @@ func TestListenerHubReplacementServesNewRequestsWhileOldServerDrains(t *testing.
 	newServer := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = io.WriteString(w, "new")
 	})}
-	go func() { _ = newServer.Serve(hub.Switch()) }()
+	newAccepting := make(chan struct{})
+	newListener := &readyListener{Listener: hub.Switch(), ready: newAccepting}
+	go func() { _ = newServer.Serve(newListener) }()
+	select {
+	case <-newAccepting:
+	case <-time.After(2 * time.Second):
+		t.Fatal("replacement server did not start accepting")
+	}
 	shutdown := make(chan error, 1)
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -133,6 +141,17 @@ func TestListenerHubReplacementServesNewRequestsWhileOldServerDrains(t *testing.
 	case <-time.After(2 * time.Second):
 		t.Fatal("old server did not finish draining")
 	}
+}
+
+type readyListener struct {
+	net.Listener
+	ready chan struct{}
+	once  sync.Once
+}
+
+func (l *readyListener) Accept() (net.Conn, error) {
+	l.once.Do(func() { close(l.ready) })
+	return l.Listener.Accept()
 }
 
 func acceptWithin(t *testing.T, listener net.Listener) net.Conn {

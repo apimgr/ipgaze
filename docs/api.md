@@ -57,9 +57,16 @@ Health endpoints are the exception and return the bare health document.
 | `GET /api/v1/version` | Version, commit, and build date |
 | `GET /api/v1/server/about` | Application information |
 | `GET /api/v1/server/help` | Help sections |
+| `GET /server/help/mcp` | MCP setup guide when MCP is enabled |
+| `GET /api/v1/server/help/mcp` | MCP setup data in the standard JSON envelope |
 | `GET /api/v1/server/privacy` | Current privacy and tracking configuration |
 | `GET /api/v1/server/terms` | Terms sections |
 | `GET /api/v1/server/security` | Security contact information |
+| `GET /server/security/policy` | Coordinated disclosure policy |
+| `GET /api/v1/server/security/policy` | Disclosure policy in the standard JSON envelope |
+| `GET /server/security/thanks` | Public researcher acknowledgments |
+| `GET /api/v1/server/security/thanks` | Acknowledgments in the standard JSON envelope |
+| `GET /server/security/report/{tracking_id}` | Researcher status page; requires the one-shot token from the acknowledgment email |
 | `GET /api/v1/server/preferences` | Current guest preferences |
 | `POST /api/v1/server/preferences` | Update guest preferences |
 | `GET /api/v1/server/preferences/export` | Export guest preferences |
@@ -68,6 +75,9 @@ Health endpoints are the exception and return the bare health document.
 | `GET /api/v1/server/swagger` | OpenAPI document |
 | `GET` or `POST /api/v1/server/graphql` | GraphQL endpoint when enabled |
 | `POST /api/v1/server/mcp` | MCP Streamable HTTP endpoint when enabled |
+
+When an active PGP report-encryption key is configured, the security status
+response includes its full SHA-256 fingerprint and the public-key URL.
 
 The GeoIP lookup endpoints, port check, and some protocol endpoints are
 registered only when their backing feature is available. See the live

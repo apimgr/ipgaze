@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 
 	"github.com/apimgr/ipgaze/src/paths"
 )
@@ -132,6 +133,9 @@ func (s *Service) Install() error {
 
 	switch serviceType {
 	case ServiceSystemd:
+		if shouldUseUserSystemd() {
+			return installSystemdUser()
+		}
 		return installSystemd()
 	case ServiceOpenRC:
 		return installOpenRC()
@@ -140,7 +144,12 @@ func (s *Service) Install() error {
 	case ServiceRunit:
 		return installRunit()
 	case ServiceLaunchd:
+		if shouldUseUserLaunchAgent() {
+			return installLaunchAgent()
+		}
 		return installLaunchd()
+	case ServiceS6:
+		return installS6()
 	case ServiceWindows:
 		return installWindows()
 	case ServiceBSDRC:
@@ -169,6 +178,9 @@ func (s *Service) Uninstall() error {
 
 	switch serviceType {
 	case ServiceSystemd:
+		if shouldUseUserSystemd() {
+			return uninstallSystemdUser()
+		}
 		return uninstallSystemd()
 	case ServiceOpenRC:
 		return uninstallOpenRC()
@@ -177,7 +189,12 @@ func (s *Service) Uninstall() error {
 	case ServiceRunit:
 		return uninstallRunit()
 	case ServiceLaunchd:
+		if shouldUseUserLaunchAgent() {
+			return uninstallLaunchAgent()
+		}
 		return uninstallLaunchd()
+	case ServiceS6:
+		return uninstallS6()
 	case ServiceWindows:
 		return uninstallWindows()
 	case ServiceBSDRC:
@@ -193,6 +210,10 @@ func (s *Service) Disable() error {
 
 	switch serviceType {
 	case ServiceSystemd:
+		if shouldUseUserSystemd() {
+			_ = exec.Command("systemctl", "--user", "stop", appName).Run()
+			return exec.Command("systemctl", "--user", "disable", appName).Run()
+		}
 		// Stop errors are non-fatal; best-effort before disable.
 		exec.Command("systemctl", "stop", appName).Run() //nolint:errcheck
 		return exec.Command("systemctl", "disable", appName).Run()
@@ -210,7 +231,13 @@ func (s *Service) Disable() error {
 		return nil
 	case ServiceRunit:
 		return exec.Command("sv", "down", appName).Run()
+	case ServiceS6:
+		_ = exec.Command("s6-rc", "-d", "change", appName).Run()
+		return disableS6()
 	case ServiceLaunchd:
+		if shouldUseUserLaunchAgent() {
+			return disableLaunchAgent()
+		}
 		plistPath := launchdPlistPath()
 		return exec.Command("launchctl", "unload", plistPath).Run()
 	case ServiceWindows:
@@ -232,6 +259,9 @@ func (s *Service) Start() error {
 
 	switch serviceType {
 	case ServiceSystemd:
+		if shouldUseUserSystemd() {
+			return exec.Command("systemctl", "--user", "start", appName).Run()
+		}
 		return exec.Command("systemctl", "start", appName).Run()
 	case ServiceOpenRC:
 		return exec.Command("rc-service", appName, "start").Run()
@@ -239,7 +269,12 @@ func (s *Service) Start() error {
 		return exec.Command("service", appName, "start").Run()
 	case ServiceRunit:
 		return exec.Command("sv", "start", appName).Run()
+	case ServiceS6:
+		return exec.Command("s6-rc", "-u", "change", appName).Run()
 	case ServiceLaunchd:
+		if shouldUseUserLaunchAgent() {
+			return startLaunchAgent()
+		}
 		return exec.Command("launchctl", "load", launchdPlistPath()).Run()
 	case ServiceWindows:
 		return exec.Command("sc.exe", "start", appName).Run()
@@ -256,6 +291,9 @@ func (s *Service) Stop() error {
 
 	switch serviceType {
 	case ServiceSystemd:
+		if shouldUseUserSystemd() {
+			return exec.Command("systemctl", "--user", "stop", appName).Run()
+		}
 		return exec.Command("systemctl", "stop", appName).Run()
 	case ServiceOpenRC:
 		return exec.Command("rc-service", appName, "stop").Run()
@@ -263,7 +301,12 @@ func (s *Service) Stop() error {
 		return exec.Command("service", appName, "stop").Run()
 	case ServiceRunit:
 		return exec.Command("sv", "stop", appName).Run()
+	case ServiceS6:
+		return exec.Command("s6-rc", "-d", "change", appName).Run()
 	case ServiceLaunchd:
+		if shouldUseUserLaunchAgent() {
+			return stopLaunchAgent()
+		}
 		return exec.Command("launchctl", "unload", launchdPlistPath()).Run()
 	case ServiceWindows:
 		return exec.Command("sc.exe", "stop", appName).Run()
@@ -280,6 +323,9 @@ func (s *Service) Restart() error {
 
 	switch serviceType {
 	case ServiceSystemd:
+		if shouldUseUserSystemd() {
+			return exec.Command("systemctl", "--user", "restart", appName).Run()
+		}
 		return exec.Command("systemctl", "restart", appName).Run()
 	case ServiceOpenRC:
 		return exec.Command("rc-service", appName, "restart").Run()
@@ -287,7 +333,15 @@ func (s *Service) Restart() error {
 		return exec.Command("service", appName, "restart").Run()
 	case ServiceRunit:
 		return exec.Command("sv", "restart", appName).Run()
+	case ServiceS6:
+		if err := s.Stop(); err != nil {
+			return err
+		}
+		return s.Start()
 	case ServiceLaunchd:
+		if shouldUseUserLaunchAgent() {
+			return restartLaunchAgent()
+		}
 		// Stop errors are non-fatal; best-effort before restart.
 		s.Stop() //nolint:errcheck
 		return s.Start()
@@ -308,11 +362,24 @@ func (s *Service) Reload() error {
 
 	switch serviceType {
 	case ServiceSystemd:
-		return exec.Command("systemctl", "reload", appName).Run()
+		if shouldUseUserSystemd() {
+			if err := exec.Command("systemctl", "--user", "daemon-reload").Run(); err != nil {
+				return err
+			}
+			return exec.Command("systemctl", "--user", "reload-or-restart", appName).Run()
+		}
+		return exec.Command("systemctl", "reload-or-restart", appName).Run()
 	case ServiceOpenRC:
 		return exec.Command("rc-service", appName, "reload").Run()
 	case ServiceRunit:
 		return exec.Command("sv", "hup", appName).Run()
+	case ServiceS6:
+		return s.Restart()
+	case ServiceLaunchd:
+		if shouldUseUserLaunchAgent() {
+			return restartLaunchAgent()
+		}
+		return s.Restart()
 	default:
 		return s.Restart()
 	}
@@ -330,6 +397,22 @@ func (s *Service) Status() error {
 
 	switch serviceType {
 	case ServiceSystemd:
+		if shouldUseUserSystemd() {
+			unitPath := systemdUserUnitPath()
+			installed = isStatOK(unitPath)
+			if out, err := exec.Command("systemctl", "--user", "is-active", appName).Output(); err == nil && strings.TrimSpace(string(out)) == "active" {
+				state = "running"
+			}
+			if out, err := exec.Command("systemctl", "--user", "is-enabled", appName).Output(); err == nil && strings.TrimSpace(string(out)) == "enabled" {
+				autostart = "enabled"
+			}
+			if out, err := exec.Command("systemctl", "--user", "show", appName, "--property=MainPID", "--value").Output(); err == nil {
+				if p := strings.TrimSpace(string(out)); p != "" && p != "0" {
+					pid = p
+				}
+			}
+			break
+		}
 		installed = isStatOK(fmt.Sprintf("/etc/systemd/system/%s.service", appName))
 		if out, err := exec.Command("systemctl", "is-active", appName).Output(); err == nil && strings.TrimSpace(string(out)) == "active" {
 			state = "running"
@@ -372,7 +455,26 @@ func (s *Service) Status() error {
 		if isStatOK(fmt.Sprintf("/var/service/%s", appName)) {
 			autostart = "enabled"
 		}
+	case ServiceS6:
+		installed = isStatOK(s6ServiceDir())
+		if out, err := exec.Command("s6-rc", "-a", "list").Output(); err == nil && strings.Contains("\n"+string(out)+"\n", "\n"+appName+"\n") {
+			state = "running"
+		}
+		if isStatOK(filepath.Join(s6UserBundleDir, appName)) {
+			autostart = "enabled"
+		}
 	case ServiceLaunchd:
+		if shouldUseUserLaunchAgent() {
+			plistPath := launchAgentPlistPath()
+			installed = isStatOK(plistPath)
+			if out, err := exec.Command("launchctl", "print", launchAgentDomain()+"/"+launchdLabel()).Output(); err == nil {
+				state, pid = launchAgentProcessStatus(string(out))
+			}
+			if out, err := exec.Command("launchctl", "print-disabled", launchAgentDomain()).Output(); err == nil && launchAgentEnabled(string(out), launchdLabel()) {
+				autostart = "enabled"
+			}
+			break
+		}
 		installed = isStatOK(launchdPlistPath())
 		if out, err := exec.Command("launchctl", "list", launchdLabel()).Output(); err == nil {
 			state = "running"
@@ -492,6 +594,350 @@ func launchdLabel() string {
 // launchdPlistPath returns the full path of the launchd plist.
 func launchdPlistPath() string {
 	return fmt.Sprintf("/Library/LaunchDaemons/%s.plist", launchdLabel())
+}
+
+func isServiceElevated() bool {
+	if runtime.GOOS != "linux" && runtime.GOOS != "darwin" {
+		return true
+	}
+	out, err := exec.Command("id", "-u").Output()
+	return err == nil && strings.TrimSpace(string(out)) == "0"
+}
+
+func shouldUseUserSystemd() bool {
+	return runtime.GOOS == "linux" && !isServiceElevated()
+}
+
+func systemdUserUnitPath() string {
+	base := os.Getenv("XDG_CONFIG_HOME")
+	if base == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return ""
+		}
+		base = filepath.Join(home, ".config")
+	}
+	return filepath.Join(base, "systemd", "user", appName+".service")
+}
+
+func installSystemdUser() error {
+	unitPath := systemdUserUnitPath()
+	if unitPath == "" {
+		return fmt.Errorf("cannot determine the current user's systemd unit directory")
+	}
+	binaryPath, err := currentBinaryPath()
+	if err != nil {
+		return err
+	}
+	dirs := paths.GetAllDirs(appName)
+	if err := os.MkdirAll(filepath.Dir(unitPath), 0o700); err != nil {
+		return fmt.Errorf("create user systemd directory: %w", err)
+	}
+	unit := fmt.Sprintf(`[Unit]
+Description=%s user service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=%s
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=yes
+ReadWritePaths=%s %s %s %s %s
+
+[Install]
+WantedBy=default.target
+`, appName, systemdEscape(binaryPath),
+		systemdEscape(dirs.Config), systemdEscape(dirs.Data), systemdEscape(dirs.Cache), systemdEscape(dirs.Logs), systemdEscape(dirs.Backup))
+	if err := os.WriteFile(unitPath, []byte(unit), 0o600); err != nil {
+		return fmt.Errorf("write user systemd unit: %w", err)
+	}
+	if err := exec.Command("systemctl", "--user", "daemon-reload").Run(); err != nil {
+		return fmt.Errorf("reload user systemd units: %w", err)
+	}
+	if err := exec.Command("systemctl", "--user", "enable", "--now", appName).Run(); err != nil {
+		return fmt.Errorf("enable and start user service: %w", err)
+	}
+	fmt.Printf("User service installed and started: %s\n", unitPath)
+	return nil
+}
+
+func systemdEscape(value string) string {
+	return `"` + strings.NewReplacer(`\`, `\\`, `"`, `\"`, "\n", "", "\r", "").Replace(value) + `"`
+}
+
+func currentBinaryPath() (string, error) {
+	path, err := os.Executable()
+	if err != nil {
+		return "", fmt.Errorf("locate current binary: %w", err)
+	}
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return "", fmt.Errorf("resolve current binary: %w", err)
+	}
+	return resolved, nil
+}
+
+func uninstallSystemdUser() error {
+	unitPath := systemdUserUnitPath()
+	_ = exec.Command("systemctl", "--user", "disable", "--now", appName).Run()
+	if unitPath != "" {
+		if err := os.Remove(unitPath); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("remove user systemd unit: %w", err)
+		}
+	}
+	if err := exec.Command("systemctl", "--user", "daemon-reload").Run(); err != nil {
+		return fmt.Errorf("reload user systemd units: %w", err)
+	}
+	deleteUserServiceData()
+	fmt.Println("User service uninstalled. Binary and user data removed.")
+	return nil
+}
+
+func shouldUseUserLaunchAgent() bool {
+	return runtime.GOOS == "darwin" && !isServiceElevated()
+}
+
+func launchAgentPlistPath() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(home, "Library", "LaunchAgents", launchdLabel()+".plist")
+}
+
+func launchAgentDomain() string {
+	out, err := exec.Command("id", "-u").Output()
+	if err != nil {
+		return "gui/"
+	}
+	return "gui/" + strings.TrimSpace(string(out))
+}
+
+func installLaunchAgent() error {
+	plistPath := launchAgentPlistPath()
+	if plistPath == "" {
+		return fmt.Errorf("cannot determine the current user's LaunchAgents directory")
+	}
+	binaryPath, err := currentBinaryPath()
+	if err != nil {
+		return err
+	}
+	dirs := paths.GetAllDirs(appName)
+	for _, dir := range []string{filepath.Dir(plistPath), dirs.Logs} {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			return fmt.Errorf("create user service directory %s: %w", dir, err)
+		}
+	}
+	plist := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>Label</key><string>%s</string>
+<key>ProgramArguments</key><array><string>%s</string></array>
+<key>RunAtLoad</key><true/>
+<key>KeepAlive</key><true/>
+<key>StandardOutPath</key><string>%s</string>
+<key>StandardErrorPath</key><string>%s</string>
+</dict></plist>
+`, xmlEscape(launchdLabel()), xmlEscape(binaryPath),
+		xmlEscape(filepath.Join(dirs.Logs, "stdout.log")), xmlEscape(filepath.Join(dirs.Logs, "stderr.log")))
+	if err := os.WriteFile(plistPath, []byte(plist), 0o600); err != nil {
+		return fmt.Errorf("write user launch agent: %w", err)
+	}
+	if err := startLaunchAgent(); err != nil {
+		return err
+	}
+	fmt.Printf("User LaunchAgent installed and started: %s\n", plistPath)
+	return nil
+}
+
+func xmlEscape(value string) string {
+	return strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;", `"`, "&quot;", "'", "&apos;").Replace(value)
+}
+
+func startLaunchAgent() error {
+	domain := launchAgentDomain()
+	label := domain + "/" + launchdLabel()
+	if err := exec.Command("launchctl", "enable", label).Run(); err != nil {
+		return fmt.Errorf("enable user launch agent: %w", err)
+	}
+	if _, err := exec.Command("launchctl", "print", label).Output(); err != nil {
+		if err := exec.Command("launchctl", "bootstrap", domain, launchAgentPlistPath()).Run(); err != nil {
+			return fmt.Errorf("bootstrap user launch agent: %w", err)
+		}
+	}
+	if err := exec.Command("launchctl", "kickstart", "-k", label).Run(); err != nil {
+		return fmt.Errorf("start user launch agent: %w", err)
+	}
+	return nil
+}
+
+func stopLaunchAgent() error {
+	if err := exec.Command("launchctl", "bootout", launchAgentDomain(), launchAgentPlistPath()).Run(); err != nil {
+		return fmt.Errorf("stop user launch agent: %w", err)
+	}
+	return nil
+}
+
+func disableLaunchAgent() error {
+	_ = stopLaunchAgent()
+	if err := exec.Command("launchctl", "disable", launchAgentDomain()+"/"+launchdLabel()).Run(); err != nil {
+		return fmt.Errorf("disable user launch agent: %w", err)
+	}
+	return nil
+}
+
+func restartLaunchAgent() error {
+	return startLaunchAgent()
+}
+
+func launchAgentProcessStatus(output string) (string, string) {
+	state := "stopped"
+	pid := ""
+	for _, line := range strings.Split(output, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "state = running" {
+			state = "running"
+		}
+		if strings.HasPrefix(line, "pid = ") {
+			value := strings.TrimSpace(strings.TrimPrefix(line, "pid = "))
+			if value != "0" {
+				pid = value
+			}
+		}
+	}
+	return state, pid
+}
+
+func launchAgentEnabled(output, label string) bool {
+	needle := `"` + label + `" => enabled`
+	for _, line := range strings.Split(output, "\n") {
+		if strings.TrimSpace(line) == needle {
+			return true
+		}
+	}
+	return false
+}
+
+func uninstallLaunchAgent() error {
+	if err := disableLaunchAgent(); err != nil {
+		return err
+	}
+	plistPath := launchAgentPlistPath()
+	if err := os.Remove(plistPath); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("remove user launch agent: %w", err)
+	}
+	deleteUserServiceData()
+	fmt.Println("User LaunchAgent uninstalled. Binary and user data removed.")
+	return nil
+}
+
+func deleteUserServiceData() {
+	dirs := paths.GetAllDirs(appName)
+	for _, dir := range []string{dirs.Config, dirs.Data, dirs.Cache, dirs.Logs, dirs.Backup} {
+		if dir == "" {
+			continue
+		}
+		if err := os.RemoveAll(dir); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to remove %s: %v\n", dir, err)
+		}
+	}
+	if dirs.PID != "" {
+		if err := os.Remove(dirs.PID); err != nil && !os.IsNotExist(err) {
+			fmt.Fprintf(os.Stderr, "Warning: failed to remove %s: %v\n", dirs.PID, err)
+		}
+	}
+}
+
+const (
+	s6RCSourceDir   = "/etc/s6-overlay/s6-rc.d"
+	s6ServiceName   = appName
+	s6UserBundleDir = "/etc/s6-overlay/user-bundles.d/user/contents.d"
+)
+
+func s6ServiceDir() string { return filepath.Join(s6RCSourceDir, s6ServiceName) }
+
+func installS6() error {
+	if _, err := os.Stat(s6RCSourceDir); err != nil {
+		return fmt.Errorf("s6-overlay service directory unavailable: %w", err)
+	}
+	if err := os.MkdirAll(filepath.Join(s6ServiceDir(), "dependencies.d"), 0o755); err != nil {
+		return fmt.Errorf("create s6 service definition: %w", err)
+	}
+	if err := os.MkdirAll(s6UserBundleDir, 0o755); err != nil {
+		return fmt.Errorf("create s6 user bundle: %w", err)
+	}
+	binaryPath := GetBinaryPath()
+	if exePath, err := os.Executable(); err == nil && exePath != binaryPath {
+		if err := copyBinary(exePath, binaryPath); err != nil {
+			return fmt.Errorf("install binary for s6: %w", err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(s6ServiceDir(), "type"), []byte("longrun\n"), 0o644); err != nil {
+		return fmt.Errorf("write s6 service type: %w", err)
+	}
+	runScript := "#!/bin/sh\nexec " + shellQuote(binaryPath) + "\n"
+	if err := os.WriteFile(filepath.Join(s6ServiceDir(), "run"), []byte(runScript), 0o755); err != nil {
+		return fmt.Errorf("write s6 run script: %w", err)
+	}
+	if err := os.WriteFile(filepath.Join(s6ServiceDir(), "dependencies.d", "base"), nil, 0o644); err != nil {
+		return fmt.Errorf("write s6 base dependency: %w", err)
+	}
+	if err := os.WriteFile(filepath.Join(s6UserBundleDir, s6ServiceName), nil, 0o644); err != nil {
+		return fmt.Errorf("enable s6 service: %w", err)
+	}
+	if err := updateS6Database(); err != nil {
+		return err
+	}
+	if err := exec.Command("s6-rc", "-u", "change", s6ServiceName).Run(); err != nil {
+		return fmt.Errorf("start s6 service: %w", err)
+	}
+	fmt.Printf("s6 service installed and started: %s\n", s6ServiceDir())
+	return nil
+}
+
+func shellQuote(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
+}
+
+func updateS6Database() error {
+	compiledDB := filepath.Join("/run/s6", fmt.Sprintf("db.ipgaze.%d", time.Now().UnixNano()))
+	if err := exec.Command("s6-rc-compile", compiledDB, s6RCSourceDir).Run(); err != nil {
+		return fmt.Errorf("compile s6 service database: %w", err)
+	}
+	if err := exec.Command("s6-rc-update", compiledDB).Run(); err != nil {
+		return fmt.Errorf("update live s6 service database: %w", err)
+	}
+	return nil
+}
+
+func disableS6() error {
+	if err := os.Remove(filepath.Join(s6UserBundleDir, s6ServiceName)); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("disable s6 service: %w", err)
+	}
+	return updateS6Database()
+}
+
+func uninstallS6() error {
+	_ = exec.Command("s6-rc", "-d", "change", s6ServiceName).Run()
+	if err := os.Remove(filepath.Join(s6UserBundleDir, s6ServiceName)); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("remove s6 user bundle entry: %w", err)
+	}
+	if err := os.RemoveAll(s6ServiceDir()); err != nil {
+		return fmt.Errorf("remove s6 service definition: %w", err)
+	}
+	if err := updateS6Database(); err != nil {
+		return err
+	}
+	deleteAllData()
+	removeSystemUser()
+	fmt.Printf("s6 service uninstalled. Delete binary manually: rm %s\n", GetBinaryPath())
+	return nil
 }
 
 // installSystemd creates and activates a systemd service.

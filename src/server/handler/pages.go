@@ -3,23 +3,33 @@
 package handler
 
 import (
+	"context"
+	cryptorand "crypto/rand"
+	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"html/template"
+	"math/big"
 	"net"
 	"net/http"
+	"net/mail"
 	"net/url"
+	"os"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	i18n "github.com/apimgr/ipgaze/src/common/i18n"
+	"github.com/apimgr/ipgaze/src/common/urlutil"
 	"github.com/apimgr/ipgaze/src/config"
 	"github.com/apimgr/ipgaze/src/email"
 	"github.com/apimgr/ipgaze/src/netutil"
 	"github.com/apimgr/ipgaze/src/notify"
+	"github.com/apimgr/ipgaze/src/pgp"
+	"github.com/apimgr/ipgaze/src/security"
 )
 
 // =============================================================================
@@ -75,7 +85,33 @@ type PagesHandler struct {
 	// itself never carried it) — same import-cycle rationale as DetectTheme.
 	// Falls back to the request cookie when unset (e.g. tests constructing
 	// PagesHandler directly).
-	CSRFToken func(*http.Request) string
+	CSRFToken        func(*http.Request) string
+	MCPEnabled       bool
+	MCPTools         func(*http.Request) []MCPToolDescription
+	PGPKeyAvailable  func() bool
+	PGPFingerprint   func() string
+	DB               *sql.DB
+	PGPPublicKeyPath string
+	SecurityLogger   func(message, ip string)
+	CommitID         string
+}
+
+// MCPToolDescription is the public name and description of a registered MCP tool.
+type MCPToolDescription struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+}
+
+// MCPHelpResponse is the information required to connect an MCP client.
+type MCPHelpResponse struct {
+	Enabled bool     `json:"enabled"`
+	URL     string   `json:"url"`
+	Aliases []string `json:"aliases"`
+	Auth    struct {
+		Scheme string `json:"scheme"`
+	} `json:"auth"`
+	Tools   []MCPToolDescription `json:"tools"`
+	Project string               `json:"project"`
 }
 
 // contactThrottle rate-limits /server/contact submissions per client IP so a
@@ -165,6 +201,17 @@ type PageData struct {
 	// mid-render (partial output already streamed to the client, followed by
 	// a raw "Internal Server Error" append from the handler's error path).
 	Host string
+	// BaseURL is the request-aware origin used by copyable help examples.
+	BaseURL                  string
+	MCPEnabled               bool
+	PGPKeyAvailable          bool
+	SecurityReportMode       bool
+	SecurityID               string
+	SecurityReportSubmitted  bool
+	SecurityReportTrackingID string
+	CaptchaQuestion          string
+	CaptchaToken             string
+	ContactError             string
 	// Version is the running application version (footer branding row).
 	Version string
 	// BuildDate is the compile-time build timestamp (footer "Last update" row).
@@ -214,6 +261,15 @@ type PageData struct {
 	// privacy.tmpl's "Analytics Cookies" section can name the configured
 	// provider (AI.md PART 16 "/server/privacy").
 	Tracking config.TrackingConfig
+	// AnalyticsEnabled is true only when analytics is configured, consent allows
+	// it, the request is not CCPA-opted-out, and CSP permits its script source.
+	AnalyticsEnabled bool
+	// AnalyticsNoScript is true when the consented Simple Analytics fallback
+	// pixel is permitted by the effective img-src policy.
+	AnalyticsNoScript bool
+	// AnalyticsScriptURL is passed to the same-origin loader as data only; the
+	// loader requests it after the server has checked consent and CSP policy.
+	AnalyticsScriptURL string
 	// CCPAOptedOut is true when the visitor has previously opted out of data
 	// sales via the ccpa_opt_out cookie (AI.md PART 16 "/server/privacy").
 	CCPAOptedOut bool
@@ -327,6 +383,16 @@ func hasCCPAOptOutCookie(r *http.Request) bool {
 	return err == nil && c.Value == "true"
 }
 
+// formatUserTimestamp formats build timestamps with the user-facing format in AI.md PART 16.
+func formatUserTimestamp(value string) string {
+	for _, layout := range []string{time.RFC3339, "2006-01-02"} {
+		if parsed, err := time.Parse(layout, value); err == nil {
+			return parsed.In(time.Local).Format("January 02, 2006 at 15:04:05 MST")
+		}
+	}
+	return value
+}
+
 // NewPageData builds a PageData for the current request.
 // Canonical URL is built via netutil.BuildURL which gates proxy headers on peer trust.
 // Active announcements and consent banner visibility are computed from config + cookies.
@@ -358,10 +424,15 @@ func (h *PagesHandler) NewPageData(r *http.Request) PageData {
 		CSRFToken:     csrfToken,
 		CurrentYear:   time.Now().Year(),
 		Version:       h.Version,
-		BuildDate:     h.BuildDate,
+		BuildDate:     formatUserTimestamp(h.BuildDate),
 		ProjectName:   "IPGaze",
 		RepoURL:       "https://github.com/apimgr/ipgaze",
 		Host:          r.Host,
+		BaseURL:       strings.TrimSuffix(netutil.BuildURL(r, h.Trust, ""), "/"),
+		MCPEnabled:    h.MCPEnabled,
+	}
+	if h.PGPKeyAvailable != nil {
+		data.PGPKeyAvailable = h.PGPKeyAvailable()
 	}
 	if h.Config != nil && h.Config.Server.Branding.Title != "" {
 		data.ProjectName = h.Config.Server.Branding.Title
@@ -381,6 +452,8 @@ func (h *PagesHandler) NewPageData(r *http.Request) PageData {
 	data.CCPAOptedOut = hasCCPAOptOutCookie(r)
 	if h.Config != nil {
 		data.Tracking = h.Config.Server.Tracking
+		data.AnalyticsEnabled, data.AnalyticsScriptURL = h.analyticsTracking(r)
+		data.AnalyticsNoScript = data.AnalyticsEnabled && h.analyticsNoScriptAllowed(r)
 		// SEO metadata (AI.md PART 24 "SEO Meta Tags (Generated)"). The
 		// description falls back branding.description -> branding.tagline so a
 		// half-configured install still emits a meaningful og:description
@@ -550,16 +623,52 @@ func (h *PagesHandler) ServerAboutHandler(w http.ResponseWriter, r *http.Request
 // APIV1ServerAboutHandler serves /api/v1/server/about (JSON)
 func (h *PagesHandler) APIV1ServerAboutHandler(w http.ResponseWriter, r *http.Request) {
 	about := h.buildAboutResponse()
-	w.Header().Set("Content-Type", jsonMediaType)
-	b, _ := json.MarshalIndent(about, "", "  ")
-	// Write errors are unrecoverable once headers are sent; log is not actionable here.
-	w.Write(b)            //nolint:errcheck
-	w.Write([]byte("\n")) //nolint:errcheck
+	SendAPIResponseOK(w, about, nil)
 }
 
 // ServerHelpHandler serves /server/help under the PART 14 frontend dispatch.
 func (h *PagesHandler) ServerHelpHandler(w http.ResponseWriter, r *http.Request) {
 	h.renderNegotiated(w, r, "help.tmpl", h.NewPageData(r), buildHelpResponse())
+}
+
+// ServerMCPHelpHandler serves the MCP connection guide only while MCP is enabled.
+func (h *PagesHandler) ServerMCPHelpHandler(w http.ResponseWriter, r *http.Request) {
+	if !h.MCPEnabled {
+		h.renderErrorPage(w, r, http.StatusNotFound, i18n.T(r.Context(), "errors.not_found"))
+		return
+	}
+	response := h.buildMCPHelpResponse(r)
+	data := struct {
+		PageData
+		MCPHelpResponse
+	}{PageData: h.NewPageData(r), MCPHelpResponse: response}
+	h.renderNegotiated(w, r, "help_mcp.tmpl", data, response)
+}
+
+// APIV1ServerMCPHelpHandler serves the MCP connection guide as a JSON envelope.
+func (h *PagesHandler) APIV1ServerMCPHelpHandler(w http.ResponseWriter, r *http.Request) {
+	if !h.MCPEnabled {
+		SendAPIResponseError(w, http.StatusNotFound, "NOT_FOUND", i18n.T(r.Context(), "errors.not_found"), nil)
+		return
+	}
+	SendAPIResponseOK(w, h.buildMCPHelpResponse(r), nil)
+}
+
+func (h *PagesHandler) buildMCPHelpResponse(r *http.Request) MCPHelpResponse {
+	baseURL := netutil.BuildURL(r, h.Trust, "")
+	tools := []MCPToolDescription{}
+	if h.MCPTools != nil {
+		tools = h.MCPTools(r)
+	}
+	response := MCPHelpResponse{
+		Enabled: true,
+		URL:     baseURL + "/api/v1/server/mcp",
+		Aliases: []string{baseURL + "/api/mcp", baseURL + "/mcp"},
+		Tools:   tools,
+		Project: "IPGaze provides public IP detection and IPv4/IPv6 lookups. GeoIP details depend on the databases enabled on this server.\n\nExample prompts:\n- What is my public IP address?\n- Look up 8.8.8.8 and summarize its GeoIP data.\n- Which ASN announces 1.1.1.1?",
+	}
+	response.Auth.Scheme = "Bearer"
+	return response
 }
 
 // HelpResponse for JSON API
@@ -580,9 +689,11 @@ func buildHelpResponse() HelpResponse {
 	return HelpResponse{
 		Sections: []HelpSection{
 			{ID: "getting-started", Title: "Getting Started", Content: "Get your public IP with: curl https://ifcfg.us"},
+			{ID: "features", Title: "Features", Content: "Look up the requesting IP at /ip or /json, choose IPv4 or IPv6 with curl -4 or curl -6, and look up a specific address with /8.8.8.8/json. GeoIP fields are included when the server has its optional GeoIP databases."},
 			{ID: "endpoints", Title: "Endpoints", Content: "Main: /, /json, /ip, /{ip}. GeoIP: /country, /city, /asn, /coordinates. API: /api/v1/*"},
 			{ID: "formats", Title: "Output Formats", Content: "Auto-detects CLI tools (curl, wget, HTTPie). Use Accept header to force format."},
-			{ID: "faq", Title: "FAQ", Content: "No API key required. Supports IPv4 and IPv6. GeoIP data updated regularly."},
+			{ID: "faq", Title: "FAQ", Content: "Do I need an API key? No. Public IP and GeoIP lookups are anonymous. How do I look up an address? Request /{ip}, for example /8.8.8.8/json. Why are GeoIP fields missing? The server may not have GeoIP databases configured or available; IP lookup still works."},
+			{ID: "troubleshooting", Title: "Troubleshooting", Content: "429 Too Many Requests: slow down and retry after the duration in the Retry-After response header. 404 Not Found: check that the route is supported, such as /ip, /json, /country, or /{ip}."},
 		},
 	}
 }
@@ -590,11 +701,7 @@ func buildHelpResponse() HelpResponse {
 // APIV1ServerHelpHandler serves /api/v1/server/help (JSON)
 func (h *PagesHandler) APIV1ServerHelpHandler(w http.ResponseWriter, r *http.Request) {
 	help := buildHelpResponse()
-	w.Header().Set("Content-Type", jsonMediaType)
-	b, _ := json.MarshalIndent(help, "", "  ")
-	// Write errors are unrecoverable once headers are sent; log is not actionable here.
-	w.Write(b)            //nolint:errcheck
-	w.Write([]byte("\n")) //nolint:errcheck
+	SendAPIResponseOK(w, help, nil)
 }
 
 // ServerPrivacyHandler serves /server/privacy under the PART 14 frontend dispatch.
@@ -705,11 +812,7 @@ func (h *PagesHandler) buildPrivacyResponse(r *http.Request) PrivacyResponse {
 func (h *PagesHandler) APIV1ServerPrivacyHandler(w http.ResponseWriter, r *http.Request) {
 	privacy := h.buildPrivacyResponse(r)
 
-	w.Header().Set("Content-Type", jsonMediaType)
-	b, _ := json.MarshalIndent(privacy, "", "  ")
-	// Write errors are unrecoverable once headers are sent; log is not actionable here.
-	w.Write(b)            //nolint:errcheck
-	w.Write([]byte("\n")) //nolint:errcheck
+	SendAPIResponseOK(w, privacy, nil)
 }
 
 // ServerContactHandler serves /server/contact (GET) and accepts POST submissions.
@@ -718,29 +821,87 @@ func (h *PagesHandler) APIV1ServerPrivacyHandler(w http.ResponseWriter, r *http.
 func (h *PagesHandler) ServerContactHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodPost {
 		if err := r.ParseForm(); err == nil {
-			req := ContactRequest{
-				Name:    strings.TrimSpace(r.FormValue("name")),
-				Email:   strings.TrimSpace(r.FormValue("email")),
-				Subject: strings.TrimSpace(r.FormValue("subject")),
-				Message: strings.TrimSpace(r.FormValue("message")),
+			req := contactRequestFromForm(r)
+			validSecurityID, _ := h.validSecurityID(req.SecurityID)
+			if validSecurityID {
+				if !allowContactSubmission(clientIP(r)) {
+					h.renderContactError(w, r, http.StatusTooManyRequests)
+					return
+				}
+				if id, err := h.submitSecurityReport(r, req); err == nil {
+					w.Header().Set("Cache-Control", "no-store")
+					data := h.NewPageData(r)
+					data.SecurityReportSubmitted = true
+					data.SecurityReportTrackingID = id
+					h.renderNegotiated(w, r, "contact.tmpl", data, ContactResponse{Success: true, Message: translateRequest(r, "contact.report_received_body"), TrackingID: id})
+					return
+				}
+				h.renderContactError(w, r, http.StatusBadRequest)
+				return
 			}
-			if req.Email != "" && req.Message != "" && allowContactSubmission(clientIP(r)) {
-				h.dispatchContactSubmission(req)
+			if !validStandardContactRequest(req) {
+				http.Redirect(w, r, "/server/contact", http.StatusSeeOther)
+				return
 			}
+			if !verifySimpleCaptcha(h.DB, req.CaptchaToken, req.Captcha, time.Now()) {
+				h.renderContactError(w, r, http.StatusBadRequest)
+				return
+			}
+			if !allowContactSubmission(clientIP(r)) {
+				h.renderContactError(w, r, http.StatusTooManyRequests)
+				return
+			}
+			h.dispatchContactSubmission(req)
 		}
 		http.Redirect(w, r, "/server/contact", http.StatusSeeOther)
 		return
 	}
-	h.renderNegotiated(w, r, "contact.tmpl", h.NewPageData(r), buildContactFormResponse())
+	data := h.NewPageData(r)
+	if candidate := r.URL.Query().Get("security_id"); candidate != "" {
+		if valid, err := h.validSecurityID(candidate); err == nil && valid {
+			data.SecurityReportMode = true
+			data.SecurityID = candidate
+		} else if h.SecurityLogger != nil {
+			// AI.md also says the token must never be logged; log the event and
+			// source only, without copying the bearer token into security.log.
+			h.SecurityLogger("security.security_id_invalid", clientIP(r))
+		}
+	}
+	data.CaptchaQuestion, data.CaptchaToken, _ = newSimpleCaptcha(h.DB, time.Now())
+	form := buildContactFormResponse()
+	form.CaptchaQuestion, form.CaptchaToken = data.CaptchaQuestion, data.CaptchaToken
+	form.SecurityReportMode = data.SecurityReportMode
+	if data.SecurityReportMode {
+		form.Fields = []string{"name", "handle", "email", "captcha", "captcha_token", "researcher_gpg", "affected_component", "affected_endpoint", "severity", "summary", "steps_to_reproduce", "impact", "suggested_fix", "cve_requested", "disclosure_days", "credit_preference", "coordinated_disclosure_agreement"}
+	}
+	h.renderNegotiated(w, r, "contact.tmpl", data, form)
+}
+
+func contactRequestFromForm(r *http.Request) ContactRequest {
+	return ContactRequest{
+		Name: strings.TrimSpace(r.FormValue("name")), Handle: strings.TrimSpace(r.FormValue("handle")), Email: strings.TrimSpace(r.FormValue("email")),
+		Subject: strings.TrimSpace(r.FormValue("subject")), Message: strings.TrimSpace(r.FormValue("message")),
+		SecurityID: strings.TrimSpace(r.FormValue("security_id")), ResearcherGPG: strings.TrimSpace(r.FormValue("researcher_gpg")),
+		AffectedComponent: strings.TrimSpace(r.FormValue("affected_component")), AffectedEndpoint: strings.TrimSpace(r.FormValue("affected_endpoint")),
+		Severity: strings.TrimSpace(r.FormValue("severity")), Summary: strings.TrimSpace(r.FormValue("summary")),
+		StepsToReproduce: strings.TrimSpace(r.FormValue("steps_to_reproduce")), Impact: strings.TrimSpace(r.FormValue("impact")),
+		SuggestedFix: strings.TrimSpace(r.FormValue("suggested_fix")), CVERequested: isCheckboxChecked(r.FormValue("cve_requested")),
+		DisclosureDays: r.FormValue("disclosure_days"), CreditPreference: strings.TrimSpace(r.FormValue("credit_preference")),
+		CoordinatedAgreement: isCheckboxChecked(r.FormValue("coordinated_disclosure_agreement")),
+		Captcha:              strings.TrimSpace(r.FormValue("captcha")), CaptchaToken: strings.TrimSpace(r.FormValue("captcha_token")),
+	}
 }
 
 // ContactFormResponse describes the contact form to a non-browser client, so
 // our CLI can render the same submission form the HTML page offers. The field
 // list mirrors the form fields ServerContactHandler's POST branch reads.
 type ContactFormResponse struct {
-	Method string   `json:"method"`
-	Action string   `json:"action"`
-	Fields []string `json:"fields"`
+	Method             string   `json:"method"`
+	Action             string   `json:"action"`
+	Fields             []string `json:"fields"`
+	CaptchaQuestion    string   `json:"captcha_question,omitempty"`
+	CaptchaToken       string   `json:"captcha_token,omitempty"`
+	SecurityReportMode bool     `json:"security_report_mode,omitempty"`
 }
 
 // buildContactFormResponse returns the contact form description served to
@@ -749,34 +910,45 @@ func buildContactFormResponse() ContactFormResponse {
 	return ContactFormResponse{
 		Method: http.MethodPost,
 		Action: "/api/v1/server/contact",
-		Fields: []string{"name", "email", "subject", "message"},
+		Fields: []string{"name", "email", "subject", "message", "captcha", "captcha_token"},
 	}
 }
 
 // ContactRequest for POST submissions
 type ContactRequest struct {
-	Name    string `json:"name"`
-	Email   string `json:"email"`
-	Subject string `json:"subject"`
-	Message string `json:"message"`
+	Name                 string `json:"name"`
+	Handle               string `json:"handle,omitempty"`
+	Email                string `json:"email"`
+	Subject              string `json:"subject"`
+	Message              string `json:"message"`
+	SecurityID           string `json:"security_id,omitempty"`
+	ResearcherGPG        string `json:"researcher_gpg,omitempty"`
+	AffectedComponent    string `json:"affected_component,omitempty"`
+	AffectedEndpoint     string `json:"affected_endpoint,omitempty"`
+	Severity             string `json:"severity,omitempty"`
+	Summary              string `json:"summary,omitempty"`
+	StepsToReproduce     string `json:"steps_to_reproduce,omitempty"`
+	Impact               string `json:"impact,omitempty"`
+	SuggestedFix         string `json:"suggested_fix,omitempty"`
+	CVERequested         bool   `json:"cve_requested,omitempty"`
+	DisclosureDays       string `json:"disclosure_days,omitempty"`
+	CreditPreference     string `json:"credit_preference,omitempty"`
+	CoordinatedAgreement bool   `json:"coordinated_disclosure_agreement,omitempty"`
+	Captcha              string `json:"captcha,omitempty"`
+	CaptchaToken         string `json:"captcha_token,omitempty"`
 }
 
 // ContactResponse for JSON API
 type ContactResponse struct {
-	Success bool   `json:"success"`
-	Message string `json:"message"`
+	Success    bool   `json:"success"`
+	Message    string `json:"message"`
+	TrackingID string `json:"tracking_id,omitempty"`
 }
 
 // APIV1ServerContactHandler handles POST /api/v1/server/contact
 func (h *PagesHandler) APIV1ServerContactHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		w.Header().Set("Content-Type", jsonMediaType)
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		resp := ContactResponse{Success: false, Message: i18n.T(r.Context(), "errors.method_not_allowed")}
-		b, _ := json.MarshalIndent(resp, "", "  ")
-		// Write errors are unrecoverable once headers are sent; log is not actionable here.
-		w.Write(b)            //nolint:errcheck
-		w.Write([]byte("\n")) //nolint:errcheck
+		SendAPIResponseError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", i18n.T(r.Context(), "errors.method_not_allowed"), nil)
 		return
 	}
 
@@ -788,27 +960,310 @@ func (h *PagesHandler) APIV1ServerContactHandler(w http.ResponseWriter, r *http.
 	req.Email = strings.TrimSpace(req.Email)
 	req.Subject = strings.TrimSpace(req.Subject)
 	req.Message = strings.TrimSpace(req.Message)
+	req.SecurityID = strings.TrimSpace(req.SecurityID)
+	req.Captcha = strings.TrimSpace(req.Captcha)
+	req.CaptchaToken = strings.TrimSpace(req.CaptchaToken)
 
-	var response ContactResponse
-	status := http.StatusOK
-	switch {
-	case req.Email == "" || req.Message == "":
-		response = ContactResponse{Success: false, Message: i18n.T(r.Context(), "errors.bad_request")}
-		status = http.StatusBadRequest
-	case !allowContactSubmission(clientIP(r)):
-		response = ContactResponse{Success: false, Message: i18n.T(r.Context(), "errors.rate_limited")}
-		status = http.StatusTooManyRequests
-	default:
-		h.dispatchContactSubmission(req)
-		response = ContactResponse{Success: true, Message: i18n.T(r.Context(), "contact.success")}
+	validSecurityID, securityIDErr := h.validSecurityID(req.SecurityID)
+	if req.SecurityID != "" && securityIDErr == nil && !validSecurityID && h.SecurityLogger != nil {
+		h.SecurityLogger("security.security_id_invalid", clientIP(r))
+	}
+	if securityIDErr == nil && validSecurityID {
+		if !allowContactSubmission(clientIP(r)) {
+			SendAPIResponseError(w, http.StatusTooManyRequests, "RATE_LIMITED", i18n.T(r.Context(), "errors.rate_limited"), nil)
+			return
+		}
+		trackingID, err := h.submitSecurityReport(r, req)
+		if err != nil {
+			SendAPIResponseError(w, http.StatusBadRequest, "BAD_REQUEST", i18n.T(r.Context(), "errors.bad_request"), nil)
+			return
+		}
+		SendAPIResponseOK(w, ContactResponse{Success: true, Message: translateRequest(r, "contact.report_received_body"), TrackingID: trackingID}, nil)
+		return
 	}
 
-	w.Header().Set("Content-Type", jsonMediaType)
+	switch {
+	case !validStandardContactRequest(req):
+		SendAPIResponseError(w, http.StatusBadRequest, "BAD_REQUEST", i18n.T(r.Context(), "errors.bad_request"), nil)
+		return
+	case !allowContactSubmission(clientIP(r)):
+		SendAPIResponseError(w, http.StatusTooManyRequests, "RATE_LIMITED", i18n.T(r.Context(), "errors.rate_limited"), nil)
+		return
+	default:
+		if !verifySimpleCaptcha(h.DB, req.CaptchaToken, req.Captcha, time.Now()) {
+			SendAPIResponseError(w, http.StatusBadRequest, "BAD_REQUEST", i18n.T(r.Context(), "errors.bad_request"), nil)
+			return
+		}
+		h.dispatchContactSubmission(req)
+	}
+	SendAPIResponseOK(w, ContactResponse{Success: true, Message: i18n.T(r.Context(), "contact.success")}, nil)
+}
+
+func validStandardContactRequest(req ContactRequest) bool {
+	if strings.TrimSpace(req.Name) == "" || strings.TrimSpace(req.Email) == "" ||
+		strings.TrimSpace(req.Subject) == "" || strings.TrimSpace(req.Message) == "" {
+		return false
+	}
+	_, err := mail.ParseAddress(req.Email)
+	return err == nil
+}
+
+func (h *PagesHandler) validSecurityID(candidate string) (bool, error) {
+	if candidate == "" || h.DB == nil {
+		return false, nil
+	}
+	return security.IsValidSecurityID(h.DB, candidate, time.Now())
+}
+
+type simpleCaptchaPayload struct {
+	Answer  string `json:"answer"`
+	Expires int64  `json:"expires"`
+	Nonce   string `json:"nonce"`
+}
+
+func newSimpleCaptcha(db *sql.DB, now time.Time) (string, string, error) {
+	if db == nil {
+		return "", "", fmt.Errorf("captcha secret database unavailable")
+	}
+	first, err := cryptorand.Int(cryptorand.Reader, big.NewInt(9))
+	if err != nil {
+		return "", "", err
+	}
+	second, err := cryptorand.Int(cryptorand.Reader, big.NewInt(9))
+	if err != nil {
+		return "", "", err
+	}
+	nonce := make([]byte, 16)
+	if _, err := cryptorand.Read(nonce); err != nil {
+		return "", "", err
+	}
+	payload, err := json.Marshal(simpleCaptchaPayload{
+		Answer: fmt.Sprint(first.Int64() + second.Int64()), Expires: now.Add(20 * time.Minute).Unix(),
+		Nonce: base64.RawURLEncoding.EncodeToString(nonce),
+	})
+	if err != nil {
+		return "", "", err
+	}
+	secret, err := security.GetOrCreateSecret(db, security.SecretCSRFTokenSecret)
+	if err != nil {
+		return "", "", err
+	}
+	sealed, err := security.EncryptWithSecret(secret, payload, "contact-captcha")
+	if err != nil {
+		return "", "", err
+	}
+	return fmt.Sprintf("What is %d + %d?", first.Int64(), second.Int64()), base64.RawURLEncoding.EncodeToString(sealed), nil
+}
+
+func verifySimpleCaptcha(db *sql.DB, token, answer string, now time.Time) bool {
+	if db == nil || token == "" || strings.TrimSpace(answer) == "" {
+		return false
+	}
+	sealed, err := base64.RawURLEncoding.DecodeString(token)
+	if err != nil {
+		return false
+	}
+	secret, err := security.GetOrCreateSecret(db, security.SecretCSRFTokenSecret)
+	if err != nil {
+		return false
+	}
+	plain, err := security.DecryptWithSecret(secret, sealed, "contact-captcha")
+	if err != nil {
+		return false
+	}
+	var payload simpleCaptchaPayload
+	if json.Unmarshal(plain, &payload) != nil || payload.Expires < now.Unix() || payload.Nonce == "" {
+		return false
+	}
+	return strings.TrimSpace(answer) == payload.Answer
+}
+
+func (h *PagesHandler) submitSecurityReport(r *http.Request, req ContactRequest) (string, error) {
+	if h.DB == nil || h.Config == nil || req.Name == "" || req.Email == "" || req.AffectedComponent == "" ||
+		req.Summary == "" || req.StepsToReproduce == "" || req.Impact == "" || !req.CoordinatedAgreement ||
+		!validCreditPreference(req.CreditPreference) || req.CreditPreference == "handle" && req.Handle == "" || !validSecuritySeverity(req.Severity) || !verifySimpleCaptcha(h.DB, req.CaptchaToken, req.Captcha, time.Now()) {
+		return "", fmt.Errorf("security report validation failed")
+	}
+	if _, err := mail.ParseAddress(req.Email); err != nil {
+		return "", fmt.Errorf("invalid reporter email")
+	}
+	days := 90
+	if req.DisclosureDays != "" {
+		parsed, err := strconv.Atoi(req.DisclosureDays)
+		if err != nil || parsed < 1 || parsed > 365 {
+			return "", fmt.Errorf("invalid disclosure timeline")
+		}
+		days = parsed
+	}
+	valid, err := h.validSecurityID(req.SecurityID)
+	if err != nil || !valid {
+		return "", fmt.Errorf("security report token invalid")
+	}
+	var researcherKey []byte
+	if req.ResearcherGPG != "" {
+		if strings.HasPrefix(req.ResearcherGPG, "https://") {
+			keyData, _, fetchErr := urlutil.FetchRemoteImage(r.Context(), req.ResearcherGPG, urlutil.FetchRemoteImageConfig{
+				MaxSize: 1 << 20, Timeout: 15 * time.Second,
+				AllowedTypes:   []string{"application/pgp-keys", "application/octet-stream", "text/plain"},
+				AllowedSchemes: []string{"https"},
+			})
+			if fetchErr != nil {
+				return "", fmt.Errorf("fetch researcher public key: %w", fetchErr)
+			}
+			researcherKey = keyData
+		} else {
+			researcherKey = []byte(req.ResearcherGPG)
+		}
+		if _, validateErr := pgp.EncryptFor(string(researcherKey), []byte("IPGaze security report acknowledgment key validation.")); validateErr != nil {
+			return "", fmt.Errorf("invalid researcher public key: %w", validateErr)
+		}
+	}
+	content := map[string]any{
+		"name": req.Name, "email": req.Email, "researcher_gpg": string(researcherKey),
+		"security_id":        req.SecurityID,
+		"affected_component": req.AffectedComponent, "affected_endpoint": req.AffectedEndpoint,
+		"severity": req.Severity, "summary": req.Summary, "steps_to_reproduce": req.StepsToReproduce,
+		"impact": req.Impact, "suggested_fix": req.SuggestedFix, "cve_requested": req.CVERequested,
+		"disclosure_days": days, "credit_preference": req.CreditPreference,
+		"app_version": h.Version, "commit_hash": h.CommitID,
+		"timestamp": time.Now().UTC().Format(time.RFC3339), "request_user_agent": r.UserAgent(),
+	}
+	plain, err := json.Marshal(content)
+	if err != nil {
+		return "", fmt.Errorf("encode report: %w", err)
+	}
+	trackingID, err := security.NewSecurityTrackingID()
+	if err != nil {
+		return "", err
+	}
+	accessToken, accessTokenHash, err := security.NewSecurityAccessToken()
+	if err != nil {
+		return "", err
+	}
+	resolved := config.ResolveContactRole(h.Config, "security")
+	if resolved.Email == "" || h.EmailMgr == nil || !h.EmailMgr.IsEnabled() {
+		return "", fmt.Errorf("security report email delivery is unavailable")
+	}
+	appURL := strings.TrimSuffix(netutil.BuildURL(r, h.Trust, ""), "/")
+	statusURL := appURL + "/server/security/report/" + url.PathEscape(trackingID) + "?token=" + url.QueryEscape(accessToken)
+	ack := translateRequest(r, "security.report_email_body", "tracking_id", trackingID, "status_url", statusURL)
+	if len(researcherKey) > 0 {
+		ack, err = encryptResearcherAcknowledgment(string(researcherKey), ack)
+		if err != nil {
+			return "", err
+		}
+	}
+	var ciphertext []byte
+	encryption := "aes-256-gcm"
+	var publicKey []byte
+	if h.PGPPublicKeyPath != "" {
+		if data, readErr := os.ReadFile(h.PGPPublicKeyPath); readErr == nil && len(data) > 0 {
+			publicKey = data
+		}
+	}
+	if len(publicKey) > 0 {
+		ciphertext, err = pgp.EncryptFor(string(publicKey), plain)
+		if err != nil {
+			return "", fmt.Errorf("encrypt security report with project PGP key: %w", err)
+		}
+		encryption = "pgp"
+	} else {
+		key, decodeErr := base64.StdEncoding.DecodeString(h.Config.Server.Security.EncryptionKey)
+		if decodeErr != nil || len(key) != 32 {
+			return "", fmt.Errorf("security report encryption key is unavailable")
+		}
+		ciphertext, err = security.EncryptWithSecret(key, plain, "security-reports")
+		if err != nil {
+			return "", fmt.Errorf("encrypt security report: %w", err)
+		}
+	}
+	creditName := ""
+	if req.CreditPreference == "real_name" {
+		creditName = req.Name
+	} else if req.CreditPreference == "handle" {
+		creditName = req.Handle
+	}
+	if err := security.StoreSecurityReport(h.DB, security.SecurityReportMetadata{
+		TrackingID: trackingID, Ciphertext: ciphertext, Encryption: encryption,
+		Severity: req.Severity, AffectedComponent: req.AffectedComponent,
+		CreditPreference: req.CreditPreference, CreditName: creditName,
+		ShortCredit: "Security vulnerability report", AccessTokenHash: accessTokenHash,
+	}); err != nil {
+		return "", err
+	}
+	if sendErr := h.EmailMgr.SendDirect(&email.Message{To: []string{req.Email}, Subject: translateRequest(r, "security.report_email_subject", "tracking_id", trackingID), Body: ack}); sendErr != nil {
+		_, _ = h.DB.ExecContext(r.Context(), `DELETE FROM security_reports WHERE tracking_id = ?`, trackingID)
+		return "", fmt.Errorf("send researcher acknowledgment: %w", sendErr)
+	}
+	notification := &email.Message{To: []string{resolved.Email}, Subject: translateWithLocale("en", "security.report_notification_subject", "tracking_id", trackingID), Body: string(ciphertext)}
+	if encryption == "aes-256-gcm" {
+		notification.Body = translateWithLocale("en", "security.report_notification_body")
+		notification.Attachments = []email.Attachment{{Filename: trackingID + ".enc", ContentType: "application/octet-stream", Data: ciphertext}}
+	}
+	if sendErr := h.EmailMgr.SendDirect(notification); sendErr != nil && h.SecurityLogger != nil {
+		h.SecurityLogger("security.report_notification_failed tracking_id="+trackingID, clientIP(r))
+	}
+	if h.SecurityLogger != nil {
+		h.SecurityLogger("security.report_received tracking_id="+trackingID+" severity="+req.Severity+" component="+security.SanitizeReportComponent(req.AffectedComponent), clientIP(r))
+	}
+	return trackingID, nil
+}
+
+func encryptResearcherAcknowledgment(publicArmor, message string) (string, error) {
+	data, err := pgp.EncryptFor(publicArmor, []byte(message))
+	if err != nil {
+		return "", fmt.Errorf("validate or encrypt researcher acknowledgment key: %w", err)
+	}
+	return string(data), nil
+}
+
+func validCreditPreference(value string) bool {
+	switch value {
+	case "real_name", "handle", "no", "anonymous":
+		return true
+	default:
+		return false
+	}
+}
+
+func validSecuritySeverity(value string) bool {
+	switch value {
+	case "critical", "high", "medium", "low", "informational":
+		return true
+	default:
+		return false
+	}
+}
+
+func (h *PagesHandler) renderContactError(w http.ResponseWriter, r *http.Request, status int) {
+	data := h.NewPageData(r)
+	data.ContactError = translateRequest(r, "contact.submit_error")
+	if candidate := r.FormValue("security_id"); candidate != "" {
+		if valid, err := h.validSecurityID(candidate); err == nil && valid {
+			data.SecurityReportMode = true
+			data.SecurityID = candidate
+		}
+	}
+	data.CaptchaQuestion, data.CaptchaToken, _ = newSimpleCaptcha(h.DB, time.Now())
 	w.WriteHeader(status)
-	b, _ := json.MarshalIndent(response, "", "  ")
-	// Write errors are unrecoverable once headers are sent; log is not actionable here.
-	w.Write(b)            //nolint:errcheck
-	w.Write([]byte("\n")) //nolint:errcheck
+	form := buildContactFormResponse()
+	form.CaptchaQuestion, form.CaptchaToken = data.CaptchaQuestion, data.CaptchaToken
+	form.SecurityReportMode = data.SecurityReportMode
+	h.renderNegotiated(w, r, "contact.tmpl", data, form)
+}
+
+func translateRequest(r *http.Request, key string, replacements ...string) string {
+	lang := i18n.DetectLocale(r)
+	return translateWithLocale(lang, key, replacements...)
+}
+
+func translateWithLocale(lang, key string, replacements ...string) string {
+	ctx := i18n.WithLang(context.Background(), lang)
+	message := i18n.T(ctx, key)
+	for index := 0; index+1 < len(replacements); index += 2 {
+		message = strings.ReplaceAll(message, "{"+replacements[index]+"}", replacements[index+1])
+	}
+	return message
 }
 
 // clientIP extracts the request's remote IP (without port) for the contact
@@ -874,7 +1329,7 @@ func (h *PagesHandler) dispatchContactSubmission(req ContactRequest) {
 
 // ServerTermsHandler serves /server/terms under the PART 14 frontend dispatch.
 func (h *PagesHandler) ServerTermsHandler(w http.ResponseWriter, r *http.Request) {
-	h.renderNegotiated(w, r, "terms.tmpl", h.NewPageData(r), buildTermsResponse())
+	h.renderNegotiated(w, r, "terms.tmpl", h.NewPageData(r), buildTermsResponse(h.BuildDate))
 }
 
 // TermsResponse for JSON API
@@ -888,9 +1343,9 @@ type TermsResponse struct {
 
 // buildTermsResponse returns the terms sections shared by the /server/terms
 // page dispatch and its /api/{api_version}/server/terms JSON twin.
-func buildTermsResponse() TermsResponse {
+func buildTermsResponse(lastUpdated string) TermsResponse {
 	return TermsResponse{
-		LastUpdated: "2024",
+		LastUpdated: lastUpdated,
 		Sections: []struct {
 			Title   string `json:"title"`
 			Content string `json:"content"`
@@ -909,51 +1364,199 @@ func buildTermsResponse() TermsResponse {
 
 // APIV1ServerTermsHandler serves /api/v1/server/terms (JSON)
 func (h *PagesHandler) APIV1ServerTermsHandler(w http.ResponseWriter, r *http.Request) {
-	terms := buildTermsResponse()
-
-	w.Header().Set("Content-Type", jsonMediaType)
-	b, _ := json.MarshalIndent(terms, "", "  ")
-	// Write errors are unrecoverable once headers are sent; log is not actionable here.
-	w.Write(b)            //nolint:errcheck
-	w.Write([]byte("\n")) //nolint:errcheck
+	terms := buildTermsResponse(h.BuildDate)
+	SendAPIResponseOK(w, terms, nil)
 }
 
 // ServerSecurityHandler serves /server/security under the PART 14 frontend dispatch.
 func (h *PagesHandler) ServerSecurityHandler(w http.ResponseWriter, r *http.Request) {
-	h.renderNegotiated(w, r, "security.tmpl", h.NewPageData(r), h.buildSecurityResponse(r))
+	response := h.buildSecurityResponse(r)
+	data := struct {
+		PageData
+		SecurityResponse
+	}{PageData: h.NewPageData(r), SecurityResponse: response}
+	h.renderNegotiated(w, r, "security.tmpl", data, response)
+}
+
+// ServerSecurityPolicyHandler serves the default coordinated-disclosure policy.
+func (h *PagesHandler) ServerSecurityPolicyHandler(w http.ResponseWriter, r *http.Request) {
+	pageData := h.NewPageData(r)
+	response := buildSecurityPolicyResponse(pageData.Lang)
+	data := struct {
+		PageData
+		SecurityPolicyResponse
+	}{PageData: pageData, SecurityPolicyResponse: response}
+	h.renderNegotiated(w, r, "security_policy.tmpl", data, response)
+}
+
+// APIV1ServerSecurityPolicyHandler serves the disclosure policy as JSON.
+func (h *PagesHandler) APIV1ServerSecurityPolicyHandler(w http.ResponseWriter, r *http.Request) {
+	SendAPIResponseOK(w, buildSecurityPolicyResponse(i18n.DetectLocale(r)), nil)
+}
+
+// SecurityPolicyResponse describes the official service's disclosure policy.
+type SecurityPolicyResponse struct {
+	DisclosureWindow string   `json:"disclosure_window"`
+	InScope          []string `json:"in_scope"`
+	OutOfScope       []string `json:"out_of_scope"`
+	SafeHarbor       string   `json:"safe_harbor"`
+}
+
+// buildSecurityPolicyResponse returns the public policy in the requested locale.
+func buildSecurityPolicyResponse(lang string) SecurityPolicyResponse {
+	ctx := i18n.WithLang(context.Background(), lang)
+	return SecurityPolicyResponse{
+		DisclosureWindow: i18n.T(ctx, "security.policy_window"),
+		InScope:          []string{i18n.T(ctx, "security.policy_scope_official")},
+		OutOfScope: []string{
+			i18n.T(ctx, "security.policy_out_scope_self_hosted"),
+			i18n.T(ctx, "security.policy_out_scope_disruption"),
+			i18n.T(ctx, "security.policy_out_scope_third_party"),
+		},
+		SafeHarbor: i18n.T(ctx, "security.policy_safe_harbor_text"),
+	}
+}
+
+// ServerSecurityThanksHandler serves the current public acknowledgments list.
+func (h *PagesHandler) ServerSecurityThanksHandler(w http.ResponseWriter, r *http.Request) {
+	response := h.securityThanksResponse(r.Context())
+	data := struct {
+		PageData
+		SecurityThanksResponse
+	}{PageData: h.NewPageData(r), SecurityThanksResponse: response}
+	h.renderNegotiated(w, r, "security_thanks.tmpl", data, response)
+}
+
+// APIV1ServerSecurityThanksHandler serves public acknowledgments as JSON.
+func (h *PagesHandler) APIV1ServerSecurityThanksHandler(w http.ResponseWriter, r *http.Request) {
+	SendAPIResponseOK(w, h.securityThanksResponse(r.Context()), nil)
+}
+
+func (h *PagesHandler) securityThanksResponse(ctx context.Context) SecurityThanksResponse {
+	response := SecurityThanksResponse{Researchers: []SecurityAcknowledgment{}}
+	if h.DB == nil {
+		return response
+	}
+	readCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	rows, err := h.DB.QueryContext(readCtx, `SELECT credit_preference, credit_name,
+		COALESCE(disclosed_year, CAST(strftime('%Y', created_at, 'unixepoch') AS INTEGER)), short_credit
+		FROM security_reports WHERE status = 'Disclosed' AND credit_preference IN ('real_name', 'handle', 'anonymous')
+		ORDER BY COALESCE(disclosed_year, CAST(strftime('%Y', created_at, 'unixepoch') AS INTEGER)), created_at`)
+	if err != nil {
+		return response
+	}
+	defer rows.Close()
+	anonymous := 0
+	for rows.Next() {
+		var preference, name, credit string
+		var year int
+		if rows.Scan(&preference, &name, &year, &credit) != nil {
+			continue
+		}
+		if preference == "anonymous" {
+			anonymous++
+			name = fmt.Sprintf("Anonymous Researcher #%d", anonymous)
+		}
+		if name == "" {
+			continue
+		}
+		response.Researchers = append(response.Researchers, SecurityAcknowledgment{Name: name, Year: year, Credit: credit})
+	}
+	if rows.Err() != nil {
+		return SecurityThanksResponse{Researchers: []SecurityAcknowledgment{}}
+	}
+	return response
+}
+
+// SecurityThanksResponse contains researchers who consented to public credit.
+type SecurityThanksResponse struct {
+	Researchers []SecurityAcknowledgment `json:"researchers"`
+}
+
+// SecurityAcknowledgment is a public, consented researcher credit.
+type SecurityAcknowledgment struct {
+	Name   string `json:"name"`
+	Year   int    `json:"year"`
+	Credit string `json:"credit"`
 }
 
 // SecurityResponse for JSON API
 type SecurityResponse struct {
-	SecurityEmail string `json:"security_email,omitempty"`
-	PolicyURL     string `json:"policy_url"`
-	SecurityTxt   string `json:"security_txt"`
+	SecurityEmail     string                   `json:"security_email,omitempty"`
+	PolicyURL         string                   `json:"policy_url"`
+	SecurityTxt       string                   `json:"security_txt"`
+	ReportURL         string                   `json:"report_url"`
+	ReportFormURL     string                   `json:"report_form_url"`
+	Expires           string                   `json:"expires"`
+	EncryptionURL     string                   `json:"encryption_url,omitempty"`
+	Fingerprint       string                   `json:"fingerprint,omitempty"`
+	ReportingChannels []SecurityContactChannel `json:"reporting_channels"`
+}
+
+type SecurityContactChannel struct {
+	Type string `json:"type"`
+	URL  string `json:"url"`
 }
 
 // buildSecurityResponse assembles the security-contact view shared by the
 // /server/security page dispatch and its /api/{api_version}/server/security twin.
 func (h *PagesHandler) buildSecurityResponse(r *http.Request) SecurityResponse {
 	data := h.NewPageData(r)
-	var appURL string
-	if h.Config != nil {
-		appURL = "https://" + h.Config.Server.FQDN
-	}
-	return SecurityResponse{
+	appURL := strings.TrimSuffix(netutil.BuildURL(r, h.Trust, ""), "/")
+	reportURL := "https://github.com/apimgr/ipgaze/security/advisories/new"
+	formURL := appURL + "/server/contact?security_id={security_id}"
+	expires := time.Now().UTC().AddDate(1, 0, 0).Format("2006-01-02T15:04:05.000Z")
+	response := SecurityResponse{
 		SecurityEmail: data.SecurityEmail,
-		PolicyURL:     appURL + "/server/security",
+		PolicyURL:     appURL + "/server/security/policy",
 		SecurityTxt:   appURL + "/.well-known/security.txt",
+		ReportURL:     reportURL,
+		ReportFormURL: formURL,
+		Expires:       expires,
+		ReportingChannels: []SecurityContactChannel{
+			{Type: "GitHub private vulnerability reporting", URL: reportURL},
+			{Type: "Deployed instance security report form", URL: formURL},
+		},
 	}
+	if data.SecurityEmail != "" {
+		response.ReportingChannels = append(response.ReportingChannels, SecurityContactChannel{Type: "Email", URL: "mailto:" + data.SecurityEmail})
+	}
+	if data.PGPKeyAvailable {
+		response.EncryptionURL = appURL + "/.well-known/pgp-key.asc"
+	}
+	if h.PGPFingerprint != nil {
+		if fingerprint := h.PGPFingerprint(); isValidPGPFingerprint(fingerprint) {
+			response.Fingerprint = fingerprint
+		}
+	}
+	return response
 }
 
 // APIV1ServerSecurityHandler serves /api/v1/server/security (JSON)
 func (h *PagesHandler) APIV1ServerSecurityHandler(w http.ResponseWriter, r *http.Request) {
 	resp := h.buildSecurityResponse(r)
+	SendAPIResponseOK(w, resp, nil)
+}
 
-	w.Header().Set("Content-Type", jsonMediaType)
-	b, _ := json.MarshalIndent(resp, "", "  ")
-	// Write errors are unrecoverable once headers are sent; log is not actionable here.
-	w.Write(b)            //nolint:errcheck
-	w.Write([]byte("\n")) //nolint:errcheck
+// ServerSecurityReportHandler presents the current triage status after
+// consuming the report owner's single-use-per-day access token.
+func (h *PagesHandler) ServerSecurityReportHandler(w http.ResponseWriter, r *http.Request, trackingID string) {
+	w.Header().Set("Cache-Control", "no-store")
+	if h.DB == nil {
+		h.renderErrorPage(w, r, http.StatusNotFound, i18n.T(r.Context(), "errors.not_found"))
+		return
+	}
+	status, err := security.ConsumeSecurityAccessToken(h.DB, trackingID, r.URL.Query().Get("token"), time.Now())
+	if err != nil {
+		h.renderErrorPage(w, r, http.StatusNotFound, i18n.T(r.Context(), "errors.not_found"))
+		return
+	}
+	data := struct {
+		PageData
+		SecurityReportStatus security.SecurityReportStatus
+	}{PageData: h.NewPageData(r), SecurityReportStatus: status}
+	h.renderNegotiated(w, r, "security_report_status.tmpl", data, nil)
 }
 
 // safeRedirectTarget validates a client-supplied redirect target (e.g. from the Referer

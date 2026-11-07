@@ -2,12 +2,15 @@ package tor
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	bineprocess "github.com/cretz/bine/process"
 )
 
 // makeTempDirs creates a temp config/data dir pair for testing.
@@ -535,6 +538,92 @@ func TestGetTorConfig_AlwaysHasControlPort(t *testing.T) {
 	}
 }
 
+func TestWaitForControlPortFileWaitsForTorToWritePort(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "control-port")
+	if err := os.WriteFile(path, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	writeErr := make(chan error, 1)
+	go func() {
+		time.Sleep(30 * time.Millisecond)
+		writeErr <- os.WriteFile(path, []byte("PORT=127.0.0.1:12345\n"), 0o600)
+	}()
+	if err := waitForControlPortFile(context.Background(), path, time.Second); err != nil {
+		t.Fatalf("waitForControlPortFile: %v", err)
+	}
+	if err := <-writeErr; err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestWaitForControlPortFileTimesOutWithUsefulError(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "control-port")
+	if err := os.WriteFile(path, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	err := waitForControlPortFile(context.Background(), path, 30*time.Millisecond)
+	if err == nil || !strings.Contains(err.Error(), "Invalid port format") {
+		t.Fatalf("waitForControlPortFile error = %v, want invalid port format", err)
+	}
+}
+
+type controlPortTestCreator struct {
+	bineprocess.Creator
+	process bineprocess.Process
+}
+
+func (c controlPortTestCreator) New(context.Context, ...string) (bineprocess.Process, error) {
+	return c.process, nil
+}
+
+type controlPortTestProcess struct {
+	bineprocess.Process
+	path string
+}
+
+func (p controlPortTestProcess) Start() error {
+	return os.WriteFile(p.path, []byte("PORT=127.0.0.1:12345\n"), 0o600)
+}
+
+func TestControlPortReadyCreatorWaitsAfterProcessStarts(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "control-port")
+	creator := controlPortReadyCreator{
+		creator: controlPortTestCreator{process: controlPortTestProcess{path: path}},
+		timeout: time.Second,
+	}
+	proc, err := creator.New(context.Background(), "--ControlPortWriteToFile", path)
+	if err != nil {
+		t.Fatalf("creator.New: %v", err)
+	}
+	if err := proc.Start(); err != nil {
+		t.Fatalf("process.Start: %v", err)
+	}
+}
+
+func TestControlPortReadyProcessStartsWithoutPortFileArgument(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "started")
+	proc := &controlPortReadyProcess{
+		Process: controlPortTestProcess{path: path},
+		ctx:     context.Background(),
+		args:    []string{"--SocksPort", "9050"},
+	}
+	if err := proc.Start(); err != nil {
+		t.Fatalf("process.Start: %v", err)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("underlying process did not start: %v", err)
+	}
+}
+
+func TestWaitForControlPortFileHonorsCanceledContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	err := waitForControlPortFile(ctx, filepath.Join(t.TempDir(), "missing"), time.Second)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("waitForControlPortFile error = %v, want context canceled", err)
+	}
+}
+
 func TestGetTorConfig_NoExitRelay(t *testing.T) {
 	out := getTorConfig(TorServiceConfig{}, "/tmp/hs", 12345)
 	if !strings.Contains(out, "ExitRelay 0") {
@@ -545,16 +634,25 @@ func TestGetTorConfig_NoExitRelay(t *testing.T) {
 	}
 }
 
-func TestGetTorConfig_NoORPortDirective_DirPortZero(t *testing.T) {
+func TestGetTorConfig_DisablesRelayPorts(t *testing.T) {
 	out := getTorConfig(TorServiceConfig{}, "/tmp/hs", 12345)
-	if strings.Contains(out, "ORPort") {
-		t.Errorf("expected no ORPort directive in config (client + hidden service only), got:\n%s", out)
+	if !strings.Contains(out, "ORPort 0") {
+		t.Errorf("expected ORPort 0 in config, got:\n%s", out)
 	}
 	if !strings.Contains(out, "DirPort 0") {
 		t.Errorf("expected DirPort 0 in config, got:\n%s", out)
 	}
 	if !strings.Contains(out, "PublishServerDescriptor 0") {
 		t.Errorf("expected PublishServerDescriptor 0 in config, got:\n%s", out)
+	}
+}
+
+func TestGetTorConfig_MaxClientCircuitsPending(t *testing.T) {
+	if out := getTorConfig(TorServiceConfig{}, "/tmp/hs", 12345); !strings.Contains(out, "MaxClientCircuitsPending 32") {
+		t.Fatalf("default max circuits directive missing:\n%s", out)
+	}
+	if out := getTorConfig(TorServiceConfig{MaxCircuits: 64}, "/tmp/hs", 12345); !strings.Contains(out, "MaxClientCircuitsPending 64") {
+		t.Fatalf("configured max circuits directive missing:\n%s", out)
 	}
 }
 

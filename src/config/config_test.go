@@ -16,6 +16,15 @@ func resetGlobals() {
 	mu.Unlock()
 }
 
+func TestDefaultPermissionsPolicyIncludesAdditionalDeniedFeatures(t *testing.T) {
+	policy := DefaultPermissionsPolicy()
+	for _, feature := range []string{"hid", "idle-detection", "serial"} {
+		if got := policy[feature]; got != "()" {
+			t.Errorf("DefaultPermissionsPolicy()[%q] = %q, want ()", feature, got)
+		}
+	}
+}
+
 // writeTempYAML creates a temp file with the given content and returns its path.
 func writeTempYAML(t *testing.T, content string) string {
 	t.Helper()
@@ -765,6 +774,19 @@ server:
 	}
 	if cfg.Server.Logging.Level != "debug" {
 		t.Errorf("Logging.Level: got %q, want %q", cfg.Server.Logging.Level, "debug")
+	}
+}
+
+func TestLoadConfigFromFile_NormalizesUpdateChannelAlias(t *testing.T) {
+	resetGlobals()
+	defer resetGlobals()
+	path := writeTempYAML(t, "server:\n  update:\n    branch: rolling\n")
+	cfg, err := LoadConfigFromFile(path)
+	if err != nil {
+		t.Fatalf("LoadConfigFromFile: %v", err)
+	}
+	if cfg.Server.Update.Branch != "devel" || cfg.Server.UpdateBranch != "devel" {
+		t.Fatalf("update branches = (%q, %q), want canonical devel", cfg.Server.Update.Branch, cfg.Server.UpdateBranch)
 	}
 }
 

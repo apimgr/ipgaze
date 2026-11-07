@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -76,6 +77,38 @@ func TestSecurityTxtHandler(t *testing.T) {
 	}
 	if !strings.Contains(body, "https://mysite.example") {
 		t.Errorf("body missing canonical URL with OfficialSite: %q", body)
+	}
+}
+
+func TestSecurityTxtHandlerIncludesPGPFingerprintComment(t *testing.T) {
+	keyPath := filepath.Join(t.TempDir(), "pgp.pub.asc")
+	if err := os.WriteFile(keyPath, []byte("public key"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	h := NewSpecialHandler("https://mysite.example")
+	h.PublishPGPKey = true
+	h.PGPPublicKeyPath = keyPath
+	h.PGPFingerprint = func() string { return strings.Repeat("a", 64) }
+	w := httptest.NewRecorder()
+	h.SecurityTxtHandler(w, httptest.NewRequest(http.MethodGet, "/.well-known/security.txt", nil))
+	if !strings.Contains(w.Body.String(), "# PGP Fingerprint: "+strings.Repeat("a", 64)) {
+		t.Fatalf("security.txt omitted the full PGP fingerprint comment: %s", w.Body.String())
+	}
+}
+
+func TestSecurityTxtHandlerOmitsInvalidPGPFingerprint(t *testing.T) {
+	keyPath := filepath.Join(t.TempDir(), "pgp.pub.asc")
+	if err := os.WriteFile(keyPath, []byte("public key"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	h := NewSpecialHandler("https://mysite.example")
+	h.PublishPGPKey = true
+	h.PGPPublicKeyPath = keyPath
+	h.PGPFingerprint = func() string { return "invalid\nContact: mailto:attacker@example.test" }
+	w := httptest.NewRecorder()
+	h.SecurityTxtHandler(w, httptest.NewRequest(http.MethodGet, "/.well-known/security.txt", nil))
+	if strings.Contains(w.Body.String(), "attacker@example.test") {
+		t.Fatalf("invalid fingerprint injected a security.txt field: %s", w.Body.String())
 	}
 }
 

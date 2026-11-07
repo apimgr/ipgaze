@@ -47,6 +47,9 @@ func TestGenerate_RoundTrip(t *testing.T) {
 	if kp.Fingerprint == "" {
 		t.Fatal("Fingerprint is empty")
 	}
+	if len(kp.Fingerprint) != 64 {
+		t.Fatalf("Fingerprint length = %d, want 64 hex chars for SHA-256", len(kp.Fingerprint))
+	}
 	if !strings.Contains(kp.PublicArmor, "BEGIN PGP PUBLIC KEY BLOCK") {
 		t.Fatal("PublicArmor missing armor header")
 	}
@@ -66,6 +69,30 @@ func TestGenerate_RoundTrip(t *testing.T) {
 	}
 	if got := Fingerprint(entity); got != kp.Fingerprint {
 		t.Fatalf("Fingerprint mismatch: got %s want %s", got, kp.Fingerprint)
+	}
+}
+
+func TestEncryptFor_ProducesArmoredEncryptedMessage(t *testing.T) {
+	kp, err := Generate("ipgaze", "security@example.com")
+	if err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+	plaintext := []byte("private vulnerability details")
+	ciphertext, err := EncryptFor(kp.PublicArmor, plaintext)
+	if err != nil {
+		t.Fatalf("EncryptFor: %v", err)
+	}
+	if !strings.Contains(string(ciphertext), "BEGIN PGP MESSAGE") {
+		t.Fatalf("encrypted message has no PGP armor header: %q", ciphertext)
+	}
+	if strings.Contains(string(ciphertext), string(plaintext)) {
+		t.Fatal("encrypted message contains plaintext report content")
+	}
+}
+
+func TestEncryptFor_RejectsInvalidPublicArmor(t *testing.T) {
+	if _, err := EncryptFor("not an armored key", []byte("message")); err == nil {
+		t.Fatal("EncryptFor accepted invalid public key armor")
 	}
 }
 
@@ -190,6 +217,62 @@ func TestStore_SaveLoadDelete(t *testing.T) {
 	// Delete on an already-empty dir must not error.
 	if err := DeleteKeypair(dir); err != nil {
 		t.Fatalf("Delete on empty dir: %v", err)
+	}
+}
+
+func TestArchivedKeyRetainedThroughRotationAndSecretRekey(t *testing.T) {
+	dir := t.TempDir()
+	oldSecret := []byte("0123456789abcdef0123456789abcdef")
+	newSecret := []byte("abcdef0123456789abcdef0123456789")
+	oldKey, err := Generate("ipgaze", "security@example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := SaveKeypair(dir, oldKey, oldSecret); err != nil {
+		t.Fatal(err)
+	}
+	expires := time.Now().Add(time.Hour)
+	if err := ArchiveCurrentKeypair(dir, oldKey.Fingerprint, expires); err != nil {
+		t.Fatal(err)
+	}
+	newKey, err := Generate("ipgaze", "security@example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := SaveKeypair(dir, newKey, oldSecret); err != nil {
+		t.Fatal(err)
+	}
+	archived, err := LoadArchivedPrivateArmor(dir, oldKey.Fingerprint, oldSecret)
+	if err != nil || archived != oldKey.PrivateArmor {
+		t.Fatalf("archived private key = %q, err=%v", archived, err)
+	}
+	if err := ReencryptPrivateKey(dir, oldSecret, newSecret); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadArchivedPrivateArmor(dir, oldKey.Fingerprint, oldSecret); err == nil {
+		t.Fatal("archived private key remained decryptable with old installation secret")
+	}
+	archived, err = LoadArchivedPrivateArmor(dir, oldKey.Fingerprint, newSecret)
+	if err != nil || archived != oldKey.PrivateArmor {
+		t.Fatalf("rekeyed archived private key = %q, err=%v", archived, err)
+	}
+	if err := PruneArchivedKeypairs(dir, expires.Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadArchivedPrivateArmor(dir, oldKey.Fingerprint, newSecret); !os.IsNotExist(err) {
+		t.Fatalf("expired archived key lookup error = %v, want not-exist", err)
+	}
+}
+
+func TestArchiveRejectsInvalidFingerprintPaths(t *testing.T) {
+	dir := t.TempDir()
+	for _, fingerprint := range []string{"../escape", "", "not-hex"} {
+		if err := ArchiveCurrentKeypair(dir, fingerprint, time.Now().Add(time.Hour)); err == nil {
+			t.Errorf("ArchiveCurrentKeypair accepted fingerprint %q", fingerprint)
+		}
+		if _, err := LoadArchivedPrivateArmor(dir, fingerprint, []byte("secret")); err == nil {
+			t.Errorf("LoadArchivedPrivateArmor accepted fingerprint %q", fingerprint)
+		}
 	}
 }
 

@@ -68,7 +68,7 @@ func GetOrCreateSecret(db *sql.DB, name SecretName) ([]byte, error) {
 	defer cancelWrite()
 
 	_, err = db.ExecContext(writeCtx,
-		`INSERT INTO app_secrets (name, value) VALUES (?, ?)
+		`INSERT INTO app_secrets (name, value, rotated_at) VALUES (?, ?, strftime('%s', 'now'))
 		 ON CONFLICT(name) DO NOTHING`,
 		string(name), encoded,
 	)
@@ -85,6 +85,32 @@ func GetOrCreateSecret(db *sql.DB, name SecretName) ([]byte, error) {
 		return nil, fmt.Errorf("security: reload %s: %w", name, err)
 	}
 	return base64.StdEncoding.DecodeString(encoded)
+}
+
+// RotateSecretIfDue rotates a secret after its configured lifetime. A legacy
+// row without rotated_at is initialized without changing its value.
+func RotateSecretIfDue(db *sql.DB, name SecretName, lifetime time.Duration, now time.Time) (bool, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), secretReadTimeout)
+	defer cancel()
+	var rotatedAt sql.NullInt64
+	if err := db.QueryRowContext(ctx, `SELECT rotated_at FROM app_secrets WHERE name = ?`, string(name)).Scan(&rotatedAt); err != nil {
+		return false, fmt.Errorf("security: read rotation time for %s: %w", name, err)
+	}
+	if !rotatedAt.Valid {
+		writeCtx, cancelWrite := context.WithTimeout(context.Background(), secretWriteTimeout)
+		defer cancelWrite()
+		if _, err := db.ExecContext(writeCtx, `UPDATE app_secrets SET rotated_at = ? WHERE name = ? AND rotated_at IS NULL`, now.Unix(), string(name)); err != nil {
+			return false, fmt.Errorf("security: initialize rotation time for %s: %w", name, err)
+		}
+		return false, nil
+	}
+	if now.Sub(time.Unix(rotatedAt.Int64, 0)) < lifetime {
+		return false, nil
+	}
+	if err := RotateSecret(db, name); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // RotateSecret generates a fresh random value for the named secret, keeping

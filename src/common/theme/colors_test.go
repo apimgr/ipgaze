@@ -125,6 +125,72 @@ func TestPalette_LightVsDarkBrightness(t *testing.T) {
 	}
 }
 
+func TestCSSVariablesIncludesDarkLightAndAutomaticThemes(t *testing.T) {
+	css := CSSVariables()
+	for _, want := range []string{
+		":root {",
+		"html.theme-light {",
+		"@media (prefers-color-scheme: light)",
+		"html.theme-auto",
+		"--color-bg: " + ThemePaletteDark.Background,
+		"--color-bg: " + ThemePaletteLight.Background,
+		"--color-text-on-primary:",
+		"--color-success-bg: rgba(",
+	} {
+		if !strings.Contains(css, want) {
+			t.Errorf("CSSVariables() is missing %q", want)
+		}
+	}
+}
+
+func TestReadableTextOnChoosesHigherContrast(t *testing.T) {
+	for _, tc := range []struct {
+		background string
+		want       string
+	}{
+		{"#ffffff", "#000000"},
+		{"#000000", "#ffffff"},
+		{"invalid", "#ffffff"},
+	} {
+		if got := ReadableTextOn(tc.background); got != tc.want {
+			t.Errorf("ReadableTextOn(%q) = %q, want %q", tc.background, got, tc.want)
+		}
+	}
+}
+
+func TestHexToRGBAndRGBA(t *testing.T) {
+	for _, tc := range []struct {
+		input   string
+		r, g, b int
+		ok      bool
+	}{
+		{"#123456", 18, 52, 86, true},
+		{"abcdef", 171, 205, 239, true},
+		{"#123", 0, 0, 0, false},
+		{"#gg0000", 0, 0, 0, false},
+	} {
+		r, g, b, ok := hexToRGB(tc.input)
+		if r != tc.r || g != tc.g || b != tc.b || ok != tc.ok {
+			t.Errorf("hexToRGB(%q) = (%d, %d, %d, %t), want (%d, %d, %d, %t)", tc.input, r, g, b, ok, tc.r, tc.g, tc.b, tc.ok)
+		}
+	}
+	if got := hexToRGBA("#123456", 0.15); got != "rgba(18, 52, 86, 0.15)" {
+		t.Errorf("hexToRGBA valid color = %q", got)
+	}
+	if got := hexToRGBA("invalid", 0.15); got != "invalid" {
+		t.Errorf("hexToRGBA invalid color = %q, want original", got)
+	}
+}
+
+func TestStatusBackgroundAlpha(t *testing.T) {
+	if got := statusBgAlpha(true); got != 0.15 {
+		t.Errorf("statusBgAlpha(true) = %v, want 0.15", got)
+	}
+	if got := statusBgAlpha(false); got != 0.12 {
+		t.Errorf("statusBgAlpha(false) = %v, want 0.12", got)
+	}
+}
+
 // assertValidHex fails the test if color is not a "#RRGGBB" hex string.
 func assertValidHex(t *testing.T, field, color string) {
 	t.Helper()

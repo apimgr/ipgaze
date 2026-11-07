@@ -10,6 +10,7 @@ import (
 
 	"github.com/apimgr/ipgaze/src/common/i18n"
 	"github.com/apimgr/ipgaze/src/common/theme"
+	"github.com/apimgr/ipgaze/src/config"
 	"github.com/apimgr/ipgaze/src/server/handler"
 	"github.com/yuin/goldmark"
 )
@@ -79,6 +80,24 @@ func templateFuncMap(assetStamp string) template.FuncMap {
 				sep = "&"
 			}
 			return path + sep + "v=" + assetStamp
+		},
+		// trackingScript emits only a same-origin loader with escaped config
+		// attributes. The loader performs the external request after server-side
+		// consent and CSP checks (AI.md PART 12/16 analytics tracking).
+		"trackingScript": func(tracking config.TrackingConfig, enabled bool, sourceURL string) template.HTML {
+			if !enabled || sourceURL == "" || config.ValidateTracking(&tracking) != nil {
+				return ""
+			}
+			loaderURL := "/static/js/tracking.js"
+			if assetStamp != "" {
+				loaderURL += "?v=" + assetStamp
+			}
+			markup := `<script defer src="` + template.HTMLEscapeString(loaderURL) + `" data-provider="` +
+				template.HTMLEscapeString(tracking.Type) + `" data-id="` +
+				template.HTMLEscapeString(tracking.ID) + `" data-url="` +
+				template.HTMLEscapeString(tracking.URL) + `" data-source-url="` +
+				template.HTMLEscapeString(sourceURL) + `"></script>`
+			return template.HTML(markup)
 		},
 		// markdownToHTML renders operator-supplied Markdown content blocks
 		// (server.privacy.content.*) to sanitized HTML for privacy.tmpl

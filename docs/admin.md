@@ -41,9 +41,20 @@ ipgaze --maintenance token revoke <prefix>
 
 ## Service Management
 
+The service manager is detected automatically. With `sudo`, installation
+creates a system service. Without elevation, Linux systemd and macOS launchd
+create a service for the current user. Linux installations can also use
+OpenRC, runit, SysVinit, or s6-overlay; BSD uses rc.d.
+
 ```bash
-# Install and start as a system service
+# Install and start a system service
+sudo ipgaze --service --install
+
+# Install and start a per-user systemd service or LaunchAgent
 ipgaze --service --install
+
+# Show current service status
+ipgaze --service status
 
 # Disable the service at startup (keeps configuration and data)
 ipgaze --service --disable
@@ -51,6 +62,16 @@ ipgaze --service --disable
 # Uninstall the service
 ipgaze --service --uninstall
 ```
+
+For s6-overlay, run the service command with permission to update
+`/etc/s6-overlay/s6-rc.d` and its live database. Installation enables the
+service in the user bundle and starts it. Disable removes it from the bundle
+while retaining its service definition and data; install again to re-enable
+and start it.
+
+Uninstall asks for confirmation, stops and removes the service definition,
+then deletes configuration and data. The executable remains and its path is
+printed so it can be removed manually.
 
 Back up before changing or replacing `server.yml`. The service lifecycle and
 maintenance commands are also listed by `ipgaze --help` and the relevant

@@ -1,0 +1,25 @@
+{{template "base" .}}
+{{define "title"}}{{t .Lang "security.disclosure_title"}} — {{.ProjectName}}{{end}}
+{{define "content"}}
+<h1>{{t .Lang "security.disclosure_title"}}</h1>
+<section class="section-card" aria-labelledby="disclosure-window">
+  <h2 id="disclosure-window">{{t .Lang "security.coordinated_disclosure"}}</h2>
+  <p>{{.DisclosureWindow}}</p>
+</section>
+<section class="section-card" aria-labelledby="in-scope">
+  <h2 id="in-scope">{{t .Lang "security.in_scope"}}</h2>
+  <ul>{{range .InScope}}<li>{{.}}</li>{{end}}</ul>
+</section>
+<section class="section-card" aria-labelledby="out-of-scope">
+  <h2 id="out-of-scope">{{t .Lang "security.out_of_scope"}}</h2>
+  <ul>{{range .OutOfScope}}<li>{{.}}</li>{{end}}</ul>
+</section>
+<section class="section-card" aria-labelledby="safe-harbor">
+  <h2 id="safe-harbor">{{t .Lang "security.safe_harbor"}}</h2>
+  <p>{{.SafeHarbor}}</p>
+</section>
+<section class="section-card" aria-labelledby="reporting">
+  <h2 id="reporting">{{t .Lang "security.report_vulnerability"}}</h2>
+  <p>{{tf .Lang "security.disclosure_reporting_body" "github" (t .Lang "security.github_private_reporting") "security_txt" "security.txt"}}</p>
+</section>
+{{end}}

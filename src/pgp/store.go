@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/apimgr/ipgaze/src/security"
@@ -86,29 +88,170 @@ func LoadPrivateArmor(configDir string, installationSecret []byte) (string, erro
 	return string(plain), nil
 }
 
+// ArchiveCurrentKeypair preserves the encrypted active key files until the
+// supplied expiry so reports encrypted to the previous public key remain
+// decryptable during PGP rotation grace.
+func ArchiveCurrentKeypair(configDir, fingerprint string, expiresAt time.Time) error {
+	if !validFingerprint(fingerprint) || expiresAt.IsZero() {
+		return errors.New("pgp: invalid key archive metadata")
+	}
+	dir, err := SecurityDir(configDir)
+	if err != nil {
+		return err
+	}
+	if err := PruneArchivedKeypairs(configDir, time.Now()); err != nil {
+		return err
+	}
+	expires := expiresAt.UTC().Unix()
+	archiveDir := filepath.Join(dir, "archive")
+	if err := os.MkdirAll(archiveDir, 0o700); err != nil {
+		return fmt.Errorf("pgp: create key archive: %w", err)
+	}
+	for _, name := range []string{publicKeyFile, privateKeyFile} {
+		data, err := os.ReadFile(filepath.Join(dir, name))
+		if err != nil {
+			return fmt.Errorf("pgp: read active key for archive: %w", err)
+		}
+		extension := strings.TrimPrefix(name, "pgp")
+		archivePath := filepath.Join(archiveDir, fingerprint+"."+strconv.FormatInt(expires, 10)+extension)
+		mode := os.FileMode(0o644)
+		if name == privateKeyFile {
+			mode = 0o600
+		}
+		if err := os.WriteFile(archivePath, data, mode); err != nil {
+			return fmt.Errorf("pgp: archive active key: %w", err)
+		}
+	}
+	return nil
+}
+
+// LoadArchivedPrivateArmor decrypts a retained previous key by fingerprint.
+func LoadArchivedPrivateArmor(configDir, fingerprint string, installationSecret []byte) (string, error) {
+	if !validFingerprint(fingerprint) {
+		return "", errors.New("pgp: invalid archived key fingerprint")
+	}
+	dir := filepath.Join(configDir, SecurityDirName, "archive")
+	paths, err := filepath.Glob(filepath.Join(dir, fingerprint+".*.priv.asc.enc"))
+	if err != nil {
+		return "", fmt.Errorf("pgp: find archived private key: %w", err)
+	}
+	if len(paths) == 0 {
+		return "", os.ErrNotExist
+	}
+	sealed, err := os.ReadFile(paths[0])
+	if err != nil {
+		return "", err
+	}
+	plain, err := security.DecryptWithSecret(installationSecret, sealed, privateKeyKDFInfo)
+	if err != nil {
+		return "", fmt.Errorf("pgp: decrypt archived private key: %w", err)
+	}
+	return string(plain), nil
+}
+
+func validFingerprint(value string) bool {
+	if len(value) != 40 && len(value) != 64 {
+		return false
+	}
+	for _, r := range value {
+		if !(r >= '0' && r <= '9' || r >= 'a' && r <= 'f' || r >= 'A' && r <= 'F') {
+			return false
+		}
+	}
+	return true
+}
+
+// PruneArchivedKeypairs removes retired private/public keys after their
+// in-flight report grace period has expired.
+func PruneArchivedKeypairs(configDir string, now time.Time) error {
+	dir := filepath.Join(configDir, SecurityDirName, "archive")
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return fmt.Errorf("pgp: read key archive: %w", err)
+	}
+	for _, entry := range entries {
+		name := entry.Name()
+		parts := strings.Split(name, ".")
+		if len(parts) < 4 || !strings.Contains(name, ".priv.asc.enc") {
+			continue
+		}
+		expiresIndex := len(parts) - 4
+		expires, err := strconv.ParseInt(parts[expiresIndex], 10, 64)
+		if err != nil || now.Unix() <= expires {
+			continue
+		}
+		fingerprint := strings.Join(parts[:expiresIndex], ".")
+		if err := os.Remove(filepath.Join(dir, name)); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("pgp: remove expired archived key: %w", err)
+		}
+		publicPath := filepath.Join(dir, fingerprint+"."+parts[expiresIndex]+".pub.asc")
+		if err := os.Remove(publicPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("pgp: remove expired archived public key: %w", err)
+		}
+	}
+	return nil
+}
+
 // ReencryptPrivateKey decrypts the on-disk private key with oldSecret and
 // re-writes it encrypted with newSecret, leaving the public key and DB
 // records untouched. Used by `--maintenance secret rotate installation_secret`
 // (AI.md PART 11 "Secret Rotation": "Rotation re-encrypts the PGP private key").
 // A no-op (returns nil) if no keypair exists on disk yet.
 func ReencryptPrivateKey(configDir string, oldSecret, newSecret []byte) error {
-	if !Exists(configDir) {
-		return nil
+	if Exists(configDir) {
+		armor, err := LoadPrivateArmor(configDir, oldSecret)
+		if err != nil {
+			return fmt.Errorf("pgp: load private key for re-encryption: %w", err)
+		}
+		dir, err := SecurityDir(configDir)
+		if err != nil {
+			return err
+		}
+		sealed, err := security.EncryptWithSecret(newSecret, []byte(armor), privateKeyKDFInfo)
+		if err != nil {
+			return fmt.Errorf("pgp: re-encrypt private key: %w", err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, privateKeyFile), sealed, 0o600); err != nil {
+			return fmt.Errorf("pgp: write re-encrypted private key: %w", err)
+		}
 	}
-	armor, err := LoadPrivateArmor(configDir, oldSecret)
+	return ReencryptArchivedPrivateKeys(configDir, oldSecret, newSecret)
+}
+
+// ReencryptArchivedPrivateKeys preserves the report-key grace archive when
+// the installation secret used to protect each private key is rotated.
+func ReencryptArchivedPrivateKeys(configDir string, oldSecret, newSecret []byte) error {
+	dir := filepath.Join(configDir, SecurityDirName, "archive")
+	entries, err := os.ReadDir(dir)
 	if err != nil {
-		return fmt.Errorf("pgp: load private key for re-encryption: %w", err)
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return fmt.Errorf("pgp: read archived keys for re-encryption: %w", err)
 	}
-	dir, err := SecurityDir(configDir)
-	if err != nil {
-		return err
-	}
-	sealed, err := security.EncryptWithSecret(newSecret, []byte(armor), privateKeyKDFInfo)
-	if err != nil {
-		return fmt.Errorf("pgp: re-encrypt private key: %w", err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, privateKeyFile), sealed, 0o600); err != nil {
-		return fmt.Errorf("pgp: write re-encrypted private key: %w", err)
+	for _, entry := range entries {
+		if !strings.HasSuffix(entry.Name(), ".priv.asc.enc") {
+			continue
+		}
+		path := filepath.Join(dir, entry.Name())
+		sealed, err := os.ReadFile(path)
+		if err != nil {
+			return fmt.Errorf("pgp: read archived private key: %w", err)
+		}
+		plain, err := security.DecryptWithSecret(oldSecret, sealed, privateKeyKDFInfo)
+		if err != nil {
+			return fmt.Errorf("pgp: decrypt archived private key: %w", err)
+		}
+		resealed, err := security.EncryptWithSecret(newSecret, plain, privateKeyKDFInfo)
+		if err != nil {
+			return fmt.Errorf("pgp: re-encrypt archived private key: %w", err)
+		}
+		if err := os.WriteFile(path, resealed, 0o600); err != nil {
+			return fmt.Errorf("pgp: save re-encrypted archived private key: %w", err)
+		}
 	}
 	return nil
 }
@@ -126,6 +269,9 @@ func DeleteKeypair(configDir string) error {
 		if err := os.Remove(filepath.Join(dir, name)); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return fmt.Errorf("pgp: delete %s: %w", name, err)
 		}
+	}
+	if err := os.RemoveAll(filepath.Join(dir, "archive")); err != nil {
+		return fmt.Errorf("pgp: delete archived keys: %w", err)
 	}
 	return nil
 }

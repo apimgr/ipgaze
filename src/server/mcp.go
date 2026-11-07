@@ -16,6 +16,7 @@ import (
 	"github.com/apimgr/ipgaze/src/config"
 	applog "github.com/apimgr/ipgaze/src/log"
 	"github.com/apimgr/ipgaze/src/netutil"
+	"github.com/apimgr/ipgaze/src/server/handler"
 	"github.com/apimgr/ipgaze/src/swagger"
 	"github.com/go-chi/chi/v5"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -110,15 +111,41 @@ func (s *Server) mcpServer(r *http.Request) *mcp.Server {
 	if s.router == nil {
 		return server
 	}
-	spec := swagger.GenerateSpec(swagger.SwaggerHandlerConfig{Version: s.Version, CommitID: s.CommitID, Trust: s.getTrust()}, s.BaseURL, "en")
+	for _, operation := range s.registeredMCPOperations(r) {
+		tool := mcpToolSpec(operation.path, operation.method, operation.spec)
+		toolPath := operation.path
+		toolMethod := strings.ToUpper(operation.method)
+		toolSpec := operation.spec
+		server.AddTool(tool, func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			return s.dispatchMCPTool(ctx, r, req, toolMethod, toolPath, toolSpec)
+		})
+	}
+	return server
+}
+
+type registeredMCPOperation struct {
+	path   string
+	method string
+	spec   *swagger.Operation
+}
+
+func (s *Server) registeredMCPOperations(r *http.Request) []registeredMCPOperation {
+	if s.router == nil {
+		return nil
+	}
+	baseURL := s.BaseURL
+	if r != nil {
+		baseURL = netutil.BuildURL(r, s.getTrust(), "")
+	}
+	spec := swagger.GenerateSpec(swagger.SwaggerHandlerConfig{Version: s.Version, CommitID: s.CommitID, Trust: s.getTrust()}, baseURL, "en")
 	paths := make([]string, 0, len(spec.Paths))
 	for path := range spec.Paths {
 		paths = append(paths, path)
 	}
 	sort.Strings(paths)
+	var registered []registeredMCPOperation
 	for _, path := range paths {
-		item := spec.Paths[path]
-		operations := itemOperations(item)
+		operations := itemOperations(spec.Paths[path])
 		methods := make([]string, 0, len(operations))
 		for method := range operations {
 			methods = append(methods, method)
@@ -126,18 +153,22 @@ func (s *Server) mcpServer(r *http.Request) *mcp.Server {
 		sort.Strings(methods)
 		for _, method := range methods {
 			operation := operations[method]
-			if !isVersionedAPIOperation(path) || operation == nil || operation.OperationID == "" || !s.isAPIOperationRegistered(operation.OperationID, path, method) {
-				continue
+			if isVersionedAPIOperation(path) && operation != nil && operation.OperationID != "" && s.isAPIOperationRegistered(operation.OperationID, path, method) {
+				registered = append(registered, registeredMCPOperation{path: path, method: method, spec: operation})
 			}
-			tool := mcpToolSpec(path, method, operation)
-			toolPath := path
-			toolMethod := strings.ToUpper(method)
-			server.AddTool(tool, func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-				return s.dispatchMCPTool(ctx, r, req, toolMethod, toolPath, operation)
-			})
 		}
 	}
-	return server
+	return registered
+}
+
+func (s *Server) registeredMCPTools(r *http.Request) []handler.MCPToolDescription {
+	operations := s.registeredMCPOperations(r)
+	tools := make([]handler.MCPToolDescription, 0, len(operations))
+	for _, operation := range operations {
+		tool := mcpToolSpec(operation.path, operation.method, operation.spec)
+		tools = append(tools, handler.MCPToolDescription{Name: tool.Name, Description: tool.Description})
+	}
+	return tools
 }
 
 func (s *Server) hasRegisteredAPIOperation(documentedPath, documentedMethod string) bool {

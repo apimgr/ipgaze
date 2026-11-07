@@ -191,6 +191,9 @@ func TestBuildAndExtractBackupArchive_RoundTrip(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(configDir, "sub"), 0o700); err != nil {
 		t.Fatalf("mkdir config: %v", err)
 	}
+	if err := os.MkdirAll(filepath.Join(configDir, "security"), 0o700); err != nil {
+		t.Fatalf("mkdir security: %v", err)
+	}
 	if err := os.MkdirAll(dataDir, 0o700); err != nil {
 		t.Fatalf("mkdir data: %v", err)
 	}
@@ -240,10 +243,13 @@ func TestBuildAndExtractBackupArchive_RoundTrip(t *testing.T) {
 	if len(contents) == 0 {
 		t.Fatal("manifest contents missing/empty")
 	}
-	var hasData bool
+	var hasData, hasSecurity bool
 	for _, c := range contents {
 		if c == "data/" {
 			hasData = true
+		}
+		if c == "security/" {
+			hasSecurity = true
 		}
 		if c == "ssl/" {
 			t.Fatalf("manifest contents should not list ssl/ when includeSSL is false: %v", contents)
@@ -251,6 +257,9 @@ func TestBuildAndExtractBackupArchive_RoundTrip(t *testing.T) {
 	}
 	if !hasData {
 		t.Fatalf("manifest contents missing data/ when includeData is true: %v", contents)
+	}
+	if !hasSecurity {
+		t.Fatalf("manifest contents missing security/ directory: %v", contents)
 	}
 	checksum, _ := gotManifest["checksum"].(string)
 	if !strings.HasPrefix(checksum, "sha256:") {
@@ -477,5 +486,45 @@ func TestExtractBackupArchive_RejectsPathTraversal(t *testing.T) {
 		if _, statErr := os.Stat(filepath.Join(destDir, "..", "escape.txt")); statErr == nil {
 			t.Fatalf("entry %q escaped destination directory", name)
 		}
+	}
+}
+
+func TestExtractBackupArchiveWithLimits(t *testing.T) {
+	root := t.TempDir()
+	configDir := filepath.Join(root, "config")
+	dbDir := filepath.Join(root, "db")
+	if err := os.MkdirAll(configDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(dbDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(configDir, "server.yml"), bytes.Repeat([]byte("x"), 64<<10), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dbDir, "server.db"), []byte("db"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	archive, err := buildBackupArchive(map[string]interface{}{}, backupArchiveLayout{configDir: configDir, dbDir: dbDir})
+	if err != nil {
+		t.Fatalf("buildBackupArchive: %v", err)
+	}
+	base := defaultBackupRestoreLimits()
+	tests := []struct {
+		name   string
+		limits BackupRestoreLimits
+	}{
+		{"archive size", BackupRestoreLimits{MaxArchiveSize: 1, MaxExpandedSize: base.MaxExpandedSize, MaxFiles: base.MaxFiles, MaxFileSize: base.MaxFileSize, MaxRatio: base.MaxRatio}},
+		{"expanded size", BackupRestoreLimits{MaxArchiveSize: base.MaxArchiveSize, MaxExpandedSize: 10, MaxFiles: base.MaxFiles, MaxFileSize: base.MaxFileSize, MaxRatio: base.MaxRatio}},
+		{"file count", BackupRestoreLimits{MaxArchiveSize: base.MaxArchiveSize, MaxExpandedSize: base.MaxExpandedSize, MaxFiles: 1, MaxFileSize: base.MaxFileSize, MaxRatio: base.MaxRatio}},
+		{"file size", BackupRestoreLimits{MaxArchiveSize: base.MaxArchiveSize, MaxExpandedSize: base.MaxExpandedSize, MaxFiles: base.MaxFiles, MaxFileSize: 4, MaxRatio: base.MaxRatio}},
+		{"compression ratio", BackupRestoreLimits{MaxArchiveSize: base.MaxArchiveSize, MaxExpandedSize: base.MaxExpandedSize, MaxFiles: base.MaxFiles, MaxFileSize: base.MaxFileSize, MaxRatio: 1}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := extractBackupArchiveWithLimits(archive, t.TempDir(), tt.limits); err == nil {
+				t.Fatal("expected configured archive limit to reject input")
+			}
+		})
 	}
 }

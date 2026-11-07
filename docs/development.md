@@ -33,14 +33,14 @@ make local
 make release
 ```
 
-### Run Development Server
+### Quick Development Build
 
 ```bash
 make dev
 ```
 
 This creates development binaries in a unique directory under the OS temp
-directory. It does not start a server or provide hot reload.
+directory. Run the service in Docker; do not execute the Go binary on the host.
 
 ### Run Tests
 
@@ -180,6 +180,8 @@ Access at `http://localhost:8000`
 - `docs/api.md` - API documentation
 - `docs/cli.md` - CLI reference
 - `docs/admin.md` - Server administration (file-based)
+- `docs/security.md` - Security model and reporting channels
+- `docs/integrations.md` - API and protocol integrations
 - `docs/development.md` - This file
 
 ## Git Workflow
@@ -223,6 +225,8 @@ test: add integration tests
 | `beta.yml` | Push to main | Beta builds |
 | `daily.yml` | Schedule | Daily builds |
 | `docker.yml` | Release | Docker images |
+| `ci.yml` | Push and pull requests | Tests, lint, build, coverage, and security checks |
+| `licenses.yml` | Dependency changes and scheduled runs | Dependency license checks |
 
 ### Release Process
 

@@ -1,0 +1,13 @@
+{{template "base" .}}
+{{define "title"}}{{t .Lang "security.acknowledgments_title"}} — {{.ProjectName}}{{end}}
+{{define "content"}}
+<h1>{{t .Lang "security.acknowledgments_title"}}</h1>
+<section class="section-card" aria-labelledby="researchers">
+  <h2 id="researchers">{{t .Lang "security.researchers"}}</h2>
+  {{if .Researchers}}
+  <ul>{{range .Researchers}}<li>{{.Name}} ({{.Year}}) — {{.Credit}}</li>{{end}}</ul>
+  {{else}}
+  <p>{{t .Lang "security.no_researchers"}}</p>
+  {{end}}
+</section>
+{{end}}
