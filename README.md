@@ -22,6 +22,7 @@ https://ifcfg.us
 - **Full IPv6 Support** - Dual-stack IPv4 and IPv6
 - **RESTful API** - Versioned API at `/api/v1`
 - **Multiple Output Formats** - JSON, plain text, or server-rendered HTML
+- **Built-In Languages** - Interface and CLI translations in English, Spanish, French, German, Italian, Chinese, Arabic, and Japanese
 - **Auto-Updating GeoIP** - Weekly automatic database updates
 - **Mobile-Friendly** - Responsive web interface
 - **Fast & Lightweight** - Single static binary with no runtime file dependencies

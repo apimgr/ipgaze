@@ -8,16 +8,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"os"
+	"regexp"
+	"sort"
 	"strings"
 	"sync"
 )
 
 //go:embed locales/*.json
 var localeFS embed.FS
-
-// SupportedLocales lists all locales compiled into the binary.
-var SupportedLocales = []string{"en", "es", "fr", "de", "zh", "ar", "ja"}
 
 // Direction represents text direction (ltr or rtl).
 type Direction string
@@ -27,10 +25,63 @@ const (
 	DirectionRTL Direction = "rtl"
 )
 
+// LocaleSpec is the single source of metadata for every embedded locale.
+type LocaleSpec struct {
+	Code             string
+	Name             string
+	NativeName       string
+	Direction        Direction
+	PluralCategories []string
+	PluralRule       string
+}
+
+var localeRegistry = []LocaleSpec{
+	{Code: "en", Name: "English", NativeName: "English", Direction: DirectionLTR, PluralCategories: []string{"one", "other"}, PluralRule: "one-other"},
+	{Code: "es", Name: "Spanish", NativeName: "Español", Direction: DirectionLTR, PluralCategories: []string{"one", "other"}, PluralRule: "one-other"},
+	{Code: "fr", Name: "French", NativeName: "Français", Direction: DirectionLTR, PluralCategories: []string{"one", "other"}, PluralRule: "french"},
+	{Code: "de", Name: "German", NativeName: "Deutsch", Direction: DirectionLTR, PluralCategories: []string{"one", "other"}, PluralRule: "one-other"},
+	{Code: "it", Name: "Italian", NativeName: "Italiano", Direction: DirectionLTR, PluralCategories: []string{"one", "many", "other"}, PluralRule: "italian"},
+	{Code: "zh", Name: "Chinese", NativeName: "中文", Direction: DirectionLTR, PluralCategories: []string{"other"}, PluralRule: "other"},
+	{Code: "ar", Name: "Arabic", NativeName: "العربية", Direction: DirectionRTL, PluralCategories: []string{"zero", "one", "two", "few", "many", "other"}, PluralRule: "arabic"},
+	{Code: "ja", Name: "Japanese", NativeName: "日本語", Direction: DirectionLTR, PluralCategories: []string{"other"}, PluralRule: "other"},
+}
+
+var translationPlaceholderPattern = regexp.MustCompile(`\{[a-zA-Z][a-zA-Z0-9_]*\}`)
+var forbiddenTranslationFormatPattern = regexp.MustCompile(`%(?:[-+#0 ]*)?[0-9]*(?:\.[0-9]+)?[sd]|\{[0-9]+\}`)
+
+// SupportedLocales lists all locales compiled into the binary, derived from
+// the registry so consumers do not maintain an independent language list.
+var SupportedLocales = localeCodes()
+
+func localeCodes() []string {
+	codes := make([]string, 0, len(localeRegistry))
+	for _, locale := range localeRegistry {
+		codes = append(codes, locale.Code)
+	}
+	return codes
+}
+
+// LocaleRegistry returns a copy of the embedded locale metadata.
+func LocaleRegistry() []LocaleSpec {
+	registry := make([]LocaleSpec, len(localeRegistry))
+	for i, locale := range localeRegistry {
+		registry[i] = locale
+		registry[i].PluralCategories = append([]string(nil), locale.PluralCategories...)
+	}
+	return registry
+}
+
+// DefaultLocales returns every locale enabled by default.
+func DefaultLocales() []string {
+	return localeCodes()
+}
+
 // LocaleDirection returns the text direction for the given locale code.
 func LocaleDirection(code string) Direction {
-	if code == "ar" {
-		return DirectionRTL
+	for _, locale := range localeRegistry {
+		if locale.Code == code {
+			return locale.Direction
+		}
 	}
 	return DirectionLTR
 }
@@ -45,6 +96,9 @@ type I18NManager struct {
 // NewTranslationManager creates a Manager and loads all embedded locale files.
 // Panics on embed errors (config problem at build time).
 func NewTranslationManager() *I18NManager {
+	if err := ValidateEmbeddedLocales(); err != nil {
+		panic("i18n validation failed: " + err.Error())
+	}
 	m := &I18NManager{
 		translations: make(map[string]map[string]any),
 		fallback:     "en",
@@ -120,8 +174,8 @@ func (m *I18NManager) Tf(locale, key string, args ...string) string {
 
 // IsSupported returns true if the locale is compiled into the binary.
 func IsSupported(code string) bool {
-	for _, l := range SupportedLocales {
-		if l == code {
+	for _, locale := range localeRegistry {
+		if locale.Code == code {
 			return true
 		}
 	}
@@ -141,12 +195,8 @@ type LanguageOption struct {
 // in SupportedLocales order, for rendering the language selector.
 func AvailableLanguages() []LanguageOption {
 	opts := make([]LanguageOption, 0, len(SupportedLocales))
-	for _, code := range SupportedLocales {
-		name := Translate(code, "meta.native_name")
-		if name == "meta.native_name" {
-			name = code
-		}
-		opts = append(opts, LanguageOption{Code: code, NativeName: name})
+	for _, locale := range localeRegistry {
+		opts = append(opts, LanguageOption{Code: locale.Code, NativeName: locale.NativeName})
 	}
 	return opts
 }
@@ -316,8 +366,18 @@ func TranslatePlural(locale, key string, count int) string {
 // pluralForm returns the CLDR plural category name for the given count in the
 // given language.  Only categories needed for the supported languages are handled.
 func pluralForm(lang string, count int) string {
-	switch lang {
-	case "ar":
+	var rule string
+	var categories []string
+	for _, locale := range localeRegistry {
+		if locale.Code == lang {
+			rule = locale.PluralRule
+			categories = locale.PluralCategories
+			break
+		}
+	}
+	form := "other"
+	switch rule {
+	case "arabic":
 		switch {
 		case count == 0:
 			return "zero"
@@ -332,66 +392,284 @@ func pluralForm(lang string, count int) string {
 		default:
 			return "other"
 		}
-	case "fr":
+	case "french":
 		// French: 0 and 1 are "one"
 		if count == 0 || count == 1 {
 			return "one"
 		}
 		return "other"
-	case "zh", "ja":
-		// No plural distinction
-		return "other"
-	default:
-		// en, es, de: 1 is "one", everything else is "other"
+	case "italian":
 		if count == 1 {
 			return "one"
 		}
-		return "other"
+		if count != 0 && count%1_000_000 == 0 {
+			return "many"
+		}
+	case "one-other":
+		if count == 1 {
+			form = "one"
+		}
 	}
+	for _, category := range categories {
+		if category == form {
+			return form
+		}
+	}
+	return "other"
 }
 
-// validateKeys checks that every key present in the English locale also exists
-// in every other supported locale.  It returns a map from locale code to a
-// slice of missing key paths.
-func validateKeys(m *I18NManager) map[string][]string {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	en := m.translations["en"]
-	result := make(map[string][]string)
-	for _, lang := range SupportedLocales {
-		if lang == "en" {
+// ValidateEmbeddedLocales verifies required locales, registry/file parity,
+// locale metadata, message keys, plural categories, and placeholders.
+func ValidateEmbeddedLocales() error {
+	seenCodes := make(map[string]struct{}, len(localeRegistry))
+	validCategories := map[string]struct{}{"zero": {}, "one": {}, "two": {}, "few": {}, "many": {}, "other": {}}
+	ruleCategories := map[string][]string{
+		"arabic":    {"zero", "one", "two", "few", "many", "other"},
+		"french":    {"one", "other"},
+		"italian":   {"one", "many", "other"},
+		"one-other": {"one", "other"},
+		"other":     {"other"},
+	}
+	for _, locale := range localeRegistry {
+		if locale.Code == "" || locale.Name == "" || locale.NativeName == "" || locale.Direction != DirectionLTR && locale.Direction != DirectionRTL || len(locale.PluralCategories) == 0 || locale.PluralRule == "" {
+			return fmt.Errorf("locale registry entry %q has incomplete metadata", locale.Code)
+		}
+		if _, duplicate := seenCodes[locale.Code]; duplicate {
+			return fmt.Errorf("locale registry contains duplicate code %q", locale.Code)
+		}
+		seenCodes[locale.Code] = struct{}{}
+		expectedCategories, validRule := ruleCategories[locale.PluralRule]
+		if !validRule || strings.Join(locale.PluralCategories, ",") != strings.Join(expectedCategories, ",") {
+			return fmt.Errorf("locale %q has invalid categories for plural rule %q", locale.Code, locale.PluralRule)
+		}
+		seenCategories := make(map[string]struct{}, len(locale.PluralCategories))
+		for _, category := range locale.PluralCategories {
+			if _, valid := validCategories[category]; !valid {
+				return fmt.Errorf("locale %q has invalid CLDR plural category %q", locale.Code, category)
+			}
+			if _, duplicate := seenCategories[category]; duplicate {
+				return fmt.Errorf("locale %q repeats CLDR plural category %q", locale.Code, category)
+			}
+			seenCategories[category] = struct{}{}
+		}
+	}
+	for _, required := range []string{"en", "es", "fr", "ar", "de", "it"} {
+		if _, ok := seenCodes[required]; !ok {
+			return fmt.Errorf("locale registry is missing required locale %q", required)
+		}
+	}
+	entries, err := localeFS.ReadDir("locales")
+	if err != nil {
+		return fmt.Errorf("read embedded locales: %w", err)
+	}
+	files := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
 			continue
 		}
-		other := m.translations[lang]
-		for key := range en {
-			if _, ok := other[key]; !ok {
-				result[lang] = append(result[lang], key)
+		files = append(files, strings.TrimSuffix(entry.Name(), ".json"))
+	}
+	sort.Strings(files)
+	registered := localeCodes()
+	sort.Strings(registered)
+	if strings.Join(files, ",") != strings.Join(registered, ",") {
+		return fmt.Errorf("locale registry codes %v do not match embedded files %v", registered, files)
+	}
+	translations := make(map[string]map[string]any, len(registered))
+	for _, code := range registered {
+		data, err := localeFS.ReadFile("locales/" + code + ".json")
+		if err != nil {
+			return fmt.Errorf("read locale %q: %w", code, err)
+		}
+		var nested map[string]any
+		if err := json.Unmarshal(data, &nested); err != nil {
+			return fmt.Errorf("invalid JSON in locale %q: %w", code, err)
+		}
+		translations[code] = flattenJSON("", nested)
+	}
+	english, ok := translations["en"]
+	if !ok {
+		return fmt.Errorf("locale registry must include en")
+	}
+	englishPluralMessages := pluralMessages(english, validCategories)
+	englishRegularMessages := regularMessages(english, englishPluralMessages)
+	for code, locale := range translations {
+		registered := registeredLocale(code)
+		for key, expected := range map[string]string{
+			"meta.language":    registered.Code,
+			"meta.name":        registered.Name,
+			"meta.native_name": registered.NativeName,
+			"meta.direction":   string(registered.Direction),
+		} {
+			if actual, ok := locale[key].(string); !ok || actual != expected {
+				return fmt.Errorf("locale %q metadata %q does not match the registry", code, key)
+			}
+		}
+		for key, rawValue := range locale {
+			value, ok := rawValue.(string)
+			if !ok {
+				return fmt.Errorf("locale %q translation %q is not a string", code, key)
+			}
+			if strings.TrimSpace(value) == "" {
+				return fmt.Errorf("locale %q translation %q is empty", code, key)
+			}
+			if forbiddenTranslationFormatPattern.MatchString(value) {
+				return fmt.Errorf("locale %q translation %q uses a forbidden positional or printf placeholder", code, key)
+			}
+		}
+		localizedPluralMessages := pluralMessages(locale, validCategories)
+		if len(localizedPluralMessages) != len(englishPluralMessages) {
+			return fmt.Errorf("locale %q plural message keys do not match English", code)
+		}
+		for base := range englishPluralMessages {
+			localizedCategories, exists := localizedPluralMessages[base]
+			if !exists {
+				return fmt.Errorf("locale %q is missing plural message %q", code, base)
+			}
+			requiredCategories := make(map[string]struct{}, len(registeredLocaleCategories(code))+1)
+			for _, category := range registeredLocaleCategories(code) {
+				requiredCategories[category] = struct{}{}
+			}
+			if _, optionalZero := localizedCategories["zero"]; optionalZero {
+				requiredCategories["zero"] = struct{}{}
+			}
+			if len(localizedCategories) != len(requiredCategories) {
+				return fmt.Errorf("locale %q has unsupported or missing plural categories for %q", code, base)
+			}
+			for category := range requiredCategories {
+				localizedValue, categoryExists := localizedCategories[category]
+				if !categoryExists {
+					return fmt.Errorf("locale %q is missing plural category %q for %q", code, category, base)
+				}
+				if !equalPluralPlaceholders(localizedValue, localizedCategories["other"]) {
+					return fmt.Errorf("locale %q plural category %q has mismatched placeholders for %q", code, category, base)
+				}
+			}
+			for category, localizedValue := range localizedCategories {
+				if !equalPluralPlaceholders(localizedValue, englishPluralMessages[base]["other"]) {
+					return fmt.Errorf("locale %q plural category %q has mismatched placeholders for %q", code, category, base)
+				}
+			}
+		}
+		localizedRegularMessages := regularMessages(locale, localizedPluralMessages)
+		if len(localizedRegularMessages) != len(englishRegularMessages) {
+			return fmt.Errorf("locale %q message keys do not match English", code)
+		}
+		for key, englishValue := range englishRegularMessages {
+			localizedValue, exists := localizedRegularMessages[key]
+			if !exists {
+				return fmt.Errorf("locale %q is missing translation key %q", code, key)
+			}
+			if !equalPlaceholders(localizedValue, englishValue) {
+				return fmt.Errorf("locale %q translation %q has mismatched placeholders", code, key)
 			}
 		}
 	}
-	return result
+	return nil
 }
 
-// init performs build-time key validation at startup.
-// If MODE=production is set, missing keys emit a warning to stdout.
-// In any other mode (development, testing, unset) the process panics so
-// translation gaps are caught before deployment.
-func init() {
-	m := getDefaultManager()
-	missing := validateKeys(m)
-	if len(missing) == 0 {
-		return
+func equalPlaceholders(left, right string) bool {
+	leftMatches := translationPlaceholderPattern.FindAllString(left, -1)
+	rightMatches := translationPlaceholderPattern.FindAllString(right, -1)
+	sort.Strings(leftMatches)
+	sort.Strings(rightMatches)
+	return strings.Join(leftMatches, "\x00") == strings.Join(rightMatches, "\x00")
+}
+
+func equalPluralPlaceholders(left, right string) bool {
+	leftMatches := translationPlaceholderPattern.FindAllString(left, -1)
+	rightMatches := translationPlaceholderPattern.FindAllString(right, -1)
+	leftMatches = withoutCountPlaceholder(leftMatches)
+	rightMatches = withoutCountPlaceholder(rightMatches)
+	sort.Strings(leftMatches)
+	sort.Strings(rightMatches)
+	return strings.Join(leftMatches, "\x00") == strings.Join(rightMatches, "\x00")
+}
+
+func withoutCountPlaceholder(placeholders []string) []string {
+	filtered := placeholders[:0]
+	for _, placeholder := range placeholders {
+		if placeholder != "{count}" {
+			filtered = append(filtered, placeholder)
+		}
 	}
-	var sb strings.Builder
-	for lang, keys := range missing {
-		fmt.Fprintf(&sb, "i18n: locale %q is missing %d key(s): %v\n", lang, len(keys), keys)
+	return filtered
+}
+
+func pluralMessages(translations map[string]any, validCategories map[string]struct{}) map[string]map[string]string {
+	messages := make(map[string]map[string]string)
+	for key, rawValue := range translations {
+		if !strings.HasPrefix(key, "plurals.") {
+			continue
+		}
+		parts := strings.Split(key, ".")
+		if len(parts) < 3 {
+			continue
+		}
+		category := parts[len(parts)-1]
+		if _, valid := validCategories[category]; !valid {
+			continue
+		}
+		value, ok := rawValue.(string)
+		if !ok {
+			continue
+		}
+		base := strings.Join(parts[:len(parts)-1], ".")
+		if messages[base] == nil {
+			messages[base] = make(map[string]string)
+		}
+		messages[base][category] = value
 	}
-	msg := strings.TrimSpace(sb.String())
-	mode := strings.ToLower(strings.TrimSpace(os.Getenv("MODE")))
-	if mode == "production" {
-		fmt.Printf("WARNING: %s\n", msg)
-		return
+	return messages
+}
+
+func registeredLocaleCategories(code string) []string {
+	for _, locale := range localeRegistry {
+		if locale.Code == code {
+			return locale.PluralCategories
+		}
 	}
-	panic("i18n validation failed:\n" + msg)
+	return nil
+}
+
+func regularMessages(translations map[string]any, pluralMessages map[string]map[string]string) map[string]string {
+	messages := make(map[string]string)
+	for key, rawValue := range translations {
+		if !strings.HasPrefix(key, "plurals.") {
+			if value, ok := rawValue.(string); ok {
+				messages[key] = value
+			}
+			continue
+		}
+		parts := strings.Split(key, ".")
+		if len(parts) < 3 {
+			if value, ok := rawValue.(string); ok {
+				messages[key] = value
+			}
+			continue
+		}
+		base := strings.Join(parts[:len(parts)-1], ".")
+		category := parts[len(parts)-1]
+		if _, isPluralMessage := pluralMessages[base]; !isPluralMessage {
+			if value, ok := rawValue.(string); ok {
+				messages[key] = value
+			}
+			continue
+		}
+		if _, validCategory := pluralMessages[base][category]; !validCategory {
+			if value, ok := rawValue.(string); ok {
+				messages[key] = value
+			}
+		}
+	}
+	return messages
+}
+
+func registeredLocale(code string) LocaleSpec {
+	for _, locale := range localeRegistry {
+		if locale.Code == code {
+			return locale
+		}
+	}
+	return LocaleSpec{}
 }

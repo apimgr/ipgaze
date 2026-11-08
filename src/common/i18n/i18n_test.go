@@ -2,8 +2,13 @@ package i18n_test
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/apimgr/ipgaze/src/common/i18n"
@@ -13,6 +18,45 @@ func TestNew(t *testing.T) {
 	m := i18n.NewTranslationManager()
 	if m == nil {
 		t.Fatal("New() returned nil")
+	}
+}
+
+func TestValidateEmbeddedLocales(t *testing.T) {
+	if err := i18n.ValidateEmbeddedLocales(); err != nil {
+		t.Fatalf("embedded locale registry validation failed: %v", err)
+	}
+}
+
+func TestLocaleRegistryMetadata(t *testing.T) {
+	registry := i18n.LocaleRegistry()
+	registered := make(map[string]i18n.LocaleSpec, len(registry))
+	for _, locale := range registry {
+		if locale.Code == "" || locale.Name == "" || locale.NativeName == "" || locale.Direction == "" || len(locale.PluralCategories) == 0 {
+			t.Errorf("incomplete locale registry entry: %#v", locale)
+		}
+		registered[locale.Code] = locale
+	}
+	for _, code := range []string{"en", "es", "fr", "ar", "de", "it"} {
+		if _, ok := registered[code]; !ok {
+			t.Errorf("required locale %q is missing from the registry", code)
+		}
+	}
+}
+
+func TestReadmeListsOnlyRegisteredLocales(t *testing.T) {
+	_, source, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("could not locate i18n test source")
+	}
+	readmePath := filepath.Join(filepath.Dir(source), "..", "..", "..", "README.md")
+	readme, err := os.ReadFile(readmePath)
+	if err != nil {
+		t.Fatalf("read README: %v", err)
+	}
+	codes := strings.Join(i18n.DefaultLocales(), "`, `")
+	want := "| `--lang CODE` | Language for output (default: auto-detect from `LANG`; supported (" + fmt.Sprint(len(i18n.DefaultLocales())) + "): `" + codes + "`) |"
+	if !strings.Contains(string(readme), want) {
+		t.Fatalf("README language list does not match registry; want %q", want)
 	}
 }
 
@@ -506,6 +550,18 @@ func TestTranslatePlural_Arabic(t *testing.T) {
 	}
 	if two == "" {
 		t.Error("TranslatePlural(ar, plurals.items, 2) returned empty")
+	}
+}
+
+func TestTranslatePlural_Italian(t *testing.T) {
+	if got := i18n.TranslatePlural("it", "plurals.items", 1); got != "1 elemento" {
+		t.Errorf("TranslatePlural(it, plurals.items, 1) = %q, want %q", got, "1 elemento")
+	}
+	if got := i18n.TranslatePlural("it", "plurals.items", 2_000_000); got != "2000000 elementi" {
+		t.Errorf("TranslatePlural(it, plurals.items, 2000000) = %q, want %q", got, "2000000 elementi")
+	}
+	if got := i18n.TranslatePlural("it", "plurals.items", 0); got != "0 elementi" {
+		t.Errorf("TranslatePlural(it, plurals.items, 0) = %q, want %q", got, "0 elementi")
 	}
 }
 

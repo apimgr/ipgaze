@@ -82,6 +82,7 @@ build: clean
 	@echo "Tidying and downloading Go modules..."
 	@$(GO_DOCKER) sh -c "go mod tidy"
 	@$(GO_DOCKER) sh -c "go mod download"
+	@$(GO_DOCKER) sh -c "go test ./src/common/i18n"
 
 	# Build for local OS/ARCH
 	@echo "Building local binary..."
@@ -127,6 +128,7 @@ local: clean
 	@echo "Tidying and downloading Go modules..."
 	@$(GO_DOCKER) sh -c "go mod tidy"
 	@$(GO_DOCKER) sh -c "go mod download"
+	@$(GO_DOCKER) sh -c "go test ./src/common/i18n"
 
 	# Build server binary
 	@echo "Building $(PROJECTNAME)..."
@@ -150,6 +152,7 @@ local: clean
 dev:
 	@mkdir -p $(GO_CACHE) $(GO_BUILD)
 	@$(GO_DOCKER) go mod tidy
+	@$(GO_DOCKER) go test ./src/common/i18n
 	@mkdir -p "$${TMPDIR:-/tmp}/$(PROJECTORG)" && \
 		BUILD_DIR=$$(mktemp -d "$${TMPDIR:-/tmp}/$(PROJECTORG)/$(INTERNALNAME)-XXXXXX") && \
 		echo "Quick dev build to $$BUILD_DIR..." && \

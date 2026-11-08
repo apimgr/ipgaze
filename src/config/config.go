@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/apimgr/ipgaze/src/common/i18n"
 	"github.com/apimgr/ipgaze/src/common/updatechannel"
 	"github.com/google/uuid"
 	"gopkg.in/yaml.v3"
@@ -2218,7 +2219,7 @@ func DefaultConfig() *AppConfig {
 			I18n: I18nConfig{
 				Enabled:            true,
 				DefaultLanguage:    "en",
-				AvailableLanguages: []string{"en", "es", "zh", "fr", "ar", "de", "ja"},
+				AvailableLanguages: i18n.DefaultLocales(),
 				FallbackLanguage:   "en",
 			},
 			Healthz: HealthzConfig{

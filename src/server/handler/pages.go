@@ -171,6 +171,7 @@ func NewPagesHandler(version, buildDate string, trust *netutil.TrustResolver, re
 type PageData struct {
 	Lang          string
 	Dir           string
+	RequestPath   string
 	Theme         string
 	DefaultWidget string
 	CanonicalURL  string
@@ -431,6 +432,7 @@ func (h *PagesHandler) NewPageData(r *http.Request) PageData {
 	data := PageData{
 		Lang:          lang,
 		Dir:           dir,
+		RequestPath:   r.URL.Path,
 		Theme:         theme,
 		DefaultWidget: lookupWidgetPreference(r),
 		CanonicalURL:  canonicalURL,
@@ -961,9 +963,10 @@ func (h *PagesHandler) ServerContactHandler(w http.ResponseWriter, r *http.Reque
 
 func contactRequestFromForm(r *http.Request, provider string) ContactRequest {
 	captcha := strings.TrimSpace(r.FormValue("captcha"))
-	if provider == "recaptcha" {
+	switch provider {
+	case "recaptcha":
 		captcha = strings.TrimSpace(r.FormValue("g-recaptcha-response"))
-	} else if provider == "hcaptcha" {
+	case "hcaptcha":
 		captcha = strings.TrimSpace(r.FormValue("h-captcha-response"))
 	}
 	return ContactRequest{

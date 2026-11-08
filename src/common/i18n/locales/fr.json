@@ -303,6 +303,7 @@
     "no_tracking_body": "Nous n'utilisons ni analyses, ni pixels de suivi, ni cookies tiers. Nous ne vendons ni ne partageons vos données avec des tiers.",
     "contact_body_pre": "Pour toute question relative à la confidentialité, contactez :",
     "dpo_title": "Délégué à la protection des données",
+    "dpo_heading": "Contact pour la protection des données",
     "dpo_name": "Nom",
     "dpo_email": "E-mail",
     "dpo_contact_unavailable": "Aucun contact pour la protection des données n'est configuré.",
@@ -416,6 +417,7 @@
   "preferences": {
     "title": "Preferences",
     "heading": "Preferences",
+    "display_heading": "Préférences d’affichage",
     "intro": "Your theme and language choices are stored in cookies on this device only. Use the link below to carry them and your default command example to another browser or device.",
     "current_theme_label": "Current theme",
     "current_lang_label": "Current language",

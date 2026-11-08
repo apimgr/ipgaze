@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/apimgr/ipgaze/src/common/i18n"
 	"github.com/apimgr/ipgaze/src/config"
 	"github.com/apimgr/ipgaze/src/paths"
 )
@@ -485,6 +486,11 @@ func TestPrintHelp_ContainsFlags(t *testing.T) {
 		if !strings.Contains(out, f) {
 			t.Errorf("printHelp() missing flag %q", f)
 		}
+	}
+	locales := i18n.DefaultLocales()
+	wantLanguages := fmt.Sprintf("supported (%d): %s", len(locales), strings.Join(locales, ", "))
+	if !strings.Contains(out, wantLanguages) {
+		t.Errorf("printHelp() missing registry locale list %q", wantLanguages)
 	}
 }
 

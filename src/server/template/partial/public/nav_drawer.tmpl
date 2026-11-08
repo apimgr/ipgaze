@@ -1,0 +1,17 @@
+{{define "nav_drawer"}}
+<div class="nav-panel" id="nav-panel" role="navigation" aria-label="{{t .Lang "nav.main_navigation"}}">
+  <ul role="list">
+    <li><a href="/"{{if eq .RequestPath "/"}} aria-current="page"{{end}}>{{t .Lang "nav.home"}}</a></li>
+    <li><a href="/server/about"{{if eq .RequestPath "/server/about"}} aria-current="page"{{end}}>{{t .Lang "nav.about"}}</a></li>
+    <li><a href="/server/healthz"{{if eq .RequestPath "/server/healthz"}} aria-current="page"{{end}}>{{t .Lang "nav.status"}}</a></li>
+  </ul>
+  <form method="get" action="" class="lang-select-form nav-drawer-language">
+    <label for="drawer-lang-select">{{t .Lang "common.select_language"}}</label>
+    <select id="drawer-lang-select" name="lang" class="lang-select">
+      {{range languages}}<option value="{{.Code}}"{{if eq .Code $.Lang}} selected{{end}}>{{.NativeName}}</option>{{end}}
+    </select>
+    <button type="submit" class="btn btn-primary">{{t .Lang "common.submit"}}</button>
+  </form>
+</div>
+<label for="nav-toggle" class="nav-overlay" aria-hidden="true"></label>
+{{end}}

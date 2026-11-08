@@ -714,6 +714,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
   initHealthzCountdown();
   initNavToggleAria();
+  initResponsiveNavigation();
   initWidget();
 });
 
@@ -723,9 +724,68 @@ document.addEventListener('DOMContentLoaded', function() {
 function initNavToggleAria() {
   const cb = document.getElementById('nav-toggle');
   if (!cb) { return; }
-  const sync = function() { cb.setAttribute('aria-expanded', cb.checked ? 'true' : 'false'); };
+  const panel = document.getElementById('nav-panel');
+  const sync = function() {
+    cb.setAttribute('aria-expanded', cb.checked ? 'true' : 'false');
+    if (panel) { panel.inert = !cb.checked; }
+  };
   cb.addEventListener('change', sync);
+  document.addEventListener('keydown', function(event) {
+    if (event.key !== 'Escape' || !cb.checked) { return; }
+    cb.checked = false;
+    sync();
+    const toggle = document.querySelector('.nav-burger');
+    if (toggle) { toggle.focus(); }
+  });
+  document.querySelectorAll('#nav-panel a').forEach(function(link) {
+    link.addEventListener('click', function() {
+      cb.checked = false;
+      sync();
+    });
+  });
   sync();
+}
+
+// initResponsiveNavigation keeps the inline menu only when its links fit.
+function initResponsiveNavigation() {
+  const nav = document.getElementById('navigation');
+  const inner = nav && nav.querySelector('.nav-inner');
+  const links = nav && nav.querySelector('.nav-links');
+  if (!nav || !inner || !links) { return; }
+  let scheduled = false;
+  const update = function() {
+    scheduled = false;
+    nav.classList.remove('nav-overflow');
+    if (window.innerWidth < 768) { return; }
+    const innerWidth = inner.clientWidth;
+    const children = Array.from(inner.children);
+    const usedWidth = children.reduce(function(total, child) {
+      return total + child.getBoundingClientRect().width;
+    }, 0);
+    const gap = parseFloat(window.getComputedStyle(inner).columnGap) || 0;
+    if (usedWidth + gap * Math.max(children.length - 1, 0) > innerWidth + 1) {
+      nav.classList.add('nav-overflow');
+      return;
+    }
+    const toggle = document.getElementById('nav-toggle');
+    if (toggle && toggle.checked) {
+      toggle.checked = false;
+      toggle.setAttribute('aria-expanded', 'false');
+      const panel = document.getElementById('nav-panel');
+      if (panel) { panel.inert = true; }
+    }
+  };
+  const schedule = function() {
+    if (scheduled) { return; }
+    scheduled = true;
+    window.requestAnimationFrame(update);
+  };
+  window.addEventListener('resize', schedule);
+  if (window.ResizeObserver) {
+    new ResizeObserver(schedule).observe(nav);
+  }
+  if (document.fonts && document.fonts.ready) { document.fonts.ready.then(schedule); }
+  schedule();
 }
 
 // initHealthzCountdown drives the visible refresh countdown on /server/healthz.

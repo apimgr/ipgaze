@@ -2,6 +2,7 @@
 <html lang="{{.Lang}}" dir="{{.Dir}}" class="theme-{{.Theme}}">
 {{template "head" .}}
 <body{{block "body_attrs" .}}{{end}}>
+  <input type="checkbox" id="nav-toggle" class="nav-checkbox" aria-expanded="false" aria-controls="nav-panel">
   {{if .AnalyticsNoScript}}<noscript><img src="https://queue.simpleanalyticscdn.com/noscript.gif" alt="" referrerpolicy="no-referrer-when-downgrade"></noscript>{{end}}
   <a href="#main-content" class="skip-link">{{t .Lang "accessibility.skip_to_content"}}</a>
   <a href="#navigation" class="skip-link">{{t .Lang "nav.skip_to_navigation"}}</a>
@@ -33,6 +34,7 @@
   <main id="main-content" class="container" role="main">
     {{block "content" .}}{{end}}
   </main>
+  {{template "nav_drawer" .}}
   {{template "footer" .}}
   {{template "scripts" .}}
 </body>

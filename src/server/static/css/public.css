@@ -24,71 +24,6 @@
   margin: var(--space-lg) 0;
 }
 
-/* Header */
-#main-header {
-  background: var(--color-bg-secondary);
-  border-bottom: 2px solid var(--color-border);
-  padding: var(--space-md) 0;
-}
-
-.header-container {
-  max-width: 1200px;
-  margin: 0 auto;
-  padding: 0 var(--space-lg);
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.header-left {
-  display: flex;
-  align-items: center;
-  gap: var(--space-md);
-}
-
-.logo {
-  font-size: 1.5rem;
-  font-weight: bold;
-  color: var(--color-text);
-  text-decoration: none;
-}
-
-.logo:hover {
-  color: var(--color-primary);
-}
-
-.mobile-menu-toggle {
-  display: none;
-  background: none;
-  border: none;
-  color: var(--color-text);
-  font-size: 1.5rem;
-  cursor: pointer;
-  padding: var(--space-sm);
-}
-
-.header-center {
-  display: flex;
-  gap: var(--space-lg);
-}
-
-.header-center a {
-  color: var(--color-muted);
-  text-decoration: none;
-  transition: color var(--transition-fast);
-  font-weight: 500;
-}
-
-.header-center a:hover {
-  color: var(--color-text);
-}
-
-.header-right {
-  display: flex;
-  align-items: center;
-  gap: var(--space-md);
-}
-
 .theme-toggle-form {
   display: flex;
 }
@@ -103,8 +38,9 @@
 
 .lang-select {
   font-family: inherit;
-  font-size: 0.85rem;
-  padding: 2px var(--space-xs);
+  font-size: 1rem;
+  min-height: 44px;
+  padding: 0 var(--space-xs);
   color: var(--color-text);
   background: var(--color-bg-card);
   border: 1px solid var(--color-border);
@@ -114,6 +50,9 @@
 .header-link {
   display: flex;
   align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  min-height: 44px;
   color: var(--color-muted);
   text-decoration: none;
   font-size: 1.2rem;
@@ -317,7 +256,15 @@
   justify-content: center;
 }
 
+@media (max-width: 767px) {
+  .nav-links { display: none; }
+  .nav-burger { display: flex; }
+}
+
 .nav-links a {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
   color: var(--color-muted);
   text-decoration: none;
   padding: var(--space-xs) var(--space-sm);
@@ -339,20 +286,24 @@
   width: 1px;
   height: 1px;
   padding: 0;
-  margin: -1px;
+  margin: 0;
   overflow: hidden;
-  clip: rect(0, 0, 0, 0);
+  clip-path: inset(50%);
   white-space: nowrap;
   border-width: 0;
 }
 
-.nav-checkbox:focus-visible ~ .nav-inner .nav-burger {
+body:has(.nav-checkbox:focus-visible) .nav-burger {
   outline: 2px solid var(--color-primary);
   outline-offset: 2px;
 }
 
 .nav-burger {
   display: none;
+  min-width: 44px;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
   background: none;
   border: none;
   color: var(--color-text);
@@ -363,11 +314,36 @@
   user-select: none;
 }
 
+.nav-overflow .nav-burger { display: flex; }
+.nav-overflow .nav-links { display: none; }
+.nav-overflow .nav-actions .lang-select-form { display: none; }
+body:has(#navigation.nav-overflow) .nav-drawer-language { display: flex; }
+
 .nav-panel {
-  display: none;
-  background: var(--color-bg-secondary);
-  border-bottom: 1px solid var(--color-border);
-  padding: var(--space-sm);
+  position: fixed;
+  inset-block: 0;
+  inset-inline-end: 0;
+  width: min(280px, 85vw);
+  height: 100dvh;
+  overflow-y: auto;
+  padding: var(--space-4) var(--space-4) calc(var(--space-4) + env(safe-area-inset-bottom));
+  padding-inline-end: calc(var(--space-4) + max(env(safe-area-inset-left), env(safe-area-inset-right)));
+  background: var(--color-bg);
+  border-inline-start: 1px solid var(--color-border);
+  transform: translateX(100%);
+  visibility: hidden;
+  transition: transform var(--transition-normal), visibility 0s linear var(--transition-normal);
+  z-index: var(--z-drawer);
+}
+
+[dir="rtl"] .nav-panel {
+  border-inline-start: 0;
+  border-inline-end: 1px solid var(--color-border);
+  transform: translateX(-100%);
+}
+
+body:has(.nav-checkbox:checked) {
+  overflow: hidden;
 }
 
 .nav-panel ul {
@@ -376,14 +352,24 @@
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: var(--space-1);
+}
+
+.nav-drawer-language {
+  display: none;
+}
+
+.lang-select-form {
+  align-items: center;
+  gap: var(--space-2);
 }
 
 .nav-panel a {
   display: block;
   color: var(--color-muted);
   text-decoration: none;
-  padding: var(--space-xs) var(--space-sm);
+  min-height: 44px;
+  padding: var(--space-3) var(--space-4);
   border-radius: 4px;
 }
 
@@ -392,19 +378,28 @@
   background: var(--color-bg-hover);
 }
 
+.nav-links a[aria-current="page"],
+.nav-panel a[aria-current="page"] {
+  color: var(--color-primary);
+  background: var(--color-bg-active);
+}
+
 .nav-overlay {
   display: none;
   position: fixed;
   inset: 0;
-  z-index: 90;
-  background: rgba(0, 0, 0, 0.4);
+  z-index: var(--z-overlay);
+  background: rgba(0, 0, 0, 0.5);
+  cursor: pointer;
 }
 
-.nav-checkbox:checked ~ .nav-panel {
-  display: block;
+#nav-toggle:checked ~ #nav-panel {
+  transform: none;
+  visibility: visible;
+  transition: transform var(--transition-normal);
 }
 
-.nav-checkbox:checked ~ .nav-overlay {
+#nav-toggle:checked ~ .nav-overlay {
   display: block;
 }
 
@@ -479,7 +474,7 @@
   background: var(--color-bg-secondary);
   border-top: 1px solid var(--color-border);
   text-align: center;
-  padding: 1rem;
+  padding: var(--space-4);
   font-size: 0.875rem;
   color: var(--color-muted);
 }
@@ -494,13 +489,26 @@
 }
 
 .footer p {
-  margin: 0.25rem 0;
+  margin: var(--space-1) 0;
 }
 
 @media (min-width: 768px) {
   .footer {
-    padding: 1.5rem;
+    padding: var(--space-5);
   }
+}
+
+@media (max-width: 767px) {
+  .nav-actions .lang-select-form { display: none; }
+  .nav-drawer-language {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--space-2);
+    margin-block-start: var(--space-5);
+  }
+  .nav-drawer-language select,
+  .nav-drawer-language button { width: 100%; }
 }
 
 /* ============================================================================
@@ -511,7 +519,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  min-height: 60vh;
+  min-height: 60dvh;
 }
 
 .error-card {
@@ -532,30 +540,6 @@
    ============================================================================ */
 
 /* Mobile base styles (no min-width query — mobile-first default) */
-.mobile-menu-toggle {
-  display: block;
-}
-
-.header-center {
-  position: absolute;
-  top: 70px;
-  left: 0;
-  right: 0;
-  background: var(--color-bg-secondary);
-  flex-direction: column;
-  display: none;
-  padding: var(--space-md);
-  border-bottom: 2px solid var(--color-border);
-}
-
-.header-center.active {
-  display: flex;
-}
-
-.header-center a {
-  padding: var(--space-md);
-  border-bottom: 1px solid var(--color-border);
-}
 
 #main-content {
   padding: var(--space-md);
@@ -578,23 +562,8 @@
 
 /* Tablet and up (768px+) */
 @media (min-width: 768px) {
-  .mobile-menu-toggle {
-    display: none;
-  }
-
-  .header-center {
-    position: static;
-    flex-direction: row;
-    display: flex;
-    padding: 0;
-    border-bottom: none;
-    background: transparent;
-  }
-
-  .header-center a {
-    padding: 0;
-    border-bottom: none;
-  }
+  #nav-toggle { display: none; }
+  body:has(#navigation.nav-overflow) #nav-toggle { display: block; }
 
   #main-content {
     width: 90%;
@@ -621,14 +590,18 @@
     border-bottom: none;
     padding: 0;
   }
-  .nav-panel { display: none; }
+  .nav-panel,
   .nav-overlay { display: none; }
-  /* Beats `.nav-checkbox:checked ~ .nav-panel`/`.nav-overlay` (same
-     specificity, defined earlier in this file) by source order instead of
-     `!important` — the mobile nav toggle stays hidden on desktop even if
-     the checkbox is left checked from a narrower viewport. */
-  .nav-checkbox:checked ~ .nav-panel { display: none; }
-  .nav-checkbox:checked ~ .nav-overlay { display: none; }
+  #nav-toggle:checked ~ #nav-panel,
+  #nav-toggle:checked ~ .nav-overlay { display: none; }
+
+  body:has(#navigation.nav-overflow) .nav-panel { display: block; }
+  body:has(#navigation.nav-overflow) #nav-toggle:checked ~ #nav-panel {
+    display: block;
+  }
+  body:has(#navigation.nav-overflow) #nav-toggle:checked ~ .nav-overlay {
+    display: block;
+  }
 
   .features-grid,
   .stats-grid {
@@ -869,11 +842,8 @@ html.theme-light .location-map {
 
 /* Print Styles */
 @media print {
-  #main-header,
-  #main-footer,
   .theme-toggle-form,
-  .lang-select-form,
-  .mobile-menu-toggle {
+  .lang-select-form {
     display: none;
   }
 

@@ -2,18 +2,28 @@
 {{define "title"}}{{t .Lang "terms.title"}} — {{.ProjectName}}{{end}}
 {{define "content"}}
 <h1>{{t .Lang "terms.title"}}</h1>
+<p>{{t .Lang "privacy.last_updated"}} {{.BuildDate}}</p>
 <section class="section-card">
-  <p>{{t .Lang "privacy.last_updated"}} {{.BuildDate}}</p>
   <h2>{{t .Lang "terms.acceptance"}}</h2>
   <p>{{t .Lang "terms.acceptance_body"}}</p>
+</section>
+<section class="section-card">
   <h2>{{t .Lang "terms.acceptable_use"}}</h2>
   <p>{{t .Lang "terms.acceptable_use_body"}}</p>
+</section>
+<section class="section-card">
   <h2>{{t .Lang "terms.no_warranty_heading"}}</h2>
   <p>{{t .Lang "terms.no_warranty_body"}}</p>
+</section>
+<section class="section-card">
   <h2>{{t .Lang "terms.rate_limiting_heading"}}</h2>
   <p>{{t .Lang "terms.rate_limiting_body"}}</p>
+</section>
+<section class="section-card">
   <h2>{{t .Lang "terms.changes"}}</h2>
   <p>{{t .Lang "terms.changes_body"}}</p>
+</section>
+<section class="section-card">
   <h2>{{t .Lang "terms.governing_law"}}</h2>
   <p>{{t .Lang "terms.governing_law_body"}}</p>
 </section>

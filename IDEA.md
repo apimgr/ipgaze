@@ -33,7 +33,7 @@ repository:        https://github.com/apimgr/ipgaze
 - Tor exit-node detection (cross-referenced against Tor exit node list)
 - echoip-compatible API surface (same routes, response formats, user-agent detection behavior)
 - Multiple output formats per endpoint: JSON, plain text, HTML (content negotiation)
-- Guest UI preferences for theme, language, and the default landing-page curl example widget; stored in cookies and never used to alter echoip-compatible API responses
+- Guest UI preferences for theme, language, and the default landing-page curl example widget; built-in UI and CLI locales are English, Spanish, French, German, Italian, Chinese, Arabic, and Japanese. Preferences are stored in cookies and never used to alter echoip-compatible API responses
 - CLI user-agent detection: curl, wget, HTTPie, Go HTTP client, Mikrotik, ddclient, xh → plain text response
 - Reverse DNS hostname lookup (always enabled, no flag)
 - Port reachability testing (always enabled, no flag)

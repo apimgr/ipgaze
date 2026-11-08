@@ -3,8 +3,8 @@
 {{define "content"}}
 <h1>{{t .Lang "security.title"}}</h1>
 <section class="section-card">
-  <p>{{t .Lang "security.intro"}}</p>
   <h2>{{t .Lang "security.reporting_channels"}}</h2>
+  <p>{{t .Lang "security.intro"}}</p>
   <ol>
     {{range .ReportingChannels}}
     <li><a href="{{.URL}}">{{.Type}}</a></li>
@@ -13,8 +13,12 @@
   <p>{{t .Lang "security.instance_report_form"}}: <code>{{.ReportFormURL}}</code></p>
   <p>{{t .Lang "security.contact_file_expires"}}: <time>{{.Expires}}</time></p>
   {{if .EncryptionURL}}<p>{{t .Lang "security.pgp_encryption_key"}}: <a href="{{.EncryptionURL}}">{{.EncryptionURL}}</a></p>{{end}}
+</section>
+<section class="section-card">
   <h2>{{t .Lang "security.txt_heading"}}</h2>
   <p>{{t .Lang "security.txt_body"}} <a href="{{.SecurityTxt}}">/.well-known/security.txt</a>.</p>
+</section>
+<section class="section-card">
   <h2>{{t .Lang "security.resources"}}</h2>
   <ul>
     <li><a href="/server/security/policy">{{t .Lang "security.disclosure_policy"}}</a></li>

@@ -3,6 +3,7 @@
 {{define "content"}}
 <h1>{{t .Lang "privacy.dpo_title"}}</h1>
 <section class="section-card">
+  <h2>{{t .Lang "privacy.dpo_heading"}}</h2>
   {{if .Name}}<p><strong>{{t .Lang "privacy.dpo_name"}}:</strong> {{.Name}}</p>{{end}}
   {{if .Email}}
   <p><strong>{{t .Lang "privacy.dpo_email"}}:</strong> <a href="mailto:{{.Email}}">{{.Email}}</a></p>

@@ -3,6 +3,7 @@
 {{define "content"}}
 <h1>{{t .Lang "preferences.heading"}}</h1>
 <section class="section-card">
+  <h2>{{t .Lang "preferences.display_heading"}}</h2>
   <p>{{t .Lang "preferences.intro"}}</p>
   <!-- One POST sets both cookies; works with zero JS via the PRG redirect back to this page -->
   <form method="post" action="/server/preferences">

@@ -1,22 +1,21 @@
 {{define "nav"}}
 <nav id="navigation" class="site-nav" role="navigation" aria-label="{{t .Lang "nav.main_navigation"}}">
-  <input type="checkbox" id="nav-toggle" class="nav-checkbox" aria-expanded="false" aria-controls="nav-panel">
   <div class="container nav-inner">
     <a href="/" class="nav-logo" aria-label="{{tf .Lang "nav.home_aria" "app" .ProjectName}}">
       <span class="nav-brand">{{.ProjectName}}</span>
     </a>
     <ul class="nav-links" role="list">
-      <li><a href="/">{{t .Lang "nav.home"}}</a></li>
-      <li><a href="/server/about">{{t .Lang "nav.about"}}</a></li>
-      <li><a href="/server/healthz">{{t .Lang "nav.status"}}</a></li>
+      <li><a href="/"{{if eq .RequestPath "/"}} aria-current="page"{{end}}>{{t .Lang "nav.home"}}</a></li>
+      <li><a href="/server/about"{{if eq .RequestPath "/server/about"}} aria-current="page"{{end}}>{{t .Lang "nav.about"}}</a></li>
+      <li><a href="/server/healthz"{{if eq .RequestPath "/server/healthz"}} aria-current="page"{{end}}>{{t .Lang "nav.status"}}</a></li>
     </ul>
     <div class="header-actions nav-actions">
-      <label for="nav-toggle" class="nav-burger" aria-label="{{t .Lang "nav.toggle_navigation"}}">☰</label>
+      <label for="nav-toggle" class="nav-burger" aria-label="{{t .Lang "nav.toggle_navigation"}}" title="{{t .Lang "nav.toggle_navigation"}}">☰</label>
       <a href="/server/preferences" class="header-link" aria-label="{{t .Lang "nav.preferences"}}" title="{{t .Lang "nav.preferences"}}">
         <span class="icon-preferences" aria-hidden="true">⚙️</span>
       </a>
       <form method="get" action="" class="lang-select-form">
-        <label for="lang-select" class="sr-only">{{t .Lang "common.select_language"}}</label>
+        <label for="lang-select" class="lang-select-label">{{t .Lang "common.select_language"}}</label>
         <select id="lang-select" name="lang" class="lang-select">
           {{range languages}}<option value="{{.Code}}"{{if eq .Code $.Lang}} selected{{end}}>{{.NativeName}}</option>
           {{end}}
@@ -39,15 +38,5 @@
       </button>
     </div>
   </div>
-  <div class="nav-panel" id="nav-panel">
-    <div class="container">
-      <ul role="list">
-        <li><a href="/">{{t .Lang "nav.home"}}</a></li>
-        <li><a href="/server/about">{{t .Lang "nav.about"}}</a></li>
-        <li><a href="/server/healthz">{{t .Lang "nav.status"}}</a></li>
-      </ul>
-    </div>
-  </div>
-  <label for="nav-toggle" class="nav-overlay" aria-hidden="true"></label>
 </nav>
 {{end}}

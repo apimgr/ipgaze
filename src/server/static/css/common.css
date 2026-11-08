@@ -20,11 +20,18 @@
    themes, and for the prefers-color-scheme auto branch. */
 :root {
   /* Layout spacing */
-  --space-xs: 4px;
-  --space-sm: 8px;
-  --space-md: 16px;
-  --space-lg: 24px;
-  --space-xl: 32px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+  --space-xs: var(--space-1);
+  --space-sm: var(--space-2);
+  --space-md: var(--space-4);
+  --space-lg: var(--space-5);
+  --space-xl: var(--space-6);
 
   /* Typography */
   --font-primary: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Open Sans", sans-serif;
@@ -48,7 +55,9 @@
   --z-dropdown: 100;
   --z-sticky: 200;
   --z-overlay: 300;
+  --z-drawer: 350;
   --z-modal: 400;
+  --z-banner: 450;
   --z-toast: 500;
   --z-tooltip: 600;
 
@@ -83,10 +92,14 @@ html.theme-light {
 /* Accessibility: Skip link (WCAG 2.1 AA) */
 .skip-link {
   position: absolute;
-  inset-inline-start: -9999px;
+  inset-inline-start: 0;
   top: 0;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
   z-index: var(--z-tooltip);
-  padding: 0.75rem 1.5rem;
+  padding: var(--space-3) var(--space-5);
   background: var(--color-primary);
   color: var(--color-text-on-primary);
   font-weight: bold;
@@ -95,6 +108,9 @@ html.theme-light {
 }
 .skip-link:focus {
   inset-inline-start: 0;
+  width: auto;
+  height: auto;
+  clip-path: none;
   outline: 3px solid var(--color-warning);
   outline-offset: 2px;
 }
@@ -117,7 +133,7 @@ body {
   background-color: var(--color-bg);
   color: var(--color-text);
   line-height: 1.6;
-  min-height: 100vh;
+  min-height: 100dvh;
   display: flex;
   flex-direction: column;
 }
@@ -157,7 +173,7 @@ code {
   font-family: 'Courier New', Courier, monospace;
   font-size: 0.9em;
   background: var(--color-code-bg);
-  padding: 1px 4px;
+  padding: 0 var(--space-1);
   border-radius: 3px;
 }
 
@@ -252,9 +268,8 @@ pre {
   width: 1px;
   height: 1px;
   padding: 0;
-  margin: -1px;
   overflow: hidden;
-  clip: rect(0, 0, 0, 0);
+  clip-path: inset(50%);
   white-space: nowrap;
   border-width: 0;
 }

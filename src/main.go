@@ -2131,6 +2131,7 @@ func bannerPortSuffix(proto, port string) string {
 }
 
 func printHelp(binaryName string) {
+	locales := i18n.DefaultLocales()
 	fmt.Printf(`%s %s - IP address lookup service with GeoIP information
 
 Usage:
@@ -2162,7 +2163,7 @@ Server Configuration:
       --daemon                      Run as daemon (detach from terminal)
       --debug                       Enable debug mode
       --color {auto|yes|no}         Color output (default: auto)
-      --lang CODE                   Language for output (default: auto)
+      --lang CODE                   Language for output (default: auto; supported (%d): %s)
 
 Additional Options:
       --header HEADER               Header to trust for remote IP (repeatable)
@@ -2177,7 +2178,7 @@ Detailed help:
   %s --service --help
   %s --maintenance --help
   %s --update --help
-`, binaryName, Version, binaryName, binaryName, binaryName, binaryName, binaryName)
+`, binaryName, Version, binaryName, len(locales), strings.Join(locales, ", "), binaryName, binaryName, binaryName, binaryName)
 }
 
 // applyModeString parses a mode string (from the MODE env var or the --mode
@@ -3855,16 +3856,13 @@ func restoreBackupFile(path string, contents []byte, existed bool) error {
 	tmpPath := tmp.Name()
 	defer os.Remove(tmpPath) //nolint:errcheck
 	if _, err := tmp.Write(contents); err != nil {
-		tmp.Close()
-		return err
+		return errors.Join(err, tmp.Close())
 	}
 	if err := tmp.Chmod(0o600); err != nil {
-		tmp.Close()
-		return err
+		return errors.Join(err, tmp.Close())
 	}
 	if err := tmp.Sync(); err != nil {
-		tmp.Close()
-		return err
+		return errors.Join(err, tmp.Close())
 	}
 	if err := tmp.Close(); err != nil {
 		return err
@@ -4004,16 +4002,13 @@ func maintenanceBackupAtWithSnapshot(cfg *config.AppConfig, configDir, dataDir, 
 		}
 	}()
 	if _, err := candidate.Write(payload); err != nil {
-		candidate.Close()
-		return fmt.Errorf("backup: write candidate archive: %w", err)
+		return fmt.Errorf("backup: write candidate archive: %w", errors.Join(err, candidate.Close()))
 	}
 	if err := candidate.Chmod(0o600); err != nil {
-		candidate.Close()
-		return fmt.Errorf("backup: secure candidate archive: %w", err)
+		return fmt.Errorf("backup: secure candidate archive: %w", errors.Join(err, candidate.Close()))
 	}
 	if err := candidate.Sync(); err != nil {
-		candidate.Close()
-		return fmt.Errorf("backup: sync candidate archive: %w", err)
+		return fmt.Errorf("backup: sync candidate archive: %w", errors.Join(err, candidate.Close()))
 	}
 	if err := candidate.Close(); err != nil {
 		return fmt.Errorf("backup: close candidate archive: %w", err)

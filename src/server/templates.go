@@ -149,6 +149,7 @@ func buildBaseTemplate(assetStamp string) *template.Template {
 		"template/partial/scripts.tmpl",
 		"template/partial/public/header.tmpl",
 		"template/partial/public/nav.tmpl",
+		"template/partial/public/nav_drawer.tmpl",
 		"template/partial/public/footer.tmpl",
 		"template/partial/error.tmpl",
 		"template/partial/announcement_banner.tmpl",

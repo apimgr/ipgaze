@@ -8,10 +8,9 @@ target locale file and never change `en.json` as part of a translation update.
 
 IPGaze embeds eight locale files in both binaries: English (`en`), Spanish
 (`es`), French (`fr`), German (`de`), Italian (`it`), Chinese (`zh`), Arabic
-(`ar`), and Japanese (`ja`). Arabic uses a right-to-left layout. The Italian
-locale is an Argos machine-translation draft and needs fluent human review
-before it is considered approved. The language selector and CLI help derive
-their supported-language list from the same registry as these embedded files.
+(`ar`), and Japanese (`ja`). Arabic uses a right-to-left layout. The language
+selector and CLI help derive their supported-language list from the same
+registry as these embedded files.
 
 ## Contribute or update a translation
 
@@ -33,10 +32,11 @@ their supported-language list from the same registry as these embedded files.
    language configuration changes together. Update the README language list
    and this page's language count in the same change.
 
-Machine translation may be used for a first draft, but a fluent human reviewer
-must check every string before merge. Keep a consistent, neutral register and
-follow the language's punctuation and typography rules. Use complete sentences
-instead of relying on adjacent fragments.
+AI-assisted and machine translations are welcome as best-effort contributions;
+they do not need to wait for native-speaker review before merging. Human
+reviewers are welcome to correct wording at any time. Keep a consistent,
+neutral register and follow the language's punctuation and typography rules.
+Use complete sentences instead of relying on adjacent fragments.
 
 ## Validation and review
 

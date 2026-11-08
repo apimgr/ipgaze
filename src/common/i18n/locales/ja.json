@@ -303,6 +303,7 @@
     "no_tracking_body": "アナリティクス、トラッキングピクセル、サードパーティのCookieは使用しません。お客様のデータを第三者に販売または共有することはありません。",
     "contact_body_pre": "プライバシーに関するお問い合わせは：",
     "dpo_title": "データ保護責任者",
+    "dpo_heading": "データ保護の連絡先",
     "dpo_name": "氏名",
     "dpo_email": "メールアドレス",
     "dpo_contact_unavailable": "データ保護に関する連絡先は設定されていません。",
@@ -416,6 +417,7 @@
   "preferences": {
     "title": "Preferences",
     "heading": "Preferences",
+    "display_heading": "表示設定",
     "intro": "Your theme and language choices are stored in cookies on this device only. Use the link below to carry them and your default command example to another browser or device.",
     "current_theme_label": "Current theme",
     "current_lang_label": "Current language",
@@ -496,29 +498,23 @@
   "plurals": {
     "items": {
       "other": "{count} 件",
-      "zero": "{count} 件",
-      "one": "{count} 件"
+      "zero": "項目はありません"
     },
     "results": {
       "other": "{count} 件の結果",
-      "zero": "{count} 件の結果",
-      "one": "{count} 件の結果"
+      "zero": "結果はありません"
     },
     "users": {
       "other": "{count} 人のユーザー",
-      "zero": "{count} 人のユーザー",
-      "one": "{count} 人のユーザー"
+      "zero": "ユーザーはいません"
     },
     "days": {
-      "other": "{count} 日",
-      "one": "{count} 日"
+      "other": "{count} 日"
     },
     "hours": {
-      "one": "{count} 時間",
       "other": "{count} 時間"
     },
     "minutes": {
-      "one": "{count} 分",
       "other": "{count} 分"
     }
   },

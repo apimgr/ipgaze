@@ -64,6 +64,9 @@ jobs:
             echo "OFFICIAL_SITE=${{ secrets.OFFICIAL_SITE }}" >> $GITEA_ENV
           fi
 
+      - name: Validate embedded locales
+        run: go test ./src/common/i18n
+
       - name: Build server
         env:
           GOOS: ${{ matrix.goos }}

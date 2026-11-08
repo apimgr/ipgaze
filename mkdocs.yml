@@ -110,6 +110,7 @@ nav:
     - Integrations: integrations.md
   - Development:
     - Contributing: development.md
+    - Translating: translating.md
 
 extra:
   social:
