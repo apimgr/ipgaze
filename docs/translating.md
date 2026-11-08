@@ -6,11 +6,12 @@ target locale file and never change `en.json` as part of a translation update.
 
 ## Current languages
 
-IPGaze embeds seven locale files in both binaries: English (`en`), Spanish
-(`es`), French (`fr`), German (`de`), Chinese (`zh`), Arabic (`ar`), and
-Japanese (`ja`). Arabic uses a right-to-left layout. The language selector and
-CLI help derive their supported-language list from the same registry as these
-embedded files.
+IPGaze embeds eight locale files in both binaries: English (`en`), Spanish
+(`es`), French (`fr`), German (`de`), Italian (`it`), Chinese (`zh`), Arabic
+(`ar`), and Japanese (`ja`). Arabic uses a right-to-left layout. The Italian
+locale is an Argos machine-translation draft and needs fluent human review
+before it is considered approved. The language selector and CLI help derive
+their supported-language list from the same registry as these embedded files.
 
 ## Contribute or update a translation
 
