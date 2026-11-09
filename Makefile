@@ -242,6 +242,9 @@ docker:
 # Never skip with -short or -count=0. Coverage output goes to a tempdir under
 # $${TMPDIR:-/tmp} inside the container (never written to the project tree).
 test:
+	@docker run --rm --name $(PROJECTNAME)-$$(tr -dc 'a-z0-9' </dev/urandom | head -c8) \
+		--memory=512m --cpus=1 -v $(PWD):/app -w /app \
+		python:3.12-alpine python3 -B -m unittest scripts/test_trufflehog_scan.py
 	@mkdir -p $(GO_CACHE) $(GO_BUILD)
 	@echo "Running tests with coverage..."
 	@$(GO_DOCKER) sh -c " \

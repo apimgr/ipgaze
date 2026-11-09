@@ -99,23 +99,10 @@ jobs:
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: 0
-      - name: Determine scan range
-        id: range
-        run: |
-          BASE=""; HEAD=""
-          if [ "${{ github.event_name }}" = "push" ] && [ "${{ github.event.before }}" != "0000000000000000000000000000000000000000" ]; then
-            BASE="${{ github.event.before }}"; HEAD="${{ github.sha }}"
-          elif [ "${{ github.event_name }}" = "pull_request" ]; then
-            BASE="${{ github.event.pull_request.base.sha }}"; HEAD="${{ github.event.pull_request.head.sha }}"
-          fi
-          echo "base=$BASE" >> "$GITHUB_OUTPUT"
-          echo "head=$HEAD" >> "$GITHUB_OUTPUT"
-      - name: Scan for secrets (truffleHog)
-        uses: trufflesecurity/trufflehog@27b0417c16317ca9a472a9a8092acce143b49c55 # v3.95.9
-        with:
-          base: ${{ steps.range.outputs.base }}
-          head: ${{ steps.range.outputs.head }}
-          extra_args: --results=verified,unknown
+      - name: Test TruffleHog finding allowlist
+        run: PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/test_trufflehog_scan.py
+      - name: Scan full Git history with TruffleHog
+        run: PYTHONDONTWRITEBYTECODE=1 python3 scripts/trufflehog_scan.py
 
   workflow-policy:
     name: Workflow SHA Policy

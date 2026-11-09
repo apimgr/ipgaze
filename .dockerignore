@@ -23,6 +23,7 @@ tests/
 # Documentation (not needed in container)
 docs/
 *.md
+!README.md
 
 # Build files (not needed - build happens inside Docker)
 Makefile

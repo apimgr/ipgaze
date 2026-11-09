@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "findings": [
+    {
+      "fingerprint": "b8d4fd7b264521a4aedc181d666d5f6906495fdac64ac48a428513f5c410947b",
+      "detector": "Wit",
+      "commit": "0f53bf40acc28c584a6fd708a9dd7d495d3601a0",
+      "file": "src/server/handler/pages_test.go",
+      "line": 587,
+      "reason": "Synthetic fixed-key test fixture used to test encrypted disclosure reports; never an application credential."
+    },
+    {
+      "fingerprint": "63f7669aef2809e2312582e09fba2b14ae8546d70dccc69fbfc3925209f7d9f8",
+      "detector": "URI",
+      "commit": "0f53bf40acc28c584a6fd708a9dd7d495d3601a0",
+      "file": "src/config/tracking_test.go",
+      "line": 32,
+      "reason": "Example-only tracking URL fixture in a configuration test; contains no authentication material."
+    },
+    {
+      "fingerprint": "106d0684f007f11131c5e523f0f59e60aebe121fdbf11a8986c3b0f6fa1a4cbb",
+      "detector": "Wit",
+      "commit": "0f53bf40acc28c584a6fd708a9dd7d495d3601a0",
+      "file": "src/security/report_test.go",
+      "line": 33,
+      "reason": "Synthetic fixed-key test fixture used to test key rotation; never an application credential."
+    }
+  ]
+}
