@@ -3,6 +3,8 @@ package handler
 import (
 	"bytes"
 	"encoding/json"
+	"html"
+	"log"
 	"net/http"
 	"strings"
 
@@ -63,7 +65,8 @@ func (h *PagesHandler) renderNegotiated(w http.ResponseWriter, r *http.Request, 
 	if wantsText {
 		buf := newBufferedResponseWriter()
 		if err := h.Render(buf, r, page, data); err != nil {
-			http.Error(w, i18n.T(r.Context(), "errors.server_error"), http.StatusInternalServerError)
+			log.Printf("page render failed: status=%d method=%s path=%s err=%v", http.StatusInternalServerError, r.Method, r.URL.Path, err)
+			writeHandlerFallback(w, r, http.StatusInternalServerError, i18n.T(r.Context(), "errors.server_error"), true)
 			return
 		}
 		// Carry over cookies and any other headers the renderer set, but never
@@ -86,8 +89,36 @@ func (h *PagesHandler) renderNegotiated(w http.ResponseWriter, r *http.Request, 
 	}
 
 	if err := h.Render(w, r, page, data); err != nil {
-		http.Error(w, i18n.T(r.Context(), "errors.server_error"), http.StatusInternalServerError)
+		log.Printf("page render failed: status=%d method=%s path=%s err=%v", http.StatusInternalServerError, r.Method, r.URL.Path, err)
+		writeHandlerFallback(w, r, http.StatusInternalServerError, i18n.T(r.Context(), "errors.server_error"), false)
 	}
+}
+
+// writeHandlerFallback guarantees a response when a page template cannot be
+// rendered, without relying on the template system that just failed.
+func writeHandlerFallback(w http.ResponseWriter, r *http.Request, status int, msg string, plain bool) {
+	if strings.Contains(r.Header.Get("Accept"), "application/json") || strings.HasPrefix(r.URL.Path, "/api/") {
+		body, err := json.Marshal(struct {
+			OK      bool   `json:"ok"`
+			Error   string `json:"error"`
+			Message string `json:"message"`
+		}{false, ErrorCodeForStatus(status), msg})
+		if err == nil {
+			w.Header().Set("Content-Type", jsonMediaType)
+			w.WriteHeader(status)
+			_, _ = w.Write(append(body, '\n'))
+			return
+		}
+	}
+	if plain || httputil.IsNonInteractiveClient(r.Header.Get("User-Agent")) || strings.Contains(r.Header.Get("Accept"), "text/plain") {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.WriteHeader(status)
+		_, _ = w.Write([]byte(msg + "\n"))
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(status)
+	_, _ = w.Write([]byte("<html><body><h1>" + html.EscapeString(msg) + "</h1></body></html>\n"))
 }
 
 // ErrorCodeForStatus maps an HTTP status to the UPPERCASE_SNAKE_CASE error code
@@ -153,7 +184,9 @@ func WriteAPIError(w http.ResponseWriter, code int, errorCode, msg string) {
 		// Marshalling three plain strings cannot realistically fail, but the
 		// request must still terminate in a response rather than a blank body
 		// (AI.md 24426).
-		http.Error(w, msg, code)
+		w.Header().Set("Content-Type", jsonMediaType)
+		w.WriteHeader(code)
+		_, _ = w.Write([]byte(`{"ok":false,"error":"SERVER_ERROR","message":"Internal server error"}` + "\n"))
 		return
 	}
 	w.Header().Set("Content-Type", jsonMediaType)
@@ -213,9 +246,12 @@ func (h *PagesHandler) renderErrorPage(w http.ResponseWriter, r *http.Request, c
 			w.WriteHeader(code)
 			w.Write(buf.body.Bytes()) //nolint:errcheck
 			return
+		} else {
+			log.Printf("error page render failed: status=%d method=%s path=%s err=%v", code, r.Method, r.URL.Path, err)
 		}
 	}
 
-	// Guaranteed fallback: HTTP tools, and any client whose themed render failed.
-	http.Error(w, msg, code)
+	// Guaranteed fallback: HTTP tools receive text, while browser clients
+	// receive a minimal HTML document if the themed renderer failed.
+	writeHandlerFallback(w, r, code, msg, false)
 }

@@ -8,6 +8,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"runtime"
 	"strings"
@@ -478,7 +479,8 @@ func (h *HealthHandler) HealthzHandler(w http.ResponseWriter, r *http.Request) {
 		// actually rendered.
 		buf := newBufferedResponse()
 		if err := h.Render(buf, r, "healthz.tmpl", data); err != nil {
-			http.Error(w, i18n.T(r.Context(), "errors.server_error"), http.StatusInternalServerError)
+			log.Printf("health page render failed: status=%d method=%s path=%s err=%v", http.StatusInternalServerError, r.Method, r.URL.Path, err)
+			writeHandlerFallback(w, r, http.StatusInternalServerError, i18n.T(r.Context(), "errors.server_error"), false)
 			return
 		}
 		buf.flushTo(w, code)

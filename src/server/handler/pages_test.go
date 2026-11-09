@@ -427,6 +427,35 @@ func TestSecurityReportStatusWithoutDatabaseReturnsNotFound(t *testing.T) {
 	}
 }
 
+func TestSecurityThanksDatabaseFailureReturnsAPIError(t *testing.T) {
+	conn, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = conn.Close() }()
+	h := newTestPagesHandler()
+	h.DB = conn
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/server/security/thanks", nil)
+	request.Header.Set("Accept", "application/json")
+	request.Header.Set("X-Request-ID", "test-request-id")
+	response := httptest.NewRecorder()
+	h.APIV1ServerSecurityThanksHandler(response, request)
+	if response.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500", response.Code)
+	}
+	var body struct {
+		OK      bool   `json:"ok"`
+		Error   string `json:"error"`
+		Message string `json:"message"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if body.OK || body.Error != "SERVER_ERROR" || body.Message == "" {
+		t.Errorf("error response = %+v, want canonical SERVER_ERROR", body)
+	}
+}
+
 func TestSecurityReportStatusConsumesToken(t *testing.T) {
 	conn, err := sql.Open("sqlite", ":memory:")
 	if err != nil {

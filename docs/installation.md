@@ -123,6 +123,19 @@ For s6-overlay, run the install command in the s6-overlay environment with
 the permissions needed to write `/etc/s6-overlay/s6-rc.d` and update its live
 service database. Installation enables and starts the service.
 
+On Windows, use an Administrator PowerShell session to register and start a
+Windows Service Control Manager service:
+
+```powershell
+# AMD64
+.\ipgaze-windows-amd64.exe --service --install
+.\ipgaze-windows-amd64.exe --service status
+
+# ARM64
+.\ipgaze-windows-arm64.exe --service --install
+.\ipgaze-windows-arm64.exe --service status
+```
+
 Use `ipgaze --service --help` to see the available service operations. The
 application reads its settings from `server.yml`; do not edit the service unit
 to configure the application. Uninstall prompts before deleting configuration

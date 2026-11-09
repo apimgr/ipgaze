@@ -366,16 +366,40 @@ pipeline {
             }
         }
 
+        stage('Lint') {
+            agent { label 'amd64' }
+            steps {
+                sh '''
+                    docker run --rm \
+                        --name "${PROJECT_NAME}-lint-$(tr -dc 'a-z0-9' </dev/urandom | head -c8)" \
+                        -v ${WORKSPACE}:/app \
+                        -w /app \
+                        -e CGO_ENABLED=0 \
+                        -e GOFLAGS=-buildvcs=false \
+                        casjaysdev/go:latest \
+                        sh -ec 'go vet ./... && staticcheck ./...'
+                '''
+            }
+        }
+
         stage('Security') {
             agent { label 'amd64' }
             parallel {
                 stage('Secret Scan') {
                     steps {
                         sh '''
-                            # trufflesecurity/trufflehog digest below is v3.95.9
-                            docker run --rm -v ${WORKSPACE}:/repo \
-                                trufflesecurity/trufflehog@sha256:59b244249d1a1aef4baa24fe73d3c931616264482580d806d77f6c74d26b3e42 \
-                                git file:///repo --since-commit HEAD~1 --fail
+                            set -o pipefail
+                            if [ "$(git rev-parse --is-shallow-repository)" = true ]; then
+                                git fetch --unshallow --tags
+                            else
+                                git fetch --tags
+                            fi
+                            docker run --rm \
+                                --name "${PROJECT_NAME}-trufflehog-$(tr -dc 'a-z0-9' </dev/urandom | head -c8)" \
+                                -v ${WORKSPACE}:/repo:ro \
+                                trufflesecurity/trufflehog@sha256:674b2f187620a19df77f44cf9a7d77efcc581a5662accef2f2739cbb46ba4a3a \
+                                git file:///repo --json --results=verified,unknown --no-update --fail-on-scan-errors \
+                                | python3 scripts/trufflehog_scan.py --jsonl-stdin
                         '''
                     }
                 }
@@ -387,6 +411,35 @@ pipeline {
                                 -w /app \
                                 casjaysdev/go:latest \
                                 govulncheck ./...
+                        '''
+                    }
+                }
+                stage('Image Scan') {
+                    steps {
+                        sh '''
+                            IMAGE="local/${PROJECT_NAME}:ci-${BUILD_NUMBER}"
+                            docker build --pull -t "$IMAGE" -f docker/Dockerfile .
+                            docker run --rm \
+                                --name "${PROJECT_NAME}-trivy-$(tr -dc 'a-z0-9' </dev/urandom | head -c8)" \
+                                -v /var/run/docker.sock:/var/run/docker.sock \
+                                aquasec/trivy@sha256:be1190afcb28352bfddc4ddeb71470835d16462af68d310f9f4bca710961a41e \
+                                image --exit-code 1 --severity CRITICAL,HIGH "$IMAGE"
+                            docker image rm "$IMAGE"
+                        '''
+                    }
+                }
+                stage('Workflow Policy') {
+                    steps {
+                        sh '''
+                            set -eu
+                            if grep -nE 'docker\.image\([^)]*:[^)]*\)|docker run .* (trufflesecurity/trufflehog|aquasec/trivy):' Jenkinsfile; then
+                                echo "ERROR: Jenkins security scanner images must be pinned by digest"
+                                exit 1
+                            fi
+                            if grep -nE 'casjaysdev/go:' Jenkinsfile | grep -v 'casjaysdev/go:latest'; then
+                                echo "ERROR: Go jobs must use the AI.md toolchain image casjaysdev/go:latest"
+                                exit 1
+                            fi
                         '''
                     }
                 }
@@ -417,8 +470,25 @@ pipeline {
                         -w /app \
                         -e "TMPDIR=$TMP_ROOT" \
                         casjaysdev/go:latest \
-                        go test -v -cover ./...
+                        sh -ec 'go test -v -coverprofile="$TMPDIR/coverage.out" ./...; pct=$(go tool cover -func="$TMPDIR/coverage.out" | awk '\''/^total:/ {gsub("%", "", $3); print int($3)}'\''); test "$pct" -ge 60 || { echo "ERROR: coverage $pct% < threshold 60%"; exit 1; }'
                 '''
+            }
+        }
+
+        stage('License Check') {
+            agent { label 'amd64' }
+            steps {
+                sh '''
+                    docker run --rm \
+                        --name "${PROJECT_NAME}-licenses-$(tr -dc 'a-z0-9' </dev/urandom | head -c8)" \
+                        -v ${WORKSPACE}:/app \
+                        -w /app \
+                        -e CGO_ENABLED=0 \
+                        -e GOFLAGS=-buildvcs=false \
+                        casjaysdev/go:latest \
+                        ./scripts/verify-licenses.sh
+                '''
+                archiveArtifacts artifacts: 'licenses.csv,third_party_licenses/**', allowEmptyArchive: false
             }
         }
 

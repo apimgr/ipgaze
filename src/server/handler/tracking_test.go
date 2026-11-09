@@ -87,6 +87,28 @@ func TestGeneratedTrackingEndpointConsentAndOverlayGate(t *testing.T) {
 	}
 }
 
+func TestGeneratedOWATrackingScriptEnablesClickTracking(t *testing.T) {
+	h := analyticsTestHandler()
+	h.Config.Server.Tracking = config.TrackingConfig{
+		Type: "owa",
+		ID:   "site-123",
+		URL:  "https://analytics.example",
+	}
+	h.Config.Web.CSP.ScriptSrcExtra = "https://analytics.example"
+	r := httptest.NewRequest(http.MethodGet, "https://ipgaze.example/server/tracking.js", nil)
+	r.AddCookie(&http.Cookie{Name: "cookie_consent", Value: url.QueryEscape(`{"analytics":true}`)})
+	w := httptest.NewRecorder()
+	h.ServerTrackingScript(w, r)
+	if w.Code != http.StatusOK {
+		t.Fatalf("OWA script response = %d, want %d", w.Code, http.StatusOK)
+	}
+	for _, command := range []string{"trackPageView", "trackClicks"} {
+		if !strings.Contains(w.Body.String(), "window.owa_cmds.push(['"+command+"'])") {
+			t.Errorf("generated OWA script omitted %s", command)
+		}
+	}
+}
+
 func TestAnalyticsTrackingRequiresCSPSourceAndDisablesClearnetOnion(t *testing.T) {
 	h := analyticsTestHandler()
 	r := httptest.NewRequest(http.MethodGet, "https://ipgaze.example/", nil)

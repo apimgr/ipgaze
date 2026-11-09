@@ -67,8 +67,11 @@ ipgaze/
 │   ├── run_tests.sh        # Test runner
 │   ├── docker.sh           # Docker tests
 │   └── incus.sh            # Incus container tests
-└── .github/                # GitHub Actions
-    └── workflows/          # CI/CD workflows
+├── .github/                # GitHub Actions
+├── .gitlab-ci.yml          # GitLab CI pipeline
+├── .gitea/workflows/       # Gitea Actions workflows
+├── .forgejo/workflows/     # Forgejo Actions workflows
+└── Jenkinsfile             # Jenkins pipeline
 ```
 
 ## Coding Standards
@@ -182,6 +185,7 @@ Access at `http://localhost:8000`
 - `docs/admin.md` - Server administration (file-based)
 - `docs/security.md` - Security model and reporting channels
 - `docs/integrations.md` - API and protocol integrations
+- `docs/translating.md` - Translation contribution and validation guide
 - `docs/development.md` - This file
 
 ## Git Workflow
@@ -217,16 +221,25 @@ test: add integration tests
 
 ## CI/CD
 
+The project maintains equivalent build, test, security, and release pipelines
+for GitHub Actions, GitLab CI, Gitea Actions, Forgejo Actions, and Jenkins.
+GitLab and Jenkins runners require Docker Engine access and Python 3 for
+secret-scan policy evaluation. GitLab shell runners also need `curl`, Docker
+Buildx, and ARM64 binfmt support for multi-architecture release images. Set a
+masked `GITLAB_TOKEN` CI variable to a project access token with API scope and
+Maintainer access so scheduled devel pipelines can replace the rolling `devel`
+release and tag. Go commands run in `casjaysdev/go:latest` containers.
+
 ### Workflows
 
 | Workflow | Trigger | Description |
 |----------|---------|-------------|
-| `release.yml` | Tag push (v*) | Build releases, 8 platforms |
-| `beta.yml` | Push to main | Beta builds |
-| `daily.yml` | Schedule | Daily builds |
-| `docker.yml` | Release | Docker images |
-| `ci.yml` | Push and pull requests | Tests, lint, build, coverage, and security checks |
-| `licenses.yml` | Dependency changes and scheduled runs | Dependency license checks |
+| `ci.yml` | Push/pull request to main or master, weekly schedule, or manual | Tests, lint, build, coverage, vulnerability and full-history secret scans, image scan, and action SHA policy |
+| `licenses.yml` | Push/pull request to main or master, or manual | Dependency license check |
+| `daily.yml` | Daily schedule, push to main or master, or manual | Eight-platform build and rolling release |
+| `beta.yml` | Push to `beta` or manual | Beta builds |
+| `release.yml` | Version tag push or manual | Tagged releases for eight platforms |
+| `docker.yml` | All branch pushes, version tags, daily schedule, or manual | Multi-architecture Docker image builds for amd64 and arm64 |
 
 ### Release Process
 

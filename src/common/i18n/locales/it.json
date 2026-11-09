@@ -9,486 +9,494 @@
   "common": {
     "select_language": "Seleziona la lingua",
     "save": "Salva",
-    "save_all": "Salvare tutti",
+    "save_all": "Salva tutto",
     "cancel": "Annulla",
-    "delete": "Cancella",
+    "delete": "Elimina",
     "edit": "Modifica",
-    "create": "Creare",
-    "update": "Aggiornamento",
+    "create": "Crea",
+    "update": "Aggiorna",
     "close": "Chiudi",
     "back": "Indietro",
-    "next": "Il prossimo",
+    "next": "Avanti",
     "previous": "Precedente",
-    "submit": "Inviare",
+    "submit": "Invia",
     "confirm": "Conferma",
-    "search": "Ricerca",
+    "search": "Cerca",
     "search_placeholder": "Cerca...",
-    "filter": "filtro",
-    "refresh": "Rifiuti",
+    "filter": "Filtra",
+    "refresh": "Aggiorna",
     "download": "Scarica",
-    "upload": "Caricamento",
+    "upload": "Carica",
     "copy": "Copia",
-    "copy_to_clipboard": "Copia a clipboard",
-    "copied": "Copie",
-    "copy_failed": "Copia fallita",
+    "copy_to_clipboard": "Copia negli appunti",
+    "copied": "Copiato",
+    "copy_failed": "Copia non riuscita",
     "loading": "Caricamento...",
     "error": "Errore",
     "error_prefix": "Errore:",
     "success": "Successo",
-    "warning": "Avvertenza",
-    "info": "Info",
-    "yes": "Sì.",
-    "no": "No.",
-    "on": "Su",
-    "off": "Fuori",
+    "warning": "Avvertimento",
+    "info": "Informazioni",
+    "yes": "Sì",
+    "no": "No",
+    "on": "Attivo",
+    "off": "Disattivato",
     "enabled": "Abilitato",
-    "disabled": "Disabili",
-    "required": "Obbligo",
+    "disabled": "Disabilitato",
+    "required": "Obbligatorio",
     "optional": "Facoltativo",
     "none": "Nessuno",
-    "all": "Tutti",
+    "all": "Tutto",
     "actions": "Azioni",
     "details": "Dettagli",
-    "settings": "Impostazioni impostazioni",
+    "settings": "Impostazioni",
     "preferences": "Preferenze",
-    "view": "Vista",
-    "expand": "Espansione",
-    "collapse": "Colpo",
+    "view": "Visualizza",
+    "expand": "Espandi",
+    "collapse": "Comprimi",
     "show": "Mostra",
     "hide": "Nascondi",
-    "more": "Altro",
+    "more": "Di più",
     "less": "Meno",
-    "notifications": "Notifica",
+    "notifications": "Notifiche",
     "done": "Fatto",
-    "unsaved_changes": "Cambiamenti non salvati",
-    "requires_restart": "Richiede riavvio",
+    "unsaved_changes": "Modifiche non salvate",
+    "requires_restart": "Richiede il riavvio",
     "page_x_of_y": "Pagina {current} di {total}",
-    "showing_x_of_y": "Mostrare {count} di {total}",
+    "showing_x_of_y": "Mostra {count} di {total}",
     "last_updated": "Ultimo aggiornamento: {datetime}",
     "made_with": "Realizzato con",
     "copy_ip_aria": "Copia indirizzo IP",
     "copy_command_aria": "Copia comando",
-    "copy_onion_aria": "Copia l'indirizzo della cipolla",
-    "copy_i2p_aria": "Copia I2P indirizzo",
-    "return_home": "Torna a casa",
-    "close_notification": "Chiudere la notifica",
-    "running": "Correre..."
+    "copy_onion_aria": "Copia l’indirizzo .onion",
+    "copy_i2p_aria": "Copia l’indirizzo I2P",
+    "return_home": "Torna alla home",
+    "close_notification": "Chiudi notifica",
+    "running": "In esecuzione…"
   },
   "theme": {
-    "light": "Luce",
-    "dark": "Oscuro",
-    "auto": "Auto",
-    "toggle": "Tema Toggle",
+    "light": "Chiaro",
+    "dark": "Scuro",
+    "auto": "Automatico",
+    "toggle": "Cambia tema",
     "toast_prefix": "Tema:",
-    "toggle_aria": "Interruttore tema (attualmente {theme})"
+    "toggle_aria": "Cambia tema (attualmente {theme})"
   },
   "auth": {
     "login": "Accedi",
-    "logout": "Logout",
-    "register": "Registrazione",
+    "logout": "Esci",
+    "register": "Registrati",
     "forgot_password": "Hai dimenticato la password?",
-    "reset_password": "Reset password",
-    "remember_me": "Ricordati di",
+    "reset_password": "Reimposta la password",
+    "remember_me": "Ricordati di me",
     "username": "Nome utente",
     "password": "Password",
     "confirm_password": "Conferma la password",
-    "email": "Email",
+    "email": "E-mail",
     "already_have_account": "Hai già un account? Accedi",
-    "no_account": "Nessun conto? Registrazione",
-    "show_password": "Mostra la password",
+    "no_account": "Non hai un account? Registrati",
+    "show_password": "Mostra password",
     "hide_password": "Nascondi la password",
-    "password_requirements": "Requisiti di password",
+    "password_requirements": "Requisiti della password",
     "min_length": "Almeno {min} caratteri",
     "require_uppercase": "Contiene lettere maiuscole e minuscole",
     "require_number": "Contiene un numero",
     "require_special": "Contiene un carattere speciale",
-    "2fa_required": "Richiesta di autenticazione a due fattori",
+    "2fa_required": "È richiesta l'autenticazione a due fattori",
     "2fa_code": "Codice di verifica",
-    "2fa_enter_code": "Inserisci il codice dall'app dell'autenticazione",
-    "2fa_enable": "Abilitare l'autenticazione a due fattori",
-    "2fa_disable": "Disattivare l'autenticazione a due fattori",
-    "2fa_enabled": "Attivazione di due fattori",
-    "2fa_disabled": "Disabilitare l'autenticazione a due fattori",
-    "recovery_key": "Chiave di recupero",
-    "session_timeout": "Tempo di sessione",
-    "extend_on_activity": "Estendere l'attività"
+    "2fa_enter_code": "Inserisci il codice dalla tua app di autenticazione",
+    "2fa_enable": "Abilita l'autenticazione a due fattori",
+    "2fa_disable": "Disabilita l'autenticazione a due fattori",
+    "2fa_enabled": "Autenticazione a due fattori abilitata",
+    "2fa_disabled": "Autenticazione a due fattori disabilitata",
+    "recovery_key": "Chiave di ripristino",
+    "session_timeout": "Timeout della sessione",
+    "extend_on_activity": "Estendi la sessione in caso di attività"
   },
   "nav": {
     "home": "Home",
     "about": "Informazioni",
-    "contact": "Contatto",
+    "contact": "Contatti",
     "help": "Aiuto",
     "privacy": "Privacy",
     "terms": "Termini di servizio",
     "docs": "Documentazione",
-    "api_docs": "API Documentazione",
+    "api_docs": "Documentazione dell'API",
     "status": "Stato",
     "preferences": "Preferenze",
-    "skip_to_content": "Salta al contenuto principale",
-    "skip_to_navigation": "Vai alla navigazione",
+    "skip_to_content": "Passa al contenuto principale",
+    "skip_to_navigation": "Passa alla navigazione",
     "main_navigation": "Navigazione principale",
-    "toggle_navigation": "Apri o chiudi la navigazione",
-    "home_aria": "{app} casa"
+    "toggle_navigation": "Attiva/disattiva la navigazione",
+    "home_aria": "Home di {app}"
   },
   "health": {
-    "title": "Stato di sistema",
-    "all_operational": "Tutti i sistemi operativi",
-    "degraded": "Degrado",
-    "unhealthy": "Non sano",
-    "healthy": "Salute",
+    "title": "Stato del sistema",
+    "all_operational": "Tutti i sistemi sono operativi",
+    "degraded": "Funzionalità ridotta",
+    "unhealthy": "Non funzionante",
+    "healthy": "Operativo",
     "version": "Versione",
-    "go_version": "Vai alla versione",
-    "build": "Costruzioni",
-    "uptime": "Tempo libero",
+    "go_version": "Versione di Go",
+    "build": "Build",
+    "uptime": "Tempo di attività",
     "mode": "Modalità",
     "status": "Stato",
     "primary": "Primario",
-    "role": "Role",
+    "role": "Ruolo",
     "nodes": "Nodi",
-    "cluster": "Cluster",
+    "cluster": "Grappolo",
     "features": "Caratteristiche",
-    "component_status": "Stato membro",
+    "component_status": "Stato del componente",
     "server_statistics": "Statistiche del server",
-    "total_requests": "Totale richieste",
+    "total_requests": "Richieste totali",
     "requests_24h": "Richieste (24h)",
-    "active_connections": "Connessione attiva",
+    "active_connections": "Connessioni attive",
     "last_checked": "Ultimo controllo:",
-    "auto_refresh": "Auto-refresh in {seconds}#",
-    "ok": "Ok.",
-    "connected": "Collegato",
-    "disconnected": "Scollegato",
+    "auto_refresh": "Aggiornamento automatico in {seconds}s",
+    "ok": "Va bene",
+    "connected": "Connesso",
+    "disconnected": "Disconnesso",
     "production": "Produzione",
     "development": "Sviluppo"
   },
   "status_values": {
-    "online": "Online",
-    "offline": "Offline",
+    "online": "In linea",
+    "offline": "Non in linea",
     "maintenance": "Manutenzione",
     "starting": "Inizio",
-    "stopping": "Fermare",
+    "stopping": "Fermarsi",
     "error": "Errore",
-    "good": "Bene.",
-    "warn": "Avvertenza"
+    "good": "Bene",
+    "warn": "Avvertimento"
   },
   "contact": {
-    "title": "Contatto",
+    "title": "Contatti",
     "name": "Nome",
-    "email": "Email",
+    "email": "E-mail",
     "subject": "Oggetto",
     "message": "Messaggio",
     "send": "Invia messaggio",
     "sending": "Invio...",
-    "success": "Grazie per il tuo messaggio. Risponderemo a breve.",
-    "support_intro": "Per il supporto o le domande circa ipgaze:",
+    "success": "Grazie per il tuo messaggio. Ti risponderemo al più presto.",
+    "support_intro": "Per supporto o domande su ipgaze:",
     "security_issues": "Problemi di sicurezza",
-    "security_issues_body": "Per segnalare una vulnerabilità di sicurezza, consultare la nostra politica di sicurezza.",
-    "security_policy_link": "Politica di sicurezza",
-    "abuse_reports": "Rapporti di abuso",
-    "abuse_reports_body": "Per segnalare contenuti abusivi o violazioni di policy, utilizzare questo modulo di contatto.",
-    "abuse_reports_body_email": "Per segnalare contenuti abusivi o violazioni di policy, utilizzare questo modulo di contatto o e-mail {email}.",
+    "security_issues_body": "Per segnalare una vulnerabilità della sicurezza, consulta la nostra politica di sicurezza.",
+    "security_policy_link": "politica di sicurezza",
+    "abuse_reports": "Segnalazioni di abusi",
+    "abuse_reports_body": "Per segnalare contenuti offensivi o violazioni delle norme, utilizzare questo modulo di contatto.",
+    "abuse_reports_body_email": "Per segnalare contenuti offensivi o violazioni delle norme, utilizzare questo modulo di contatto o inviare un'e-mail a {email}.",
     "github": "GitHub",
     "form_heading": "Invia un messaggio",
-    "report_received": "Rapporto di sicurezza ricevuto",
-    "report_received_body": "Abbiamo ricevuto il tuo rapporto. Controlla la tua email per il link di stato e la conferma.",
-    "submit_error": "Non potevamo presentare il modulo. Controllare i campi richiesti e captcha, poi riprovare.",
-    "tracking_id": "Tracking ID",
-    "security_report_intro": "Invia un rapporto di sicurezza sul funzionario IPGaze servizio. Si prega di non includere le credenziali o i dati appartenenti ad altre persone.",
+    "report_received": "Rapporto sulla sicurezza ricevuto",
+    "report_received_body": "Abbiamo ricevuto la tua segnalazione. Controlla la tua email per il collegamento allo stato e la conferma.",
+    "submit_error": "Non è stato possibile inviare il modulo. Controlla i campi obbligatori e il CAPTCHA, poi riprova.",
+    "tracking_id": "ID di monitoraggio",
+    "security_report_intro": "Invia una segnalazione di sicurezza relativa al servizio ufficiale IPGaze. Non includere credenziali né dati appartenenti ad altre persone.",
     "captcha": "Captcha",
-    "report_details": "Dettagli del rapporto di sicurezza",
-    "researcher_key": "Ricercatore GPG chiave pubblica o HTTPS chiave URL (opzionale)",
+    "report_details": "Dettagli del rapporto sulla sicurezza",
+    "researcher_key": "Chiave pubblica GPG del ricercatore o URL della chiave HTTPS (facoltativo)",
     "affected_component": "Componente interessato",
-    "affected_endpoint": "Punto finale o URL (opzionale)",
-    "severity": "Severo",
+    "affected_endpoint": "Endpoint o URL interessato (facoltativo)",
+    "severity": "Gravità",
     "severity_critical": "Critica",
-    "severity_high": "Alto",
+    "severity_high": "Alta",
     "severity_medium": "Media",
-    "severity_low": "Basso",
-    "severity_informational": "Informazioni",
-    "vulnerability_summary": "Sintesi della vulnerabilità",
-    "reproduction_steps": "Passi per la riproduzione",
+    "severity_low": "Bassa",
+    "severity_informational": "Informativo",
+    "vulnerability_summary": "Riepilogo della vulnerabilità",
+    "reproduction_steps": "Passaggi per riprodurre il problema",
     "impact": "Impatto",
-    "suggested_fix": "Correzione consigliata (opzionale)",
-    "request_cve": "Richiesta assegnazione CVE",
-    "disclosure_period": "Periodo di divulgazione anticipato in giorni (opzionale; predefinito 90)",
-    "credit_preference": "Preferenze di credito del ricercatore",
-    "credit_real_name": "Credit me by real name",
-    "credit_handle": "Credit me by handle",
-    "credit_no": "Non mi merito",
-    "credit_anonymous": "Credit me anonimo",
-    "researcher_handle": "Maniglia per credito pubblico (richiesto al momento del credito tramite maniglia)",
-    "coordinated_disclosure_agreement": "Acconsento alla divulgazione coordinata."
+    "suggested_fix": "Correzione suggerita (facoltativa)",
+    "request_cve": "Richiedi l’assegnazione di un CVE",
+    "disclosure_period": "Periodo di divulgazione preferito in giorni (facoltativo; predefinito 90)",
+    "credit_preference": "Preferenza di credito del ricercatore",
+    "credit_real_name": "Attribuisci la segnalazione al mio nome reale",
+    "credit_handle": "Attribuisci la segnalazione al mio handle",
+    "credit_no": "Non indicare il mio nome",
+    "credit_anonymous": "Attribuisci la segnalazione in forma anonima",
+    "researcher_handle": "Handle pubblico (obbligatorio se scegli l’attribuzione tramite handle)",
+    "coordinated_disclosure_agreement": "Accetto la divulgazione coordinata."
   },
   "help": {
     "title": "Aiuto",
-    "getting_started": "Iniziare",
+    "getting_started": "Come iniziare",
     "features": "Caratteristiche",
-    "features_intro": "Utilizzare la radice o /ip endpoint per identificare l'indirizzo di richiesta, /{ip} per cercare uno specifico IPv4 o IPv6 indirizzo, e il paese, città, ASN, e coordina gli endpoint per i singoli GeoIP campi. Le risposte sostengono il testo normale, JSONe HTML.",
-    "api_documentation": "API Documentazione",
-    "swagger_description": "Swagger UI - Interattivo REST API Esploratore",
-    "graphql_description": "Interattivo GraphQL Esploratore",
-    "tor_access": "Tor Accesso",
-    "i2p_access": "I2P Accesso",
-    "onion_address": "Onion Indirizzo",
-    "how_to_connect": "Come Collegare",
+    "features_intro": "Usa l’endpoint principale o /ip per identificare l’indirizzo del richiedente, /{ip} per cercare uno specifico indirizzo IPv4 o IPv6 e gli endpoint di paese, città, ASN e coordinate per ottenere i singoli campi GeoIP. Le risposte supportano testo semplice, JSON e HTML.",
+    "api_documentation": "Documentazione dell'API",
+    "swagger_description": "Interfaccia utente Swagger - Esploratore API REST interattivo",
+    "graphql_description": "Esploratore interattivo GraphQL",
+    "tor_access": "Accesso Tor",
+    "i2p_access": "Accesso I2P",
+    "onion_address": "Indirizzo .onion",
+    "how_to_connect": "Come connettersi",
     "download_tor": "Scarica Tor Browser",
-    "open_tor": "Aperto Tor Browser e attendere per il collegamento",
-    "paste_onion": "Copia l'indirizzo di cipolla sopra e incollalo nel Tor Barra degli indirizzi del browser",
-    "tor_privacy": "Utilizzo Tor fornisce ulteriore privacy...",
+    "open_tor": "Apri Tor Browser e attendi che si connetta",
+    "paste_onion": "Copia l’indirizzo .onion qui sopra e incollalo nella barra degli indirizzi di Tor Browser",
+    "tor_privacy": "Tor offre maggiore privacy nascondendo il tuo indirizzo IP e cifrando la connessione attraverso la rete Tor.",
     "faq": "Domande frequenti",
-    "faq_api_key_question": "Ho bisogno di un API chiave?",
-    "faq_api_key_answer": "No. IP pubblico e GeoIP le ricerche sono anonime.",
-    "faq_lookup_question": "Come faccio a cercare un altro indirizzo IP?",
-    "faq_lookup_answer": "Richiedi l'indirizzo come percorso, con un formato di output opzionale come:",
-    "faq_geoip_question": "Perché? GeoIP campi mancanti?",
-    "faq_geoip_answer": "GeoIP i dettagli sono disponibili quando il server ha il suo optional GeoIP database configurati e disponibili. La ricerca IP funziona ancora senza di loro.",
+    "faq_api_key_question": "Ho bisogno di una chiave API?",
+    "faq_api_key_answer": "No. Le ricerche IP pubbliche e GeoIP sono anonime.",
+    "faq_lookup_question": "Come posso cercare un altro indirizzo IP?",
+    "faq_lookup_answer": "Invia una richiesta all’indirizzo IP nel percorso, con un formato di risposta facoltativo, ad esempio:",
+    "faq_geoip_question": "Perché mancano i campi GeoIP?",
+    "faq_geoip_answer": "I dettagli GeoIP sono disponibili quando il server ha i suoi database GeoIP opzionali configurati e disponibili. La ricerca IP funziona ancora senza di essi.",
     "troubleshooting": "Risoluzione dei problemi",
     "troubleshooting_rate_title": "Troppe richieste",
-    "troubleshooting_rate_body": "Rallentare e riprovare dopo la durata indicata nell'intestazione di risposta Retry-After.",
-    "troubleshooting_route_title": "Itinerario non trovato",
-    "troubleshooting_route_body": "Controllare il percorso e utilizzare un endpoint supportato come /ip, /json, /paese, o /{ip}."
+    "troubleshooting_rate_body": "Rallenta e riprova dopo la durata indicata nell'intestazione della risposta Retry-After.",
+    "troubleshooting_route_title": "Percorso non trovato",
+    "troubleshooting_route_body": "Controlla il percorso e utilizza un endpoint supportato come /ip, /json, /country o /{ip}."
   },
   "privacy": {
     "title": "Informativa sulla privacy",
     "last_updated": "Ultimo aggiornamento:",
-    "summary": "Sintesi",
-    "data_stored": "I tuoi dati vengono memorizzati sui nostri server",
+    "summary": "Riepilogo",
+    "data_stored": "I tuoi dati sono archiviati sui nostri server",
     "never_sell": "Non vendiamo mai i tuoi dati",
-    "may_sell": "I tuoi dati possono essere venduti",
-    "you_control": "Controlla i tuoi dati",
-    "cookie_policy": "Informativa sui cookie",
+    "may_sell": "I tuoi dati potrebbero essere venduti",
+    "you_control": "Sei tu a controllare i tuoi dati",
+    "cookie_policy": "Politica sui cookie",
     "essential_cookies": "Cookie essenziali",
-    "preference_cookies": "Cookie di riferimento",
-    "analytics_cookies": "Cookie di analisi",
-    "no_analytics": "Non utilizziamo il tracciamento di analisi su questo sito.",
+    "preference_cookies": "Cookie di preferenza",
+    "analytics_cookies": "Cookie analitici",
+    "no_analytics": "Non utilizziamo il monitoraggio analitico su questo sito.",
     "uses_analytics": "Usiamo {provider} per l'analisi.",
-    "manage_cookies": "Gestione delle preferenze dei cookie",
-    "data_we_collect": "Dati raccolti",
+    "manage_cookies": "Gestisci le preferenze sui cookie",
+    "data_we_collect": "Dati che raccogliamo",
     "how_we_use": "Come utilizziamo i tuoi dati",
     "data_security": "Sicurezza dei dati",
-    "data_storage": "Memorizzazione dei dati e terze parti",
-    "all_data_stored": "Tutti i dati vengono memorizzati sui nostri server.",
+    "data_storage": "Archiviazione dati e soggetti terzi",
+    "all_data_stored": "Tutti i tuoi dati sono archiviati sui nostri server.",
     "when_shared": "Quando i dati possono essere condivisi",
-    "data_retention": "Ritenzione dei dati",
+    "data_retention": "Conservazione dei dati",
     "your_rights": "I tuoi diritti",
     "right_access": "Accesso",
     "right_export": "Esportazione",
     "right_deletion": "Cancellazione",
     "right_correction": "Correzione",
-    "right_cookie_control": "Controllo cookie",
+    "right_cookie_control": "Controllo dei cookie",
     "third_party_services": "Servizi di terze parti",
     "service": "Servizio",
-    "purpose": "Oggetto",
+    "purpose": "Scopo",
     "data_sent": "Dati inviati",
-    "no_third_party": "Attualmente non utilizziamo servizi di terze parti che ricevono i tuoi dati.",
-    "view_policy": "Politica di vista",
+    "no_third_party": "Al momento non utilizziamo servizi di terze parti che ricevono i tuoi dati.",
+    "view_policy": "Visualizza la politica",
     "contact_us": "Contattaci",
-    "privacy_inquiries": "Per informazioni sulla privacy, si prega di contattarci.",
+    "privacy_inquiries": "Per domande relative alla privacy, contattaci.",
     "ccpa_title": "Diritti sulla privacy della California (CCPA)",
-    "ccpa_do_not_sell": "Non vendere i miei dati personali",
-    "ccpa_opted_out": "Hai optato per la vendita di dati.",
-    "ccpa_opt_back_in": "Opt back in",
-    "data_body": "Quando si accede ipgaze, elaboriamo il tuo indirizzo IP per restituire le informazioni di geolocalizzazione. Non archiviamo il tuo indirizzo IP oltre la rotazione del registro di accesso standard.",
-    "access_logs_heading": "Accedi",
-    "access_logs_body": "Standard HTTP i registri di accesso sono conservati per scopi operativi e ruotati regolarmente. I registri contengono indirizzi IP, percorsi di richiesta e timestamp.",
-    "no_tracking_heading": "Nessuna traccia",
-    "no_tracking_body": "Non utilizziamo cookie di analisi, tracking pixel o terze parti. Non vendiamo o condividiamo i tuoi dati con terze parti.",
-    "contact_body_pre": "Per motivi di privacy, contattare:",
+    "ccpa_do_not_sell": "Non vendere le mie informazioni personali",
+    "ccpa_opted_out": "Hai disattivato la vendita dei dati.",
+    "ccpa_opt_back_in": "Riattiva",
+    "data_body": "Quando visiti ipgaze, elaboriamo il tuo indirizzo IP per restituirti informazioni di geolocalizzazione. L’indirizzo IP non viene conservato oltre il normale periodo di rotazione dei log di accesso.",
+    "access_logs_heading": "Log di accesso",
+    "access_logs_body": "I log HTTP di accesso vengono conservati per esigenze operative e ruotati regolarmente. Contengono indirizzi IP, percorsi delle richieste e timestamp.",
+    "no_tracking_heading": "Nessun tracciamento",
+    "no_tracking_body": "Non utilizziamo analisi, pixel di tracciamento o cookie di terze parti. Non vendiamo né condividiamo i tuoi dati con terze parti.",
+    "contact_body_pre": "Per problemi di privacy contattare:",
     "dpo_title": "Responsabile della protezione dei dati",
-    "dpo_heading": "Protezione dei dati",
+    "dpo_heading": "Contatto per la protezione dei dati",
     "dpo_name": "Nome",
-    "dpo_email": "Email",
-    "dpo_contact_unavailable": "Nessun contatto di protezione dei dati è configurato.",
+    "dpo_email": "E-mail",
+    "dpo_contact_unavailable": "Nessun contatto per la protezione dei dati configurato.",
     "dpo_contact_form": "Modulo di contatto"
   },
   "terms": {
     "title": "Termini di servizio",
     "acceptance": "Accettazione",
-    "account_terms": "Termini dell'account",
+    "account_terms": "Termini del conto",
     "acceptable_use": "Uso accettabile",
     "content": "Contenuto",
-    "termination": "Terminizzazione",
-    "liability": "Affidabilità",
+    "termination": "Terminazione",
+    "liability": "Responsabilità",
     "changes": "Cambiamenti",
-    "governing_law": "Diritto di governo",
-    "acceptable_use_body": "Potete usare ipgaze solo per scopi legali. Sono vietate ricerche di rinfuse automatizzate che degradano il servizio per altri utenti.",
+    "governing_law": "Legge applicabile",
+    "acceptable_use_body": "Puoi usare ipgaze solo per scopi leciti. Le ricerche automatizzate su larga scala che compromettono il servizio per gli altri utenti sono vietate.",
     "acceptance_body": "Accedendo o utilizzando ipgaze, accetti di essere vincolato da questi termini. Se non sei d'accordo, non utilizzare il servizio.",
     "no_warranty_heading": "Nessuna garanzia",
-    "no_warranty_body": "Questo servizio è fornito \"così come è\" senza garanzia di alcun tipo. Non garantiamo tempi di uptime o accuratezza dei dati di geolocalizzazione.",
-    "rate_limiting_heading": "Limitamento del tasso",
-    "rate_limiting_body": "The API è tasso limitato a 120 richieste al minuto. L'eliminazione di questo limite provocherà blocchi temporanei.",
-    "changes_body": "Questi termini possono cambiare in qualsiasi momento. L'uso continuato del servizio costituisce l'accettazione dei termini aggiornati.",
-    "governing_law_body": "Questi termini sono regolati dalle leggi della giurisdizione in cui l'operatore del servizio risiede, senza riguardo ai principi di conflitto di legge."
+    "no_warranty_body": "Il servizio è fornito “così com’è”, senza garanzie di alcun tipo. Non garantiamo la disponibilità del servizio né l’accuratezza dei dati di geolocalizzazione.",
+    "rate_limiting_heading": "Limitazione della velocità",
+    "rate_limiting_body": "La velocità dell'API è limitata a 120 richieste al minuto. Il superamento di questo limite comporterà blocchi temporanei.",
+    "changes_body": "Questi termini possono cambiare in qualsiasi momento. L'uso continuato del servizio implica l'accettazione dei termini aggiornati.",
+    "governing_law_body": "Questi termini sono disciplinati dalle leggi della giurisdizione in cui risiede il gestore del servizio, indipendentemente dai principi sul conflitto di leggi."
   },
   "security": {
     "title": "Politica di sicurezza",
-    "intro": "Prendiamo la sicurezza di ipgaze Sul serio. Se si scopre una vulnerabilità di sicurezza, si prega di segnalare responsabilmente.",
-    "report_email": "Segnala le vulnerabilità via e-mail {email}.",
-    "report_github": "È anche possibile segnalare una vulnerabilità privata tramite",
-    "report_github_link": "Consulenti di sicurezza GitHub",
-    "txt_heading": "Politica leggibile in macchina",
-    "txt_body": "Gli strumenti automatizzati possono prendere questa politica in RFC 9116 formato a",
+    "intro": "Prendiamo sul serio la sicurezza di ipgaze. Se scopri una vulnerabilità nella sicurezza, segnalala in modo responsabile.",
+    "report_email": "Segnala le vulnerabilità inviando un'e-mail a {email}.",
+    "report_github": "Puoi anche segnalare una vulnerabilità in privato tramite",
+    "report_github_link": "Avvisi sulla sicurezza di GitHub",
+    "txt_heading": "Politica leggibile dalla macchina",
+    "txt_body": "Gli strumenti automatizzati possono recuperare questa policy nel formato RFC 9116 all'indirizzo",
     "reporting_channels": "Canali di segnalazione",
-    "instance_report_form": "Modulo di relazione",
-    "contact_file_expires": "File di contatto di sicurezza scade",
-    "pgp_encryption_key": "chiave di crittografia PGP",
+    "instance_report_form": "Modulo di segnalazione dell'istanza",
+    "contact_file_expires": "Il file dei contatti di sicurezza scade",
+    "pgp_encryption_key": "Chiave di crittografia PGP",
     "resources": "Risorse di sicurezza",
     "disclosure_policy": "Politica di divulgazione",
-    "researcher_acknowledgments": "Ricercatore riconosciuto",
-    "pgp_public_key": "PGP chiave pubblica",
+    "researcher_acknowledgments": "Ringraziamenti del ricercatore",
+    "pgp_public_key": "Chiave pubblica PGP",
     "disclosure_title": "Politica di divulgazione della sicurezza",
-    "coordinated_disclosure": "Comunicazione coordinata",
-    "in_scope": "Campo di applicazione",
-    "out_of_scope": "Campo di applicazione",
-    "safe_harbor": "Porto sicuro",
+    "coordinated_disclosure": "Divulgazione coordinata",
+    "in_scope": "Ambito del programma",
+    "out_of_scope": "Esclusioni",
+    "safe_harbor": "Garanzie legali",
     "report_vulnerability": "Segnala una vulnerabilità",
-    "github_private_reporting": "GitHub private vulnerabilità reporting",
-    "disclosure_reporting_body": "Uso {github} per i problemi IPGaze progetto. Per il servizio ufficiale, consultare {security_txt} per il canale di contatto corrente.",
-    "report_status_title": "Stato del rapporto di sicurezza",
-    "report_label": "Relazione",
+    "github_private_reporting": "Segnalazione di vulnerabilità privata GitHub",
+    "disclosure_reporting_body": "Utilizza {github} per problemi nel progetto IPGaze. Per il servizio ufficiale, consultare {security_txt} per l'attuale canale di contatto.",
+    "report_status_title": "Stato della segnalazione di sicurezza",
+    "report_label": "Segnalazione",
     "status": "Stato",
-    "maintainer_update": "Aggiornamento Maintainer",
-    "expected_disclosure_date": "Data di divulgazione prevista",
+    "maintainer_update": "Aggiornamento del responsabile",
+    "expected_disclosure_date": "Data prevista per la divulgazione",
     "closed": "Chiuso",
-    "report_status_help": "Questa pagina mostra solo lo stato del report. Utilizzare il link una volta dalla tua email di riconoscimento per controllare gli aggiornamenti.",
-    "acknowledgments_title": "Riconoscimento della sicurezza",
+    "report_status_help": "Questa pagina mostra solo lo stato della segnalazione. Per verificare gli aggiornamenti, usa il link monouso contenuto nell’e-mail di conferma.",
+    "acknowledgments_title": "Riconoscimenti di sicurezza",
     "researchers": "Ricercatori",
-    "no_researchers": "Non ci sono ancora stati ricercatori. I crediti sono pubblicati solo con il consenso del ricercatore.",
+    "no_researchers": "Nessun ricercatore è stato ancora elencato. I crediti vengono pubblicati solo con il consenso del ricercatore.",
     "status_received": "Ricevuto",
-    "status_triaged": "Triaged",
+    "status_triaged": "In valutazione",
     "status_confirmed": "Confermato",
-    "status_patching": "Patching",
-    "status_disclosed": "Chiuso",
-    "status_wont_fix": "Non sistemerà",
-    "policy_window": "Richiediamo un periodo di divulgazione coordinata di 90 giorni dalla presa in carico della segnalazione. Collaboreremo con il segnalante per concordare una data di pubblicazione ragionevole e potremo concordare un periodo più breve o più lungo, se opportuno.",
-    "policy_scope_official": "Il servizio ufficiale IPGaze all'indirizzo https://ifcfg.us.",
-    "policy_out_scope_self_hosted": "Installazioni di IPGaze autogestite e servizi gestiti da terzi.",
-    "policy_out_scope_disruption": "Test di tipo denial of service, spam, ingegneria sociale, attacchi fisici e test che interrompono il servizio o accedono ai dati di altre persone.",
-    "policy_out_scope_third_party": "Vulnerabilità nei servizi o nelle dipendenze di terzi senza un impatto dimostrato sul servizio ufficiale IPGaze.",
-    "policy_safe_harbor_text": "Non avvieremo né sosterremo azioni legali per attività di ricerca sulla sicurezza svolte in buona fede sul servizio incluso nell'ambito di applicazione di questa policy, purché rispettino la policy e non accedano a dati o servizi, non li modifichino né li interrompano. Interrompete i test e segnalateci tempestivamente eventuali dati di altre persone che doveste incontrare. Questa dichiarazione non autorizza attività su sistemi al di fuori dell'ambito di applicazione indicato.",
-    "report_email_subject": "Rapporto di sicurezza ricevuto {tracking_id}",
-    "report_email_body": "Abbiamo ricevuto il tuo rapporto di sicurezza. ID di monitoraggio: {tracking_id}\nStato: {status_url}",
-    "report_notification_subject": "Rapporto di sicurezza crittografato {tracking_id}",
-    "report_notification_body": "Il rapporto di sicurezza crittografato AES-256-GCM è allegato. La decifra con il server. security.encryption key."
+    "status_patching": "Correzione in corso",
+    "status_disclosed": "Divulgato",
+    "status_wont_fix": "Non verrà corretto",
+    "policy_window": "Richiediamo un periodo di divulgazione coordinata di 90 giorni dalla conferma di ricezione. Collaboreremo con chi segnala per concordare una data di pubblicazione ragionevole; se giustificato, potremo concordare un periodo più breve o più lungo.",
+    "policy_scope_official": "Il servizio ufficiale IPGaze all’indirizzo https://ifcfg.us.",
+    "policy_out_scope_self_hosted": "Installazioni self-hosted di IPGaze e servizi gestiti da terze parti.",
+    "policy_out_scope_disruption": "Test di negazione del servizio, spam, ingegneria sociale, attacchi fisici e test che interrompono il servizio o consentono di accedere ai dati di altre persone.",
+    "policy_out_scope_third_party": "Vulnerabilità in servizi o dipendenze di terze parti senza un impatto dimostrato sul servizio IPGaze ufficiale.",
+    "policy_safe_harbor_text": "Non intraprenderemo né sosterremo azioni legali contro chi svolge ricerche di sicurezza sul servizio incluso nell’ambito, nel rispetto di questa policy e in buona fede, senza accedere a dati o servizi altrui, modificarli o interromperli. Se dovessi imbatterti nei dati di un’altra persona, interrompi i test e segnalacelo tempestivamente. Questa dichiarazione non autorizza attività contro sistemi al di fuori dell’ambito indicato.",
+    "report_email_subject": "Segnalazione di sicurezza ricevuta {tracking_id}",
+    "report_email_body": "Abbiamo ricevuto la tua segnalazione di sicurezza. ID di tracciamento: {tracking_id}\nStato: {status_url}",
+    "report_notification_subject": "Segnalazione di sicurezza crittografata {tracking_id}",
+    "report_notification_body": "In allegato trovi la segnalazione di sicurezza cifrata con AES-256-GCM. Decifrala con server.security.encryption_key."
   },
   "cookie_consent": {
-    "message": "In conformità con la legge UE GDPR, questo messaggio viene visualizzato.",
+    "message": "In conformità con la legge GDPR dell'UE, viene visualizzato questo messaggio.",
     "accept": "Accetto",
-    "decline": "Declinazione",
-    "manage_preferences": "Gestione delle preferenze",
-    "blocked_content": "Contenuto esterno bloccato a causa delle preferenze dei cookie.",
-    "essential_description": "Richiesto per il sito di funzionare. Non puo' essere disattivato.",
-    "preference_description": "Ricorda le tue impostazioni come il tema (light/dark), le preferenze di lingua e di interfaccia. Disabling si azzererà a default su ogni visita.",
+    "decline": "Rifiutare",
+    "manage_preferences": "Gestisci le preferenze",
+    "blocked_content": "Contenuti esterni bloccati a causa delle preferenze sui cookie.",
+    "essential_description": "Necessario per il funzionamento del sito. Non può essere disabilitato.",
+    "preference_description": "Ricorda le tue impostazioni come tema (chiaro/scuro), lingua e preferenze dell'interfaccia. La disabilitazione ripristinerà le impostazioni predefinite ad ogni visita.",
     "analytics_description": "Aiutaci a capire come viene utilizzato il sito.",
-    "aria_label": "consenso cookie",
-    "accepted_toast": "Cookies accettati",
-    "declined_toast": "Cookies declinati"
+    "aria_label": "Consenso ai cookie",
+    "accepted_toast": "Cookie accettati",
+    "declined_toast": "I cookie sono stati rifiutati"
   },
   "about": {
     "title": "Informazioni",
     "features": "Caratteristiche",
     "version": "Versione",
     "links": "Collegamenti",
-    "heading": "Informazioni ipgaze",
-    "intro": "ipgaze è un servizio di ricerca di indirizzi IP veloce e privato. Restituisce il tuo indirizzo IP pubblico e le informazioni di geolocalizzazione senza tracciamento.",
-    "feature_ip_support": "IPv4 e IPv6 sostegno",
-    "feature_geoip": "GeoIP paese, città, e ASN ricerca",
-    "feature_rest_api": "REST API con JSON, testo, e HTML risposte",
-    "feature_no_tracking": "Nessun tracciamento, nessun log mantenuto oltre la rotazione del registro di accesso",
-    "feature_open_source": "Open source, self-hostable",
+    "heading": "A proposito di ipgaze",
+    "intro": "ipgaze è un servizio veloce e riservato per cercare indirizzi IP. Restituisce il tuo indirizzo IP pubblico e le relative informazioni di geolocalizzazione senza tracciarti.",
+    "feature_ip_support": "Supporto IPv4 e IPv6",
+    "feature_geoip": "Ricerca per paese, città e ASN GeoIP",
+    "feature_rest_api": "API REST con risposte JSON, testo e HTML",
+    "feature_network_detection": "Rilevamento di VPN, proxy e nodi di uscita Tor; DNS inverso",
+    "feature_port_check": "Verifica della raggiungibilità delle porte TCP (se abilitata)",
+    "feature_graphql": "Query GraphQL e documentazione OpenAPI/Swagger",
+    "feature_pwa": "PWA installabile con supporto offline",
+    "feature_integrations": "Strumenti MCP, metriche Prometheus e accesso opzionale tramite I2P",
+    "feature_no_tracking": "Gli script di analisi vengono caricati solo dopo il consenso.",
+    "feature_open_source": "Open source e installabile autonomamente",
     "api_heading": "API",
-    "api_description_pre": "The API è disponibile",
-    "api_description_post": "La documentazione completa è disponibile presso",
+    "api_description_pre": "L’API è disponibile all’indirizzo",
+    "api_description_post": "La documentazione completa è disponibile all'indirizzo",
     "attribution_heading": "Attribuzione"
   },
   "preferences": {
     "title": "Preferenze",
     "heading": "Preferenze",
     "display_heading": "Visualizza le preferenze",
-    "intro": "Le tue scelte tematiche e linguistiche vengono memorizzate nei cookie solo su questo dispositivo. Usa il link qui sotto per portarli e il tuo esempio di comando predefinito su un altro browser o dispositivo.",
+    "intro": "Le preferenze di tema e lingua vengono salvate nei cookie solo su questo dispositivo. Usa il link qui sotto per trasferirle e il comando di esempio predefinito per importarle in un altro browser o dispositivo.",
     "current_theme_label": "Tema attuale",
     "current_lang_label": "Lingua attuale",
     "default_widget_label": "Esempio di comando predefinito",
     "save": "Salva",
-    "consent_heading": "consenso cookie",
-    "consent_intro": "Scegliere quali categorie di cookie questo browser consente. I cookie essenziali sono sempre accesi.",
+    "consent_heading": "Consenso ai cookie",
+    "consent_intro": "Scegli quali categorie di cookie consente questo browser. I cookie essenziali sono sempre attivi.",
     "consent_essential_label": "Cookie essenziali",
-    "consent_preferences_label": "Cookie di riferimento",
-    "consent_analytics_label": "Cookie di analisi",
-    "ccpa_heading": "Opzione di vendita dati",
-    "ccpa_intro": "I residenti della California possono optare per la vendita di informazioni personali.",
+    "consent_preferences_label": "Cookie di preferenza",
+    "consent_analytics_label": "Cookie analitici",
+    "ccpa_heading": "Rinuncia alla vendita dei dati",
+    "ccpa_intro": "I residenti in California possono rinunciare alla vendita di informazioni personali.",
     "export_heading": "Esportazione",
-    "export_intro": "Aprire questo link su un altro dispositivo per applicare lo stesso tema e la lingua, o copiare il codice breve e incollarlo lì invece.",
-    "export_url_label": "Link di importazione",
+    "export_intro": "Apri questo collegamento su un altro dispositivo per applicare lo stesso tema e lingua oppure copia il codice breve e incollalo lì.",
+    "export_url_label": "Collegamento all'importazione",
     "export_code_label": "Codice breve",
-    "copy_url_aria": "Copia link di importazione",
-    "copy_code_aria": "Copia codice breve",
-    "import_heading": "Importazioni",
-    "import_intro": "Incolla un codice breve (o un link di importazione completo) da un altro dispositivo qui sotto.",
+    "copy_url_aria": "Copia il collegamento di importazione",
+    "copy_code_aria": "Copia il codice breve",
+    "import_heading": "Importa",
+    "import_intro": "Incolla un codice breve (o un collegamento di importazione completo) da un altro dispositivo di seguito.",
     "import_paste_label": "Codice o collegamento",
     "import_submit": "Applicare"
   },
   "announcements": {
-    "warning": "Avvertenza",
-    "info": "Info",
+    "warning": "Avvertimento",
+    "info": "Informazioni",
     "error": "Errore",
     "success": "Successo",
     "scheduled_maintenance": "Manutenzione programmata",
-    "dismiss_aria": "Annullamento"
+    "dismiss_aria": "Ignora l'annuncio"
   },
   "pwa": {
-    "install": "Installare app",
-    "installed": "App installata",
-    "ios_install_title": "Installazione {app}",
-    "ios_install_step1": "Toccare il pulsante Condividi nella barra degli strumenti di Safari.",
-    "ios_install_step2": "Scorrere verso il basso e toccare \"Aggiungi alla schermata iniziale\".",
+    "install": "Installa l'app",
+    "installed": "Applicazione installata",
+    "ios_install_title": "Installa {app}",
+    "ios_install_step1": "Tocca il pulsante Condividi nella barra degli strumenti di Safari.",
+    "ios_install_step2": "Scorri verso il basso e tocca \"Aggiungi alla schermata iniziale\".",
     "ios_install_step3": "Tocca \"Aggiungi\" nell'angolo in alto a destra.",
-    "offline_message": "Nessuna connessione internet. Mostrare contenuti memorizzati nella cache.",
+    "offline_message": "Nessuna connessione Internet. Visualizzazione del contenuto memorizzato nella cache.",
     "offline_title": "Sei offline",
-    "offline_description": "IPGaze richiede una connessione di rete per cercare indirizzi IP. Si prega di controllare la connessione e riprovare.",
-    "offline_try_again": "Prova ancora",
-    "update_available": "È disponibile una nuova versione.",
-    "update_later": "Più tardi.",
+    "offline_description": "IPGaze richiede una connessione di rete per cercare gli indirizzi IP. Controlla la connessione e riprova.",
+    "offline_try_again": "Riprova",
+    "update_available": "Una nuova versione è disponibile.",
+    "update_later": "Più tardi",
     "update_now": "Aggiorna ora"
   },
   "errors": {
-    "required": "Questo campo è richiesto",
-    "invalid_email": "Indirizzo email non valido",
-    "too_short": "Deve essere almeno {min} caratteri",
-    "too_long": "Non superate {max} caratteri",
+    "required": "Questo campo è obbligatorio",
+    "invalid_email": "Indirizzo e-mail non valido",
+    "too_short": "Deve contenere almeno {min} caratteri",
+    "too_long": "Non può superare {max} caratteri",
     "passwords_dont_match": "Le password non corrispondono",
     "invalid_format": "Formato non valido",
-    "already_exists": "Già esiste",
+    "already_exists": "Esiste già",
     "not_found": "Non trovato",
-    "bad_request": "Formato di richiesta non valido",
-    "validation_failed": "Validazione non riuscita: {details}",
+    "bad_request": "Formato della richiesta non valido",
+    "validation_failed": "Convalida non riuscita: {details}",
     "unauthorized": "Autenticazione richiesta",
-    "token_expired": "Token è scaduto",
+    "token_expired": "Il token è scaduto",
     "token_invalid": "Token non valido",
-    "2fa_required": "Richiesta di autenticazione a due fattori",
+    "2fa_required": "È richiesta l'autenticazione a due fattori",
     "2fa_invalid": "Codice 2FA non valido",
-    "forbidden": "Permesso negato",
+    "forbidden": "Autorizzazione negata",
     "blocked_by_blocklist": "Accesso negato",
     "blocked_by_country": "Accesso non disponibile nella tua regione",
-    "account_locked": "Conto chiuso",
+    "account_locked": "Conto bloccato",
     "method_not_allowed": "Metodo non consentito",
-    "conflict": "Risorse già esistenti",
+    "conflict": "La risorsa esiste già",
     "rate_limited": "Troppe richieste",
-    "server_error": "Errore del server interno",
+    "server_error": "Errore interno del server",
     "maintenance_mode": "Servizio non disponibile",
-    "request_id_label": "Richiesta ID"
+    "request_id_label": "ID richiesta"
   },
   "plurals": {
     "items": {
+      "zero": "Nessun elemento",
       "one": "{count} elemento",
       "other": "{count} elementi",
       "many": "{count} elementi"
     },
     "results": {
-      "one": "{count} risultato",
-      "other": "{count} risultati",
-      "many": "{count} risultati"
+      "zero": "Nessun risultato",
+      "one": "Risultato {count}",
+      "other": "Risultati {count}",
+      "many": "Risultati {count}"
     },
     "users": {
+      "zero": "Nessun utente",
       "one": "{count} utente",
       "other": "{count} utenti",
       "many": "{count} utenti"
@@ -511,9 +519,9 @@
   },
   "app": {
     "name": "IPGaze",
-    "tagline": "Servizio di ricerca indirizzo IP",
-    "description": "Informazioni di rete e geolocalizzazione IP veloci e accurate",
-    "cache_resized": "Capacità di cache aggiornata"
+    "tagline": "Servizio di ricerca dell'indirizzo IP",
+    "description": "Geolocalizzazione IP e informazioni di rete veloci e accurate",
+    "cache_resized": "Capacità della cache aggiornata"
   },
   "ip": {
     "your": "Il tuo indirizzo IP",
@@ -522,21 +530,21 @@
     "version": "Versione IP",
     "decimal": "Decimale",
     "hostname": "Nome host",
-    "is_eu": "Membro della Commissione",
-    "enter_ip": "Inserisci un indirizzo IP per cercare"
+    "is_eu": "Membro dell'UE",
+    "enter_ip": "Inserisci un indirizzo IP da cercare"
   },
   "location": {
     "country": "Paese",
-    "country_code": "Codice paese",
+    "country_code": "Codice Paese",
     "city": "Città",
     "region": "Regione",
-    "region_code": "Codice della Regione",
-    "timezone": "Tempo",
+    "region_code": "Codice regionale",
+    "timezone": "Fuso orario",
     "coordinates": "Coordinate",
     "latitude": "Latitudine",
     "longitude": "Longitudine",
     "metro_code": "Codice della metropolitana",
-    "zip_code": "Codice ZIP"
+    "zip_code": "Codice postale"
   },
   "network": {
     "asn": "ASN",
@@ -545,328 +553,328 @@
   },
   "admin": {
     "title": "Pannello di amministrazione",
-    "dashboard": "Dashboard",
+    "dashboard": "Cruscotto",
     "users": "Utenti",
-    "settings": "Impostazioni impostazioni",
-    "logs": "Logs",
-    "metrics": "Metrica",
+    "settings": "Impostazioni",
+    "logs": "Registri",
+    "metrics": "Metriche",
     "geoip": "GeoIP",
-    "scheduler": "Programmazione",
+    "scheduler": "Pianificatore",
     "maintenance": "Manutenzione",
     "backup": "Backup",
-    "restore": "Ripristino",
-    "update": "Aggiornamento",
-    "reload": "Reload Config"
+    "restore": "Ripristina",
+    "update": "Aggiorna",
+    "reload": "Ricarica configurazione"
   },
   "cli": {
     "requires_privileges": "Questa operazione richiede privilegi elevati: {action}",
-    "escalate_prompt": "Si prega di ri-correre con sudo o come radice.",
-    "daemon_started": "Daemon ha iniziato con PID {pid}",
-    "running_in_mode_label": "Correre in modalità",
-    "listening_on": "Ascoltare {proto}?{fqdn}:{port}",
-    "version_info": "Versione: {version} ({commit}), costruito {date}",
+    "escalate_prompt": "Si prega di eseguire nuovamente con sudo o come root.",
+    "daemon_started": "Demone avviato con PID {pid}",
+    "running_in_mode_label": "In esecuzione in modalità",
+    "listening_on": "Ascolto su {proto}://{fqdn}:{port}",
+    "version_info": "Versione: {version} ({commit}), compilata il {date}",
     "help_flag": "Mostra questo messaggio di aiuto",
-    "version_flag": "Informazioni sulla versione di stampa",
-    "port_flag": "Porta server",
+    "version_flag": "Stampa le informazioni sulla versione",
+    "port_flag": "Porta del server",
     "address_flag": "Indirizzo di ascolto del server",
     "config_flag": "Directory di configurazione",
-    "data_flag": "Directory dati",
-    "reverse_lookup_flag": "Abilita lookup inverso hostname",
-    "port_lookup_flag": "Abilitare il test di raggiungibilità della porta",
-    "cache_size_flag": "Dimensione della cache di risposta (0=disabled)",
-    "profile_flag": "Abilitare i gestori di profili",
-    "header_flag": "Fidatevi dell'intestazione per IP remoto (repeatable)",
-    "status_flag": "Controllo sanitario (uscita 0=sano, 1= malsano)",
-    "service_flag": "Gestione dei servizi",
+    "data_flag": "Directory dei dati",
+    "reverse_lookup_flag": "Abilita le ricerche inverse del nome host",
+    "port_lookup_flag": "Abilita il test di raggiungibilità della porta",
+    "cache_size_flag": "Dimensione della cache delle risposte (0=disabilitata)",
+    "profile_flag": "Abilita gli endpoint di profilazione",
+    "header_flag": "Considera attendibile questa intestazione per l'IP remoto (ripetibile)",
+    "status_flag": "Controlla lo stato (uscita 0=operativo, 1=non operativo)",
+    "service_flag": "Gestione del servizio",
     "maintenance_flag": "Operazioni di manutenzione"
   },
   "accessibility": {
-    "skip_to_content": "Salta al contenuto",
-    "menu": "Menu",
-    "search": "Ricerca",
-    "close_dialog": "Chiudi finestra",
-    "expand_section": "Sezione ampliata",
-    "collapse_section": "Sezione del crollo",
-    "loading": "Caricamento, attendere",
+    "skip_to_content": "Vai al contenuto",
+    "menu": "Menù",
+    "search": "Cerca",
+    "close_dialog": "Chiudi la finestra di dialogo",
+    "expand_section": "Espandi sezione",
+    "collapse_section": "Comprimi sezione",
+    "loading": "Caricamento in corso, attendere",
     "required_field": "Campo obbligatorio"
   },
   "api_help": {
-    "title": "Aiuto API Riferimento",
-    "basic_heading": "Uso di base",
-    "basic_intro": "Ottenere il vostro indirizzo IP pubblico (testo principale — funziona con curl, wget, HTTPie, ecc):",
+    "title": "Guida e riferimento API",
+    "basic_heading": "Utilizzo di base",
+    "basic_intro": "Ottieni il tuo indirizzo IP pubblico (testo semplice: funziona con curl, wget, HTTPie, ecc.):",
     "force_ip_version": "Forza IPv4 o IPv6:",
-    "json_heading": "JSON Risposta",
-    "json_intro": "Ritorni pieni GeoIP dati inclusi paese, città, ASN, e più:",
-    "force_json": "Forza JSON via Accetta intestazione:",
+    "json_heading": "Risposta JSON",
+    "json_intro": "Restituisce dati GeoIP completi inclusi paese, città, ASN e altro:",
+    "force_json": "Forza JSON tramite l'intestazione Accetta:",
     "fields_heading": "Campi specifici",
-    "fields_intro": "Ogni campo è accessibile come punto finale a testo semplice:",
-    "lookup_heading": "Guarda un altro IP",
-    "lookup_intro": "Per qualsiasi indirizzo IP GeoIP dati:",
-    "port_heading": "Reachability della porta",
-    "port_intro": "Controllare se una porta è aperta sul IP richiedente:",
-    "tor_access_intro": "Questo server è anche raggiungibile come Tor servizio nascosto — nessun nodo di uscita, e nessun intermediario mai vede il vostro IP reale:",
-    "tor_access_disabled": "Questo server non è attualmente in esecuzione Tor servizio nascosto.",
-    "tor_address_heading": "Onion Indirizzo",
-    "tor_connect_heading": "Come Collegare",
+    "fields_intro": "Ogni campo è accessibile come endpoint di testo semplice:",
+    "lookup_heading": "Cerca un altro IP",
+    "lookup_intro": "Interroga qualsiasi indirizzo IP per i dati GeoIP:",
+    "port_heading": "Verifica della raggiungibilità della porta TCP",
+    "port_intro": "Verifica se una porta TCP è raggiungibile dall’indirizzo IP richiedente:",
+    "tor_access_intro": "Questo server è raggiungibile anche come servizio nascosto Tor: nessun nodo di uscita e nessun intermediario vede mai il tuo vero IP:",
+    "tor_access_disabled": "Questo server attualmente non esegue un servizio nascosto Tor.",
+    "tor_address_heading": "Indirizzo .onion",
+    "tor_connect_heading": "Come connettersi",
     "tor_step1_pre": "Scarica",
-    "tor_step1_link": "Tor Browser",
-    "tor_step2": "Aperto Tor Browser e attendere per il collegamento",
-    "tor_step3": "Copia l'indirizzo di cipolla sopra e incollalo nel Tor Barra degli indirizzi del browser",
-    "tor_note": "Utilizzo Tor fornisce ulteriore privacy nascondendo il tuo indirizzo IP e crittografando la tua connessione attraverso il Tor rete.",
-    "i2p_access_intro": "Questo server è raggiungibile anche come I2P eepsite:",
-    "i2p_access_disabled": "Questo server non è attualmente in esecuzione I2P Eepsite.",
-    "i2p_address_heading": "I2P Indirizzo",
-    "i2p_connect_heading": "Come Collegare",
-    "i2p_step1_pre": "Installazione",
+    "tor_step1_link": "Browser Tor",
+    "tor_step2": "Apri Tor Browser e attendi che si connetta",
+    "tor_step3": "Copia l’indirizzo .onion qui sopra e incollalo nella barra degli indirizzi di Tor Browser",
+    "tor_note": "L'uso di Tor fornisce ulteriore privacy nascondendo il tuo indirizzo IP e crittografando la tua connessione attraverso la rete Tor.",
+    "i2p_access_intro": "Questo server è raggiungibile anche come eepsite I2P:",
+    "i2p_access_disabled": "Questo server attualmente non esegue un eepsite I2P.",
+    "i2p_address_heading": "Indirizzo I2P",
+    "i2p_connect_heading": "Come connettersi",
+    "i2p_step1_pre": "Installa",
     "i2p_step1_link_i2p": "I2P",
     "i2p_step1_or": "o",
-    "i2p_step1_link_i2pd": "I2p",
-    "i2p_step1_post": "e aspettare che si integra con la rete",
-    "i2p_step2": "Configurare il browser per utilizzare I2P HTTP proxy (default) {proxy})",
-    "i2p_step3": "Ricevuto.i2p indirizzo sopra e incollalo nella barra dell'indirizzo del browser",
-    "i2p_note": "Utilizzo I2P fornisce privacy aggiuntiva instradando la connessione attraverso I2P rete. Eepsites sono serviti sopra http:// I2P tunnel fornisce la crittografia dei trasporti, quindi no TLS viene utilizzato il certificato.",
-    "formats_heading": "API Formati",
-    "formats_plain_label": "Testo in bianco",
-    "formats_plain_desc": "default per curl/wget/CLI utente-agenti e vuoto User-Agent",
+    "i2p_step1_link_i2pd": "i2pd",
+    "i2p_step1_post": "e attendi che si connetta alla rete",
+    "i2p_step2": "Configura il tuo browser per utilizzare il proxy HTTP I2P (predefinito {proxy})",
+    "i2p_step3": "Copia l’indirizzo .b32.i2p qui sopra e incollalo nella barra degli indirizzi del browser",
+    "i2p_note": "L’uso di I2P offre maggiore privacy instradando la connessione attraverso la rete I2P. Gli eepsite sono accessibili tramite http://: il tunnel I2P cifra il traffico, quindi non è necessario un certificato TLS.",
+    "formats_heading": "Formati API",
+    "formats_plain_label": "Testo semplice",
+    "formats_plain_desc": "predefinito per gli user agent curl/wget/CLI e per uno user agent vuoto",
     "formats_json_label": "JSON",
-    "formats_json_mid": "intestazione, o",
-    "formats_json_suffix": "Suffisso",
+    "formats_json_mid": "intestazione o",
+    "formats_json_suffix": "suffisso",
     "formats_html_label": "HTML",
-    "formats_html_desc_pre": "browser user-agents, o",
-    "append_pre": "Allegato",
-    "append_post": "a qualsiasi punto finale di campo per un testo chiaro esplicito:",
-    "rate_heading": "Limiti di tasso",
-    "rate_body_pre": "È consentito l'uso automatizzato. Si prega di limitare le richieste a 1 al minuto. Le richieste superate possono ricevere",
+    "formats_html_desc_pre": "agenti utente del browser o",
+    "append_pre": "Aggiungi",
+    "append_post": "a qualsiasi endpoint di campo per testo semplice esplicito:",
+    "rate_heading": "Limiti di velocità",
+    "rate_body_pre": "L’uso automatizzato è consentito. Limita le richieste a una al minuto. Le richieste oltre questo limite possono ricevere una",
     "rate_body_post": "risposta.",
-    "mcp_title": "MCP guida alla connessione",
-    "mcp_guide": "MCP guida alla connessione",
-    "mcp_overview": "Che cosa è questo",
-    "mcp_overview_body": "Questa applicazione espone la sua versione pubblica API operazioni come strumenti attraverso il Protocollo di Contesto Modello (MCP) Correggere HTTP trasporto. Il punto finale è remoto; non usa lo stdio.",
-    "mcp_endpoint": "Fine",
-    "mcp_endpoint_body": "Utilizzare il punto finale canonico o l'alias diretto:",
-    "mcp_select_url": "Seleziona il punto finale URL sopra nel suo insieme senza JavaScript.",
+    "mcp_title": "Guida alla connessione MCP",
+    "mcp_guide": "Guida alla connessione MCP",
+    "mcp_overview": "Che cos’è?",
+    "mcp_overview_body": "Questa applicazione espone le operazioni dell’API pubblica versionata come strumenti tramite il trasporto HTTP Streamable del Model Context Protocol (MCP). L’endpoint è remoto e non usa stdio.",
+    "mcp_endpoint": "Endpoint",
+    "mcp_endpoint_body": "Utilizza l'endpoint canonico o l'alias diretto:",
+    "mcp_select_url": "Senza JavaScript, seleziona e copia l’URL completo dell’endpoint indicato sopra.",
     "mcp_authentication": "Autenticazione",
-    "mcp_authentication_body": "MCP utilizza la stessa Autorizzazione: Token del Cuscinetto come REST API; non esiste MCP- Token specifico. IPGaze espone strumenti di ricerca pubblici in modo anonimo e non rilascia token client collegati. Non utilizzare mai il token primario o il token dell'operatore (server.token). Se un'altra distribuzione aggiunge token client collegati, utilizzare solo il relativo token collegato per operazioni protette.",
-    "mcp_connect": "Collegare un client",
-    "mcp_claude_code": "Claude Codice",
-    "mcp_token_body": "IPGaze si collega senza token. Per un'altra distribuzione che supporta i token client collegati, creare un token dal suo /server/preferences/tokens pagina e fornire come intestazione:",
+    "mcp_authentication_body": "MCP usa lo stesso meccanismo di autenticazione con token Bearer dell’API REST; non esiste un token specifico per MCP. IPGaze espone strumenti di ricerca pubblici e anonimi e non rilascia token client associati. Non usare mai il token principale o il token dell’operatore (server.token). Se un’altra installazione aggiunge token client associati, usa solo quello per le operazioni protette.",
+    "mcp_connect": "Collega un client",
+    "mcp_claude_code": "Claude Code",
+    "mcp_token_body": "IPGaze si connette senza token. Se un’altra installazione supporta token client associati, creane uno nella pagina /server/preferences/tokens e invialo nell’intestazione:",
     "mcp_generic_config": "Configurazione client generica",
-    "mcp_verify": "Verificare con inizializzare",
-    "mcp_omit_auth": "Omettere l'intestazione di autorizzazione quando si collega a IPGazestrumenti pubblici.",
+    "mcp_verify": "Verifica con initialize",
+    "mcp_omit_auth": "Quando ti connetti agli strumenti pubblici di IPGaze, ometti l’intestazione Authorization.",
     "mcp_tools": "Strumenti disponibili",
-    "mcp_tools_body": "Questa lista live è generata dalla versione registrata API operazioni.",
-    "mcp_no_tools": "Nessun pubblico API gli strumenti sono attualmente registrati.",
+    "mcp_tools_body": "Questo elenco aggiornato viene generato dalle operazioni API registrate con versione.",
+    "mcp_no_tools": "Al momento non è registrato alcuno strumento API pubblico.",
     "mcp_behavior_limits": "Comportamento e limiti",
-    "mcp_post_stateless": "Le richieste usano POST; questo endpoint è senza stato e non crea sessioni.",
-    "mcp_rate_audit": "API i limiti di tasso e la richiesta di revisione si applicano.",
-    "mcp_origin_rejected": "Le richieste di origine non valida sono respinte.",
-    "mcp_protocol_versions": "Le versioni di protocollo supportate includono 2025-03-26.",
+    "mcp_post_stateless": "Le richieste usano POST. L’endpoint è stateless e non crea sessioni.",
+    "mcp_rate_audit": "Si applicano i limiti di frequenza dell’API e la registrazione delle richieste.",
+    "mcp_origin_rejected": "Le richieste con un’origine non valida vengono rifiutate.",
+    "mcp_protocol_versions": "Le versioni del protocollo supportate includono 2025-03-26.",
     "mcp_troubleshooting": "Risoluzione dei problemi",
     "mcp_status": "Stato",
     "mcp_cause": "Causa",
-    "mcp_fix": "Fisso",
-    "mcp_400_cause": "Versione del protocollo o guasto dell'intestazione richiesta",
-    "mcp_400_fix": "Invia la versione del protocollo e JSON/stream Accetta intestazioni sopra indicate.",
-    "mcp_401_cause": "Mancanza, invalidità o scadenza",
-    "mcp_401_fix": "IPGazeGli strumenti pubblici non hanno bisogno di gettoni. Per le implementazioni con token collegati, utilizzare un token Bearer valido collegato; la risposta include WWW-Authenticate: Bearer.",
-    "mcp_403_cause": "Origine non valida o portata di token insufficiente",
-    "mcp_403_fix": "Collegare da un'origine consentita e utilizzare un token con il campo di applicazione richiesto.",
+    "mcp_fix": "Soluzione",
+    "mcp_400_cause": "Versione del protocollo o intestazioni obbligatorie non corrispondenti",
+    "mcp_400_fix": "Invia la versione del protocollo e le intestazioni Accept per JSON/stream indicate sopra.",
+    "mcp_401_cause": "Token mancante, non valido o scaduto",
+    "mcp_401_fix": "Gli strumenti pubblici di IPGaze non richiedono un token. Nelle installazioni che supportano token associati, usa un token Bearer valido. La risposta include WWW-Authenticate: Bearer.",
+    "mcp_403_cause": "Origine non valida o ambito del token insufficiente",
+    "mcp_403_fix": "Connettiti da un’origine consentita e usa un token con l’ambito richiesto.",
     "mcp_404_cause": "MCP è disabilitato",
-    "mcp_404_fix": "Chiedi all'operatore del server di abilitare il server.mcp.enabled.",
-    "mcp_405_cause": "GET o DELETE utilizzati sul MCP punto",
-    "mcp_405_fix": "Utilizzare POST per MCP richieste.",
-    "mcp_project_tools": "IPGaze strumenti"
+    "mcp_404_fix": "Chiedi all’amministratore del server di abilitare server.mcp.enabled.",
+    "mcp_405_cause": "È stato usato GET o DELETE sull’endpoint MCP",
+    "mcp_405_fix": "Usa POST per le richieste MCP.",
+    "mcp_project_tools": "Strumenti IPGaze"
   },
   "index": {
     "title": "Qual è il mio indirizzo IP? — {host}",
-    "meta_description": "{host} • Qual è il mio indirizzo IP? — Il miglior strumento per trovare il tuo indirizzo IP e le informazioni su di esso. Pieno IPv4 e IPv6 supporto.",
+    "meta_description": "{host} • Qual è il mio indirizzo IP? — Lo strumento ideale per conoscere il tuo indirizzo IP e ottenere informazioni correlate. Supporto completo per IPv4 e IPv6.",
     "heading": "Qual è il mio indirizzo IP?",
-    "subtitle": "Il miglior strumento per trovare il tuo indirizzo IP e le informazioni su di esso.",
-    "ip_info_aria": "Informazioni IP",
+    "subtitle": "Lo strumento migliore per trovare il tuo indirizzo IP e informazioni su di esso.",
+    "ip_info_aria": "Informazioni sull'IP",
     "ip_details_heading": "Dettagli IP",
     "field_postal_code": "Codice postale",
-    "api_usage_aria": "API Utilizzo",
+    "api_usage_aria": "Utilizzo dell'API",
     "column1_heading": "Cosa sappiamo di questo indirizzo IP?",
-    "column2_heading": "Come posso ottenere questo programmaticamente?",
-    "column2_intro": "Con il widget qui sotto è possibile costruire la vostra query, e vedere quale sarà il risultato.",
-    "widget_select_group_aria": "Seleziona una API campo da anteprima",
+    "column2_heading": "Come posso ottenerlo a livello di programmazione?",
+    "column2_intro": "Con il widget qui sotto puoi creare la tua query e vedere come sarà il risultato.",
+    "widget_select_group_aria": "Seleziona un campo API per visualizzarne l'anteprima",
     "field_ip_decimal": "Indirizzo IP (decimale)",
-    "field_country_iso": "Paese (Codice ISO)",
-    "field_in_eu": "Nell'UE?",
-    "field_vpn_proxy": "VPN / proxy",
-    "field_tor_exit": "Tor Uscita Node",
-    "field_tor_hidden_service": "Tor Servizio nascosto",
-    "tor_hidden_service_notice": "Stai navigando in questo indirizzo .onion sopra Tor. Tor circuiti di servizio nascosto non portano mai il tuo vero indirizzo IP al server — l'indirizzo qui sotto è solo l'indirizzo di loopback di questo server, non il tuo.",
-    "field_user_agent": "Agente Utente",
-    "field_user_agent_comment": "Agente Utente: Commento",
+    "field_country_iso": "Paese (codice ISO)",
+    "field_in_eu": "Membro dell’UE",
+    "field_vpn_proxy": "VPN/Proxy",
+    "field_tor_exit": "Nodo di uscita Tor",
+    "field_tor_hidden_service": "Servizio nascosto Tor",
+    "tor_hidden_service_notice": "Stai visitando questo indirizzo .onion tramite Tor. I circuiti dei servizi nascosti Tor non trasmettono al server il tuo vero indirizzo IP: l’indirizzo visualizzato qui sotto è solo quello di loopback di questo server, non il tuo.",
+    "field_user_agent": "Agente utente",
+    "field_user_agent_comment": "Agente utente: commento",
     "field_user_agent_raw": "Agente utente: Raw",
     "field_asn_org": "ASN (Organizzazione)",
-    "geoip_attribution_pre": "GeoIP dati forniti",
-    "sponsor_hosted_by": "Questo sito è ospitato da",
+    "geoip_attribution_pre": "Dati GeoIP forniti da",
+    "sponsor_hosted_by": "Sito ospitato da",
     "sponsor_logo_alt": "Logo del sito",
     "value_not_available": "Non disponibile",
     "map_title": "Posizione approssimativa sulla mappa",
-    "map_view_larger": "Visualizza mappa più grande",
-    "widget_port_label": "Numero della porta",
-    "widget_check_ip_label": "Controllare un altro IP (opzionale)",
-    "widget_ip_placeholder": "IP a query",
+    "map_view_larger": "Visualizza la mappa più grande",
+    "widget_port_label": "Numero di porta",
+    "widget_check_ip_label": "Controlla un altro IP (facoltativo)",
+    "widget_ip_placeholder": "IP da interrogare",
     "widget_open": "Aperto",
-    "faq_heading": "FAQ",
-    "faq_ipv4_ipv6_question": "Come forzare IPv4 o IPv6 Cercare?",
-    "faq_ipv4_ipv6_intro": "Forzare il protocollo passando la bandiera appropriata al vostro cliente:",
-    "faq_ipv4_result": "ritorna il tuo IPv4 indirizzo",
-    "faq_ipv6_result": "ritorna il tuo IPv6 indirizzo",
-    "faq_json_question": "Posso forzare JSON?",
-    "faq_json_answer_pre": "Impostazione della",
+    "faq_heading": "Domande frequenti",
+    "faq_ipv4_ipv6_question": "Come posso forzare la ricerca IPv4 o IPv6?",
+    "faq_ipv4_ipv6_intro": "Forza il protocollo passando il flag appropriato al tuo client:",
+    "faq_ipv4_result": "restituisce il tuo indirizzo IPv4",
+    "faq_ipv6_result": "restituisce il tuo indirizzo IPv6",
+    "faq_json_question": "Posso forzare l'acquisizione di JSON?",
+    "faq_json_answer_pre": "Impostazione del",
     "faq_json_answer_post": "l'intestazione funziona come previsto.",
-    "faq_automated_question": "L'uso automatizzato di questo servizio è consentito?",
-    "faq_automated_answer": "Sì, finché il limite di tasso è rispettato. Il limite di tasso è in vigore per garantire un servizio equo per tutti.",
-    "faq_rate_limit_note": "Limitare le richieste automatizzate a 1 richiesta al minuto",
-    "faq_rate_limit_guarantee": "Nessuna garanzia è fatta per richieste che superano questo limite.",
-    "faq_rate_limit_consequence": "Possono essere limitato al tasso, con un codice di stato 429, o completamente abbandonato."
+    "faq_automated_question": "È consentito l'uso automatizzato di questo servizio?",
+    "faq_automated_answer": "Sì, purché venga rispettato il limite tariffario. Il limite tariffario è in vigore per garantire un servizio equo per tutti.",
+    "faq_rate_limit_note": "Limita le richieste automatizzate a 1 richiesta al minuto",
+    "faq_rate_limit_guarantee": "Non è garantita la gestione delle richieste oltre questo limite.",
+    "faq_rate_limit_consequence": "Le richieste possono essere limitate, ricevere una risposta con codice 429 o essere eliminate."
   },
   "healthz": {
-    "restart_pending": "Riavviare in attesa:",
-    "commit_label": "Impegno",
+    "restart_pending": "Riavvio in sospeso:",
+    "commit_label": "Impegnarsi",
     "build_date_label": "Data di costruzione",
-    "runtime_heading": "Tempo libero",
+    "runtime_heading": "Durata",
     "timestamp_label": "Timestamp",
-    "checks_heading": "Controllo della salute",
-    "column_component": "Componenti",
-    "check_database": "Database",
+    "checks_heading": "Controlli sanitari",
+    "column_component": "Componente",
+    "check_database": "Banca dati",
     "check_cache": "Cache",
-    "check_disk": "Disk",
-    "check_scheduler": "Programmazione",
+    "check_disk": "Disco",
+    "check_scheduler": "Pianificatore",
     "check_tor": "Tor",
     "check_i2p": "I2P",
-    "refreshing_in_prefix": "Rinfresco in",
+    "refreshing_in_prefix": "Rinfresco dentro",
     "provider_label": "Fornitore"
   },
   "client": {
-    "help_flag": "Mostra questo messaggio di aiuto e uscita",
-    "version_flag": "Visualizza le informazioni della versione e l'uscita",
-    "debug_flag": "Abilita l'output del debug",
-    "server_flag": "Server URL a query",
-    "output_flag": "Formato di uscita",
-    "field_flag": "Stampare un solo campo",
-    "lang_flag": "Codice di lingua di uscita",
+    "help_flag": "Mostra questo messaggio di aiuto ed esci",
+    "version_flag": "Mostra le informazioni sulla versione ed esce",
+    "debug_flag": "Abilita l'output di debug",
+    "server_flag": "URL del server da interrogare",
+    "output_flag": "Formato di output",
+    "field_flag": "Stampa un solo campo",
+    "lang_flag": "Codice della lingua di output",
     "color_flag": "Modalità colore (auto, sempre, mai)",
-    "shell_flag": "Comando di integrazione della shell (complezioni, init, help)",
-    "token_flag": "API token usato per autenticare",
-    "token_file_flag": "Leggi il testo API token da un file",
-    "config_flag": "Nome del profilo di configurazione o percorso",
+    "shell_flag": "Comando di integrazione della shell (completion, init, help)",
+    "token_flag": "Token API utilizzato per l'autenticazione",
+    "token_file_flag": "Leggere il token API da un file",
+    "config_flag": "Nome o percorso del profilo di configurazione",
     "update_flag": "Comando di aggiornamento (check, yes)",
-    "usage_line": "Utilizzo: {binary} [Opzioni]",
-    "description": "Query Indirizzo IP e informazioni di rete da un ipgaze server.",
+    "usage_line": "Utilizzo: {binary} [opzioni] [ip]",
+    "description": "Interroga l'indirizzo IP e le informazioni di rete da un server ipgaze.",
     "options_header": "Opzioni:",
     "formats_header": "Formati: {formats}",
     "fields_header": "Campi: {fields}",
-    "shells_header": "Conchiglie: {shells}",
+    "shells_header": "Shell supportate: {shells}",
     "examples_header": "Esempi:",
     "example_own_ip": "Mostra il tuo indirizzo IP",
     "example_lookup_ip": "Cerca un indirizzo IP specifico",
-    "example_json": "Stampare il risultato come JSON",
-    "example_field": "Stampare un campo per un indirizzo IP",
-    "example_server": "Accosta un server diverso",
+    "example_json": "Stampa il risultato come JSON",
+    "example_field": "Stampa un campo per un indirizzo IP",
+    "example_server": "Interroga un server diverso",
     "example_config": "Utilizzare un profilo di configurazione denominato",
-    "example_update_check": "Verifica se è disponibile un aggiornamento",
-    "example_update_install": "Scaricare e installare l'aggiornamento",
-    "err_config_path": "Non è possibile risolvere il percorso di configurazione: {error}",
-    "warn_create_config": "Attenzione: non è possibile creare il file di configurazione: {error}",
-    "err_invalid_output": "Formato di uscita non valido \"{format}\". Formati validi: {formats}",
-    "err_no_server": "Nessun server configurato. Utilizzare --server URL o impostare server.primary nel file di configurazione.",
+    "example_update_check": "Controlla se è disponibile un aggiornamento",
+    "example_update_install": "Scarica e installa l’aggiornamento",
+    "err_config_path": "Impossibile risolvere il percorso di configurazione: {error}",
+    "warn_create_config": "Attenzione: impossibile creare il file di configurazione: {error}",
+    "err_invalid_output": "Formato di output non valido \"{format}\". Formati validi: {formats}",
+    "err_no_server": "Nessun server configurato. Utilizza l'URL --server o imposta server.primary nel file di configurazione.",
     "version_server_label": "Server",
-    "version_server_version_label": "Versione server",
-    "version_build_info_label": "Creare informazioni",
-    "err_update_check": "Controllo aggiornamento fallito: {error}",
-    "err_cli_too_old": "Questo client è più vecchio della versione minima {version} il server richiede. Corri! {binary} - Si'.",
-    "update_up_to_date": "Sono gia' aggiornato.",
-    "update_available": "Aggiornamento disponibile: {current} a {available}",
-    "err_update_failed": "Aggiornamento fallito: {error}",
-    "err_unknown_update": "Comando di aggiornamento sconosciuto \"{command}\". Comandi validi: controllare, sì",
-    "update_prompt": "Installare questo aggiornamento ora? [y/N]",
-    "err_token_revoked": "Il server ha revocato questo token. Autentica di nuovo con --token o --token-file.",
-    "shell_help_usage": "Utilizzo: {binary} --concludimenti del guscio|init|help SHELL",
-    "err_unknown_shell_command": "Comando shell sconosciuto \"{command}\". Comandi validi: completamento, init, aiuto",
-    "err_unsupported_shell": "guscio non supportato \"{shell}\". Conchiglie supportate: {shells}"
+    "version_server_version_label": "Versione del server",
+    "version_build_info_label": "Informazioni sulla build",
+    "err_update_check": "Controllo aggiornamento non riuscito: {error}",
+    "err_cli_too_old": "Questo client è precedente alla versione minima {version} richiesta dal server. Esegui {binary} --update yes.",
+    "update_up_to_date": "Già aggiornato.",
+    "update_available": "Aggiornamento disponibile: da {current} alla versione {available}",
+    "err_update_failed": "Aggiornamento non riuscito: {error}",
+    "err_unknown_update": "Comando di aggiornamento sconosciuto \"{command}\". Comandi validi: check, yes",
+    "update_prompt": "Installare questo aggiornamento adesso? [yes/no]",
+    "err_token_revoked": "Il server ha revocato questo token. Esegui di nuovo l’accesso con --token o --token-file.",
+    "shell_help_usage": "Uso: {binary} --shell completion|init|help SHELL",
+    "err_unknown_shell_command": "Comando shell sconosciuto “{command}”. Comandi validi: completion, init, help",
+    "err_unsupported_shell": "Shell non supportata “{shell}”. Shell supportate: {shells}"
   },
   "tui": {
     "title": "Informazioni sull'indirizzo IP",
-    "loading": "Ricerca indirizzo IP...",
+    "loading": "Ricerca dell'indirizzo IP…",
     "no_data": "nessun dato",
     "field_hostname": "Nome host",
     "field_country": "Paese",
     "field_city": "Città",
     "field_region": "Regione",
     "field_postal_code": "Codice postale",
-    "field_timezone": "Tempo",
+    "field_timezone": "Fuso orario",
     "field_asn": "ASN",
     "field_coordinates": "Coordinate",
     "abbrev_hostname": "Host",
-    "abbrev_country": "C.",
+    "abbrev_country": "Paese",
     "abbrev_city": "Città",
-    "abbrev_region": "Reg.",
-    "abbrev_postal_code": "Zip",
-    "abbrev_timezone": "TZ",
+    "abbrev_region": "Reg",
+    "abbrev_postal_code": "CAP",
+    "abbrev_timezone": "Fuso",
     "abbrev_asn": "ASN",
     "abbrev_coordinates": "Coord",
-    "help_title": "Tastiera Scorciatoie",
-    "help_navigate": "Spostarsi tra i campi",
-    "help_jump": "Salta al primo o ultimo campo",
+    "help_title": "Scorciatoie da tastiera",
+    "help_navigate": "Muoversi tra i campi",
+    "help_jump": "Passa al primo o all'ultimo campo",
     "help_expand": "Mostra il valore completo del campo selezionato",
-    "help_back": "Chiudere l'aiuto, collassare o cancellare la ricerca",
+    "help_back": "Chiudi la guida, comprimi o cancella la ricerca",
     "help_search": "Campi di ricerca",
-    "help_help": "Mostrare o nascondere questa schermata di aiuto",
-    "help_quit": "Smettetela.",
-    "hint_minimal": "?: aiutare q:quit",
-    "hint_compact": "↑↓:nav ר enter:show",
-    "hint_full": "↑/↓: Navigate ר Enter: Show ר /: Search ר?: Help ר q: Quit",
-    "search_prompt": "Ricerca: {query}",
-    "search_active": "Filtro: {query}",
-    "search_no_match": "Nessun campionamento {query}"
+    "help_help": "Mostra o nascondi questa schermata di aiuto",
+    "help_quit": "Esci",
+    "hint_minimal": "?:aiuto q:esci",
+    "hint_compact": "↑↓:nav │ invio:mostra │ ?:aiuto │ q:esci",
+    "hint_full": "↑/↓: Naviga │ Invio: Mostra │ /: Cerca │ ?: Aiuto │ q: Esci",
+    "search_prompt": "Cerca: {query}",
+    "search_active": "Filtra: {query}",
+    "search_no_match": "Nessun campo corrisponde a {query}"
   },
   "setup": {
-    "title": "{app} CLI Impostazione",
-    "intro": "Nessun server configurato. Mettiamone uno!",
-    "server_url_label": "Server URL",
-    "token_label": "API Token (opzionale)",
-    "token_placeholder": "lasciare vuoto per accesso anonimo",
-    "save_option": "Salva in configurazione (consigliato)",
-    "test_connection": "Connessione di prova",
-    "testing": "Collegamento di prova a {server}...",
-    "connected": "Collegato a {server} (versione) {version})",
-    "failed": "La connessione non è riuscita: {error}",
-    "invalid_url": "Inserisci un valido http(s) server URL",
-    "hint": "scheda: campo successivo Ÿ spazio: toggle",
-    "saved": "Configurazione salvata a {path}"
+    "title": "{app} Configurazione CLI",
+    "intro": "Non è configurato alcun server. Configuriamone uno!",
+    "server_url_label": "URL del server",
+    "token_label": "Token API (facoltativo)",
+    "token_placeholder": "lasciare vuoto per l'accesso anonimo",
+    "save_option": "Salva nella configurazione (consigliato)",
+    "test_connection": "Verifica la connessione",
+    "testing": "Verifica della connessione a {server}…",
+    "connected": "Connesso a {server} (versione {version})",
+    "failed": "Connessione non riuscita: {error}",
+    "invalid_url": "Inserisci un URL del server http(s) valido",
+    "hint": "tab: campo successivo │ spazio: attiva/disattiva │ invio: verifica e salva │ esc: annulla",
+    "saved": "Configurazione salvata in {path}"
   },
   "notifications": {
-    "title": "Notifica",
+    "title": "Notifiche",
     "mark_all_read": "Segna tutto come letto",
     "clear_all": "Cancella tutto",
-    "ssl_expiring": "SSL il certificato scade in {count} giorni",
-    "ssl_renewal_failed": "SSL rinnovo del certificato fallito",
+    "ssl_expiring": "Il certificato SSL scade tra {count} giorni",
+    "ssl_renewal_failed": "Rinnovo del certificato SSL non riuscito",
     "backup_completed": "Backup completato",
-    "backup_failed": "Backup fallito",
+    "backup_failed": "Backup non riuscito",
     "update_available": "Aggiornamento disponibile",
-    "disk_space_low": "Spazio disco basso",
-    "task_failed": "Compito fallito",
-    "task_triggered": "Attività attivata manualmente",
-    "ssl_renewed": "SSL certificato rinnovato",
-    "blocklist_updated": "Blocklist aggiornato: {name} ({count} regole)",
-    "blocklist_update_failed": "Aggiornamento Blocklist fallito: {name}",
-    "geoip_updated": "GeoIP database aggiornati",
-    "geoip_update_failed": "GeoIP aggiornamento fallito",
+    "disk_space_low": "Spazio su disco insufficiente",
+    "task_failed": "Attività fallita",
+    "task_triggered": "Attività avviata manualmente",
+    "ssl_renewed": "Certificato SSL rinnovato",
+    "blocklist_updated": "Elenco di blocco aggiornato: {name} ({count} regole)",
+    "blocklist_update_failed": "Aggiornamento dell’elenco di blocco non riuscito: {name}",
+    "geoip_updated": "Database GeoIP aggiornato",
+    "geoip_update_failed": "Aggiornamento GeoIP non riuscito",
     "ip_blocked": "IP bloccato: {ip} ({reason})",
-    "ip_allowlisted": "Impostazione IP: {cidr}",
+    "ip_allowlisted": "IP consentito: {cidr}",
     "country_blocked": "Richiesta bloccata per paese: {ip} ({country})",
     "preferences": {
       "webui": "WebUI",
-      "email": "Email",
+      "email": "E-mail",
       "security_cannot_disable": "Sicurezza (non può essere disabilitato)",
       "server": "Server",
       "backup": "Backup",
-      "scheduler": "Programmazione",
+      "scheduler": "Pianificatore",
       "other_admins": "Altri amministratori"
     }
   },
@@ -874,156 +882,156 @@
     "subjects": {
       "security_alert": "Avviso di sicurezza - {app_name}",
       "backup_completed": "Backup completato - {app_name}",
-      "backup_failed": "Backup fallito - {app_name}",
-      "task_failed": "Attività pianificata fallita - {app_name}",
-      "ssl_expiring": "SSL certificato di scadenza - {app_name}",
-      "ssl_renewed": "SSL certificato rinnovato - {app_name}",
-      "ssl_renewal_failed": "SSL rinnovo fallito - {app_name}",
+      "backup_failed": "Backup non riuscito - {app_name}",
+      "task_failed": "Attività pianificata non riuscita - {app_name}",
+      "ssl_expiring": "Certificato SSL in scadenza - {app_name}",
+      "ssl_renewed": "Certificato SSL rinnovato - {app_name}",
+      "ssl_renewal_failed": "Rinnovo SSL non riuscito - {app_name}",
       "update_available": "Aggiornamento disponibile - {app_name}",
       "update_installed": "Aggiornamento installato - {app_name}",
-      "test_email": "E-mail di prova - {app_name}"
+      "test_email": "Email di prova - {app_name}"
     },
     "body": {
       "from": "Da: {app_name} ({fqdn})",
-      "recommended_actions": "AZIONI RACCOMANDATE",
-      "contact_information": "INFORMAZIONI CONTATTI",
-      "security_alert_heading": "ALTO DI SICUREZZA",
-      "backup_completed_heading": "BACKUP COMPLETA",
-      "backup_failed_heading": "BACKUP FAILED",
-      "task_failed_heading": "FAILED a TASK",
-      "ssl_expiring_heading": "SSL ESPOSIZIONE CERTIFICATA",
-      "ssl_renewed_heading": "SSL RIPARTIZIONE CERTIFICATA",
-      "ssl_renewal_failed_heading": "SSL PROFESSIONALE",
-      "update_available_heading": "DISPONIBILE",
-      "update_installed_heading": "INSTALATO A UPD",
-      "test_heading": "TEST EMAIL",
+      "recommended_actions": "AZIONI CONSIGLIATE",
+      "contact_information": "INFORMAZIONI DI CONTATTO",
+      "security_alert_heading": "AVVISO DI SICUREZZA",
+      "backup_completed_heading": "BACKUP COMPLETATO",
+      "backup_failed_heading": "BACKUP NON FALLITO",
+      "task_failed_heading": "ATTIVITÀ PIANIFICATA NON FALLITA",
+      "ssl_expiring_heading": "CERTIFICATO SSL IN SCADENZA",
+      "ssl_renewed_heading": "CERTIFICATO SSL RINNOVATO",
+      "ssl_renewal_failed_heading": "RINNOVO SSL NON FALLITO",
+      "update_available_heading": "AGGIORNAMENTO DISPONIBILE",
+      "update_installed_heading": "AGGIORNAMENTO INSTALLATO",
+      "test_heading": "E-MAIL DI PROVA",
       "label_time": "Tempo:",
       "label_event": "Evento:",
       "label_ip": "Indirizzo IP:",
-      "label_filename": "Nome del file:",
+      "label_filename": "Nome file:",
       "label_size": "Dimensioni:",
       "label_error": "Errore:",
       "label_task": "Compito:",
-      "label_domain": "dominio:",
-      "label_expires": "Scade:",
+      "label_domain": "Dominio:",
+      "label_expires": "Scadenza:",
       "label_days_remaining": "Giorni rimanenti:",
       "label_new_expiry": "Nuova scadenza:",
-      "label_days_until_expiry": "Giorni fino alla scadenza:",
-      "label_next_retry": "Prossimo studio:",
+      "label_days_until_expiry": "Giorni alla scadenza:",
+      "label_next_retry": "Prossimo tentativo:",
       "label_current_version": "Versione attuale:",
       "label_new_version": "Nuova versione:",
       "label_channel": "Canale:",
       "label_previous_version": "Versione precedente:",
-      "security_alert_intro": "Un evento di sicurezza è stato registrato su {app_name}.",
-      "backup_completed_intro": "Il tuo backup completato con successo.",
-      "backup_failed_intro": "Un tentativo di backup è fallito.",
-      "task_failed_intro": "Un'attività pianificata fallì.",
-      "ssl_expiring_intro": "Il certificato per questo server sta espellendo presto.",
+      "security_alert_intro": "È stato registrato un evento di sicurezza su {app_name}.",
+      "backup_completed_intro": "Il tuo backup è stato completato con successo.",
+      "backup_failed_intro": "Un tentativo di backup non è riuscito.",
+      "task_failed_intro": "Un'attività pianificata non è riuscita.",
+      "ssl_expiring_intro": "Il certificato per questo server scadrà a breve.",
       "ssl_renewed_intro": "Il certificato per questo server è stato rinnovato con successo.",
-      "ssl_renewal_failed_intro": "Il rinnovo automatico del certificato è fallito.",
-      "update_available_intro": "Una nuova versione {app_name} è disponibile.",
+      "ssl_renewal_failed_intro": "Il rinnovo automatico del certificato non è riuscito.",
+      "update_available_intro": "È disponibile una nuova versione di {app_name}.",
       "update_installed_intro": "{app_name} è stato aggiornato a una nuova versione.",
-      "test_intro": "Questo è un messaggio di prova {app_name}.",
-      "security_alert_action": "Verifica le impostazioni di sicurezza se questa attività è stata inaspettata.",
-      "backup_completed_action": "L'archivio di backup viene memorizzato nella directory di backup configurata.",
-      "backup_failed_action": "Controllare la configurazione di archiviazione e lo spazio disponibile su disco.",
-      "task_failed_action": "Controlla i registri delle applicazioni per maggiori dettagli.",
+      "test_intro": "Questo è un messaggio di prova da {app_name}.",
+      "security_alert_action": "Controlla le tue impostazioni di sicurezza se questa attività è stata imprevista.",
+      "backup_completed_action": "L'archivio di backup viene salvato nella directory di backup configurata.",
+      "backup_failed_action": "Controlla la configurazione di archiviazione e lo spazio su disco disponibile.",
+      "task_failed_action": "Controlla i registri dell'applicazione per ulteriori dettagli.",
       "ssl_expiring_action": "Il rinnovo viene tentato automaticamente. Rinnova manualmente se il rinnovo fallisce.",
       "ssl_renewed_action": "Non è richiesta alcuna azione.",
-      "ssl_renewal_failed_action": "Indagare e rinnovare il certificato manualmente se il rinnovo automatico continua a fallire.",
-      "update_available_action": "Rivedere le note di rilascio prima dell'aggiornamento.",
+      "ssl_renewal_failed_action": "Esamina e rinnova manualmente il certificato se il rinnovo automatico continua a fallire.",
+      "update_available_action": "Rivedere le note sulla versione prima dell'aggiornamento.",
       "update_installed_action": "Non è richiesta alcuna azione.",
-      "test_action": "Ricevere questo messaggio conferma che le impostazioni di posta in uscita sono corrette."
+      "test_action": "La ricezione di questo messaggio conferma che le impostazioni della posta in uscita sono corrette."
     }
   },
   "swagger": {
     "bodies": {
-      "ccpa": "Selezione opt-out CCPA",
-      "consent": "Selezione consenso cookie",
-      "contact": "Modulo di contatto",
-      "dismiss": "Announcement identificatore a licenziare",
-      "graphql": "GraphQL query, variabili e nome di funzionamento",
-      "preferences": "Aggiornamento tema e preferenza locale",
-      "report": "Carico di pagamento generato dal browser"
+      "ccpa": "Selezione di rinuncia al CCPA",
+      "consent": "Selezione del consenso ai cookie",
+      "contact": "Invio modulo di contatto",
+      "dismiss": "Identificatore dell'annuncio da ignorare",
+      "graphql": "Query GraphQL, variabili e nome dell'operazione",
+      "preferences": "Aggiornamento delle preferenze relative al tema e alla lingua",
+      "report": "Payload del report generato dal browser"
     },
     "common": {
-      "api_mirror": "JSON specchio della pagina web corrispondente, per il web-route a API- Regola di parità.",
-      "report_intro": "Accetta un rapporto generato dal browser e lo registra nel registro server.",
-      "txt_variant": "La variante del testo del punto finale corrispondente; il suffisso .txt costringe una risposta testo/spiega indipendentemente dall'intestazione Accetta."
+      "api_mirror": "Mirror JSON della pagina Web corrispondente, in base alla regola di parità tra percorso Web e percorso API.",
+      "report_intro": "Accetta un report generato dal browser e lo registra nel registro del server.",
+      "txt_variant": "Variante in testo semplice dell’endpoint corrispondente. Il suffisso .txt forza una risposta text/plain, indipendentemente dall’intestazione Accept."
     },
     "info": {
-      "description": "Servizio di ricerca indirizzo IP con GeoIP informazioni esposte su REST, GraphQL e un semplice testo CLI- interfaccia amichevole.",
-      "server": "IPGaze API Server",
-      "title": "IPGaze API"
+      "description": "Servizio di ricerca di indirizzi IP con informazioni GeoIP, esposte su REST, GraphQL e un'interfaccia CLI in testo semplice.",
+      "server": "Server API IPGaze",
+      "title": "API IPGaze"
     },
     "params": {
-      "asset_path": "Percorso del bene qui sotto /static/",
-      "code_query": "Base64url-encoded codice preferenza prodotto dal endpoint di esportazione",
-      "filename_path": "Nome del file client della riga di comando, per esempio ipgaze-Lux-amd64",
-      "ip_path": "Indirizzo IP da controllare (IPv4 o IPv6)",
-      "ip_query": "Indirizzo IP facoltativo da controllare; default al IP del chiamante",
-      "lang_path": "BCP 47 codice locale, ad esempio en, fr o ja",
+      "asset_path": "Percorso della risorsa di seguito /statico/",
+      "code_query": "Codice preferenza con codifica Base64url prodotto dall'endpoint di esportazione",
+      "filename_path": "Nome del file client della riga di comando, ad esempio ipgaze-linux-amd64",
+      "ip_path": "Indirizzo IP da cercare (IPv4 o IPv6)",
+      "ip_query": "Indirizzo IP opzionale da cercare; per impostazione predefinita è l'IP del chiamante",
+      "lang_path": "Codice locale BCP 47, ad esempio en, fr o ja",
       "lang_query": "Locale da applicare, come codice BCP 47",
-      "port_path": "Numero di porta da controllare (1-65535)",
-      "theme_query": "Tema da applicare: scuro, luce o auto"
+      "port_path": "Numero di porta da verificare (1-65535)",
+      "theme_query": "Tema da applicare: scuro, chiaro o automatico"
     },
     "paths": {
       "announcements_dismiss": {
-        "description": "Segna un annuncio del sito come respinto per questo browser.",
-        "summary": "respingere un annuncio"
+        "description": "Contrassegna un annuncio del sito come ignorato per questo browser.",
+        "summary": "Ignorare un annuncio"
       },
       "api_graphql_get": {
-        "summary": "GraphQL esploratore (non convertito API alias)"
+        "summary": "GraphQL Explorer (alias API senza versione)"
       },
       "api_graphql_post": {
-        "summary": "Esegui un GraphQL query (non convertita) API alias)"
+        "summary": "Esegui una query GraphQL (alias API senza versione)"
       },
       "api_healthz": {
-        "description": "Inversione API alias per il controllo sanitario. Ritorna sempre JSON, senza negoziazioni di contenuti.",
-        "summary": "Controllo della salute (non aggiornato) API alias)"
+        "description": "Alias API senza versione per il controllo dello stato. Restituisce sempre JSON, senza negoziazione del contenuto.",
+        "summary": "Controllo dello stato (alias API senza versione)"
       },
       "api_healthz_txt": {
-        "summary": "Controllo della salute (non aggiornato) API alias,"
+        "summary": "Controllo dello stato (alias API senza versione, .txt)"
       },
       "api_swagger": {
-        "description": "Restituisce questo documento OpenAPI 3.0 come JSON incondizionatamente, senza negoziazioni di contenuti.",
+        "description": "Restituisce questo documento OpenAPI 3.0 come JSON incondizionatamente, senza negoziazione del contenuto.",
         "summary": "Documento OpenAPI"
       },
       "asn": {
-        "description": "Restituisce il numero di sistema autonomo che annuncia l'indirizzo IP del chiamante.",
-        "summary": "Vai! ASN"
+        "description": "Restituisce il Numero del Sistema Autonomo annunciando l'indirizzo IP del chiamante.",
+        "summary": "Ottieni l'ASN"
       },
       "asn_org": {
-        "description": "Restituisce il nome dell'organizzazione che possiede il Sistema Autonomo che annuncia l'indirizzo IP del chiamante.",
-        "summary": "Vai! ASN organizzazione"
+        "description": "Restituisce il nome dell'organizzazione proprietaria del Sistema Autonomo annunciando l'indirizzo IP del chiamante.",
+        "summary": "Ottieni l'organizzazione ASN"
       },
       "asn_org_txt": {
-        "summary": "Vai! ASN organizzazione (.txt)"
+        "summary": "Ottieni l'organizzazione ASN (.txt)"
       },
       "asn_txt": {
-        "summary": "Vai! ASN (.txt)"
+        "summary": "Ottieni ASN (.txt)"
       },
       "autodiscover": {
-        "description": "Restituisce l'identità del server, le versioni client di riga di comando pubblicate e la versione client minima che questo server accetta.",
-        "summary": "Autodiscovery del cliente"
+        "description": "Restituisce l'identità del server, le versioni client della riga di comando pubblicate e la versione client minima accettata da questo server.",
+        "summary": "Individuazione automatica del cliente"
       },
       "branding_logo": {
-        "description": "Restituisce l'immagine del logo del sito configurata, memorizzata localmente quando il logo è configurato come un telecomando URL.",
+        "description": "Restituisce l'immagine del logo del sito configurato, memorizzata nella cache locale quando il logo è configurato come URL remoto.",
         "summary": "Servire il logo del sito"
       },
       "city": {
         "description": "Restituisce il nome della città risolto per l'indirizzo IP del chiamante.",
-        "summary": "Nome della città"
+        "summary": "Ottieni il nome della città"
       },
       "city_txt": {
-        "summary": "Prendi il nome della città (.txt)"
+        "summary": "Ottieni il nome della città (.txt)"
       },
       "cli_binary": {
-        "description": "Semplificare il binario client di riga di comando per il sistema operativo e l'architettura richiesti.",
-        "summary": "Scarica un binario client di riga di comando"
+        "description": "Trasmette il file binario del client della riga di comando per il sistema operativo e l'architettura richiesti.",
+        "summary": "Scarica un file binario del client da riga di comando"
       },
       "coordinates": {
-        "description": "Restituisce la latitudine e la longitudine risolte per l'indirizzo IP del chiamante come gradi decimali separati da virgola.",
+        "description": "Restituisce la latitudine e la longitudine risolte per l'indirizzo IP del chiamante come gradi decimali separati da virgole.",
         "summary": "Ottieni le coordinate"
       },
       "coordinates_txt": {
@@ -1034,467 +1042,467 @@
         "summary": "Ottieni il nome del paese"
       },
       "country_iso": {
-        "description": "Restituisce il codice paese alfa-2 ISO 3166-1 risolto per l'indirizzo IP del chiamante.",
+        "description": "Restituisce il codice paese ISO 3166-1 alpha-2 risolto per l'indirizzo IP del chiamante.",
         "summary": "Ottieni il codice ISO del paese"
       },
       "country_iso_txt": {
-        "summary": "Ottenere il codice ISO paese (.txt)"
+        "summary": "Ottieni il codice ISO del paese (.txt)"
       },
       "country_txt": {
         "summary": "Ottieni il nome del paese (.txt)"
       },
       "docs_graphql_get": {
-        "description": "Serve l'autocontenuto GraphQL interfaccia esploratore per comporre e eseguire query.",
-        "summary": "GraphQL esploratore"
+        "description": "Serve l'interfaccia autonoma di GraphQL Explorer per la composizione e l'esecuzione di query.",
+        "summary": "Esploratore GraphQL"
       },
       "docs_graphql_post": {
-        "description": "Esegui un GraphQL query contro lo schema che rispecchia il REST API. Le query che superano la profondità o i limiti di alias sono respinte con un GraphQL- corpo di errore a forma di.",
-        "summary": "Esegui un GraphQL query"
+        "description": "Esegue una query GraphQL sullo schema che rispecchia l'API REST. Le query che superano i limiti di profondità o di alias vengono rifiutate con un corpo dell'errore a forma di GraphQL.",
+        "summary": "Esegui una query GraphQL"
       },
       "docs_swagger": {
-        "description": "Serve l'interfaccia utente Swagger interattiva, o questo documento OpenAPI quando JSON è richiesto tramite l'intestazione di Accetta.",
-        "summary": "Swagger UI"
+        "description": "Fornisce l'interfaccia utente interattiva Swagger o questo documento OpenAPI quando JSON viene richiesto tramite l'intestazione Accept.",
+        "summary": "Interfaccia utente spavalda"
       },
       "favicon": {
-        "description": "Restituisce il favicon del sito, reindirizzando al favicon di marca configurato quando uno è impostato.",
-        "summary": "Sito web favicon"
+        "description": "Restituisce la favicon del sito, reindirizzando alla favicon del branding configurata quando ne viene impostata una.",
+        "summary": "Icona preferita del sito"
       },
       "healthz": {
-        "description": "Restituisce il record completo di salute del server: stato generale, identità di progetto, costruire metadati, uptime, modalità, funzionalità abilitate, controlli sottosistema e statistiche di richiesta. Il formato è negoziato: JSON♪ HTML per browser, testo normale altrimenti.",
-        "summary": "Controllo della salute"
+        "description": "Restituisce il record completo sullo stato del server: stato generale, identità del progetto, metadati di build, tempo di attività, modalità, funzionalità abilitate, controlli del sottosistema e statistiche delle richieste. Il formato è negoziato: JSON, HTML per i browser, testo normale negli altri casi.",
+        "summary": "Controllo sanitario"
       },
       "healthz_root": {
-        "description": "Alias opzionale a livello di radice per /server/healthz, registrato solo quando l'alias di salute della radice è abilitato in server.yml.",
-        "summary": "Controllo sanitario (root alias)"
+        "description": "Alias facoltativo a livello di root per /server/healthz, registrato solo quando l'alias di root Health è abilitato in server.yml.",
+        "summary": "Controllo dello stato (alias root)"
       },
       "ip": {
-        "description": "Restituisce solo l'indirizzo IP del chiamante, senza alcun markup circostante.",
+        "description": "Restituisce solo l'indirizzo IP del chiamante, senza markup circostante.",
         "summary": "Ottieni il tuo IP come testo semplice"
       },
       "ip_lookup": {
-        "description": "Resi GeoIP♪ ASN e inverso DNS informazioni per qualsiasi IPv4 o IPv6 indirizzo fornito nel percorso. Servito dal percorso catch-all, in modo che qualsiasi segmento di percorso unico ineguagliabile che parses come indirizzo IP viene trattato come una ricerca.",
+        "description": "Restituisce informazioni GeoIP, ASN e DNS inverso per qualsiasi indirizzo IPv4 o IPv6 fornito nel percorso. Servito dal percorso catch-all, quindi qualsiasi segmento di percorso singolo senza corrispondenza che viene analizzato come un indirizzo IP viene trattato come una ricerca.",
         "summary": "Cerca un indirizzo IP specifico"
       },
       "ip_txt": {
         "summary": "Ottieni il tuo IP come testo semplice (.txt)"
       },
       "json": {
-        "description": "Restituisce il record IP completo compreso GeoIP♪ ASN, inverso DNS e campi di classificazione delle minacce.",
+        "description": "Restituisce il record IP completo inclusi i campi GeoIP, ASN, DNS inverso e classificazione delle minacce.",
         "summary": "Ottieni informazioni IP complete come JSON"
       },
       "llms_txt": {
-        "description": "Restituisce la politica llms.txt che descrive come gli agenti del modello di lingua automatizzati possono utilizzare questo servizio.",
-        "summary": "Politica di utilizzo degli agenti automatizzati"
+        "description": "Restituisce la policy llms.txt che descrive il modo in cui gli agenti del modello linguistico automatizzato possono utilizzare questo servizio.",
+        "summary": "Politica di utilizzo dell'agente automatizzato"
       },
       "locales": {
-        "description": "Restituisce il JSON catalogo di traduzione per il locale richiesto, utilizzato dall'interfaccia web per localizzare il testo client-rendered.",
+        "description": "Restituisce il catalogo di traduzione JSON per la locale richiesta, utilizzato dall'interfaccia Web per localizzare il testo rappresentato dal client.",
         "summary": "Ottieni un catalogo di traduzione"
       },
       "manifest": {
-        "description": "Restituisce l'applicazione web progressiva manifesta con il nome dell'applicazione, icone, colori a tema e modalità di visualizzazione.",
-        "summary": "manifesto di applicazione Web"
+        "description": "Restituisce il manifesto progressivo dell'applicazione Web con il nome dell'applicazione, le icone, i colori del tema e la modalità di visualizzazione.",
+        "summary": "Manifesto dell'applicazione Web"
       },
       "offline": {
-        "description": "Restituisce la pagina che il lavoratore di servizio visualizza quando una navigazione non può raggiungere la rete.",
-        "summary": "Pagina di caduta off-line"
+        "description": "Restituisce la pagina offline mostrata quando la rete non è raggiungibile durante la navigazione.",
+        "summary": "Pagina di riserva offline"
       },
       "port_check": {
-        "description": "Apre una connessione TCP dal server di nuovo all'indirizzo IP del chiamante sulla porta richiesta e segnala se è riuscita.",
-        "summary": "Controllare la portata della porta"
+        "description": "Apre una connessione TCP dal server all'indirizzo IP del chiamante sulla porta richiesta e segnala se è riuscita.",
+        "summary": "Verifica la raggiungibilità della porta TCP"
       },
       "report_crash": {
-        "summary": "Rapporto Crash"
+        "summary": "Segnalazione di arresto anomalo"
       },
       "report_csp": {
-        "summary": "Informativa sulla sicurezza dei contenuti"
+        "summary": "Segnalazione della Content Security Policy"
       },
       "report_default": {
-        "summary": "Definizione dell'endpoint"
+        "summary": "Endpoint di segnalazione predefinito"
       },
       "report_deprecation": {
-        "summary": "Relazione sull'imprenditoria"
+        "summary": "Segnalazione di funzionalità deprecata"
       },
       "report_error": {
-        "summary": "Rapporto errore"
+        "summary": "Segnalazione di errore"
       },
       "report_intervention": {
-        "summary": "Relazione sull'intervento"
+        "summary": "Segnalazione di intervento"
       },
       "report_nel": {
-        "summary": "Rapporto di registrazione errori di rete"
+        "summary": "Segnalazione Network Error Logging"
       },
       "robots_txt": {
-        "description": "Restituisce la politica di crawler per questo server.",
+        "description": "Restituisce la politica del crawler per questo server.",
         "summary": "Regole di esclusione dei robot"
       },
       "root": {
-        "description": "Restituisce l'indirizzo IP del chiamante. Il formato di risposta è negoziato: JSON per Accettare: domanda/json♪ HTML per i browser, e testo semplice per i client di linea di comando.",
+        "description": "Restituisce l'indirizzo IP del chiamante. Il formato della risposta viene negoziato: JSON per Accept: application/json, HTML per i browser e testo normale per i client della riga di comando.",
         "summary": "Ottieni il tuo indirizzo IP"
       },
       "security_txt": {
-        "description": "Restituisce il RFC 9116 politica di divulgazione della sicurezza, compreso il contatto di sicurezza e la posizione chiave PGP.",
-        "summary": "Politica di contatto di sicurezza"
+        "description": "Restituisce la politica di divulgazione della sicurezza RFC 9116, incluso il contatto di sicurezza e la posizione della chiave PGP.",
+        "summary": "Politica sui contatti di sicurezza"
       },
       "server_about": {
-        "description": "Restituisce la pagina che descrive il servizio, la sua versione e il suo operatore.",
+        "description": "Restituisce la pagina informativa sul servizio, la versione e il relativo operatore.",
         "summary": "Informazioni su questo server"
       },
       "server_ccpa": {
-        "description": "Memorizza l'opt-out CCPA del visitatore in un cookie del browser.",
-        "summary": "Registra un opt-out CCPA"
+        "description": "Memorizza la rinuncia al consenso alla vendita del CCPA del visitatore in un cookie del browser.",
+        "summary": "Registra una rinuncia al CCPA"
       },
       "server_consent": {
-        "description": "Memorizza la scelta del consenso dei cookie del visitatore in un cookie del browser. Il consenso è per-browser e non è mai persistente lato server.",
-        "summary": "Registra il consenso dei cookie"
+        "description": "Memorizza la scelta del consenso ai cookie del visitatore in un cookie del browser. Il consenso è per browser e non è mai persistente sul lato server.",
+        "summary": "Registra il consenso ai cookie"
       },
       "server_contact": {
-        "description": "Restituisce il modulo di contatto per raggiungere l'operatore del server.",
-        "summary": "Pagina di contatto"
+        "description": "Restituisce il modulo di contatto per raggiungere il gestore del server.",
+        "summary": "Pagina dei contatti"
       },
       "server_contact_post": {
-        "description": "Convalida e consegna un messaggio di contatto all'indirizzo dell'operatore configurato.",
+        "description": "Convalida e invia un messaggio di contatto all’indirizzo configurato dal gestore.",
         "summary": "Invia il modulo di contatto"
       },
       "server_help": {
         "description": "Restituisce la pagina di utilizzo che documenta ogni endpoint con esempi di copia e incolla.",
-        "summary": "Aiuto d'uso"
+        "summary": "Aiuto per l'utilizzo"
       },
       "server_index": {
         "description": "Reindirizza al server sulla pagina.",
-        "summary": "Indice delle informazioni del server"
+        "summary": "Indice delle informazioni sul server"
       },
       "server_preferences": {
-        "description": "Restituisce la pagina delle preferenze per la scelta di un tema e di un locale.",
+        "description": "Restituisce la pagina delle preferenze per la scelta di un tema e di una lingua.",
         "summary": "Pagina delle preferenze"
       },
       "server_preferences_export": {
-        "description": "Restituisce il tema attuale e locale sia come importazione completa URL e un breve codice base64url, così le preferenze possono essere portate a un altro browser.",
+        "description": "Restituisce il tema e le impostazioni locali correnti sia come URL di importazione completo che come codice base64url breve, in modo che le preferenze possano essere trasferite a un altro browser.",
         "summary": "Preferenze di esportazione"
       },
       "server_preferences_import": {
-        "description": "Decodifica e convalida i valori di preferenza forniti, imposta i cookie corrispondenti e reindirizza, in modo che il codice non si inserisca mai nel visibile URL.",
-        "summary": "Preferenze di importazione"
+        "description": "Decodifica e convalida i valori delle preferenze forniti, imposta i cookie e i reindirizzamenti corrispondenti, in modo che il codice non indugi mai nell'URL visibile.",
+        "summary": "Importa le preferenze"
       },
       "server_preferences_post": {
-        "description": "Convalida il tema presentato e la localizzazione e li memorizza come cookie del browser.",
-        "summary": "Preferenze di aggiornamento"
+        "description": "Convalida il tema e le impostazioni internazionali inviati e li memorizza come cookie del browser.",
+        "summary": "Aggiorna le preferenze"
       },
       "server_privacy": {
-        "description": "Restituisce l'informativa sulla privacy, incluso quello che è registrato, per quanto tempo, e gli opt-out disponibili.",
+        "description": "Restituisce l'informativa sulla privacy, incluso ciò che è stato registrato, per quanto tempo e le opzioni di rinuncia disponibili.",
         "summary": "Informativa sulla privacy"
       },
       "server_security": {
-        "description": "Restituisce la politica di sicurezza di questo servizio, l'indirizzo di contatto e le istruzioni per la segnalazione di vulnerabilità.",
+        "description": "Restituisce la politica di sicurezza di questo servizio, l'indirizzo di contatto e le istruzioni per la segnalazione delle vulnerabilità.",
         "summary": "Politica di sicurezza"
       },
       "server_terms": {
-        "description": "Restituisce i termini di utilizzo di questo servizio.",
+        "description": "Restituisce i termini che regolano l'utilizzo di questo servizio.",
         "summary": "Termini di servizio"
       },
       "service_worker": {
-        "description": "Restituisce il lavoratore di servizio di applicazione web progressivo, che memorizza le risorse e serve la pagina offline quando la rete è irraggiungibile.",
-        "summary": "Scrittura del lavoratore di servizio"
+        "description": "Restituisce il service worker della Progressive Web App, che memorizza le risorse nella cache e serve la pagina offline quando la rete non è raggiungibile.",
+        "summary": "Script dell'addetto ai servizi"
       },
       "static": {
-        "description": "Restituisce un asset statico incorporato: fogli di stile, script, icone, font e i file Swagger UI vendored.",
-        "summary": "Servire un asset statico"
+        "description": "Restituisce una risorsa statica incorporata: fogli di stile, script, icone, caratteri e file dell'interfaccia utente Swagger venduti.",
+        "summary": "Servire una risorsa statica"
       },
       "v1_about": {
-        "summary": "Informazioni su questo server (API Articolo"
+        "summary": "Informazioni su questo server (API v1)"
       },
       "v1_asn": {
-        "description": "Restituisce il numero di sistema autonomo che annuncia l'indirizzo IP del chiamante.",
-        "summary": "Vai! ASN (API Articolo"
+        "description": "Restituisce il Numero del Sistema Autonomo annunciando l'indirizzo IP del chiamante.",
+        "summary": "Ottieni ASN (API v1)"
       },
       "v1_city": {
         "description": "Restituisce il nome della città risolto per l'indirizzo IP del chiamante.",
-        "summary": "La città (API Articolo"
+        "summary": "Ottieni città (API v1)"
       },
       "v1_contact": {
-        "description": "Convalida e consegna un messaggio di contatto, riportando il risultato come JSON.",
-        "summary": "Invia il modulo di contatto (API Articolo"
+        "description": "Convalida e recapita un messaggio di contatto, restituendo il risultato come JSON.",
+        "summary": "Invia il modulo di contatto (API v1)"
       },
       "v1_country": {
         "description": "Restituisce il nome del paese risolto per l'indirizzo IP del chiamante.",
-        "summary": "ottenere paese (API Articolo"
+        "summary": "Ottieni paese (API v1)"
       },
       "v1_graphql_get": {
-        "summary": "GraphQL esploratore (API Articolo"
+        "summary": "Esploratore GraphQL (API v1)"
       },
       "v1_graphql_post": {
-        "summary": "Esegui un GraphQL interrogazione (API Articolo"
+        "summary": "Esegui una query GraphQL (API v1)"
       },
       "v1_healthz": {
-        "description": "Restituisce il record di salute del server completo come JSON. Sempre JSON, senza negoziazioni di contenuti.",
-        "summary": "Controllo della salute (API Articolo"
+        "description": "Restituisce il record completo sull'integrità del server come JSON. Sempre JSON, senza negoziazione dei contenuti.",
+        "summary": "Controllo dello stato (API v1)"
       },
       "v1_healthz_txt": {
-        "summary": "Controllo della salute (API V1, .txt)"
+        "summary": "Controllo dello stato (API v1, .txt)"
       },
       "v1_help": {
-        "summary": "Aiuto di utilizzo (API Articolo"
+        "summary": "Guida all'utilizzo (API v1)"
       },
       "v1_info": {
         "description": "Restituisce il record IP completo come JSON, identico a /json.",
-        "summary": "Ottieni informazioni IP complete (API Articolo"
+        "summary": "Ottieni informazioni IP complete (API v1)"
       },
       "v1_ip": {
         "description": "Restituisce solo l'indirizzo IP del chiamante.",
-        "summary": "Ottieni il tuo IP (API Articolo"
+        "summary": "Ottieni il tuo IP (API v1)"
       },
       "v1_ip_lookup": {
-        "description": "Resi GeoIP♪ ASN e inverso DNS informazioni per qualsiasi IPv4 o IPv6 indirizzo.",
-        "summary": "Guarda un IP specifico (API Articolo"
+        "description": "Restituisce informazioni GeoIP, ASN e DNS inverso per qualsiasi indirizzo IPv4 o IPv6.",
+        "summary": "Cerca un IP specifico (API v1)"
       },
       "v1_preferences": {
-        "description": "Restituisce il tema e il locale attualmente memorizzato nei cookie del chiamante.",
-        "summary": "Ottenere le preferenze (API Articolo"
+        "description": "Restituisce il tema e le impostazioni internazionali attualmente archiviate nei cookie del chiamante.",
+        "summary": "Ottieni preferenze (API v1)"
       },
       "v1_preferences_export": {
-        "description": "Restituisce il tema attuale e locale come importazione completa URL e un breve codice base64url.",
-        "summary": "Preferenze di esportazione (API Articolo"
+        "description": "Restituisce il tema e le impostazioni locali correnti come URL di importazione completo e un breve codice base64url.",
+        "summary": "Preferenze di esportazione (API v1)"
       },
       "v1_preferences_import": {
-        "description": "Decodifica e convalida i valori di preferenza forniti e imposta i cookie corrispondenti.",
-        "summary": "Preferenze di importazione (API Articolo"
+        "description": "Decodifica e convalida i valori delle preferenze forniti e imposta i cookie corrispondenti.",
+        "summary": "Importa preferenze (API v1)"
       },
       "v1_privacy": {
-        "summary": "Informativa sulla privacy (API Articolo"
+        "summary": "Informativa sulla privacy (API v1)"
       },
       "v1_swagger": {
-        "description": "Restituisce questo documento OpenAPI 3.0 come JSON dalla versione API Percorso.",
-        "summary": "Documento OpenAPI (APIArticolo"
+        "description": "Restituisce questo documento OpenAPI 3.0 come JSON dal percorso API con versione.",
+        "summary": "Documento OpenAPI (API v1)"
       },
       "v1_security": {
-        "summary": "Politica di sicurezza (API Articolo"
+        "summary": "Politica di sicurezza (API v1)"
       },
       "v1_terms": {
-        "summary": "Termini di servizio (API Articolo"
+        "summary": "Termini di servizio (API v1)"
       },
       "v1_version": {
-        "description": "Restituisce la versione in esecuzione, il commit sorgente e la data di costruzione.",
-        "summary": "Ottieni la versione di build"
+        "description": "Restituisce la versione in esecuzione, il commit dell'origine e la data di compilazione.",
+        "summary": "Ottieni la versione build"
       },
       "wk_llms_txt": {
-        "summary": "Politica di utilizzo degli agenti automatizzati (conosciuto)"
+        "summary": "Criterio di utilizzo automatizzato degli agenti (noto)"
       },
       "wk_pgp_key": {
-        "description": "Restituisce la chiave pubblica ASCII-armored PGP che fa riferimento alla politica di sicurezza.",
-        "summary": "PGP chiave pubblica"
+        "description": "Restituisce la chiave pubblica PGP corazzata ASCII a cui fa riferimento la politica di sicurezza.",
+        "summary": "Chiave pubblica PGP"
       },
       "wk_security_txt": {
-        "summary": "Politica di contatto di sicurezza (noto)"
+        "summary": "Criterio di contatto di sicurezza (noto)"
       }
     },
     "responses": {
-      "accepted": "Relazione",
-      "asset": "Contenuto degli asset statici",
-      "bad_request": "Richiesta malformata",
-      "binary": "Flusso file binario",
-      "graphql": "GraphQL risultato esecuzione",
-      "health": "Stato di salute del server",
-      "html_page": "HTML pagina",
+      "accepted": "Segnalazione accettata",
+      "asset": "Contenuto delle risorse statiche",
+      "bad_request": "Richiesta non valida",
+      "binary": "Flusso di file binario",
+      "graphql": "Risultato dell'esecuzione di GraphQL",
+      "health": "Stato di integrità del server",
+      "html_page": "Pagina HTML",
       "invalid_ip": "Indirizzo IP non valido",
-      "invalid_port": "Numero di porto non valido",
+      "invalid_port": "Numero di porta non valido",
       "ip_info": "Informazioni sull'indirizzo IP",
-      "json_object": "JSON oggetto",
-      "manifest": "manifesto di applicazione Web",
-      "not_found": "Risorse non trovate",
+      "json_object": "Oggetto JSON",
+      "manifest": "Manifesto dell'applicazione Web",
+      "not_found": "Risorsa non trovata",
       "ok": "Successo",
-      "port_check": "Risultato della portabilità",
-      "redirect": "Reindirizza la pagina di destinazione",
-      "script": "JavaScript fonte",
-      "spec": "Documento di specificazione OpenAPI 3.0",
+      "port_check": "Risultato della verifica della raggiungibilità della porta",
+      "redirect": "Reindirizzamento alla pagina di destinazione",
+      "script": "Fonte JavaScript",
+      "spec": "Documento delle specifiche OpenAPI 3.0",
       "text_value": "Valore di testo normale",
-      "too_many_requests": "Tasso limite superiore",
-      "unavailable": "Il server è malsano, in modalità manutenzione, o spegnere",
-      "version": "Costruire le informazioni della versione"
+      "too_many_requests": "Limite di frequenza superato",
+      "unavailable": "Il server non è integro, è in modalità di manutenzione o in fase di arresto",
+      "version": "Informazioni sulla versione della build"
     },
     "tags": {
-      "api_v1": "API Voce principale:",
+      "api_v1": "API v1",
       "assets": "Beni",
       "documentation": "Documentazione",
       "geoip": "GeoIP",
       "ip_lookup": "Ricerca IP",
       "pages": "Pagine",
-      "port_check": "Verifica della porta",
-      "reports": "Relazioni",
+      "port_check": "Verifica della porta TCP",
+      "reports": "Rapporti",
       "system": "Sistema",
-      "well_known": "Ben fatto"
+      "well_known": "Ben noto"
     },
     "ui": {
-      "title": "IPGaze API - Swagger UI"
+      "title": "API IPGaze: interfaccia utente spavalda"
     }
   },
   "graphql": {
     "args": {
       "checkPort": {
-        "port": "Numero di porta da controllare (1-65535)"
+        "port": "Numero della porta da verificare (1–65535)"
       },
       "lookupIP": {
-        "ip": "Indirizzo IP da controllare (IPv4 o IPv6)"
+        "ip": "Indirizzo IP da cercare (IPv4 o IPv6)"
       }
     },
     "query": {
       "checkPort": {
-        "description": "Verifica se una porta è raggiungibile sul tuo indirizzo IP"
+        "description": "Verifica se una porta TCP è raggiungibile al tuo indirizzo IP"
       },
       "health": {
-        "description": "Ottieni il record completo di salute del server"
+        "description": "Ottieni il record completo sullo stato del server"
       },
       "lookupIP": {
         "description": "Cerca un indirizzo IP specifico"
       },
       "myIP": {
-        "description": "Ottieni il tuo indirizzo IP con GeoIP informazioni"
+        "description": "Ottieni il tuo indirizzo IP con le informazioni GeoIP"
       }
     },
     "types": {
       "BuildInfo": {
-        "description": "Costruire metadati per il binario in esecuzione",
+        "description": "Crea metadati per il file binario in esecuzione",
         "fields": {
-          "commit": "Source commit il binario è stato costruito da",
-          "date": "Costruire timestamp"
+          "commit": "Commit di origine da cui è stato creato il file binario",
+          "date": "Crea timestamp"
         }
       },
       "ChecksInfo": {
-        "description": "Risultati sanitari individuali",
+        "description": "Esiti dei controlli dei singoli sottosistemi",
         "fields": {
-          "cache": "Risultati di controllo Cache",
-          "database": "Il risultato del controllo del database",
-          "disk": "Risultato di controllo del disco",
-          "i2p": "I2P risultato di controllo del sottosistema",
-          "scheduler": "Risultato di controllo programmatore",
-          "tor": "Tor risultato di controllo del sottosistema"
+          "cache": "Risultato del controllo della cache",
+          "database": "Risultato del controllo del database",
+          "disk": "Risultato del controllo del disco",
+          "i2p": "Risultato del controllo del sottosistema I2P",
+          "scheduler": "Risultato del controllo dello scheduler",
+          "tor": "Risultato del controllo del sottosistema Tor"
         }
       },
       "FeaturesInfo": {
-        "description": "Disponibilità delle funzionalità opzionali",
+        "description": "Disponibilità di funzionalità opzionali",
         "fields": {
-          "geoip": "Se GeoIP database sono caricati",
-          "i2p": "I2P stato eepsite",
-          "tor": "Tor stato di servizio nascosto"
+          "geoip": "Se i database GeoIP vengono caricati",
+          "i2p": "Stato dell'eepsite I2P",
+          "tor": "Stato del servizio nascosto Tor"
         }
       },
       "HealthResponse": {
-        "description": "Registrazione di salute del server, che rispecchia il campo di endpoint sanitario REST per il campo",
+        "description": "Record di integrità del server, che rispecchia il campo dell'endpoint di integrità REST per campo",
         "fields": {
-          "build": "Costruire i metadati",
-          "checks": "Risultati sanitari individuali",
-          "features": "Disponibilità delle funzionalità opzionali",
-          "goVersion": "Vai versione runtime il binario è stato costruito con",
+          "build": "Costruisci metadati",
+          "checks": "Esiti dei controlli dei singoli sottosistemi",
+          "features": "Disponibilità di funzionalità opzionali",
+          "goVersion": "Vai alla versione runtime con cui è stato creato il file binario",
           "mode": "Modalità operativa: produzione o sviluppo",
-          "pendingRestart": "Se una modifica di configurazione è in attesa di un riavvio",
+          "pendingRestart": "Se una modifica della configurazione è in attesa di un riavvio",
           "project": "Identità del progetto",
-          "restartReason": "Motivi in sospeso",
-          "stats": "Contatori di richiesta aggregati",
-          "status": "Stato generale: sano, degradato, riart required, malsano, manutenzione o shuting down",
-          "timestamp": "Ora questo record di salute è stato prodotto, in RFC 3339 formato",
-          "uptime": "Tempo trascorso da quando il server è iniziato",
-          "version": "Versione di applicazione"
+          "restartReason": "Motivi per cui è in sospeso un riavvio",
+          "stats": "Contatori di richieste aggregate",
+          "status": "Stato generale: integro, degradato, riavvio_richiesto, non integro, manutenzione o spegnimento_in fase di arresto",
+          "timestamp": "Ora in cui è stata prodotta questa cartella clinica, nel formato RFC 3339",
+          "uptime": "Tempo trascorso dall'avvio del server",
+          "version": "Versione dell'applicazione"
         }
       },
       "I2PInfo": {
-        "description": "I2P stato eepsite",
+        "description": "Stato dell'eepsite I2P",
         "fields": {
-          "enabled": "Se il I2P eepsite è abilitata nella configurazione",
-          "hostname": "Pubblicato .i2p nome host",
-          "provider": "Eepsite backend in uso: i2pd, sam o nessuno",
-          "running": "Se il I2P eepsite è attualmente in esecuzione",
-          "status": "Leggebile umana I2P stato"
+          "enabled": "Se l'eepsite I2P è abilitato nella configurazione",
+          "hostname": "Nome host .i2p pubblicato",
+          "provider": "Backend Eepsite in uso: i2pd, sam o nessuno",
+          "running": "Se l'eepsite I2P è attualmente in esecuzione",
+          "status": "Stato I2P leggibile dall'uomo"
         }
       },
       "IPResponse": {
-        "description": "Risposta di ricerca dell'indirizzo IP con GeoIP informazioni",
+        "description": "Risposta di ricerca dell'indirizzo IP con informazioni GeoIP",
         "fields": {
-          "asn": "Numero di sistema autonomo, ad esempio AS15169",
+          "asn": "Numero del sistema autonomo, ad esempio AS15169",
           "asnOrg": "Nome dell'organizzazione del sistema autonomo",
           "city": "Nome della città",
-          "country": "Nome paese",
-          "countryEu": "Se il paese è nell'Unione europea",
+          "country": "Nome del paese",
+          "countryEu": "Se il paese fa parte dell'Unione Europea",
           "countryIso": "Codice paese ISO 3166-1 alpha-2",
-          "hostname": "Indietro DNS nome host",
+          "hostname": "Nome host DNS inverso",
           "ip": "Indirizzo IP",
           "ipDecimal": "Indirizzo IP come numero decimale",
-          "isProxy": "Vero quando l'IP è un proxy aperto noto o un proxy data-center",
-          "isTor": "Vero quando l'IP è conosciuto Tor uscita nodo",
-          "isVpn": "Vero quando l'IP è associato a un noto provider di VPN o hosting",
-          "latitude": "Coordinate di latitudine",
-          "longitude": "Coordinata di longitudine",
+          "isProxy": "Vero quando l'IP è un proxy aperto noto o un proxy del data center",
+          "isTor": "Vero quando l'IP è un nodo di uscita Tor noto",
+          "isVpn": "Vero quando l'IP è associato a una VPN o a un provider di hosting noto",
+          "latitude": "Coordinata latitudine",
+          "longitude": "Coordinata della longitudine",
           "metroCode": "Codice della metropolitana",
-          "regionCode": "Regione o codice di stato",
-          "regionName": "Regione o nome di stato",
-          "timezone": "Timezone, per esempio America/Los Angeles",
-          "userAgent": "Informazioni sull'agente utente Parsed",
-          "zipCode": "Codice postale o ZIP"
+          "regionCode": "Codice regione o stato",
+          "regionName": "Nome della regione o dello stato",
+          "timezone": "Fuso orario, ad esempio America/Los_Angeles",
+          "userAgent": "Informazioni sull'agente utente analizzate",
+          "zipCode": "Codice postale o CAP"
         }
       },
       "PortResponse": {
-        "description": "Risponsabilità di controllo della porta",
+        "description": "Risposta alla verifica della raggiungibilità della porta TCP",
         "fields": {
-          "ip": "Indirizzo IP contro il controllo",
+          "ip": "Indirizzo IP sottoposto alla verifica",
           "port": "Numero della porta",
-          "reachable": "Se il porto è raggiungibile"
+          "reachable": "Indica se la porta è raggiungibile"
         }
       },
       "ProjectInfo": {
-        "description": "Identità del progetto segnalata dal server",
+        "description": "Identità del progetto riportata dal server",
         "fields": {
-          "description": "Descrizione del progetto più lunga",
+          "description": "Descrizione estesa del progetto",
           "name": "Nome del progetto",
-          "tagline": "Breve progetto slogan"
+          "tagline": "Breve slogan del progetto"
         }
       },
       "StatsInfo": {
-        "description": "Contatori di richiesta aggregati",
+        "description": "Contatori aggregati delle richieste",
         "fields": {
-          "activeConns": "Collegamenti attualmente attivi",
-          "requests24h": "Richieste servite nelle ultime 24 ore",
+          "activeConns": "Connessioni attualmente attive",
+          "requests24h": "Richieste gestite nelle ultime 24 ore",
           "requestsTotal": "Richieste servite dall'inizio"
         }
       },
       "TorInfo": {
-        "description": "Tor stato di servizio nascosto",
+        "description": "Stato del servizio nascosto Tor",
         "fields": {
-          "enabled": "Se il Tor il servizio nascosto è abilitato nella configurazione",
-          "hostname": "Pubblicato .onion hostname",
-          "running": "Se il Tor servizio nascosto è attualmente in esecuzione",
-          "status": "Leggebile umana Tor stato"
+          "enabled": "Se il servizio nascosto Tor è abilitato nella configurazione",
+          "hostname": "Nome host .onion pubblicato",
+          "running": "Se il servizio nascosto Tor è attualmente in esecuzione",
+          "status": "Stato Tor leggibile dall'uomo"
         }
       },
       "UserAgent": {
-        "description": "Informazioni sull'agente utente Parsed",
+        "description": "Informazioni sull'agente utente analizzate",
         "fields": {
-          "product": "Prodotto agente utente, per esempio curl o wget",
-          "rawValue": "stringa dell'utente raw",
-          "version": "Versione agente utente"
+          "product": "Prodotto agente utente, ad esempio curl o wget",
+          "rawValue": "Stringa dell'agente utente non elaborata",
+          "version": "Versione dell'agente utente"
         }
       }
     },
     "ui": {
-      "placeholder": "Premere Run per eseguire una query.",
-      "query": "Query",
+      "placeholder": "Premere Esegui per eseguire una query.",
+      "query": "Domanda",
       "response": "Risposta",
-      "run": "Corri!",
-      "title": "IPGaze GraphQL Esploratore",
+      "run": "Corri",
+      "title": "IPGaze GraphQL Explorer",
       "variables": "Variabili (JSON)"
     }
   },
   "version": {
     "name_version": "{project_name} {project_version}",
     "built": "Costruito: {build_date}",
-    "go": "Vai! {go_version}",
-    "os_arch": "OS/Arch: {goos}/{goarch}"
+    "go": "Vai: {go_version}",
+    "os_arch": "Sistema operativo/Architettura: {goos}/{goarch}"
   },
   "confirm": {
-    "delete_title": "Confermare la cancellazione",
-    "delete_message": "Sei sicuro di voler eliminare questo articolo?",
+    "delete_title": "Conferma l'eliminazione",
+    "delete_message": "Sei sicuro di voler eliminare questo elemento?",
     "action_irreversible": "Questa azione non può essere annullata."
   },
   "form": {
     "required_field": "(richiesto)",
-    "optional_field": "(opzionale)",
+    "optional_field": "(facoltativo)",
     "hint_email": "Non condivideremo mai il tuo indirizzo email.",
-    "errors_count": "Il modulo ha {count} errori"
+    "errors_count": "Il modulo contiene errori {count}"
   }
 }

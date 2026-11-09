@@ -42,16 +42,20 @@ class TruffleHogScanTests(unittest.TestCase):
         self.assertEqual(matched, {self.fingerprint})
 
     def test_rejects_changed_candidate(self):
-        changed = make_finding(raw="different test-only candidate")
+        candidate = "different test-only candidate"
+        changed = make_finding(raw=candidate)
         rejected, matched = evaluate_findings([json.dumps(changed)], self.allowlist)
         self.assertEqual(len(rejected), 1)
+        self.assertNotIn(candidate, json.dumps(rejected))
         self.assertEqual(matched, set())
 
     def test_never_allows_verified_findings(self):
-        verified = make_finding(verified=True)
+        candidate = "verified synthetic candidate"
+        verified = make_finding(raw=candidate, verified=True)
         rejected, matched = evaluate_findings([json.dumps(verified)], self.allowlist)
         self.assertEqual(len(rejected), 1)
         self.assertEqual(rejected[0]["reason"], "verified finding")
+        self.assertNotIn(candidate, json.dumps(rejected))
         self.assertEqual(matched, set())
 
     def test_rejects_invalid_json(self):

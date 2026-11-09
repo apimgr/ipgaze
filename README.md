@@ -25,7 +25,7 @@ https://ifcfg.us
 - **Built-In Languages** - Interface and CLI translations in English, Spanish, French, German, Italian, Chinese, Arabic, and Japanese
 - **Auto-Updating GeoIP** - Weekly automatic database updates
 - **Mobile-Friendly** - Responsive web interface
-- **Fast & Lightweight** - Single static binary with no runtime file dependencies
+- **Fast & Lightweight** - Self-contained static binaries that manage their runtime data
 - **No API Keys Required** - GeoIP databases auto-download
 - **VPN/Proxy & Tor Detection** - `is_vpn`, `is_proxy`, `is_tor` fields from daily-updated threat lists
 - **GraphQL Endpoint** - Flexible queries alongside the REST API
@@ -200,7 +200,7 @@ docker run -d \
 | Command | Description |
 |---------|-------------|
 | `--service start\|stop\|restart\|reload\|status` | Control the installed OS service |
-| `--service --install\|--uninstall\|--disable` | Install, remove, or disable the systemd/launchd/Windows service |
+| `--service --install\|--uninstall\|--disable` | Install, remove, or disable the detected service (Linux systemd/OpenRC/runit/SysVinit/s6-overlay, macOS launchd, BSD rc.d, or Windows Service Control Manager) |
 | `--maintenance backup [file]` | Create and verify a timestamped full `.tar.gz` archive (add `--include-ssl` / `--include-data` to widen it) |
 | `--maintenance backup test` | Dry-run restore the backup set and verify the encrypted PGP key decrypts |
 | `--maintenance restore <file>` | Restore from a backup archive |
@@ -257,7 +257,7 @@ ipgaze-cli --output json
 ipgaze-cli --field country
 
 # Point at a specific server
-ipgaze-cli --server https://ifcfg.us list
+ipgaze-cli --server https://ifcfg.us
 
 # Shell completions
 ipgaze-cli --shell completions bash
@@ -566,17 +566,29 @@ docker run --rm --network host casjaysdev/go:latest \
 
 - **Triggers**: Push and pull request to main/master, weekly schedule, manual
 - **Workflows**:
-  - `ci.yml` - Lint and test on push/PR
-  - `licenses.yml` - License compatibility check on push/PR
-  - `release.yml` - Binary builds for 8 platforms
-  - `docker.yml` - Multi-arch Docker images (amd64, arm64)
-- **Schedule**: Weekly security checks
+  - `ci.yml` - Lint, tests, builds, coverage, vulnerability and full-history secret scans, image scan, and action SHA policy; main/master push and pull request, weekly, or manual
+  - `licenses.yml` - Dependency license check; main/master push and pull request, or manual
+  - `daily.yml` - Eight-platform daily builds and rolling release; daily, main/master push, or manual
+  - `beta.yml` - Beta builds; push to `beta` or manual
+  - `release.yml` - Eight-platform tagged release; version tag or manual
+  - `docker.yml` - Multi-architecture Docker images (amd64, arm64); all branch pushes, version tags, daily, or manual
+
+#### Other CI Providers
+
+GitLab CI, Gitea Actions, Forgejo Actions, and Jenkins provide equivalent
+build, test, security, and release workflows. GitLab and Jenkins agents need
+Docker Engine access and Python 3 for secret-scan policy evaluation. GitLab
+shell runners also need `curl`, Docker Buildx, and ARM64 binfmt support for
+multi-architecture release images. Set a masked `GITLAB_TOKEN` CI variable to
+a project access token with API scope and Maintainer access so scheduled devel
+pipelines can replace the rolling `devel` release and tag. Go builds run in
+`casjaysdev/go:latest` containers.
 
 #### Jenkins Pipeline
 
 - **Server**: jenkins.casjay.cc
 - **Agents**: amd64, arm64
-- **Stages**: Test → Build → Docker → Push → Release
+- **Stages**: Build → Lint → Security → Test → License Check → Docker → Push → Release
 - **Artifacts**: Binaries, Docker images, GitHub releases
 
 ### Testing

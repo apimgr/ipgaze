@@ -90,11 +90,26 @@ func TestMCPHandlerDisabledAndMethodRules(t *testing.T) {
 	}
 
 	cfg.Server.MCP.Enabled = false
-	for _, method := range []string{http.MethodGet, http.MethodPost, http.MethodDelete} {
-		recorder := httptest.NewRecorder()
-		handler.ServeHTTP(recorder, httptest.NewRequest(method, "/mcp", nil))
-		if recorder.Code != http.StatusNotFound {
-			t.Errorf("disabled %s: status=%d, want 404", method, recorder.Code)
+	for _, route := range []string{"/mcp", "/api/mcp", "/api/v1/server/mcp"} {
+		for _, method := range []string{http.MethodGet, http.MethodPost, http.MethodDelete} {
+			recorder := httptest.NewRecorder()
+			handler.ServeHTTP(recorder, httptest.NewRequest(method, route, nil))
+			if recorder.Code != http.StatusNotFound {
+				t.Errorf("disabled %s %s: status=%d, want 404", method, route, recorder.Code)
+			}
+			if got := recorder.Header().Get("Content-Type"); got != "application/json" {
+				t.Errorf("disabled %s %s: Content-Type=%q, want application/json", method, route, got)
+			}
+			var body struct {
+				OK      bool   `json:"ok"`
+				Error   string `json:"error"`
+				Message string `json:"message"`
+			}
+			if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+				t.Errorf("disabled %s %s: invalid JSON error body: %v", method, route, err)
+			} else if body.OK || body.Error != "NOT_FOUND" || body.Message == "" {
+				t.Errorf("disabled %s %s: error body=%+v, want canonical NOT_FOUND", method, route, body)
+			}
 		}
 	}
 }

@@ -209,8 +209,7 @@ func TestGetLanguage_UnsupportedLCAll_FallsBackToEn(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestValidateLang_SupportedLanguages(t *testing.T) {
-	supported := []string{"en", "es", "zh", "fr", "ar", "de", "ja"}
-	for _, lang := range supported {
+	for _, lang := range i18n.SupportedLocales {
 		got := validateLang(lang)
 		if got != lang {
 			t.Errorf("validateLang(%q) = %q, want %q", lang, got, lang)

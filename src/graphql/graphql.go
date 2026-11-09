@@ -72,7 +72,7 @@ func Handler(cfg GraphQLHandlerConfig) http.HandlerFunc {
 		}
 
 		lang := i18n.DetectLocale(r)
-		http.Error(w, i18n.T(i18n.WithLang(r.Context(), lang), "errors.method_not_allowed"), http.StatusMethodNotAllowed)
+		handler.WriteAPIError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", i18n.T(i18n.WithLang(r.Context(), lang), "errors.method_not_allowed"))
 	}
 }
 

@@ -13,15 +13,15 @@
 .stats-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-  gap: var(--space-lg);
-  margin: var(--space-lg) 0;
+  gap: var(--space-6);
+  margin: var(--space-6) 0;
 }
 
 .results-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-  gap: var(--space-lg);
-  margin: var(--space-lg) 0;
+  gap: var(--space-6);
+  margin: var(--space-6) 0;
 }
 
 .theme-toggle-form {
@@ -33,14 +33,14 @@
 .lang-select-form {
   display: flex;
   align-items: center;
-  gap: var(--space-xs);
+  gap: var(--space-1);
 }
 
 .lang-select {
   font-family: inherit;
   font-size: 1rem;
   min-height: 44px;
-  padding: 0 var(--space-xs);
+  padding: 0 var(--space-1);
   color: var(--color-text);
   background: var(--color-bg-card);
   border: 1px solid var(--color-border);
@@ -56,7 +56,7 @@
   color: var(--color-muted);
   text-decoration: none;
   font-size: 1.2rem;
-  padding: var(--space-xs);
+  padding: var(--space-1);
   border-radius: 4px;
   transition: color 0.2s, background 0.2s;
 }
@@ -74,7 +74,7 @@
   color: var(--color-muted);
   cursor: pointer;
   font-size: 1rem;
-  padding: var(--space-xs) var(--space-sm);
+  padding: var(--space-1) var(--space-2);
   transition: color 0.2s, border-color 0.2s;
 }
 
@@ -93,7 +93,7 @@
   max-width: 1200px;
   width: 100%;
   margin: 0 auto;
-  padding: var(--space-xl) var(--space-lg);
+  padding: var(--space-8) var(--space-6);
 }
 
 /* Footer styling lives in the dedicated "Footer" section below — it
@@ -103,10 +103,10 @@
 .ip-display {
   display: inline-flex;
   align-items: center;
-  gap: var(--space-sm);
+  gap: var(--space-2);
   font-family: var(--font-code);
   font-size: 2.5rem;
-  padding: var(--space-lg);
+  padding: var(--space-6);
   background: var(--color-bg-secondary);
   border: 2px solid var(--color-border);
   border-radius: 12px;
@@ -114,7 +114,7 @@
   max-width: 100%;
   overflow-x: auto;
   white-space: nowrap;
-  margin: var(--space-lg) 0;
+  margin: var(--space-6) 0;
   scrollbar-width: thin;
   scrollbar-color: var(--color-border) var(--color-bg-secondary);
 }
@@ -143,7 +143,7 @@
 .info-table {
   width: 100%;
   border-collapse: collapse;
-  margin: var(--space-md) 0;
+  margin: var(--space-4) 0;
 }
 
 .info-table tr {
@@ -156,7 +156,7 @@
 
 .info-table th,
 .info-table td {
-  padding: var(--space-sm);
+  padding: var(--space-2);
   text-align: start;
   vertical-align: top;
 }
@@ -178,7 +178,7 @@
 .ip-display-row {
   display: inline-flex;
   align-items: center;
-  gap: var(--space-sm);
+  gap: var(--space-2);
   max-width: 100%;
   overflow: hidden;
 }
@@ -189,7 +189,7 @@
   font-family: var(--font-code);
   font-size: 2rem;
   font-weight: 600;
-  padding: var(--space-sm) var(--space-md);
+  padding: var(--space-2) var(--space-4);
   background: var(--color-bg-secondary);
   border: 2px solid var(--color-border);
   border-radius: 8px;
@@ -226,7 +226,7 @@
 .nav-inner {
   display: flex;
   align-items: center;
-  gap: var(--space-md);
+  gap: var(--space-4);
   height: 56px;
 }
 
@@ -234,7 +234,7 @@
   text-decoration: none;
   display: flex;
   align-items: center;
-  gap: var(--space-sm);
+  gap: var(--space-2);
 }
 
 .nav-brand {
@@ -248,7 +248,7 @@
   list-style: none;
   margin: 0;
   padding: 0;
-  gap: var(--space-sm);
+  gap: var(--space-2);
   /* Centers the link cluster in the space between the brand and the
      header actions, instead of letting it sit flush against either edge
      (AI.md PART 16 "Header Layout" - single row, 4 zones). */
@@ -267,7 +267,7 @@
   min-height: 44px;
   color: var(--color-muted);
   text-decoration: none;
-  padding: var(--space-xs) var(--space-sm);
+  padding: var(--space-1) var(--space-2);
   border-radius: 4px;
   transition: color 0.2s, background 0.2s;
 }
@@ -309,7 +309,7 @@ body:has(.nav-checkbox:focus-visible) .nav-burger {
   color: var(--color-text);
   font-size: 1.4rem;
   cursor: pointer;
-  padding: var(--space-xs);
+  padding: var(--space-1);
   line-height: 1;
   user-select: none;
 }
@@ -409,7 +409,7 @@ body:has(.nav-checkbox:checked) {
 .nav-actions {
   display: flex;
   align-items: center;
-  gap: var(--space-sm);
+  gap: var(--space-2);
   flex: 0 0 auto;
 }
 
@@ -419,12 +419,12 @@ body:has(.nav-checkbox:checked) {
 
 .hero {
   text-align: center;
-  padding: var(--space-xl) 0;
+  padding: var(--space-8) 0;
 }
 
 .hero h1 {
   font-size: 2rem;
-  margin-bottom: var(--space-md);
+  margin-bottom: var(--space-4);
   color: var(--color-text);
 }
 
@@ -434,8 +434,8 @@ body:has(.nav-checkbox:checked) {
 }
 
 .tor-hidden-service-notice {
-  margin-top: var(--space-sm);
-  padding: var(--space-sm) var(--space-md);
+  margin-top: var(--space-2);
+  padding: var(--space-2) var(--space-4);
   border: 1px solid var(--color-warning);
   border-radius: var(--radius-md);
   background: var(--color-bg-secondary);
@@ -449,7 +449,7 @@ body:has(.nav-checkbox:checked) {
 
 .health-header {
   text-align: center;
-  margin-bottom: var(--space-lg);
+  margin-bottom: var(--space-6);
 }
 
 .health-header h1 { font-size: 2rem; color: var(--color-text); }
@@ -458,7 +458,7 @@ body:has(.nav-checkbox:checked) {
   color: var(--color-muted);
   font-size: 1.1rem;
   font-style: italic;
-  margin: var(--space-xs) 0;
+  margin: var(--space-1) 0;
 }
 
 /* ============================================================================
@@ -494,7 +494,7 @@ body:has(.nav-checkbox:checked) {
 
 @media (min-width: 768px) {
   .footer {
-    padding: var(--space-5);
+    padding: var(--space-6);
   }
 }
 
@@ -505,7 +505,7 @@ body:has(.nav-checkbox:checked) {
     flex-direction: column;
     align-items: stretch;
     gap: var(--space-2);
-    margin-block-start: var(--space-5);
+    margin-block-start: var(--space-6);
   }
   .nav-drawer-language select,
   .nav-drawer-language button { width: 100%; }
@@ -524,14 +524,14 @@ body:has(.nav-checkbox:checked) {
 
 .error-card {
   text-align: center;
-  padding: var(--space-xl);
+  padding: var(--space-8);
   max-width: 500px;
 }
 
 .error-icon { font-size: 3rem; }
 .error-title { font-size: 1.8rem; color: var(--color-text); }
 .error-message { color: var(--color-muted); font-size: 1.05rem; }
-.error-id { color: var(--color-muted); font-size: 0.9rem; margin-top: var(--space-md); }
+.error-id { color: var(--color-muted); font-size: 0.9rem; margin-top: var(--space-4); }
 
 /* ============================================================================
    Responsive Design - Mobile First (base = < 768px)
@@ -542,13 +542,13 @@ body:has(.nav-checkbox:checked) {
 /* Mobile base styles (no min-width query — mobile-first default) */
 
 #main-content {
-  padding: var(--space-md);
+  padding: var(--space-4);
   width: 100%;
 }
 
 .ip-display {
   font-size: 1.5rem;
-  padding: var(--space-md);
+  padding: var(--space-4);
 }
 
 .features-grid,
@@ -567,17 +567,17 @@ body:has(.nav-checkbox:checked) {
 
   #main-content {
     width: 90%;
-    padding: var(--space-xl) var(--space-lg);
+    padding: var(--space-8) var(--space-6);
   }
 
   .ip-display {
     font-size: 2.5rem;
-    padding: var(--space-lg);
+    padding: var(--space-6);
   }
 
   .info-table th,
   .info-table td {
-    padding: var(--space-md);
+    padding: var(--space-4);
     font-size: 1rem;
   }
 
@@ -631,7 +631,7 @@ body:has(.nav-checkbox:checked) {
    ============================================================================ */
 
 .landing-page {
-  padding: var(--space-lg) 0;
+  padding: var(--space-6) 0;
 }
 
 /* Hero row: IP display + optional sponsor box.
@@ -642,9 +642,9 @@ body:has(.nav-checkbox:checked) {
 .landing-hero-row {
   display: flex;
   flex-direction: column;
-  gap: var(--space-lg);
-  margin-bottom: var(--space-lg);
-  padding: var(--space-lg);
+  gap: var(--space-6);
+  margin-bottom: var(--space-6);
+  padding: var(--space-6);
   background: var(--color-bg-card);
   border: 1px solid var(--color-border);
   border-top: 3px solid var(--color-primary);
@@ -666,7 +666,7 @@ body:has(.nav-checkbox:checked) {
 .landing-columns {
   display: flex;
   flex-direction: column;
-  gap: var(--space-md);
+  gap: var(--space-4);
 }
 
 /* The flex gap above already spaces the cards; drop .section-card's own
@@ -718,7 +718,7 @@ body:has(.nav-checkbox:checked) {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: var(--space-sm);
+  gap: var(--space-2);
   text-align: center;
 }
 
@@ -767,13 +767,13 @@ body:has(.nav-checkbox:checked) {
   display: flex;
   flex-wrap: wrap;
   align-items: flex-end;
-  gap: var(--space-sm);
+  gap: var(--space-2);
 }
 
 .ip-check-row label {
   display: flex;
   flex-direction: column;
-  gap: var(--space-xs);
+  gap: var(--space-1);
   font-size: 0.9rem;
   color: var(--color-muted);
   flex: 1 1 12rem;
@@ -781,7 +781,7 @@ body:has(.nav-checkbox:checked) {
 
 /* Location map (bounding box derived from GeoIP lat/long) */
 .map-box {
-  margin-bottom: var(--space-lg);
+  margin-bottom: var(--space-6);
   border: 1px solid var(--color-border);
   border-radius: 8px;
   overflow: hidden;
@@ -812,7 +812,7 @@ html.theme-light .location-map {
 
 .map-large-link {
   display: block;
-  padding: var(--space-sm) var(--space-md);
+  padding: var(--space-2) var(--space-4);
   font-size: 0.85rem;
   text-align: end;
   color: var(--color-muted);
@@ -821,12 +821,12 @@ html.theme-light .location-map {
 /* FAQ section */
 .faq h3 {
   font-size: 1rem;
-  margin-top: var(--space-lg);
-  margin-bottom: var(--space-xs);
+  margin-top: var(--space-6);
+  margin-bottom: var(--space-1);
 }
 
 .faq p {
-  margin: var(--space-xs) 0 var(--space-md);
+  margin: var(--space-1) 0 var(--space-4);
 }
 
 /* curl examples inside FAQ answers must scroll horizontally rather than

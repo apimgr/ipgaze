@@ -6,6 +6,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import argparse
 import subprocess
 import sys
 import tempfile
@@ -83,7 +84,7 @@ def evaluate_findings(
             continue
 
         if finding.get("Verified") is True:
-            rejected.append({"reason": "verified finding", "finding": finding})
+            rejected.append({"reason": "verified finding", "finding": _finding_summary(finding)})
             continue
 
         entry = allowed.get(fingerprint)
@@ -98,9 +99,18 @@ def evaluate_findings(
         ):
             matched.add(fingerprint)
         else:
-            rejected.append({"reason": "unreviewed finding", "finding": finding})
+            rejected.append({"reason": "unreviewed finding", "finding": _finding_summary(finding)})
 
     return rejected, matched
+
+
+def _finding_summary(finding: dict[str, Any]) -> dict[str, Any]:
+    """Keep only identifying metadata; never retain the candidate in reports."""
+    git = git_metadata(finding)
+    return {
+        "DetectorName": finding.get("DetectorName"),
+        "SourceMetadata": {"Data": {"Git": {key: git.get(key) for key in ("commit", "file", "line")}}},
+    }
 
 
 def workflow_error(message: str) -> None:
@@ -122,7 +132,7 @@ def report_rejection(rejection: dict[str, Any]) -> None:
     workflow_error(f"{rejection['reason']}: {detector} at {source_file}:{line} ({commit})")
 
 
-def run_scan() -> int:
+def run_scan(jsonl_stdin: bool = False) -> int:
     container_name = f"ipgaze-trufflehog-{uuid.uuid4().hex[:8]}"
     command = [
         "docker",
@@ -149,25 +159,28 @@ def run_scan() -> int:
         workflow_error(f"Unable to load TruffleHog finding allowlist: {error}")
         return 2
 
-    with tempfile.TemporaryDirectory(prefix="ipgaze-trufflehog-") as temp_dir:
-        output_path = Path(temp_dir) / "findings.jsonl"
-        try:
-            with output_path.open("w", encoding="utf-8") as output:
-                result = subprocess.run(command, cwd=ROOT, stdout=output, check=False)
-        except OSError as error:
-            workflow_error(f"Unable to run TruffleHog: {error}")
-            return 2
+    if jsonl_stdin:
+        rejected, matched = evaluate_findings(sys.stdin, allowed)
+    else:
+        with tempfile.TemporaryDirectory(prefix="ipgaze-trufflehog-") as temp_dir:
+            output_path = Path(temp_dir) / "findings.jsonl"
+            try:
+                with output_path.open("w", encoding="utf-8") as output:
+                    result = subprocess.run(command, cwd=ROOT, stdout=output, check=False)
+            except OSError as error:
+                workflow_error(f"Unable to run TruffleHog: {error}")
+                return 2
 
-        if result.returncode != 0:
-            workflow_error(f"TruffleHog scan failed with exit code {result.returncode}")
-            return result.returncode
+            if result.returncode != 0:
+                workflow_error(f"TruffleHog scan failed with exit code {result.returncode}")
+                return result.returncode
 
-        try:
-            with output_path.open(encoding="utf-8") as output:
-                rejected, matched = evaluate_findings(output, allowed)
-        except OSError as error:
-            workflow_error(f"Unable to read TruffleHog results: {error}")
-            return 2
+            try:
+                with output_path.open(encoding="utf-8") as output:
+                    rejected, matched = evaluate_findings(output, allowed)
+            except OSError as error:
+                workflow_error(f"Unable to read TruffleHog results: {error}")
+                return 2
 
     for fingerprint, entry in allowed.items():
         if fingerprint not in matched:
@@ -192,4 +205,6 @@ def run_scan() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(run_scan())
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--jsonl-stdin", action="store_true", help="evaluate TruffleHog JSONL from stdin")
+    sys.exit(run_scan(jsonl_stdin=parser.parse_args().jsonl_stdin))

@@ -1,13 +1,15 @@
 # =============================================================================
 # Build Stage - Compile Go binary (debug, no symbol stripping)
 # =============================================================================
-FROM casjaysdev/go:latest AS builder
+FROM --platform=$BUILDPLATFORM casjaysdev/go:latest AS builder
 
 # Install git, bash, and delve debugger
 RUN apk add --no-cache git bash
-RUN go install github.com/go-delve/delve/cmd/dlv@latest
-
 ARG TARGETARCH
+RUN env -u GOBIN GOPATH=/tmp/delve-go GOOS=linux GOARCH=${TARGETARCH} go install github.com/go-delve/delve/cmd/dlv@latest \
+    && mkdir -p /tmp/delve-bin \
+    && cp "$(find /tmp/delve-go/bin -type f -name dlv -print -quit)" /tmp/delve-bin/dlv
+
 ARG VERSION=dev
 # BUILD_EPOCH is the single embedded time source; BuildDate is derived from it at process start
 ARG BUILD_EPOCH
@@ -31,6 +33,7 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} go build -buildvcs=false \
 # Runtime Stage - Alpine with debugging tools
 # =============================================================================
 FROM alpine:latest
+ARG TARGETARCH
 
 # ARGs for build-time values (set by docker build --build-arg)
 ARG VERSION=dev
@@ -58,9 +61,9 @@ RUN apk add --no-cache \
 COPY --from=builder /app/binary/ipgaze /usr/local/bin/ipgaze
 
 # Copy delve debugger from builder stage
-# casjaysdev/go:latest sets GOBIN=/usr/local/bin, so `go install` places
-# dlv there rather than the default $GOPATH/bin (/root/go/bin)
-COPY --from=builder /usr/local/bin/dlv /usr/local/bin/dlv
+# Install uses a temporary GOPATH so Delve is cross-compiled for TARGETARCH
+# and is kept separate from the application toolchain binaries.
+COPY --from=builder /tmp/delve-bin/dlv /usr/local/bin/dlv
 
 # Copy BUILD-TIME overlay (entrypoint.sh) from docker/rootfs/ into image
 COPY docker/rootfs/ /
@@ -79,9 +82,9 @@ RUN chmod 755 /usr/local/bin/*
 # IDEA.md" clause) — see IDEA.md "Docker non-root exception".
 # trivy:ignore:AVD-DS-0002
 
-# Development environment variables — debug symbols retained
-# MODE is never baked into the image — binary defaults to production; compose sets MODE explicitly
+# Development image environment — debug symbols and development behavior
 ENV TZ=America/New_York \
+    MODE=devel \
     PORT=80 \
     DATABASE_DIR=/data/db/sqlite
 

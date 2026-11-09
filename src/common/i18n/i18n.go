@@ -494,6 +494,9 @@ func ValidateEmbeddedLocales() error {
 	englishPluralMessages := pluralMessages(english, validCategories)
 	englishRegularMessages := regularMessages(english, englishPluralMessages)
 	for code, locale := range translations {
+		if err := validatePluralCategoryKeys(code, locale, validCategories); err != nil {
+			return err
+		}
 		registered := registeredLocale(code)
 		for key, expected := range map[string]string{
 			"meta.language":    registered.Code,
@@ -563,6 +566,23 @@ func ValidateEmbeddedLocales() error {
 			if !equalPlaceholders(localizedValue, englishValue) {
 				return fmt.Errorf("locale %q translation %q has mismatched placeholders", code, key)
 			}
+		}
+	}
+	return nil
+}
+
+func validatePluralCategoryKeys(code string, translations map[string]any, validCategories map[string]struct{}) error {
+	for key := range translations {
+		if !strings.HasPrefix(key, "plurals.") {
+			continue
+		}
+		parts := strings.Split(key, ".")
+		if len(parts) != 3 || parts[1] == "" {
+			return fmt.Errorf("locale %q has malformed plural key %q", code, key)
+		}
+		category := parts[len(parts)-1]
+		if _, ok := validCategories[category]; !ok {
+			return fmt.Errorf("locale %q has orphaned plural category %q in %q", code, category, key)
 		}
 	}
 	return nil

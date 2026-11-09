@@ -21,11 +21,6 @@ ipgaze [flags]
 | `--maintenance backup [file]` | Create and verify a timestamped full archive; SSL keys and the full data directory are excluded unless requested |
 | `--maintenance backup test` | Dry-run restore the backup set and verify the encrypted PGP key decrypts |
 | `--maintenance restore <file>` | Restore a backup archive |
-
-Scheduled backups create a verified full backup and a cumulative daily
-incremental. An incremental restore requires its referenced full backup in the
-same directory. Hourly incremental backups are disabled by default; see
-[configuration](configuration.md#backups).
 | `--maintenance update` | Install the latest binary |
 | `--maintenance mode [production\|development]` | Show or change maintenance mode |
 | `--maintenance setup` | Run first-time setup |
@@ -38,6 +33,11 @@ same directory. Hourly incremental backups are disabled by default; see
 | `--maintenance data delete` | Interactively erase rate-limit and audit-log history |
 | `--maintenance compliance report` | Print enabled standards and the configured compliance controls |
 | `--shell --help` | Show shell integration usage and supported shells |
+
+Scheduled backups create a verified full backup and a cumulative daily
+incremental. An incremental restore requires its referenced full backup in the
+same directory. Hourly incremental backups are disabled by default; see
+[configuration](configuration.md#backups).
 
 ### Flags
 
@@ -139,6 +139,10 @@ NO_COLOR=1 ipgaze
 # Custom port via environment
 PORT=9090 ipgaze
 ```
+
+The full server runtime and first-run environment-variable reference,
+including directory paths and host IP overrides, is in the
+[configuration guide](configuration.md#environment-variables).
 
 ## Client Binary
 

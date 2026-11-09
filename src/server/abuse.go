@@ -93,7 +93,7 @@ func AbuseMiddleware(db *sql.DB, policy AbusePolicy, trust *netutil.TrustResolve
 			if IsAllowlisted(r.Context()) || allowlist != nil && allowlist.Contains(ip) {
 				if db != nil {
 					if _, err := db.Exec(`DELETE FROM ip_blocks WHERE ip = ?`, ip.String()); err != nil {
-						http.Error(w, "security block storage unavailable", http.StatusServiceUnavailable)
+						writeAbuseStorageError(w, r, logs, err)
 						return
 					}
 				}
@@ -102,7 +102,7 @@ func AbuseMiddleware(db *sql.DB, policy AbusePolicy, trust *netutil.TrustResolve
 			}
 			blocked, err := isIPBlocked(db, ip, permanent, time.Now())
 			if err != nil {
-				http.Error(w, "security block lookup unavailable", http.StatusServiceUnavailable)
+				writeAbuseStorageError(w, r, logs, err)
 				return
 			}
 			if blocked {
@@ -129,7 +129,7 @@ func AbuseMiddleware(db *sql.DB, policy AbusePolicy, trust *netutil.TrustResolve
 				if flood && policy.AutoBlockIP {
 					expires := time.Now().Add(policy.BlockDuration)
 					if err := persistTemporaryIPBlock(db, ip.String(), expires, count); err != nil {
-						http.Error(w, "security block storage unavailable", http.StatusServiceUnavailable)
+						writeAbuseStorageError(w, r, logs, err)
 						return
 					}
 					writeSecurityBlocked(w, r)
@@ -139,6 +139,16 @@ func AbuseMiddleware(db *sql.DB, policy AbusePolicy, trust *netutil.TrustResolve
 			next.ServeHTTP(w, r)
 		})
 	}
+}
+
+func writeAbuseStorageError(w http.ResponseWriter, r *http.Request, logs *applog.Manager, err error) {
+	detail := fmt.Sprintf("abuse storage unavailable: request_id=%s http_status=%d method=%s path=%s ip=%s internal=%v",
+		RequestIDFromContext(r.Context()), http.StatusServiceUnavailable, r.Method, r.URL.Path, r.RemoteAddr, err)
+	log.Print(detail)
+	if logs != nil {
+		logs.WriteError("error", detail)
+	}
+	writeNegotiatedError(w, r, http.StatusServiceUnavailable, "", i18n.T(r.Context(), "errors.server_error"))
 }
 
 func writeSecurityBlocked(w http.ResponseWriter, r *http.Request) {

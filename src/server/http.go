@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"os"
@@ -909,7 +910,7 @@ func (s *Server) serveActiveHandler(w http.ResponseWriter, r *http.Request) {
 	s.handlerMu.RLock()
 	defer s.handlerMu.RUnlock()
 	if s.activeHandler == nil {
-		http.Error(w, "server handler unavailable", http.StatusServiceUnavailable)
+		writeNegotiatedError(w, r, http.StatusServiceUnavailable, "", i18n.T(r.Context(), "errors.server_error"))
 		return
 	}
 	s.activeHandler.ServeHTTP(w, r)
@@ -921,7 +922,13 @@ func (s *Server) buildHandler() http.Handler {
 	r := NewChiRouter()
 
 	// Initialize templates (if using embedded)
-	_ = InitTemplates()
+	if err := InitTemplates(); err != nil {
+		detail := "server template initialization failed: " + err.Error()
+		log.Printf("%s", detail)
+		if s.logManager != nil {
+			s.logManager.WriteError("error", detail)
+		}
+	}
 
 	// Middleware chain per AI.md PART 16:
 	// 0. Recover → 1. URLNormalize → 2. RequestID → 3. PathSecurity → 4. SecurityHeaders →

@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"html/template"
 	"io"
+	"log"
 	"math/big"
 	"net"
 	"net/http"
@@ -933,7 +934,7 @@ func (h *PagesHandler) ServerContactHandler(w http.ResponseWriter, r *http.Reque
 				h.renderContactError(w, r, http.StatusTooManyRequests)
 				return
 			}
-			h.dispatchContactSubmission(req)
+			h.dispatchContactSubmission(r, req)
 		}
 		http.Redirect(w, r, "/server/contact", http.StatusSeeOther)
 		return
@@ -1096,7 +1097,7 @@ func (h *PagesHandler) APIV1ServerContactHandler(w http.ResponseWriter, r *http.
 			SendAPIResponseError(w, http.StatusBadRequest, "BAD_REQUEST", i18n.T(r.Context(), "errors.bad_request"), nil)
 			return
 		}
-		h.dispatchContactSubmission(req)
+		h.dispatchContactSubmission(r, req)
 	}
 	SendAPIResponseOK(w, ContactResponse{Success: true, Message: i18n.T(r.Context(), "contact.success")}, nil)
 }
@@ -1499,7 +1500,7 @@ func clientIP(r *http.Request) string {
 // email is sent synchronously but its result is not surfaced to the
 // submitter, since the form submission itself has already succeeded from
 // their perspective.
-func (h *PagesHandler) dispatchContactSubmission(req ContactRequest) {
+func (h *PagesHandler) dispatchContactSubmission(r *http.Request, req ContactRequest) {
 	if h.Config == nil {
 		return
 	}
@@ -1534,11 +1535,14 @@ func (h *PagesHandler) dispatchContactSubmission(req ContactRequest) {
 	})
 
 	if resolved.Email != "" && h.EmailMgr != nil && h.EmailMgr.IsEnabled() {
-		_ = h.EmailMgr.SendDirect(&email.Message{
+		if err := h.EmailMgr.SendDirect(&email.Message{
 			To:      []string{resolved.Email},
 			Subject: subject,
 			Body:    body,
-		})
+		}); err != nil {
+			log.Printf("contact email delivery failed: request_id=%s method=%s path=%s ip=%s err=%v",
+				r.Header.Get("X-Request-ID"), r.Method, r.URL.Path, clientIP(r), err)
+		}
 	}
 }
 
@@ -1645,7 +1649,11 @@ func (h *PagesHandler) securityPolicyMarkdown() string {
 
 // ServerSecurityThanksHandler serves the current public acknowledgments list.
 func (h *PagesHandler) ServerSecurityThanksHandler(w http.ResponseWriter, r *http.Request) {
-	response := h.securityThanksResponse(r.Context())
+	response, err := h.securityThanksResponse(r)
+	if err != nil {
+		h.renderErrorPage(w, r, http.StatusInternalServerError, i18n.T(r.Context(), "errors.server_error"))
+		return
+	}
 	data := struct {
 		PageData
 		SecurityThanksResponse
@@ -1655,45 +1663,57 @@ func (h *PagesHandler) ServerSecurityThanksHandler(w http.ResponseWriter, r *htt
 
 // APIV1ServerSecurityThanksHandler serves public acknowledgments as JSON.
 func (h *PagesHandler) APIV1ServerSecurityThanksHandler(w http.ResponseWriter, r *http.Request) {
-	SendAPIResponseOK(w, h.securityThanksResponse(r.Context()), nil)
+	response, err := h.securityThanksResponse(r)
+	if err != nil {
+		SendAPIResponseError(w, http.StatusInternalServerError, "SERVER_ERROR", i18n.T(r.Context(), "errors.server_error"), nil)
+		return
+	}
+	SendAPIResponseOK(w, response, nil)
 }
 
-func (h *PagesHandler) securityThanksResponse(ctx context.Context) SecurityThanksResponse {
+func (h *PagesHandler) securityThanksResponse(r *http.Request) (SecurityThanksResponse, error) {
 	response := SecurityThanksResponse{Researchers: []SecurityAcknowledgment{}}
 	if h.DB == nil {
-		return response
+		return response, nil
 	}
-	readCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	readCtx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 	rows, err := h.DB.QueryContext(readCtx, `SELECT credit_preference, credit_name,
 		COALESCE(disclosed_year, CAST(strftime('%Y', created_at, 'unixepoch') AS INTEGER)), short_credit
 		FROM security_reports WHERE status = 'Disclosed' AND credit_preference IN ('real_name', 'handle', 'anonymous')
 		ORDER BY COALESCE(disclosed_year, CAST(strftime('%Y', created_at, 'unixepoch') AS INTEGER)), created_at`)
 	if err != nil {
-		return response
+		return response, h.securityThanksError(r, fmt.Errorf("query disclosed acknowledgments: %w", err))
 	}
-	defer func() { _ = rows.Close() }()
 	anonymous := 0
 	var creditKey []byte
+	var keyDecodeErr error
 	if h.Config != nil {
-		creditKey, _ = base64.StdEncoding.DecodeString(h.Config.Server.Security.EncryptionKey)
+		creditKey, keyDecodeErr = base64.StdEncoding.DecodeString(h.Config.Server.Security.EncryptionKey)
 	}
 	for rows.Next() {
 		var preference, name, credit string
 		var year int
-		if rows.Scan(&preference, &name, &year, &credit) != nil {
-			continue
+		if err := rows.Scan(&preference, &name, &year, &credit); err != nil {
+			_ = rows.Close()
+			return response, h.securityThanksError(r, fmt.Errorf("scan disclosed acknowledgment: %w", err))
 		}
 		if preference == "anonymous" {
 			anonymous++
 			name = fmt.Sprintf("Anonymous Researcher #%d", anonymous)
 		} else {
+			if keyDecodeErr != nil {
+				_ = rows.Close()
+				return response, h.securityThanksError(r, fmt.Errorf("decode security credit encryption key: %w", keyDecodeErr))
+			}
 			if len(creditKey) != 32 {
-				continue
+				_ = rows.Close()
+				return response, h.securityThanksError(r, errors.New("security credit encryption key is unavailable or invalid"))
 			}
 			name, err = security.DecryptSecurityCredit(creditKey, name)
 			if err != nil {
-				continue
+				_ = rows.Close()
+				return response, h.securityThanksError(r, fmt.Errorf("decrypt disclosed acknowledgment: %w", err))
 			}
 		}
 		if name == "" {
@@ -1701,10 +1721,20 @@ func (h *PagesHandler) securityThanksResponse(ctx context.Context) SecurityThank
 		}
 		response.Researchers = append(response.Researchers, SecurityAcknowledgment{Name: name, Year: year, Credit: credit})
 	}
-	if rows.Err() != nil {
-		return SecurityThanksResponse{Researchers: []SecurityAcknowledgment{}}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return response, h.securityThanksError(r, fmt.Errorf("iterate disclosed acknowledgments: %w", err))
 	}
-	return response
+	if err := rows.Close(); err != nil {
+		return response, h.securityThanksError(r, fmt.Errorf("close disclosed acknowledgments: %w", err))
+	}
+	return response, nil
+}
+
+func (h *PagesHandler) securityThanksError(r *http.Request, err error) error {
+	log.Printf("security acknowledgments unavailable: request_id=%s method=%s path=%s ip=%s err=%v",
+		r.Header.Get("X-Request-ID"), r.Method, r.URL.Path, clientIP(r), err)
+	return err
 }
 
 // SecurityThanksResponse contains researchers who consented to public credit.
@@ -1879,7 +1909,7 @@ func validPreferencesRedirect(target string) (string, bool) {
 // (1-year expiry, SameSite=Lax). HttpOnly is false so the same client-side JS can also read it.
 func (h *PagesHandler) ConsentHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, i18n.T(r.Context(), "errors.method_not_allowed"), http.StatusMethodNotAllowed)
+		h.renderErrorPage(w, r, http.StatusMethodNotAllowed, i18n.T(r.Context(), "errors.method_not_allowed"))
 		return
 	}
 	// The preferences page submits granular=1 with one checkbox per category
@@ -1945,7 +1975,7 @@ func (h *PagesHandler) ConsentHandler(w http.ResponseWriter, r *http.Request) {
 // (PRG pattern) back to referrer, mirroring ConsentHandler/ServerPreferencesUpdateHandler.
 func (h *PagesHandler) CCPAHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, i18n.T(r.Context(), "errors.method_not_allowed"), http.StatusMethodNotAllowed)
+		h.renderErrorPage(w, r, http.StatusMethodNotAllowed, i18n.T(r.Context(), "errors.method_not_allowed"))
 		return
 	}
 	choice := r.FormValue("choice")
@@ -1996,7 +2026,7 @@ func NextTheme(current string) string {
 // toggle never resets the visitor's language and vice versa.
 func (h *PagesHandler) ServerPreferencesUpdateHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, i18n.T(r.Context(), "errors.method_not_allowed"), http.StatusMethodNotAllowed)
+		h.renderErrorPage(w, r, http.StatusMethodNotAllowed, i18n.T(r.Context(), "errors.method_not_allowed"))
 		return
 	}
 	if submitted := r.FormValue("theme"); isValidTheme(submitted) {
@@ -2545,7 +2575,7 @@ func (h *PagesHandler) APIV1ServerPreferencesImportHandler(w http.ResponseWriter
 // No-JS path: detects text/html Accept header and redirects (PRG pattern) back to referrer.
 func (h *PagesHandler) DismissAnnouncementHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, i18n.T(r.Context(), "errors.method_not_allowed"), http.StatusMethodNotAllowed)
+		h.renderErrorPage(w, r, http.StatusMethodNotAllowed, i18n.T(r.Context(), "errors.method_not_allowed"))
 		return
 	}
 	id := strings.TrimSpace(r.FormValue("id"))

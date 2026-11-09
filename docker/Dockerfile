@@ -1,7 +1,7 @@
 # =============================================================================
 # Build Stage - Compile Go binary
 # =============================================================================
-FROM casjaysdev/go:latest AS builder
+FROM --platform=$BUILDPLATFORM casjaysdev/go:latest AS builder
 
 RUN apk add --no-cache git bash
 

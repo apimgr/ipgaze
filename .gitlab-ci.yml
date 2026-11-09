@@ -1,0 +1,364 @@
+stages:
+  - build
+  - test
+  - security
+  - docker
+  - release
+
+variables:
+  GIT_DEPTH: "0"
+  CGO_ENABLED: "0"
+  GOFLAGS: "-buildvcs=false"
+  PROJECT_NAME: ipgaze
+  SCAN_IMAGE: local/ipgaze-ci:$CI_COMMIT_SHA
+
+default:
+  tags:
+    - docker-shell
+
+workflow:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "schedule"'
+    - if: '$CI_COMMIT_TAG'
+    - if: '$CI_PIPELINE_SOURCE == "web"'
+    - if: '$CI_PIPELINE_SOURCE == "push"'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+
+build:
+  stage: build
+  script:
+    - docker run --rm --name "ipgaze-build-${CI_PIPELINE_ID}" -v "$CI_PROJECT_DIR:/app" -w /app -e CGO_ENABLED=0 -e GOFLAGS=-buildvcs=false casjaysdev/go:latest go build -trimpath ./...
+lint:
+  stage: build
+  script:
+    - docker run --rm --name "ipgaze-lint-${CI_PIPELINE_ID}" -v "$CI_PROJECT_DIR:/app" -w /app -e CGO_ENABLED=0 -e GOFLAGS=-buildvcs=false casjaysdev/go:latest sh -ec 'go vet ./... && staticcheck ./...'
+test:
+  stage: test
+  script:
+    - mkdir -p "/tmp/${CI_PROJECT_PATH%/*}"
+    - COVDIR="$(mktemp -d "/tmp/${CI_PROJECT_PATH//\//-}-XXXXXX")"
+    - trap 'rm -rf -- "$COVDIR"' EXIT
+    - |
+      docker run --rm --name "ipgaze-test-${CI_PIPELINE_ID}" -v "$CI_PROJECT_DIR:/app" -v "$COVDIR:$COVDIR" -w /app -e "TMPDIR=$COVDIR" -e CGO_ENABLED=0 -e GOFLAGS=-buildvcs=false casjaysdev/go:latest sh -ec 'go test -cover -coverprofile="$TMPDIR/coverage.out" ./...; pct=$(go tool cover -func="$TMPDIR/coverage.out" | awk '\''/^total:/ {gsub("%", "", $3); print int($3)}'\''); test "$pct" -ge 60 || { echo "ERROR: coverage $pct% < threshold 60%"; exit 1; }'
+license-check:
+  stage: test
+  script:
+    - docker run --rm --name "ipgaze-licenses-${CI_PIPELINE_ID}" -v "$CI_PROJECT_DIR:/app" -w /app -e CGO_ENABLED=0 -e GOFLAGS=-buildvcs=false casjaysdev/go:latest ./scripts/verify-licenses.sh
+  artifacts:
+    when: always
+    paths:
+      - licenses.csv
+      - third_party_licenses/
+    expire_in: 30 days
+secret-scan:
+  stage: security
+  script:
+    - set -o pipefail
+    - docker run --rm --name "ipgaze-trufflehog-${CI_PIPELINE_ID}" -v "$CI_PROJECT_DIR:/repo:ro" -w /repo trufflesecurity/trufflehog@sha256:674b2f187620a19df77f44cf9a7d77efcc581a5662accef2f2739cbb46ba4a3a git file:///repo --json --results=verified,unknown --no-update --fail-on-scan-errors | python3 scripts/trufflehog_scan.py --jsonl-stdin
+  rules:
+    - when: always
+
+workflow-policy:
+  stage: security
+  script:
+    - |
+      set -eu
+      if grep -RInE '^[[:space:]]*-[[:space:]]*uses:' .github/workflows/ .gitea/workflows/ .forgejo/workflows/ 2>/dev/null | grep -vE '@[0-9a-f]{40}([[:space:]]|$)'; then
+        echo "ERROR: every third-party Actions reference must use a full 40-character commit SHA"
+        exit 1
+      fi
+      if grep -RInE 'pull_request_target' .github/workflows/ .gitea/workflows/ .forgejo/workflows/ 2>/dev/null; then
+        echo "ERROR: pull_request_target is forbidden for untrusted code"
+        exit 1
+      fi
+      if grep -nE '(trufflesecurity/trufflehog|aquasec/trivy):' .gitlab-ci.yml; then
+        echo "ERROR: security scanner images must use digest references"
+        exit 1
+      fi
+      if grep -nE 'casjaysdev/go:' .gitlab-ci.yml | grep -v 'casjaysdev/go:latest'; then
+        echo "ERROR: Go jobs must use the AI.md toolchain image casjaysdev/go:latest"
+        exit 1
+      fi
+      echo "OK: action and scanner image pin policies pass; Go toolchain follows AI.md"
+  rules:
+    - when: always
+
+vuln-scan:
+  stage: security
+  script:
+    - docker run --rm --name "ipgaze-vuln-${CI_PIPELINE_ID}" -v "$CI_PROJECT_DIR:/app" -w /app -e CGO_ENABLED=0 -e GOFLAGS=-buildvcs=false casjaysdev/go:latest govulncheck ./...
+
+image-scan:
+  stage: security
+  script:
+    - docker build --pull -t "$SCAN_IMAGE" -f docker/Dockerfile .
+    - docker run --rm --name "ipgaze-trivy-${CI_PIPELINE_ID}" -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy@sha256:be1190afcb28352bfddc4ddeb71470835d16462af68d310f9f4bca710961a41e image --exit-code 1 --severity CRITICAL,HIGH "$SCAN_IMAGE"
+  after_script:
+    - docker image rm "$SCAN_IMAGE" >/dev/null 2>&1 || true
+
+docker:build:
+  stage: docker
+  script:
+    - |
+      set -eu
+      printf '%s' "$CI_REGISTRY_PASSWORD" | docker login "$CI_REGISTRY" --username "$CI_REGISTRY_USER" --password-stdin
+      BUILDER="ipgaze-${CI_PIPELINE_ID}"
+      docker buildx create --name "$BUILDER" --use
+      SHORT_SHA="${CI_COMMIT_SHA:0:7}"
+      BUILD_EPOCH="$(date -u +%s)"
+      BUILD_DATE="$(date -u -d "@$BUILD_EPOCH" +%Y-%m-%dT%H:%M:%SZ)"
+      OFFICIAL_SITE="${OFFICIAL_SITE:-}"
+      [ ! -f site.txt ] || OFFICIAL_SITE="$(cat site.txt)"
+      TAGS=(--tag "${CI_REGISTRY_IMAGE}:${SHORT_SHA}")
+      if [ -n "${CI_COMMIT_TAG:-}" ]; then
+        VERSION="${CI_COMMIT_TAG#v}"
+        TAGS+=(--tag "${CI_REGISTRY_IMAGE}:${VERSION}" --tag "${CI_REGISTRY_IMAGE}:latest" --tag "${CI_REGISTRY_IMAGE}:$(date -u +%y%m)")
+      elif [ "${CI_COMMIT_BRANCH:-}" = beta ]; then
+        TAGS+=(--tag "${CI_REGISTRY_IMAGE}:beta")
+      elif [ "${CI_COMMIT_BRANCH:-}" = main ] || [ "${CI_COMMIT_BRANCH:-}" = master ]; then
+        TAGS+=(--tag "${CI_REGISTRY_IMAGE}:latest")
+      fi
+      docker buildx build --file docker/Dockerfile --platform linux/amd64,linux/arm64 \
+        --build-arg VERSION="${VERSION:-$SHORT_SHA}" \
+        --build-arg COMMIT_ID="$SHORT_SHA" --build-arg BUILD_DATE="$BUILD_DATE" \
+        --build-arg BUILD_EPOCH="$BUILD_EPOCH" --build-arg OFFICIAL_SITE="$OFFICIAL_SITE" \
+        --label "org.opencontainers.image.title=IPGaze" \
+        --label "org.opencontainers.image.description=IPGaze - standard image (alpine)" \
+        --label "org.opencontainers.image.licenses=MIT" \
+        --label "org.opencontainers.image.version=${VERSION:-$SHORT_SHA}" \
+        --label "org.opencontainers.image.created=$BUILD_DATE" \
+        --label "org.opencontainers.image.revision=$SHORT_SHA" \
+        --label "org.opencontainers.image.url=$CI_PROJECT_URL" \
+        --label "org.opencontainers.image.source=$CI_PROJECT_URL" \
+        --label "org.opencontainers.image.documentation=$CI_PROJECT_URL" \
+        --annotation "manifest:org.opencontainers.image.title=IPGaze" \
+        --annotation "manifest:org.opencontainers.image.licenses=MIT" \
+        --annotation "manifest:org.opencontainers.image.version=${VERSION:-$SHORT_SHA}" \
+        --annotation "manifest:org.opencontainers.image.created=$BUILD_DATE" \
+        --annotation "manifest:org.opencontainers.image.revision=$SHORT_SHA" \
+        --annotation "manifest:org.opencontainers.image.url=$CI_PROJECT_URL" \
+        --annotation "manifest:org.opencontainers.image.source=$CI_PROJECT_URL" \
+        --annotation "manifest:org.opencontainers.image.documentation=$CI_PROJECT_URL" \
+        "${TAGS[@]}" --push .
+      docker buildx rm "$BUILDER"
+      docker logout "$CI_REGISTRY"
+  rules:
+    - if: '$CI_COMMIT_TAG =~ /^v?\d+\.\d+\.\d+/'
+    - if: '$CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "master"'
+    - if: '$CI_COMMIT_BRANCH == "beta"'
+    - if: '$CI_COMMIT_BRANCH'
+
+docker:devel:
+  stage: docker
+  script:
+    - |
+      set -eu
+      printf '%s' "$CI_REGISTRY_PASSWORD" | docker login "$CI_REGISTRY" --username "$CI_REGISTRY_USER" --password-stdin
+      BUILDER="ipgaze-devel-${CI_PIPELINE_ID}"
+      docker buildx create --name "$BUILDER" --use
+      BUILD_EPOCH="$(date -u +%s)"
+      BUILD_DATE="$(date -u -d "@$BUILD_EPOCH" +%Y-%m-%dT%H:%M:%SZ)"
+      OFFICIAL_SITE="${OFFICIAL_SITE:-}"
+      [ ! -f site.txt ] || OFFICIAL_SITE="$(cat site.txt)"
+      docker buildx build --file docker/Dockerfile.dev --platform linux/amd64,linux/arm64 \
+        --build-arg COMMIT_ID="${CI_COMMIT_SHA:0:7}" --build-arg BUILD_DATE="$BUILD_DATE" \
+        --build-arg BUILD_EPOCH="$BUILD_EPOCH" --build-arg OFFICIAL_SITE="$OFFICIAL_SITE" \
+        --label "org.opencontainers.image.title=IPGaze" \
+        --label "org.opencontainers.image.description=IPGaze - development image (alpine, debug mode)" \
+        --label "org.opencontainers.image.licenses=MIT" \
+        --label "org.opencontainers.image.created=$BUILD_DATE" \
+        --label "org.opencontainers.image.revision=${CI_COMMIT_SHA:0:7}" \
+        --label "org.opencontainers.image.url=$CI_PROJECT_URL" \
+        --label "org.opencontainers.image.source=$CI_PROJECT_URL" \
+        --label "org.opencontainers.image.documentation=$CI_PROJECT_URL" \
+        --tag "$CI_REGISTRY_IMAGE:devel" \
+        --tag "$CI_REGISTRY_IMAGE:devel-${CI_COMMIT_SHA:0:7}" --push .
+      docker buildx rm "$BUILDER"
+      docker logout "$CI_REGISTRY"
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "schedule"'
+    - if: '$CI_COMMIT_BRANCH'
+      when: on_success
+    - when: never
+
+.release-publish:
+  stage: release
+  resource_group: "ipgaze-release-${RELEASE_CHANNEL}"
+  script:
+    - |
+      set -euo pipefail
+      mkdir -p "/tmp/${CI_PROJECT_PATH%/*}"
+      RELDIR="$(mktemp -d "/tmp/${CI_PROJECT_PATH//\//-}-release-XXXXXX")"
+      chmod 700 "$RELDIR"
+      trap 'rm -rf -- "$RELDIR"' EXIT
+      RELEASE_CHANNEL="${RELEASE_CHANNEL:-stable}"
+      if [ "$RELEASE_CHANNEL" = stable ]; then
+        VERSION="${CI_COMMIT_TAG#v}"
+        RELEASE_TAG="$CI_COMMIT_TAG"
+        PACKAGE_VERSION="$VERSION"
+      elif [ "$RELEASE_CHANNEL" = devel ]; then
+        VERSION="${CI_COMMIT_SHA:0:7}"
+        RELEASE_TAG=devel
+        PACKAGE_VERSION="$VERSION"
+      else
+        VERSION="${RELEASE_CHANNEL}-${CI_COMMIT_SHA:0:7}"
+        RELEASE_TAG="$VERSION"
+        PACKAGE_VERSION="$VERSION"
+      fi
+      BUILD_EPOCH="$(date -u +%s)"
+      COMMIT_ID="${CI_COMMIT_SHA:0:7}"
+      OFFICIAL_SITE="${OFFICIAL_SITE:-}"
+      [ ! -f site.txt ] || OFFICIAL_SITE="$(cat site.txt)"
+      docker run --rm --name "ipgaze-release-${CI_PIPELINE_ID}" \
+        -v "$CI_PROJECT_DIR:/app:ro" -v "$RELDIR:/release" -w /app \
+        -e CGO_ENABLED=0 -e GOFLAGS=-buildvcs=false \
+        -e VERSION="$VERSION" -e COMMIT_ID="$COMMIT_ID" -e BUILD_EPOCH="$BUILD_EPOCH" \
+        -e OFFICIAL_SITE="$OFFICIAL_SITE" casjaysdev/go:latest sh -ec "$(cat <<'CONTAINER_SCRIPT'
+          LDFLAGS="-s -w -X main.Version=${VERSION} -X main.CommitID=${COMMIT_ID} -X main.BuildEpoch=${BUILD_EPOCH} -X main.OfficialSite=${OFFICIAL_SITE}"
+          for platform in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64 freebsd/amd64 freebsd/arm64; do
+            GOOS=${platform%/*}
+            GOARCH=${platform#*/}
+            EXT=
+            [ "$GOOS" != windows ] || EXT=.exe
+            GOOS="$GOOS" GOARCH="$GOARCH" go build -buildvcs=false -trimpath -ldflags "$LDFLAGS" -o "/release/ipgaze-$GOOS-$GOARCH$EXT" ./src
+            GOOS="$GOOS" GOARCH="$GOARCH" go build -buildvcs=false -trimpath -ldflags "$LDFLAGS" -o "/release/ipgaze-cli-$GOOS-$GOARCH$EXT" ./src/client
+          done
+          cyclonedx-gomod mod -json -output "/release/ipgaze-${VERSION}-sbom.cdx.json"
+      CONTAINER_SCRIPT
+      )"
+      tar --exclude='.git' --exclude='.github' --exclude='.gitea' --exclude='.forgejo' \
+        --exclude='.gitlab-ci.yml' --exclude='Jenkinsfile' \
+        -czf "$RELDIR/ipgaze-${VERSION}-source.tar.gz" -C "$CI_PROJECT_DIR" .
+      printf '%s\n' "$VERSION" > "$RELDIR/version.txt"
+      (
+        cd "$RELDIR"
+        find . -maxdepth 1 -type f ! -name sha256.txt ! -name sha512.txt -print0 | sort -z | xargs -0 sha256sum > sha256.txt
+        find . -maxdepth 1 -type f ! -name sha256.txt ! -name sha512.txt -print0 | sort -z | xargs -0 sha512sum > sha512.txt
+      )
+      export RELDIR VERSION RELEASE_TAG PACKAGE_VERSION RELEASE_CHANNEL CI_API_V4_URL CI_PROJECT_ID CI_PROJECT_URL CI_JOB_TOKEN CI_COMMIT_SHA
+      python3 - <<'PY'
+      import json
+      import os
+      from pathlib import Path
+      import urllib.parse
+
+      root = Path(os.environ["RELDIR"])
+      api = os.environ["CI_API_V4_URL"].rstrip("/")
+      project = urllib.parse.quote(os.environ["CI_PROJECT_ID"], safe="")
+      package_version = urllib.parse.quote(os.environ["PACKAGE_VERSION"], safe="")
+      assets = []
+      for path in sorted(root.iterdir()):
+          if path.is_file():
+              filename = urllib.parse.quote(path.name, safe="")
+              assets.append({
+                  "name": path.name,
+                  "url": f"{api}/projects/{project}/packages/generic/ipgaze/{package_version}/{filename}",
+                  "link_type": "package",
+              })
+      payload = {
+          "name": f"IPGaze {os.environ['RELEASE_CHANNEL'].title()} {os.environ['VERSION']}",
+          "tag_name": os.environ["RELEASE_TAG"],
+          "description": f"IPGaze {os.environ['RELEASE_CHANNEL']} release {os.environ['VERSION']}",
+          "assets": {"links": assets},
+      }
+      if os.environ["RELEASE_CHANNEL"] != "stable":
+          payload["ref"] = os.environ["CI_COMMIT_SHA"]
+      (root / "release.json").write_text(json.dumps(payload), encoding="utf-8")
+      PY
+      if [ "$RELEASE_CHANNEL" = devel ]; then
+        if [ -z "${GITLAB_TOKEN:-}" ]; then
+          echo "ERROR: set masked GITLAB_TOKEN (project access token with API scope) to replace the rolling devel release"
+          exit 1
+        fi
+        for endpoint in "releases/devel" "repository/tags/devel"; do
+          DELETE_STATUS="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
+            --request DELETE --header "PRIVATE-TOKEN: ${GITLAB_TOKEN}" \
+            "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/${endpoint}")"
+          case "$DELETE_STATUS" in
+            200|202|204|404) ;;
+            *) echo "ERROR: deleting ${endpoint} returned HTTP ${DELETE_STATUS}"; exit 1 ;;
+          esac
+        done
+      fi
+      RELEASE_URL="${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/releases/${RELEASE_TAG}"
+      RELEASE_STATUS="$(curl --silent --show-error --output "$RELDIR/existing-release.json" --write-out '%{http_code}' --header "JOB-TOKEN: ${CI_JOB_TOKEN}" "$RELEASE_URL")"
+      if [ "$RELEASE_STATUS" = 200 ]; then
+        if python3 - "$RELDIR/existing-release.json" "$RELDIR/release.json" <<'PY'
+      import json
+      import sys
+      from pathlib import Path
+
+      existing = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+      expected = json.loads(Path(sys.argv[2]).read_text(encoding="utf-8"))
+      existing_links = sorted((item.get("name"), item.get("url")) for item in existing.get("assets", {}).get("links", []))
+      expected_links = sorted((item.get("name"), item.get("url")) for item in expected.get("assets", {}).get("links", []))
+      if existing.get("name") != expected.get("name") or existing_links != expected_links:
+          print("ERROR: an existing GitLab release has different metadata or assets", file=sys.stderr)
+          raise SystemExit(1)
+      PY
+        then
+          echo "Release ${RELEASE_TAG} already exists with matching assets"
+          exit 0
+        else
+          exit 1
+        fi
+      elif [ "$RELEASE_STATUS" != 404 ]; then
+        echo "ERROR: GitLab release lookup returned HTTP ${RELEASE_STATUS}"
+        exit 1
+      fi
+      for file in "$RELDIR"/*; do
+        name="${file##*/}"
+        case "$name" in
+          release.json|existing-*) continue ;;
+        esac
+        PACKAGE_URL="${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/ipgaze/${PACKAGE_VERSION}/${name}"
+        PACKAGE_STATUS="$(curl --silent --show-error --output "$RELDIR/existing-${name}" --write-out '%{http_code}' --header "JOB-TOKEN: ${CI_JOB_TOKEN}" "$PACKAGE_URL")"
+        if [ "$PACKAGE_STATUS" = 200 ]; then
+          if ! cmp --silent "$file" "$RELDIR/existing-${name}"; then
+            echo "ERROR: existing release package differs: ${name}"
+            exit 1
+          fi
+        elif [ "$PACKAGE_STATUS" = 404 ]; then
+          curl --fail --silent --show-error --header "JOB-TOKEN: ${CI_JOB_TOKEN}" --upload-file "$file" "$PACKAGE_URL"
+        else
+          echo "ERROR: package lookup for ${name} returned HTTP ${PACKAGE_STATUS}"
+          exit 1
+        fi
+      done
+      curl --fail --silent --show-error --request POST \
+        --header "JOB-TOKEN: ${CI_JOB_TOKEN}" \
+        --header 'Content-Type: application/json' \
+        --data-binary "@$RELDIR/release.json" \
+        "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/releases"
+  rules:
+    - when: never
+
+release:
+  extends: .release-publish
+  variables:
+    RELEASE_CHANNEL: stable
+  rules:
+    - if: '$CI_COMMIT_TAG =~ /^v?\d+\.\d+\.\d+/'
+      when: on_success
+    - when: never
+
+release:beta:
+  extends: .release-publish
+  variables:
+    RELEASE_CHANNEL: beta
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "beta"'
+      when: on_success
+    - when: never
+
+release:devel:
+  extends: .release-publish
+  variables:
+    RELEASE_CHANNEL: devel
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "schedule"'
+      when: on_success
+    - if: '$CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "master"'
+      when: manual
+      allow_failure: true
+    - when: never

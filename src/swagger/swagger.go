@@ -1,7 +1,9 @@
 package swagger
 
 import (
+	"bytes"
 	"encoding/json"
+	"log"
 	"net/http"
 	"strings"
 
@@ -146,13 +148,7 @@ func Handler(cfg SwaggerHandlerConfig) http.HandlerFunc {
 		// reachable only at /api/swagger and /api/{api_version}/server/swagger.
 		if r.Header.Get("Accept") == "application/json" {
 			spec := GenerateSpec(cfg, baseURL, i18n.DetectLocale(r))
-			w.Header().Set("Content-Type", "application/json")
-			// AI.md PART 14: every JSON response is 2-space indented.
-			enc := json.NewEncoder(w)
-			enc.SetIndent("", "  ")
-			if err := enc.Encode(spec); err != nil {
-				http.Error(w, "failed to encode OpenAPI specification", http.StatusInternalServerError)
-			}
+			writeOpenAPISpec(w, r, spec)
 			return
 		}
 
@@ -170,14 +166,29 @@ func JSONHandler(cfg SwaggerHandlerConfig) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		baseURL := buildBaseURL(r, cfg.Trust)
 		spec := GenerateSpec(cfg, baseURL, i18n.DetectLocale(r))
-		w.Header().Set("Content-Type", "application/json")
-		// AI.md PART 14: every JSON response is 2-space indented.
-		enc := json.NewEncoder(w)
-		enc.SetIndent("", "  ")
-		if err := enc.Encode(spec); err != nil {
-			http.Error(w, "failed to encode OpenAPI specification", http.StatusInternalServerError)
-		}
+		writeOpenAPISpec(w, r, spec)
 	}
+}
+
+func writeOpenAPISpec(w http.ResponseWriter, r *http.Request, spec *OpenAPISpec) {
+	var body bytes.Buffer
+	enc := json.NewEncoder(&body)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(spec); err != nil {
+		log.Printf("OpenAPI response encoding failed: request_id=%s method=%s path=%s err=%v", r.Header.Get("X-Request-ID"), r.Method, r.URL.Path, err)
+		message := i18n.T(r.Context(), "errors.server_error")
+		fallback, _ := json.Marshal(struct {
+			OK      bool   `json:"ok"`
+			Error   string `json:"error"`
+			Message string `json:"message"`
+		}{false, "SERVER_ERROR", message})
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write(append(fallback, '\n'))
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_, _ = w.Write(body.Bytes())
 }
 
 // serveSwaggerUI serves the Swagger UI HTML.

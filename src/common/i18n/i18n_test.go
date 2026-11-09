@@ -104,8 +104,7 @@ func TestTf_Substitution(t *testing.T) {
 }
 
 func TestIsSupported(t *testing.T) {
-	supported := []string{"en", "es", "fr", "de", "zh", "ar", "ja"}
-	for _, lang := range supported {
+	for _, lang := range i18n.SupportedLocales {
 		if !i18n.IsSupported(lang) {
 			t.Errorf("IsSupported(%q) = false, want true", lang)
 		}
@@ -150,9 +149,9 @@ func TestLocaleDirection(t *testing.T) {
 	if i18n.LocaleDirection("ar") != i18n.DirectionRTL {
 		t.Error("Arabic should be RTL")
 	}
-	for _, lang := range []string{"en", "es", "fr", "de", "zh", "ja"} {
-		if i18n.LocaleDirection(lang) != i18n.DirectionLTR {
-			t.Errorf("%s should be LTR", lang)
+	for _, locale := range i18n.LocaleRegistry() {
+		if i18n.LocaleDirection(locale.Code) != locale.Direction {
+			t.Errorf("LocaleDirection(%s) = %s, want %s", locale.Code, i18n.LocaleDirection(locale.Code), locale.Direction)
 		}
 	}
 }

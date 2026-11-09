@@ -24,14 +24,9 @@
   --space-2: 8px;
   --space-3: 12px;
   --space-4: 16px;
-  --space-5: 24px;
-  --space-6: 32px;
-  --space-7: 48px;
-  --space-xs: var(--space-1);
-  --space-sm: var(--space-2);
-  --space-md: var(--space-4);
-  --space-lg: var(--space-5);
-  --space-xl: var(--space-6);
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-12: 48px;
 
   /* Typography */
   --font-primary: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Open Sans", sans-serif;
@@ -99,7 +94,7 @@ html.theme-light {
   overflow: hidden;
   clip-path: inset(50%);
   z-index: var(--z-tooltip);
-  padding: var(--space-3) var(--space-5);
+  padding: var(--space-3) var(--space-6);
   background: var(--color-primary);
   color: var(--color-text-on-primary);
   font-weight: bold;
@@ -140,7 +135,7 @@ body {
 
 /* Typography */
 h1, h2, h3, h4, h5, h6 {
-  margin: var(--space-lg) 0 var(--space-md);
+  margin: var(--space-6) 0 var(--space-4);
   line-height: 1.2;
 }
 
@@ -149,7 +144,7 @@ h2 { font-size: 2rem; }
 h3 { font-size: 1.5rem; }
 
 p {
-  margin: var(--space-md) 0;
+  margin: var(--space-4) 0;
 }
 
 a {
@@ -178,7 +173,7 @@ code {
 }
 
 pre {
-  padding: var(--space-md);
+  padding: var(--space-4);
   overflow-x: auto;
   white-space: pre-wrap;
   word-wrap: break-word;
@@ -189,13 +184,13 @@ pre {
 .text-right { text-align: right; }
 .text-left { text-align: left; }
 
-.mt-sm { margin-top: var(--space-sm); }
-.mt-md { margin-top: var(--space-md); }
-.mt-lg { margin-top: var(--space-lg); }
+.mt-sm { margin-top: var(--space-2); }
+.mt-md { margin-top: var(--space-4); }
+.mt-lg { margin-top: var(--space-6); }
 
-.mb-sm { margin-bottom: var(--space-sm); }
-.mb-md { margin-bottom: var(--space-md); }
-.mb-lg { margin-bottom: var(--space-lg); }
+.mb-sm { margin-bottom: var(--space-2); }
+.mb-md { margin-bottom: var(--space-4); }
+.mb-lg { margin-bottom: var(--space-6); }
 
 /* No competing `display` declaration targets these elements at an equal or
    higher specificity (checked against every class this utility co-occurs
@@ -211,7 +206,7 @@ pre {
   max-width: 1100px;
   width: 100%;
   margin: 0 auto;
-  padding: 0 var(--space-md);
+  padding: 0 var(--space-4);
   box-sizing: border-box;
   /* body is `display: flex; flex-direction: column`, so .container is
      itself a flex item — but its `margin: 0 auto` gives it auto
