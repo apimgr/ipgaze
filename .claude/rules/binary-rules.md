@@ -1,111 +1,190 @@
-# Binary Rules (PART 7, 8, 32)
+# Binary Rules (PART 7, PART 8, PART 32)
 
 ⚠️ **These rules are NON-NEGOTIABLE. Violations are bugs.** ⚠️
 
 ## CRITICAL - NEVER DO
-- Never build with `go` directly on the host — all builds go through Docker (`casjaysdev/go:latest`) or the Makefile targets
-- Never guess CLI flag names, binary output paths, or client behavior — read AI.md PART 7/8/32 before touching `src/client/` or binary entrypoints
-- Never skip `--help`/`--version` verification after a CLI change
-- (PART 7) Never embed security databases (GeoIP, blocklists, CVE/NVD, Trivy DB) in the binary — they live under `{data_dir}/security/` with `.last_updated` markers, downloaded at runtime, and every consumer degrades gracefully when they are absent
-- (PART 7) Never require CGO or a dynamically linked dependency — one static binary, `CGO_ENABLED=0`, pure-Go deps only
-- (PART 7) Never emit ANSI escapes, emojis, spinners, or box-drawing when `TERM=dumb` — that forces CLI mode
-- (PART 8) Never hand-roll flag parsing in the server binary and never add cobra/viper to it — stdlib `flag` only (cobra/viper are the client binary's, PART 32)
-- (PART 8) Never add, rename, or remove a server command/flag — the `--help`/`--version`/`--status`/`--shell`/`--mode`/`--config`/`--data`/`--cache`/`--log`/`--backup`/`--pid`/`--address`/`--port`/`--baseurl`/`--daemon`/`--debug`/`--color`/`--lang`/`--service`/`--maintenance`/`--update` set is fixed
-- (PART 8) Never resolve `~`/`$HOME` after the privilege drop — the system-vs-user directory mode is locked once at process start from the EUID (`paths.startedElevated`)
-- (PART 8) Never handle SIGHUP — it is explicitly ignored; config reloads come from the file watcher
-- (PART 8) Never write or check a PID file inside a container — process supervision belongs to the orchestrator
-- (PART 8) Never treat a signal-0 `EPERM` as a dead process — the PID belongs to another user and is still running, so the PID file is not stale
-- (PART 8) Never substring-match the process name for stale-PID checks — exact basename only, or `ipgaze-cli` matches `ipgaze`
-- (PART 32) Never implement `--tui`, `--cli`, `--gui`, or a `--mode tui/cli/gui` flag — display mode is auto-detected from the environment (`display.DetectDisplayEnv()`); `--mode` is reserved for `production`/`development` app mode only, never UI mode
-- (PART 32) Never launch the TUI for `-h`/`--help`/`-v`/`--version` — these always print and exit immediately, in CLI/plain mode, never TUI
-- (PART 32) Never persist a `--server`/`--token`/other config-flag value to `cli.yml` when the current stored value is already valid — only save when current is empty or invalid (`SaveIfEmptyOrInvalid`); a valid flag value is used for the session only
-- (PART 32) Never store `cli.yml` with anything looser than `0600` (Unix) / non-user-only ACL (Windows) — it holds the API token
-- (PART 32) Never build the CLI's optional GUI with Electron, a web view, Gio (`gioui.org`), or Fyne (`fyne.io/fyne/v2`) — those require cgo on Linux and are banned project-wide; the only compliant toolkit is `github.com/gogpu/ui` + `github.com/gogpu/gogpu`, pure Go / zero CGO, one implementation for Linux/macOS/Windows (no per-OS launcher file, no `runtime.GOOS` dispatch); BSD has no windowing backend yet — compile GUI out there (`caps.GUISupported == false`), falling back to TUI/CLI. Never let GUI lag the TUI in feature coverage
-- (PART 32) Never attempt GUI mode over SSH/Mosh even if `DISPLAY` is set — remote sessions always use TUI
+- **PART 7:** *Security databases are NEVER embedded in the binary.** They are downloaded on first run and kept updated via the built-in scheduler.
+- **PART 7:** 1. **Force CLI mode** - Never launch TUI, even if interactive
+- **PART 8:** *Hardcode `{project_name}` for internal identifiers (never changes):**
+- **PART 8:** *Never hand-roll argument parsing** (no manual `switch`/`os.Args` loops for the primary flag set — see `go_conventions.md` § CLI Flags). The server binary is single-command (it starts the server; it has no subcommands), so it uses the stdlib `flag` package. `cobra`/`viper` (listed under "Common Go Modules") are for the multi-command client CLI binary — see PART 32 — not the server.
+- **PART 8:** *Note:** `--backup` prefers the system backup dir if writable. Fallback is mode-aware: system mode (started as root) falls back to `{data_dir}/backup/` — never a `$HOME`-derived path; user mode falls back to the user dir. See `GetBackupDir()` in PART 8.
+- **PART 8:** *Directory mode is locked at process start.** System vs user paths are decided ONCE from the EUID at startup, before any privilege drop, and cached for the process lifetime. Never resolve `~` or `$HOME` after the privilege drop — the service account's HOME points at `{data_dir}` (e.g. `/var/lib/{internal_org}/{internal_name}`), so a late `$HOME` lookup nests user-style paths like `.local/share/Backups/` inside the system data dir.
+- **PART 8:** | 7. Resolve paths | any | Resolved ONCE and cached — mode locked from start EUID; never re-derived after 8h |
+- **PART 8:** | 8g. Spawn children (Tor) | **root** | Children spawned with setuid/setgid {internal_name} credentials — never run as root |
+- **PART 8:** *Token format:** `tok_` prefix + 32 URL-safe random base62 chars, the same for every tier. The server stores `SHA-256(token)` for lookup and an AES-256-GCM encrypted copy (`token_enc`, key: `server.security.encryption_key`) so the owner can **view the token again at any time** — masked by default, revealed on request. The raw token is never logged, never in a backup in plaintext, and never in any list/detail response. The operator token is the exception: it lives in `server.yml`, is only compared by hash, and is never shown by the server.
+- **PART 8:** *Not stored in `api_tokens` DB table.** Validated by SHA-256-hashing the inbound token and comparing against `SHA-256(server.token)` with `subtle.ConstantTimeCompare`. The hash is cached in memory at startup — never written to the DB.
+- **PART 8:** | Ownership | Resources store `owner_id`. Tokens resolve to an `owner_id`. A resource is never bound to a token hash, so rotating or revoking a token never touches resource rows |
+- **PART 8:** | One primary per owner | Created with the owner; **never expires and never disappears** — not when resources expire or are deleted, not when the owner has none left. It ends only by owner rotation (replaced in place), operator revocation, or the optional idle purge below |
+- **PART 8:** | Idle purge | `server.tokens.idle_purge_days` (default `0` = never). When greater than 0, an owner with **zero resources** and no token use for that many days is deleted with its tokens. Owners with resources are never purged |
+- **PART 8:** The server creates the owner and its primary token (hash + encrypted copy), stores the resource with `owner_id`, and returns the raw token in the creation response so API clients can save it. Browsers get **dual delivery**: the web-form create response shows the token (copy button) AND sets the owner cookie, so web management works with JS disabled; JS may additionally save a convenience copy to `localStorage` — never load-bearing. The token is not "shown once": it remains viewable on `/server/preferences/tokens` (see "Token Management").
+- **PART 8:** *Naming:** the JSON response field `owner_token` is fixed across all projects — never rename it. Browser storage names are project-unique: both the cookie and the localStorage key are `{project_name}_owner_token_XXXXXX`, where `XXXXXX` is a random suffix generated once at project creation and recorded verbatim in IDEA.md (e.g. `owner_token: pastebin_owner_token_5qvQQyc5`) — fixed for the project's lifetime so the server always knows which cookie to read, and unique so apps, forks, or sibling deployments on one domain never collide. The suffix is not a secret (cookie names are visible); HttpOnly protects the value. Spec text uses `owner_token` as shorthand for that cookie.
+- **PART 8:** *Owner tokens are always viewable — masked by default.** Because tokens are randomly generated and the owner cannot choose one, the owner must be able to see, copy, rotate and add tokens after creation. This lives on its own page, `/server/preferences/tokens`, linked from `/server/preferences` and never inside the single preferences form (rule 15). Each action on it is its own small `POST` form with its own CSRF token. The page lists tokens only when a valid owner cookie is present; without one it shows just the "Use an existing token" restore form.
+- **PART 8:** | **Create linked token** | Name (required, 1–64 chars, unique per owner) and expiry: `never` (default), `7d`, `30d`, `90d`, `1y`, or a chosen date. Maximum `server.tokens.max_linked` (default `25`) active per owner. The new token is displayed and stays viewable |
+- **PART 8:** | Management requires the primary | Token management (reveal, rotate, restore, create/rename/expiry/revoke linked) is allowed only with the primary token (owner cookie, or primary Bearer on the API mirror). A linked token on any of these returns `403` — a leaked automation token can never mint, read, or extend other tokens |
+- **PART 8:** | Never a preferences row | Tokens are credentials in `api_tokens`, not preferences. UI preferences stay cookie-only (see "Client-Side Preferences") |
+- **PART 8:** | Never in lists or logs | List/detail responses return prefix, name, dates, status — never the token. Only the reveal action decrypts, and it writes an audit event |
+- **PART 8:** | Audit | `token.created`, `token.rotated`, `token.revealed`, `token.revoked`, `token.restored`, each with owner id and token prefix — never the token |
+- **PART 8:** Token-management routes get no unversioned alias (they are data-shaped, see "Unversioned API aliases") and are never exposed as MCP tools.
+- **PART 8:** | 2 | **Primary token** | Title, status badge (Active), the masked value in `.copy-value` (single-line scroll, never wraps), help text ("Full access to your {resources}. Keep it private.", where {resources} is `resource_label_plural` from IDEA.md `## Project variables` (default `items`), never a hardcoded product noun), actions: **Reveal**, **Copy** (once revealed), **Rotate** (confirmation popover) |
+- **PART 8:** | 4 | **Create linked token** | **Name** (label, help "For example: MCP client") and **Expiry** (ONE `<select>`: Never, 7 days, 30 days, 90 days, 1 year, Custom date). When "Custom date" is chosen a labeled **Expires on** date input is used (rendered inside a `<details>` so it works without JavaScript). ONE primary button "Create token" |
+- **PART 8:** *Behavior rules:** each action is its own small `POST` form with its own CSRF token (above); after any action the `303` redirect returns to `#token-{id}` (or `#primary`) so the page does not jump; Reveal re-renders only that card with the full value in `.copy-value` plus a Copy button and the note "Shown once, on this page load"; a toast confirms Rotate, Create, Rename and Revoke; the masked value uses `.copy-value`, never wraps and never widens the page (see "Layout Integrity & Polish Contract").
+- **PART 8:** | Never show | `0.0.0.0`, `127.0.0.1`, `localhost` |
+- **PART 8:** | **Shared helpers** | One implementation: `format.Duration()` / `format.Size()` / `format.Count()` in the shared/common formatting package — never per-page ad-hoc formatting |
+- **PART 8:** | **i18n** | Unit names go through translation keys (`format.seconds_one`, `format.seconds_other`, …) with per-language plural rules — never hardcoded English unit strings |
+- **PART 8:** *CRITICAL: Never hardcode host, IP, or port in project code. Always detect dynamically.**
+- **PART 8:** | **NEVER hardcode** | `localhost`, `127.0.0.1`, `0.0.0.0`, `[::1]`, any static host/IP |
+- **PART 8:** | **NEVER display** | `GET /api/`, `POST /api/` without full URL |
+- **PART 8:** `:80` and `:443` are NEVER included in URLs
+- **PART 8:** | Generated well-known files (`/.well-known/security.txt`, `/.well-known/llms.txt`) | `BuildURL(r, "/path")` for every embedded URL — resolved per request, never frozen at startup |
+- **PART 8:** Headers 1–5 are only honored when the immediate TCP peer passes the `trusted_proxies` gate (PART 12 → "Trusted Proxies"); otherwise resolution skips straight to `r.RemoteAddr`. The resolved client IP feeds access logs, rate limiting, blocklists, and GeoIP — never trust evaluation (see "Middleware ordering" below).
+- **PART 8:** | Query string | A `?token=` parameter is never read as a credential: tokens in URLs leak through server logs, browser history and `Referer`. It is ignored and never logged (the one exception is the one-shot link token in the next row) |
+- **PART 8:** | One-shot link tokens | The one exception to the rule above: a one-shot token carried in an emailed link (security-report status, password reset, email verification, invite, and similar flows the project defines) is not a credential. It identifies one resource or action and cannot call the API. It is single-use or time-limited, stored only as `SHA-256(token)`, compared in constant time, and never accepted in `Authorization`. Pages reached by such a link send `Referrer-Policy: no-referrer` and `Cache-Control: no-store`, and the token value is redacted (`[redacted]`) from access and application logs. A project adds no other token in a URL |
+- **PART 8:** | Logging | The `Authorization` value is never logged and never echoed in an error body |
+- **PART 8:** 3. **Never Import** hardcoded URLs into templates - always pass detected values
+- **PART 32:** | 5. Atomic swap | Same platform-specific `replaceBinary()` from PART 22. The CLI is user-installed (typically `/usr/local/bin/` or `~/bin/`) — if the user lacks write permission to the install path, CLI prints "you do not have permission to update {binary_path}; ask your admin or move the binary to a writable path" and exits cleanly. |
+- **PART 32:** *Smart display mode detection. NEVER implement UI mode flags:**
+- **PART 32:** | NEVER Implement | Reason |
+- **PART 32:** | `gui` | Force GUI mode (reports `gui_unavailable` and exits if no display is available — never degrades to TUI) |
+- **PART 32:** | `-h`, `--help` | Print help, exit (CLI only, never TUI) |
+- **PART 32:** | `-v`, `--version` | Print version, exit (CLI only, never TUI) |
+- **PART 32:** *Exit-immediately flags (NEVER launch TUI):**
+- **PART 32:** *GUI must NOT be:**
+- **PART 32:** *Remote sessions ALWAYS use TUI or CLI. Never attempt GUI over SSH/mosh.**
+- **PART 32:** | **Decorative** | Lowest | Subtle, never distracting |
+- **PART 32:** *NEVER use OS system directories for CLI runtime state:**
+- **PART 32:** Never require system ownership or privileged/system directories just because the invoking user is root/admin
+- **PART 32:** *Config save rule: Validate everything, only save valid, never clear valid.**
+- **PART 32:** | **Only save valid** | Never save invalid values to config |
+- **PART 32:** | **Never clear valid** | Don't overwrite existing valid config |
+- **PART 32:** **No escalation** — help at every level (main, subcommand, nested) must never call `sudo`, require root/admin, or check privilege state; exit immediately with the help text.
+- **PART 32:** *ALL boolean inputs MUST use `config.ParseBool()` or `config.IsTruthy()` - NEVER `strconv.ParseBool()`.**
+- **PART 32:** *ALL user input in URLs MUST be encoded. NEVER construct URLs with raw user input.**
+- **PART 32:** *Projects that do NOT need CLI:**
+- **PART 32:** *If users would never touch terminal, skip CLI.**
 
 ## CRITICAL - ALWAYS DO
-- Use `make dev` / `make local` / `make build` for binary builds, never a raw `go build`
-- Keep `src/client/` present for all projects (client scope is mandatory per PART 32)
-- Verify CLI changes by building and exercising the binary (flags, exit codes, stdout/stderr) before reporting done
-- (PART 7) Embed templates, static assets, locales, and bundled data with `embed`; keep the binary self-contained and runnable with zero config on first run
-- (PART 7) Detect the display environment through `display.DetectDisplayEnv()` — Wayland before X11, macOS, then Windows — and honor SSH/mosh/screen/container detection
-- (PART 7) Size output through `terminal.GetTerminalSize()` and the seven `SizeMode` tiers (Micro/Minimal/Compact/Standard/Wide/Ultrawide/Massive) plus `ShowASCIIArt`/`ShowBorders`/`ShowSidebar`/`ShowIcons`
-- (PART 7) Resolve palettes through `theme.GetThemePalette(mode)` — `"auto"` consults `theme.IsSystemDarkTheme()` (COLORFGBG); never hardcode colors
-- (PART 8) Resolve color with the full priority chain: `--color` flag > `output.color` in server.yml > `NO_COLOR` env > TTY/`TERM` autodetect. `output.emoji: true` deliberately keeps emojis on under `NO_COLOR`; NO_COLOR never disables bold or box-drawing
-- (PART 8) Create every directory flag's target if missing, with root perms `0755`/`0644` or user perms `0700`/`0600`, validate writability, and log creation at INFO (`EnsureDir`, `EnsurePIDFile`)
-- (PART 8) Prefer the system backup dir when writable; fall back to `{data_dir}/backup/` in system mode and the user dir in user mode (`GetBackupDir`)
-- (PART 8) Handle SIGTERM/SIGINT/SIGQUIT/SIGRTMIN+3 (signal 37) as graceful shutdown, SIGUSR1 as log reopen, SIGUSR2 as status dump
-- (PART 8) Re-check runtime env fallbacks every start (`CONFIG_DIR`, `DATA_DIR`, `CACHE_DIR`, `LOG_DIR`, `PID_FILE`, `PORT`, `LISTEN`, `MODE`, `DATABASE_DIR`, `BACKUP_DIR`) and keep Init-Only vars first-run only
-- (PART 8) Take the display name from `filepath.Base(os.Args[0])` so a renamed binary self-identifies, while User-Agent and default paths keep the hardcoded `ipgaze`/`apimgr` identifiers
-- (PART 32) Resolve the CLI server URL by priority: `--server` flag > `{PROJECT_NAME}_SERVER_PRIMARY` env > `cli.yml` `server.primary` > compiled default
-- (PART 32) Honor `NO_COLOR` (any non-empty value) ahead of `--color`/auto-detect for every colorized/emoji code path; priority is CLI flag > `NO_COLOR` env > TTY/TERM auto-detect
-- (PART 32) Run the CLI auto-update check on every invocation (it's short-lived) plus on `--update check`; verify SHA-256 before an atomic binary replace; refuse further requests below `cli_min_version` until updated
-- (PART 32) Use the actual invoked binary name (`filepath.Base(os.Args[0])`) for `--help`/`--version` display text, but the hardcoded `{project_name}` for the internal project name and `{project_name}-cli/{version}` User-Agent
-
-## PART 32: Client
-
-**Binary:** default name `{project_name}-cli`; versioned with the main app; built by the same `make build`.
-
-**Config file (`cli.yml`):**
-
-| OS | Path |
-|----|------|
-| Unix | `~/.config/{internal_org}/{internal_name}/cli.yml` |
-| Windows | `%APPDATA%\{internal_org}\{internal_name}\cli.yml` |
-
-Perms: `0600` (Unix) / user-only ACL (Windows) — contains server URL + API token.
-
-**Mode detection (no UI flags — see NEVER DO):**
-
-| Condition | Result |
-|-----------|--------|
-| `-h`/`--help`/`-v`/`--version` | Print, exit — CLI mode, never TUI |
-| Interactive terminal + no command | TUI |
-| Interactive terminal + config-only flags (`--config`/`--server`/`--token`/`--debug`) | TUI |
-| Interactive terminal + positional command/args | CLI (plain text) |
-| Piped/redirected output, or non-interactive (cron/CI) | Plain output |
-| `cli.yml` `display.mode: gui\|tui` | Forces that mode (errors if unavailable) |
-
-**Exit codes:** `0` success, `1` general error, `2` config error, `4` auth error, `64` usage error (matches `EX_USAGE`).
-
-**Auto-update (`--update check` / `--update yes`):** discover via `/api/autodiscover` (`cli_versions[os-arch]`, `cli_min_version`) → download `{base}/cli/binaries/{project_name}-cli-{os}-{arch}` to a tmp path → verify SHA-256 → atomic replace → re-exec with original argv. Permission-denied install path prints a clean message instead of failing hard.
-
-**Setup wizard:** only binary with a full interactive first-run flow (no WebUI for CLI). SSH/Mosh always forces TUI; local display with no remote session gets GUI; terminal-without-display gets TUI; neither → error. Wizard prompts for server URL, tests the connection, optionally saves the token, then launches the full TUI/GUI.
-
-**Theming:** CLI/TUI use the ANSI-mapped `TerminalPalette` (`src/common/theme/colors.go`), never the literal hex `ThemePalette` used by web/GUI.
-
-**Responsive layout:** must look professional from Micro (<40 cols) through Massive (400+ cols) terminal widths, plus GUI DPI/window-size scaling.
+- **PART 7:** | First run | Auto-create required directories |
+- **PART 7:** *ALL binaries (server, CLI) MUST detect display environment and adapt output accordingly.**
+- **PART 7:** | **macOS** | Always (unless SSH) | Native Cocoa display |
+- **PART 7:** | **Windows** | Always (unless service) | Native Win32 display |
+- **PART 7:** *When `TERM=dumb`, the terminal has NO special capabilities. ALL binaries MUST handle this.**
+- **PART 8:** *ALL binaries can be renamed by users. Must show ACTUAL binary name in:**
+- **PART 8:** *All binaries (server, client) MUST respect the [NO_COLOR](https://no-color.org/) standard.**
+- **PART 8:** *All directory flags MUST create directories if they don't exist.**
+- **PART 8:** *Stale PID detection is REQUIRED.** A crash or kill -9 leaves stale PID files.
+- **PART 8:** Always remove PID file in signal handlers
+- **PART 8:** | `--service start` (systemd) | Always foreground (ignores config) |
+- **PART 8:** | `--service start` (launchd) | Always foreground (ignores config) |
+- **PART 8:** | `--service start` (runit/s6) | Always foreground (ignores config) |
+- **PART 8:** | `--service start` (container) | Always foreground (ignores config) |
+- **PART 8:** | `--service start` (SysV init) | Always daemonize (ignores config) |
+- **PART 8:** | `--service start` (rc.d/BSD) | Always daemonize (ignores config) |
+- **PART 8:** *Container Detection (always foreground):**
+- **PART 8:** *All signals MUST be handled properly for graceful shutdown. Implementation MUST be platform-dependent.**
+- **PART 8:** | `logging.*` file paths/format | Log files must be closed and reopened |
+- **PART 8:** | `server.baseurl` | Router must be rebuilt; in-flight requests finish on the old routes |
+- **PART 8:** | `ssl.*` | TLS listener must be recreated |
+- **PART 8:** | `database.*` | Connection pool must be recreated |
+- **PART 8:** | `tor.*` | Child process must be restarted |
+- **PART 8:** *Cookie auth scope:** web management forms (plain `POST`: edit, delete, and the `/server/preferences/tokens` token actions) MAY fall back to the owner cookie when no `Authorization` header is present — same hash + constant-time match + revoked/expiry/ownership checks as the Bearer path. API routes (`/api/...`) accept the `Authorization` header ONLY and MUST ignore cookies — no ambient authority for programmatic endpoints. `SameSite=Strict`, POST-only mutations, and CSRF tokens keep the web fallback CSRF-safe.
+- **PART 8:** | **Rotate** | Generates a new token and replaces the old one **in place**: the same `api_tokens` row gets the new `token_hash`, `token_prefix`, `token_enc` and `rotated_at`. The old token is invalid immediately, the owner cookie is replaced, resources stay owned (they hang off `owner_id`), and linked tokens survive. Confirmation required; the new token is displayed |
+- **PART 8:** *The page is a stack of cards, one concern per card, in this order. The same markup serves phones, tablets and desktops (CSS only, no JavaScript required).**
+- **PART 8:** *See PART 13 for full /server/healthz response format. Handler must return all dynamic data.**
+- **PART 8:** Restart required (service running but config changed):
+- **PART 8:** | Always show | Valid FQDN, host, or IP |
+- **PART 8:** admin panel, error pages, TUI/GUI, pretty console output — MUST be human-readable.
+- **PART 8:** | **Raw value preserved** | HTML MAY carry the machine value in a `title=`/`data-` attribute for tooltips; the visible text is always the human form |
+- **PART 8:** | **ALWAYS use** | `{proto}://{fqdn}:{port}/path` format |
+- **PART 8:** | **ALWAYS detect** | `{proto}`, `{fqdn}`, `{port}` from request context |
+- **PART 8:** | **ALWAYS strip** | `:80` for HTTP, `:443` for HTTPS |
+- **PART 8:** All templates, Swagger/OpenAPI, GraphQL, email links, etc. MUST use these resolved variables.
+- **PART 8:** | `{port}` | Port number (ALWAYS stripped if 80/443) | `8080` or empty |
+- **PART 8:** IPv4 excludes the same RFC 1918 / loopback / link-local set documented as "always trusted" in PART 12 → "Trusted Proxies" (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 127.0.0.0/8, 169.254.0.0/16). Single canonical list — see PART 12 for IPv6 ranges and any future additions.
+- **PART 8:** 1. **Live reloads** URL variables immediately (no restart required)
+- **PART 8:** | `/server/security` page | `BuildURL(r, "/path")` for every rendered URL — must match the `security.txt` the same client fetches |
+- **PART 8:** | **Production** | Must have valid public suffix (ICANN TLD), no IPs, no dev TLDs |
+- **PART 8:** | **Development** | Must have dot OR be localhost, no IPs, dev TLDs allowed |
+- **PART 8:** *Note:** DOMAIN and HOSTNAME environment variables MUST pass host validation for the current mode. Invalid values are skipped silently and detection continues to next source.
+- **PART 8:** When requesting SSL certificates (Let's Encrypt), the FQDN must be **publicly resolvable**. This uses the same validation as production mode - no internal/dev-only TLDs allowed.
+- **PART 8:** SSL with Let's Encrypt: Must pass production-mode validation (no dev TLDs)
+- **PART 8:** | 6 | `r.RemoteAddr` | Fallback — always used when the immediate peer is not in `trusted_proxies` |
+- **PART 8:** *Every request MUST have a Request ID for tracing and debugging.**
+- **PART 8:** 4. **API Response URLs**: All URLs in API responses must be absolute, using detected values
+- **PART 8:** 5. **Swagger/OpenAPI**: Server URL must be detected, not hardcoded
+- **PART 32:** *client is REQUIRED for all projects.**
+- **PART 32:** Every server MUST have a companion client. The client provides terminal-based access to all server functionality and is essential for:
+- **PART 32:** *The server is an open API — no authentication is required to use it (pastebin model). The CLI connects to the server URL and calls public endpoints directly. Tokens exist for OWNERSHIP: a valid token authorizes edit/delete of the objects it owns, and operator/admin endpoints additionally require an operator token (see Authentication below).**
+- **PART 32:** | `--server URL` | Server base URL (required if not in cli.yml) |
+- **PART 32:** | Path | Required perms |
+- **PART 32:** *Auto-detection remains default.** Config override is for users who explicitly want to force a mode. When both a display and an interactive terminal exist, the GUI wins; the TUI is only the fallback when no display is available. A command argument always beats every display mode.
+- **PART 32:** Must connect to a server to be useful
+- **PART 32:** *CLI must work 100% with entire server functionality.**
+- **PART 32:** *CLI's GUI and TUI must be professional, fully functional interfaces:**
+- **PART 32:** *When GUI mode is available, use a pure-Go GUI toolkit. `CGO_ENABLED=0` is absolute (see go_conventions.md's Code Rules — "always; pure Go, no C, no exceptions") — no toolkit that requires cgo is permitted, no exceptions. No Electron, no web views.**
+- **PART 32:** *See PART 16 "Themes (NON-NEGOTIABLE - PROJECT-WIDE)" for the unified color palette.**
+- **PART 32:** *ALL interfaces MUST look professional from mobile (40x10) to 16K displays (400+ columns).**
+- **PART 32:** *ALL modes MUST handle window resize smoothly.**
+- **PART 32:** *Every interface MUST look professional. No amateur hour.**
+- **PART 32:** *client runtime state is always user-scope. The CLI binary may be installed system-wide, but config/data/cache/logs MUST stay in the invoking user's XDG/profile directories.**
+- **PART 32:** On every startup, the CLI MUST:
+- **PART 32:** 5. File must exist or error (except for new configs which default to `.yml`)
+- **PART 32:** *EVERYTHING must be configurable via cli.yml. Sane defaults match server where applicable.**
+- **PART 32:** | **Validate everything** | Always validate before use or save |
+- **PART 32:** *`--debug` is NOT optional — it is required on all binaries (see FINAL CHECKPOINT).**
+- **PART 32:** *Every flag MUST have a corresponding config setting to change its default.**
+- **PART 32:** *ALL binaries (server, client) MUST support shell completions. Built into binary - no separate files.**
+- **PART 32:** | **Always current** | Completions match binary version exactly |
+- **PART 32:** *MUST match server `--version` format. Shows ACTUAL binary name:**
+- **PART 32:** *clients have project-specific commands only.** No standard commands required.
+- **PART 32:** *The CLI binary can be renamed by users, but the User-Agent MUST always use the original project name.**
+- **PART 32:** *CLI MUST be window-aware - detect and respond to terminal dimensions.**
+- **PART 32:** *Phone SSH and small terminal support is required. Many users work remotely via phone.**
+- **PART 32:** | Feature | Required |
+- **PART 32:** *TUI MUST support themes per PART 16 theme rules. Uses same colors as server frontend.**
 
 ## Key Rules Summary
 
-### PART 7: Binary Requirements
+### PART 7 — BINARY REQUIREMENTS
+- Single Static Binary
+- Default Behavior
+- Embedded Assets
+- External Data (NOT Embedded)
+- Display Environment Detection
+- Common Go Modules
 
-**One static binary.** `CGO_ENABLED=0`, pure-Go dependencies, cross-compiled for Linux/BSD/macOS/Windows on amd64 and arm64. Templates, static assets, locales, and bundled data ship inside it via `embed`; running it with no config, no data dir, and no arguments must work.
+### PART 8 — SERVER BINARY CLI
+- Binary Types
+- Flag Parsing (Server Binary)
+- NO_COLOR Support (ALL Binaries)
+- Server Binary Commands
+- Directory Flags
+- Display Rules
+- Human-Readable Values (Frontend)
+- URL & FQDN Detection
 
-**Not embedded:** security databases — GeoIP, blocklists, CVE/NVD, and the Trivy DB (OCI artifact `ghcr.io/aquasecurity/trivy-db:2`) — live under `{data_dir}/security/` with `.last_updated` markers and are fetched at runtime. Every consumer degrades gracefully when a database is missing or stale.
-
-**Display detection** (`src/common/display`): `DisplayEnv` records terminal/SSH/mosh/screen/container state and platform display (Wayland > X11 > macOS > Windows); `DisplayMode` is one of Headless/CLI/TUI/GUI. `TERM=dumb` forces CLI with no ANSI, emojis, spinners, or box-drawing.
-
-**Terminal sizing** (`src/common/terminal/size.go`): `SizeModeMicro` (<40 cols/<10 rows) through `SizeModeMassive` (400+/80+), with `ShowASCIIArt` (>= Standard), `ShowBorders` (>= Compact), `ShowSidebar` (>= Wide), `ShowIcons` (>= Minimal).
-
-**Shared modules:** `src/common/{display,theme,terminal,banner,version}` — used by both the server and the client binary. The banner renders in four tiers (full/compact/minimal/micro) chosen from the terminal size.
-
-### PART 8: Server Binary CLI
-
-**Flag parsing:** stdlib `flag` only. The command set in AI.md PART 8 "Server Binary Commands" is complete and immutable, and the `--help` layout (Information / Shell Integration / Server Configuration / Service Management) is fixed.
-
-**NO_COLOR:** priority is CLI flag > config file (`output.color`) > `NO_COLOR` env > autodetect. `NO_COLOR` (any non-empty value) disables colors *and* emojis but never bold/underline/italic or Unicode box drawing; `output.emoji: true` re-enables emojis under `NO_COLOR`.
-
-**Directory flags** (`--config`/`--data`/`--cache`/`--log`/`--backup`/`--pid`): create the target when missing (parents included), perms `0755`/`0644` as root and `0700`/`0600` as a user, validate writability, log creation at INFO. System-vs-user mode is decided once from the EUID at process start and never re-derived — no `~`/`$HOME` lookup after the privilege drop.
-
-**PID file:** stale detection is required. Signal 0 tests liveness and `EPERM` counts as running; the process identity check compares the exact binary basename, never a substring. Containers skip PID files entirely.
-
-**Startup:** immediate-exit flags first (`--help`/`--version`/`--shell`), then `--service`, `--maintenance`, `--update`, then real startup — context detection, path resolution once, root-only setup, privilege drop, verification.
-
-**Daemonization:** re-exec with `_DAEMON_CHILD=1` and `Setsid`, filtering the `--daemon` flag from the child argv; Windows warns and stays in the foreground.
-
-**Signals** (`src/signal`): SIGTERM/SIGINT/SIGQUIT/SIGRTMIN+3 (37) shut down gracefully, SIGUSR1 reopens logs, SIGUSR2 dumps status, SIGHUP is explicitly ignored.
-
-**Env fallbacks:** Init-Only vars seed `server.yml` on first run only; runtime vars (`MODE`, `NO_COLOR`, `TERM`, `DATABASE_*`, `SMTP_*`, …) are re-read every start. Config changes have three classes: hot reload, graceful reload (reopen/swap runtime components without downtime), and restart-required (`server.port`/`server.address`/`server.daemonize`/`ssl.`/`database.`/`tor.`). See AI.md PART 12 and config-rules.
+### PART 32 — CLIENT
+- Overview
+- Binary Naming Rules
+- CLI Open API Access
+- CLI Config File Permissions
+- CLI Auto-Update (Same Pattern as Server Self-Update)
+- Modes
+- Display Environment Detection (CLI-Specific)
+- CLI/TUI/GUI Theming
+- Responsive Layout
+- Professional UI/UX Standards
+- Configuration
+- Standard Flags
+- Commands
+- Authentication
+- HTTP Client Identity
+- URL Encoding
+- Output Formats
+- Project-Specific Commands
+- Build Integration
+- TUI Requirements
+- Error Handling
+- --version Extended Output
+- Determining If Project Needs CLI
 
 For complete details, see AI.md PART 7, PART 8, PART 32.

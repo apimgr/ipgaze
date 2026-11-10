@@ -1,140 +1,343 @@
-# Backend Rules (PART 9, 10, 11, 31)
+# Backend Rules (PART 9, PART 10, PART 11, PART 31)
 
 ⚠️ **These rules are NON-NEGOTIABLE. Violations are bugs.** ⚠️
 
 ## CRITICAL - NEVER DO
-- Never use `SELECT *` in application code — always name columns explicitly
-- Never build SQL via string concatenation — parameterized queries only
-- Never reveal internals in error responses (stack traces, DB structure, internal hostnames/ports, dependency versions)
-- Never weaken rate limiting, caching correctness, or logging fidelity to simplify implementation
-- Never let the error-page/error-handling path itself be the thing that breaks a request — a panic/recover
-  middleware and a template-render failure MUST both fall back to a minimal hardcoded error response
-  (correct status code, short body, content-negotiation-aware) instead of a blank body, dropped connection,
-  or leaked stack trace — the backend mirror of the service worker's guaranteed-`Response` rule
-- Never use `github.com/mattn/go-sqlite3` (CGO) — `modernc.org/sqlite` only, `CGO_ENABLED=0`
-- Never write a migrations/version table or a destructive `ALTER TABLE` — schema changes are idempotent
-  `CREATE TABLE IF NOT EXISTS` / additive `ALTER TABLE ADD COLUMN` only, applied on every startup
-- Never cache an HTML document response — HTML is always `no-store`; only static assets are cacheable
-- Never compare secrets/tokens/CSRF values with `==` or `bytes.Equal` — timing-safe
-  `crypto/subtle.ConstantTimeCompare` only
-- Never trust `X-Forwarded-For`/`X-Real-IP`/proxy headers from an untrusted peer — client-IP extraction
-  and rate-limit/audit-log keys must go through the trusted-proxy resolver, never a raw header read
-- Never put the wait time of a `429` in the JSON body — it belongs in the `Retry-After` header only
-- Never log secrets, raw tokens, passwords, or full credentials — hash or redact before writing to any log
-- Never accept cookies as authentication on `/api/...` routes — APIs require `Authorization: Bearer`; only
-  cookie-authenticated web management forms may use the primary owner-token cookie, with CSRF
-- Never allow linked tokens to manage tokens — only an owner's primary token may reveal, rotate, restore,
-  create, rename, change expiry, or revoke linked tokens
-- Never store owner/linked API tokens in plaintext — store SHA-256 lookup hashes and AES-256-GCM encrypted
-  copies under `server.security.encryption_key`; never return raw values outside creation/reveal flows
+- **PART 9:** | **No stack traces** | Never expose stack traces in production responses |
+- **PART 9:** *Canonical shape — see PART 14 → "Error Response" for the authoritative spec including the optional `details` field, forbidden legacy patterns, and field semantics. Never re-define the shape here; reference PART 14 instead.**
+- **PART 9:** | `FORBIDDEN` | 403 | "Permission denied" |
+- **PART 9:** | Static assets with matching `?v=` build stamp | `public, max-age=31536000, immutable` | 1 year — URL changes every release, so this can never go stale |
+- **PART 9:** | Static assets without / with mismatched `?v=` | `no-cache` + `ETag` | Always revalidated — never trusted across updates |
+- **PART 9:** | `/sw.js` and `/manifest.json` | `no-cache` + `ETag` | Browser must see the new service worker on its next update check — never immutable |
+- **PART 9:** | Authenticated pages | `private, no-store` | Never cache |
+- **PART 9:** *A stale browser cache must never survive an update.** Assets are embedded in the
+- **PART 9:** | **`immutable` only on a matching stamp** | The static handler sends `public, max-age=31536000, immutable` ONLY when the request's `?v=` equals the running build's stamp. Missing or mismatched stamp → `no-cache` + `ETag` (the bytes still serve — cached HTML from an old version never breaks, it just revalidates). |
+- **PART 9:** | **HTML is never cached** | All HTML documents: `Cache-Control: no-store` plus an `ETag` derived from the build stamp, so any intermediary that ignores `no-store` still revalidates. |
+- **PART 9:** | **`"cookies"` is FORBIDDEN here** | It would destroy the `owner_token` cookie and every cookie-stored preference (theme, language, consent). The token-revocation `Clear-Site-Data` keeps `"cookies"`; the version purge never includes it. |
+- **PART 9:** | **Naturally one-shot** | The same response re-sets the cookie to the new stamp, so the next request matches and no purge loop is possible. First-ever visit (no cookie) never purges. |
+- **PART 9:** Called from the HTML middleware only — never on static, API, or `/sw.js` responses.
+- **PART 9:** *The purge MUST NOT be able to hang a page load** (`"storage"` waits on IndexedDB connections held by other open tabs, `"cache"` holds the navigation until the HTTP cache is cleared):
+- **PART 9:** | **Top-level documents only** | Emit the header only when `Sec-Fetch-Dest: document` and `Sec-Fetch-Mode: navigate` (or those headers are absent on an old browser) - never for iframes, prefetch, XHR/fetch, `HEAD`, redirects (3xx) or error responses (4xx/5xx) |
+- **PART 9:** | **No IndexedDB dependency** | The app MUST NOT hold long-lived IndexedDB connections open (the `storage` wipe blocks on them); open, use and close per operation |
+- **PART 9:** | **Never a dependency** | The page works with the purge header ignored: HTML is `no-store`, assets are stamped, so a missed purge costs one revalidation, never a stuck page |
+- **PART 10:** | **Never destructive** | Never `DROP COLUMN`, `DROP TABLE`, or `DELETE` |
+- **PART 10:** *Never rename columns. Add new, migrate, deprecate:**
+- **PART 11:** *These are detailed diagnostics that help developers and operators figure out *why* something failed. They are gated behind explicit debug mode — production deployments do not expose them by default. Debug mode is meant to run inside a container or sandbox during testing, so accidental leakage is mitigated by network isolation, not by hoping operators read this rule.**
+- **PART 11:** *Production strips `_debug` everywhere — it is wrapped in a single middleware that drops the field by tag (`json:"_debug,omitempty"` + `dev_only:"true"` per the Output Sanitization Pipeline above). Debug must NEVER be on in a public deployment, but the strip is the second layer.**
+- **PART 11:** | SQL injection | Strict input validation by type/format | Parameterized queries ONLY — never `fmt.Sprintf` SQL with user input | ORM/query-builder layer rejects suspicious patterns | Database user has minimum privileges (no DROP, no DDL in app role) |
+- **PART 11:** | Token / credential leakage | n/a | Never `slog.Info("token=", t)` — log token ID hash only | Sanitization layer strips known sensitive query params from URL fields in reports / logs / error contexts (see PART 11 → "Reporting API (Modern + Legacy)") | TLS in transit (PART 15) |
+- **PART 11:** | CSRF | Validate Origin + same-origin check | n/a | CSRF token on cookie-authenticated state-changing frontend requests only — never `/api/**` or compatibility layers (PART 16 → CSRF) | `SameSite=Strict` cookies (browser-level enforcement) |
+- **PART 11:** | **Constant-time comparison** | Use `crypto/subtle.ConstantTimeCompare` for ALL token, password-hash, HMAC, signature, and credential comparisons. Never compare with `==`, `bytes.Equal`, or `strings.EqualFold` — they leak timing. Applies whether the inbound value is a token, an API key, a webhook signature, or a TOTP code. |
+- **PART 11:** | **Identical auth error messages** | Every authentication failure MUST return the SAME message regardless of root cause. "Wrong password", "no such user", "account locked", "token expired", and "token revoked" all return the same generic message (e.g., `"Invalid credentials"`) and the same HTTP status. The underlying reason is logged server-side but NEVER surfaced to the client — surfacing it enables user enumeration. |
+- **PART 11:** | **Opaque resource IDs** | Resource IDs exposed in URLs, JSON bodies, or logs MUST be opaque — UUID v4 (random) or UUID v7 (time-ordered for indexable workloads). NEVER expose sequential integer primary keys (`/users/1`, `/users/2`, ...) in any public-facing surface; they enable trivial enumeration and IDOR. Internal DB primary keys may remain `BIGSERIAL` for performance, but all external identifiers go through an opaque ID column. |
+- **PART 11:** | **No credential echo** | Never include the submitted password / token in error responses, logs, or audit events — not even hashed. Log only a stable hash of the identifier (`user_id`, `token_prefix_sha256[:8]`). |
+- **PART 11:** *User-controlled content (pastes, gists, repo files, markdown docs, uploaded text, uploaded HTML/SVG/XML) MUST be treated as data, NEVER as trusted browser content.**
+- **PART 11:** | Plain text / source code / config files | Render as escaped text inside `<pre><code>` or equivalent. Syntax highlighting may add server-generated wrapper spans/classes only AFTER escaping the source. | `text/plain; charset=utf-8` is the safe default for raw views. | Never inject file bytes into templates as trusted HTML. |
+- **PART 11:** | User-supplied HTML | Do NOT render inline by default. Show escaped source or a sanitized preview only for explicitly approved operator-controlled (`server.yml`) customization fields. | Force `Content-Disposition: attachment` unless the content was sanitized for a very narrow allow-list use case. | User HTML is executable content in a browser origin. Treat it as dangerous. |
+- **PART 11:** | SVG / XML / other browser-active text | Never inline untrusted SVG/XML in templates, `<img src="data:...">`, or same-origin previews. | Force attachment or convert to a safe raster/text representation before display. | SVG can execute scripts, external loads, and event handlers. |
+- **PART 11:** | Binary/file downloads | Serve with exact `Content-Type`, `X-Content-Type-Options: nosniff`, and explicit allow-listing. | For user-controlled active MIME types (`text/html`, `application/xhtml+xml`, `image/svg+xml`, `text/xml`, `application/xml`), force `Content-Disposition: attachment`. | Browsers must not be allowed to "helpfully" execute uploaded content. |
+- **PART 11:** 1. **NEVER** cast user-controlled file content to `template.HTML`.
+- **PART 11:** 2. Repository/paste/file viewers MUST render content as escaped text or sanitized markdown — never as live HTML from the stored blob.
+- **PART 11:** | Compression bombs | Abort and delete the partial output when the expanded-to-compressed ratio exceeds `100:1` (`restore.max_ratio`) or any size limit above is exceeded; count bytes and files while streaming, never trust archive headers |
+- **PART 11:** | Permissions | Normalize extracted file modes to safe defaults; never preserve executable bits unless the feature explicitly needs them |
+- **PART 11:** | Overwrite policy | Do not overwrite existing files outside an explicit replace flow |
+- **PART 11:** *Default posture:** if the project does not explicitly need archive upload/import/extract, do NOT implement it.
+- **PART 11:** | Auth | Private files use normal authz checks on every request; never rely on obscurity-only URLs |
+- **PART 11:** *User-supplied content MUST NEVER be executed on the server.**
+- **PART 11:** NEVER shell out with raw user content, filenames, refs, or repo metadata
+- **PART 11:** NEVER run hooks, build steps, package managers, interpreters, or git checkout logic on untrusted content unless the project explicitly defines a sandboxed execution feature
+- **PART 11:** *Security is hard for users and operators too. The application MUST be secure by default with zero configuration. Operators should never need to read OWASP top-10 to ship a safe deployment.**
+- **PART 11:** | CSRF on by default with `SameSite=Strict` cookies | No knobs to flip. Backend (`/api/**`), compatibility-layer, Bearer, public, and exempt paths are never checked (PART 16 → CSRF) |
+- **PART 11:** | Errors return canonical generic messages | Stack traces only in `debug.log`, never in HTTP response (PART 5) |
+- **PART 11:** *The application maintains a small set of project-level cryptographic secrets. They are persisted in `server.db` (or where noted), included in every backup, and never logged.**
+- **PART 11:** | Scope | Server-wide. Generated on first start and persisted to `server.db`. NEVER appears in a request, response, or log. |
+- **PART 11:** NEVER returned in any API response — even with `server.token`. The API returns "configured" / "rotated 12 days ago" / fingerprint hashes only.
+- **PART 11:** NEVER logged. The Output Sanitization Pipeline (PART 11 → above) treats any field whose name contains `secret`, `key`, `password`, `token` as redacted at the log layer too.
+- **PART 11:** *The spec honors browser-emitted privacy signals as opt-outs and never as opt-ins. Honoring them is a compliance hook for GDPR Art. 7, CCPA §1798.135, and (per CalAG enforcement) the Sec-GPC signal specifically.**
+- **PART 11:** | `DNT: 1` (Do Not Track) | inbound | NOT honored by default | DNT was de-facto removed from Firefox/Chrome — honoring it now penalizes users on browsers that still emit it for legacy reasons. Operators with EU-only audiences can opt in via `web.headers.honor_dnt: true`. |
+- **PART 11:** | `Clear-Site-Data` | outbound | emitted on token-revocation | Sent on token-revocation and consent-withdrawal responses. Default value `"cache", "cookies", "storage"`. `"executionContexts"` opt-in only. Also sent on version-change purge (PART 9) with value `"cache", "storage"` only — never `"cookies"` there. |
+- **PART 11:** *The spec uses the `Sec-Fetch-*` family as a defense-in-depth layer against CSRF and clickjacking. These are browser-set request headers (not response headers) — the binary validates them on state-changing FRONTEND requests only (never `/api/**` or compatibility-layer routes).**
+- **PART 11:** | `Sec-Fetch-Site` | POST/PUT/PATCH/DELETE | `cross-site` AND frontend route (never `/api/**` or a compatibility-layer route) AND no Bearer token AND path is not in CSRF `exempt_paths` |
+- **PART 11:** *Production: header is NEVER emitted.** Server-Timing leaks internal subsystem latency (DB, cache, third-party calls) — Tier 3 information per the Public Endpoint Safety Principle (PART 11).
+- **PART 11:** *No declarations** = "everyone" defaults stay loose. The spec never tightens silently — every auto-tighten is logged to the setup audit so operators know what changed and why.
+- **PART 11:** | `Public-Key-Pins` (HPKP) | Deprecated (RFC 7469 effectively dead — Chrome removed enforcement 2018) | NEVER emit. Pinning is a footgun (lockout risk). Use Certificate Transparency monitoring instead. |
+- **PART 11:** NEVER return user-controlled fields back in the response body
+- **PART 11:** `/.well-known/**` is reserved to the server and can NEVER be claimed by user-supplied slugs, vanity routes, or operator-configured path settings
+- **PART 11:** Well-known endpoints live only at the root `/.well-known/...` namespace, never under `/server/*` or `/api/*`
+- **PART 11:** `/.well-known/` itself MUST NOT list a directory index, file browser, or generated listing
+- **PART 11:** The namespace MUST NOT expose user-uploaded or user-controlled files directly
+- **PART 11:** The namespace is for public-safe protocol metadata only; it MUST NOT expose secrets, internal config, operator-only state, or anything that is unsafe for anonymous users
+- **PART 11:** Canonical well-known endpoints MUST serve the exact path required by the standard/consumer; do NOT move them under another route and redirect unless the specific standard explicitly requires a redirect behavior
+- **PART 11:** *Optional-entry rule:** optional well-known endpoints MUST be enabled only when the matching product feature, platform integration, or mail/domain ownership is explicitly defined in `IDEA.md` or project config. Do NOT invent or auto-enable them.
+- **PART 11:** *Serving-order rule:** a file in `{data_dir}/web/.well-known/` may override an embedded default for the SAME allowlisted entry, but it MUST NOT override protocol-owned dynamic handlers such as `/.well-known/acme-challenge/{token}`.
+- **PART 11:** If a requested capability can live under `/server/*` or `/api/{api_version}/server/*` without breaking interoperability, do NOT put it under `/.well-known/`
+- **PART 11:** AI bots are ordinary crawlers: there is no AI-specific blocking, no `ai_bots` setting and no per-bot stanzas in `robots.txt`, and the server never refuses a request because the caller is an AI.
+- **PART 11:** **Authenticated (Bearer token, including MCP):** `robots.txt` does not apply. The caller can use everything its token allows, auth-only routes and tools included, and nothing more; access is decided by the token's permissions and scope alone, never by the caller being an AI.
+- **PART 11:** *URL resolution:** every `{proto}`/`{fqdn}` in this file — and in the generated `llms.txt` and the `/server/security` page — is resolved **per request** via `BuildURL(r, ...)` (PART 8 → "Resolution Order": reverse-proxy headers first, gated by `trusted_proxies`). Never build these URLs from values cached at startup: the URLs a client sees MUST match the Host/proto that client actually used, so `security.txt`, `/server/security`, and every other rendered URL can never disagree behind a reverse proxy.
+- **PART 11:** | Metrics (`/server/metrics`) | No | Operational/internal endpoint; never advertised |
+- **PART 11:** | Aliases | `/api/mcp` and `/mcp` — direct aliases for the current `{api_version}`; the SAME handler mounted at all three paths, never a redirect (see "Unversioned API aliases") |
+- **PART 11:** | Route class | All three paths, including the root `/mcp` alias, are API-class: never content-negotiated, no User-Agent detection, never HTML or plain text. Every response, including `400`, `403`, `404` and `405`, is JSON (a JSON-RPC error object when the request parsed, otherwise the canonical error body); success is `application/json` or `text/event-stream` according to the client's `Accept` |
+- **PART 11:** | Responses | A single `application/json` object per request; an SSE stream only when a tool needs to stream progress. Server-initiated requests are never sent |
+- **PART 11:** | Sessions | None. An `Mcp-Session-Id` header, if sent by an older client, is ignored — never minted, never echoed |
+- **PART 11:** | MCP clients | Give each MCP client its own linked token (never the primary, never `server.token` — that is full operator access). A project without owner tokens exposes only its public endpoints to MCP clients; there is no non-operator credential to issue there |
+- **PART 11:** | Token management | **Never exposed as tools.** Reveal, rotate, create, revoke and restore of tokens exist only on `/server/preferences/tokens` and its API mirror, never over MCP |
+- **PART 11:** | Creation by an anonymous client | **Not allowed over MCP.** A tool that would issue a new owner (and its token) requires an existing token; without one it fails with the API's `401`, and such tools are absent from `tools/list` for anonymous callers. Owner tokens are issued only by the REST API or the web form, never inside a tool result — tool results enter the model's context and the provider's logs. A caller that already has a token passes it and no new owner is created |
+- **PART 11:** **One tool per public API operation** (`{api_version}` routes), generated from the same route definitions that feed Swagger and `llms.txt` — never a hand-maintained second list.
+- **PART 11:** Handler errors map to the MCP tool result with `isError: true` and the API's normal error body (`ok: false`, `error`, `message`); secrets are never included in a tool result any more than in an API response.
+- **PART 11:** | Behavior note | Read-only help text | `/healthz` maps directly to `/server/healthz` using the same handler; never redirects |
+- **PART 11:** Repo-level (source-code) vulnerabilities are reported primarily via GitHub private vulnerability reporting (see `.github/SECURITY.md` and `web.security.report_url`). This pipeline covers reports against a deployed instance; its email notifications are the CC path, never the primary channel.
+- **PART 11:** | Where it appears | In the `/.well-known/security.txt` `Contact:` line and its human-readable renderings (`/server/security` and its JSON mirror `GET /api/{api_version}/server/security`), and echoed back only to a requester who supplied a currently valid id (the hidden form field of `/server/contact?security_id={id}`, needed to re-validate the POST). The raw id is NEVER logged and NEVER appears in any other response, error, notification or API body. |
+- **PART 11:** | Failure mode | Invalid / expired id → form silently falls back to normal contact mode. Log to `security.log` as `security.security_id_invalid` (IP, user-agent, and the first 8 hex chars of `SHA-256(supplied id)` — never the supplied value itself) — useful for catching scrape attempts. |
+- **PART 11:** | Hidden auto-filled | — | — | `app_version`, `commit_hash`, `security_id`, `timestamp`, `request_user_agent`. Used for triage; never shown to researcher. |
+- **PART 11:** 3. **Encryption at rest:** the report body is encrypted with the project's PGP key if one exists; otherwise AES-256-GCM with `server.security.encryption_key` (the spec's canonical at-rest AES key — see PART 11 → "Cryptographic Keys"). Plaintext is NEVER persisted to disk.
+- **PART 11:** 5. **Researcher acknowledgment:** email to the researcher's submitted address, containing only the `tracking_id` and the URL `/server/security/report/{tracking_id}` (with a one-shot token only the researcher can use) — never any report content. If the researcher submitted a pubkey, the email is PGP-encrypted to it. If not, it is sent unencrypted: it carries no vulnerability details, and the status page it links to shows only the triage state. A pubkey is never required, and the project key is never used for this email (the researcher cannot decrypt it). Without working SMTP the acknowledgment is skipped and the `tracking_id` appears only in the form response.
+- **PART 11:** | `/server/security/report/{tracking_id}` | GET | One-shot token in URL (no API mirror: explicit exception to the API-for-every-page rule, because the one-shot emailed link must not be duplicated onto the API surface) | Researcher status page — shows triage state (Received / Triaged / Confirmed / Patching / Disclosed / Won't Fix), maintainer comments visible to researcher, expected disclosure date. Token is single-use-per-day; expires after the report is closed for 30 days. |
+- **PART 11:** | `last_rotated_at` | When most recently rotated (NULL if never) |
+- **PART 11:** Syslog header: `<MMM DD HH:MM:SS> <hostname> <program>[<pid>]:` followed by the structured message. `result=` is one of `success` / `fail`. `reason=` is a stable machine code (never a free-form message — keeps Fail2ban / SIEM parsers stable).
+- **PART 11:** ANSI/emojis belong on stdout/stderr (interactive console), never in files that ship to log aggregators.
+- **PART 11:** *Never suppressed:**
+- **PART 11:** | `never` | Never rotate |
+- **PART 11:** | `none` | Do not keep old logs (delete after rotation) |
+- **PART 11:** `keep: none` = do not retain old logs (default)
+- **PART 11:** | `security.security_id_invalid` | Invalid/expired security.txt id used | IP, user-agent, SHA-256 prefix of the supplied id (never the raw id) |
+- **PART 11:** *NEVER Log:**
+- **PART 11:** *Masking note:** entries are written with the masking rules above already applied, so exports and copies never expose raw tokens or emails.
+- **PART 11:** | Append-only | Application can only append, never modify or delete entries |
+- **PART 11:** | Cardholder data | Never stored (use tokenization) |
+- **PART 11:** | Data disclosure | `{project_name} --maintenance data export` - what data is collected (we do not sell data) |
+- **PART 11:** *CCPA "Do Not Sell" Implementation (based on `server.privacy.data.sold`):**
+- **PART 11:** | `false` (default) | Display notice: "We do not sell your personal information" - no opt-out needed |
+- **PART 11:** | `true` | Display "Do Not Sell My Personal Information" opt-out toggle on `/server/privacy#ccpa-opt-out` |
+- **PART 11:** *DPO contact source:** `server.contact.dpo.email` (with optional `server.contact.dpo.name`), part of the Contact Configuration tree (PART 12). When `dpo.email` is empty the page shows `server.contact.general.email`; when that is empty too it renders only a link to the contact form (`/server/contact`). It never invents an address and never shows the admin address. The JSON mirror is `GET /api/{api_version}/server/dpo` (`name`, `email`, `privacy_url`) and follows the same fallback chain for `email`; when no address resolves it still answers `200` with `email` = `""` (and `name` = `""` when unset), never `404`; `privacy_url` is always present and is an absolute URL: the request's resolved base URL (PART 8 → "Resolution Order", never a cached value) + `/server/privacy`, so on an onion or I2P request it carries that address; the HTML page itself links with the root-relative path `/server/privacy`. The HTML page shows the DPO name when set, the address as a `mailto:` link when one resolves, and always links to `/server/privacy` and `/server/contact`.
+- **PART 11:** **Action:** an automatic temporary block of `block_duration`, an `abuse.request_flood` audit event and (with `auto_alert`) an email. Allowlisted IPs are never counted or blocked.
+- **PART 11:** *Persistence:** automatic temporary blocks are stored in `server.db` (table `ip_blocks`, with `expires_at`), so they survive restarts; expired rows are dropped on load. Permanent blocks are never stored in the database — they exist only as `server.security.blocked_ips` config entries.
+- **PART 11:** | Auto IP blocking | Yes | Never auto-block trusted IPs |
+- **PART 31:** **Hidden service maps to a dedicated Tor backend port** - `.onion:80` → `localhost:{tor_backend_port}` (a random-unused loopback port bound just for Tor, never the clearnet port)
+- **PART 31:** **NEVER use default Tor ports** (9050, 9051, etc.)
+- **PART 31:** **Never hardcode a control port** - let Tor choose a free localhost port at runtime
+- **PART 31:** *The app's outbound Tor client may only be used for app-determined destinations — never for a destination supplied by an inbound hidden-service visitor.**
+- **PART 31:** | A URL, host, or callback/webhook target supplied by an inbound `.onion` request | **No — never** |
+- **PART 31:** Any feature that fetches a caller-supplied URL (link preview, webhook delivery, avatar-by-URL, etc.) either never uses the Tor outbound client, or validates the destination against an app-owned allowlist first
+- **PART 31:** The hidden service (inbound) and the outbound Tor client (outbound) are separate code paths — a request arriving via `.onion` must never be able to select or influence the destination of an outbound Tor request
+- **PART 31:** `ExitRelay 0`, `ExitPolicy reject *:*` — never act as an exit
+- **PART 31:** No `ORPort` directive — client + hidden service only, never a relay
+- **PART 31:** `PublishServerDescriptor 0`, `DirPort 0` — never publish as a relay/directory
+- **PART 31:** `SocksPort` bound to `127.0.0.1:auto` only — never `0.0.0.0`, never reachable from the hidden-service listener
+- **PART 31:** *Note:** The hidden service forwards to a dedicated Tor backend loopback port (random-unused, PROXY-protocol-aware — never the clearnet HTTP port) on ALL platforms, and the control connection uses the same localhost auto-port model on all platforms.
+- **PART 31:** *The application MUST start its OWN dedicated Tor process. NEVER use system Tor.**
+- **PART 31:** Server NEVER fails to start due to Tor issues
+- **PART 31:** **NEVER spam console** with bootstrap progress during normal operation
+- **PART 31:** | Bootstrap starting | Never (silent) | - |
+- **PART 31:** *The server spawns `tor` itself and talks to it over the control port. It never relies on bine's `tor.Start` (fixed ~2 s control-port-file wait, aborts on the first read error) and never uses default ports.**
+- **PART 31:** | `ControlPort 127.0.0.1:auto` | Runtime-selected loopback port, never saved |
+- **PART 31:** | 1 | Remove stale `control_port` file; spawn `tor -f {torrc}` as a child (stdout/stderr captured for debug) | - | A leftover file from a previous run MUST NOT be trusted |
+- **PART 31:** | 3 | Connect to the control address, call `Authenticate("")` | 10 s | Cookie / SAFECOOKIE is negotiated from PROTOCOLINFO; do NOT hand-roll the hash |
+- **PART 31:** | 7 | Wait for `{hsDir}/hostname` to exist and hold a valid `*.onion` line | remaining bootstrap budget | Poll every 250 ms; never read the file once without a wait |
+- **PART 31:** | `control_port` file never appears | Step 2 timeout | Kill child, WARN with last stderr lines; check `DataDirectory` permissions and for a stale process holding the lock |
+- **PART 31:** | File present but empty/partial | Parse fails | Keep polling (Tor writes it non-atomically); never treat as fatal before the timeout |
+- **PART 31:** Ports are NEVER hardcoded or saved - always detected at runtime
+- **PART 31:** **Control-port file wait:** Tor writes the chosen control port to a control_port file. bine v0.2.0 polls that file for only about two seconds, and a slower Tor start (first run, cold disk, slow consensus) fails with an empty or invalid port file. The app MUST NOT rely on bine's built-in wait: it polls the file itself every 250 ms for up to `server.tor.startup_timeout` seconds (default 60) until it holds a valid `PORT=127.0.0.1:{port}` line, and only then connects. On timeout it stops the Tor process, logs the error with the torrc path, marks Tor unavailable (clearnet keeps serving) and retries on the next Tor restart attempt
+- **PART 31:** `HiddenServiceExportCircuitID haproxy` makes Tor prepend a HAProxy **PROXY-protocol v1 header** to *every* connection it forwards to the hidden-service target, encoding the 64-bit rendezvous-circuit ID in the source address (`fc00::/8` IPv6 range). This ID is the opaque per-session token the committed Tor logging/audit/rate-limit rules key on as `tor:{circuit_id}` — never an IP, never deanonymizing.
+- **PART 31:** `VanguardsLiteEnabled 1` keeps Tor's built-in layer-2 vanguards on (guard-discovery-attack defense for the service); it is never disabled. Full layer-3 vanguards/bandguards/rendguard, if ever wanted, are control-protocol operations the app can drive itself — no external tool.
+- **PART 31:** *Tor directories are ALWAYS `{config_dir}/tor/`, `{data_dir}/tor/`, `{log_dir}/tor.log` - never hardcoded paths.**
+- **PART 31:** *CLI-to-running-server control channel:** the server binary already owns the embedded Tor process, so a separately-invoked `{project_name} tor ...` subcommand cannot touch Tor directly — it must reach the running server. Same mechanism `--status` already uses to query a running server (see "Server Startup Sequence" → `--status`): the subcommand issues an HTTP request to the server's own listener at an **internal** endpoint, never a public one.
+- **PART 31:** | `/server/tor/status` | GET | Loopback source only | INTERNAL — same tier as `/server/metrics` (PART 20); never in OpenAPI, well-known, or FeaturesInfo |
+- **PART 31:** **Loopback-gated, not public-gated**: handlers only accept requests whose immediate TCP peer is `127.0.0.1`/`::1` — same "trusted" address set as PART 12 → "Trusted Proxies". A request arriving from any other address is rejected (404, not 403 — the endpoint must not be discoverable).
+- **PART 31:** **`confirm`** is the server-side half of the destructive-action confirmation: the CLI prompts the operator (or honors `--yes`), then sends `confirm: true`. A request without it never mutates anything
+- **PART 31:** **Secret key material never appears** in any request or response body; only addresses and file paths do
+- **PART 31:** Files are written in Tor's own on-disk formats (the secret key as the 64-byte expanded key behind the `== ed25519v1-secret: type0 ==` header) — byte-for-byte the same layout Tor persists in `{data_dir}/tor/site/` and the same layout `mkp224o` emits, so a found candidate dir, an external `mkp224o` output dir, and the live site dir are interchangeable. The search never writes into `{data_dir}/tor/site/`, and secret key material is never logged — only the found address is.
+- **PART 31:** *Handoff — `tor vanity apply <address>`.** The candidate directory IS the handoff format; apply is a file swap, never a re-derivation:
+- **PART 31:** **Dedicated backend port** — the eepsite maps `.b32.i2p:{virtual_port}` → `127.0.0.1:{i2p_backend_port}`, a random-unused loopback port. **Unlike Tor, there is no PROXY-protocol header** (SAM/i2pd do not prepend one), so the backend is a **plain loopback listener**, separate from the clearnet port.
+- **PART 31:** *I2P is opt-in.** No provider is contacted and no port is allocated unless `enabled: true`. The canonical config path is `server.i2p.enabled` (env `I2P_ENABLED`, flag `--i2p`), grouped under `server` like `server.tor`; `features.i2p.*` names the same state only as response fields in health output and is never a config key. Precedence follows PART 8: `--i2p` flag, then `I2P_ENABLED`, then `server.i2p.enabled`.
+- **PART 31:** **Opt-in only** — never auto-enabled; selecting it requires an explicit config/flag/env.
+- **PART 31:** | **Model A SAM port** | A random-unused loopback port allocated after the provider is confirmed (same detection as the backend port); never `7656`. Never persisted |
+- **PART 31:** | **Key file** | `{data_dir}/i2p/site/site-keys.dat` holds ONE line: the SAM `PRIV` value (I2P base64 of destination + private keys). Written by the app (0600) for both models. If missing: `DEST GENERATE SIGNATURE_TYPE={signature_type}`, then write temp file + fsync + rename BEFORE `SESSION CREATE`, so a crash never loses a published identity. If present but unparsable: fail with an error naming the file; NEVER regenerate silently |
+- **PART 31:** | **I2P base64** | Alphabet `A-Za-z0-9-~` (`-` and `~` replace `+` and `/`), `=` padding. Standard base64 decoders MUST NOT be used |
+- **PART 31:** | **Reply timing** | `SESSION STATUS` arrives only AFTER the router has built tunnels (seconds, or minutes on a first start that must reseed). Wait up to `server.i2p.bootstrap_timeout`; NEVER abandon the socket and retry while a build is in progress. The first start of a fresh i2pd data directory may need more than 300 s: raise `bootstrap_timeout` (max 600) on slow links |
+- **PART 31:** | **Secrets in logs** | `PRIV` is a private key. SAM command lines are never logged or put in error text; errors name the command word only (`SESSION CREATE`) |
+- **PART 31:** | **Backend listener** | The plain loopback listener on `i2p_backend_port` MUST be accepting before `STREAM FORWARD` is sent. SAM must connect to it within 3 s per incoming stream, so the accept loop never blocks |
+- **PART 31:** | **No client identity** | With `SILENT=true` every stream arrives from `127.0.0.1`. The dedicated I2P listener is therefore treated as ONE client for rate limiting and bans (a separate global I2P bucket); per-IP rules MUST NOT ban `127.0.0.1` on this listener. Any `X-I2P-*` request header is stripped at the edge and never logged |
+- **PART 31:** | SAM port never opens (Model A) | Step 2 timeout | Stop i2pd, WARN with the i2pd.log path, retry per restart rules |
+- **PART 31:** | `SESSION STATUS RESULT=DUPLICATED_DEST` | Step 4 | `error`: another session already uses this key (a second instance or an old session still alive); do not retry in a tight loop, back off 60 s |
+- **PART 31:** | `RESULT=INVALID_KEY` | Step 4 | `error`: key file corrupt; the operator regenerates the address (never automatic) |
+- **PART 31:** *Shutdown (Model A):** close the forward socket, then the control socket (this destroys the session), then terminate i2pd: SIGTERM where the platform has it (kill on Windows), wait up to 10 s, then kill. On Linux the child is started with a parent-death signal so a crashed server does not leave i2pd running; the pid file is the backstop for every platform. Model B only closes its two sockets and never touches the router.
+- **PART 31:** *Test checklist (REQUIRED):** `site-keys.dat` created before `SESSION CREATE` and reused on the next start (same address); I2P base64 round trip with `-` and `~`; address matches a known destination vector; forwarded stream carries NO leading destination line (`SILENT=true`); forward uses a second socket; `DUPLICATED_ID` retry; `INVALID_KEY` does not regenerate; i2pd never opens 7070/4444/4447/7654 (Model A); slow `SESSION CREATE` (60 s) succeeds; server SIGKILL leaves no i2pd process; `PRIV` never appears in logs.
+- **PART 31:** *When Model A is selected, the application MUST start its OWN dedicated i2pd process. NEVER reconfigure a system i2pd.** When Model B is selected, the app connects to an existing router's SAM bridge and does not manage the router.
+- **PART 31:** *Model B liveness (safe monitoring):** the app NEVER writes to the control connection that owns its SAM session. SAM destroys a session when its control socket closes, and extra commands on it can corrupt the stream-forward state. Liveness uses a separate short-lived probe connection every 30 seconds: open a new TCP connection to `sam_address`, send `HELLO VERSION MIN=3.1 MAX=3.3`, accept `HELLO REPLY RESULT=OK`, then send `QUIT` and close. The probe issues no `SESSION`, `STREAM` or `NAMING` command. Three consecutive probe failures (5-second timeout each) set the status to `error`. Separately, if the session's own control connection closes or errors, the session is lost: set the status to `error` and recreate it (a new `SESSION CREATE` with the same persisted destination key) with backoff.
+- **PART 31:** **Same backend port model as Tor** — dedicated, random-unused, never the clearnet port — but without `go-proxyproto`.
 
 ## CRITICAL - ALWAYS DO
-- Validate and sanitize all input for its destination context (HTML-encode for HTML, parameterize for SQL)
-- Follow the canonical error-response format and audience-specific detail levels (user/operator/console/log/audit)
-- Log structured errors with request IDs and full context server-side, while returning minimal messages to clients
-- Every request MUST terminate in a rendered response, no exceptions
-- Return the canonical JSON error envelope `{"ok":false,"error":"UPPER_SNAKE_CODE","message":"..."}` with the
-  correct HTTP status; render the themed HTML error page for browser clients using the same status/message
-- Apply per-IP sliding-window rate limiting by endpoint class (read/write/health) plus a global burst ceiling;
-  on rejection set `Retry-After` and log a fail2ban-consumable line to `security.log`
-- Run schema setup (`EnsureSchema`) once at startup before accepting requests; every statement must be safe
-  to re-run against an existing database
-- Apply the full security-header set (CSP, HSTS when TLS, X-Content-Type-Options, X-Frame-Options,
-  Referrer-Policy, Permissions-Policy, COOP/COEP/CORP) on every response, config-overridable per directive
-- Use double-submit-cookie CSRF on all cookie-authenticated, state-changing browser requests — never bypass
-  it based on `Origin`/`Referer` alone, since those can be absent or spoofed
-- Keep `server.security.encryption_key` as the canonical AES-256-GCM at-rest key in `server.yml`, separate
-  from the HMAC/root-secret rows in `app_secrets`; manual rotation uses the sensitive-operation flow and a
-  30-day grace window
+- **PART 9:** | **Clear messages** | User-facing errors must be actionable and understandable |
+- **PART 9:** | `UNAUTHORIZED` | 401 | "Authentication required" |
+- **PART 9:** *All errors MUST be logged with context:**
+- **PART 9:** | HTML pages | `no-store` | Always fetch fresh |
+- **PART 9:** | **Service worker (if the project adds one)** | Cache name MUST embed `{project_version}`; `activate` deletes all caches from other versions. `/sw.js` and `/manifest.json` are served `no-cache` + build-stamp `ETag` — a cached service worker script delays every other update mechanism. |
+- **PART 9:** | **Build-stamp cookie** | Every HTML response sets `{project_name}_build={asset_stamp}` (`Path=/`, `Max-Age=31536000`, `Secure`, `SameSite=Lax`, NOT HttpOnly-sensitive — the stamp is public). Essential cookie — no consent required. |
+- **PART 10:** | **Always idempotent** | Every statement safe to run multiple times |
+- **PART 10:** | **Defaults required** | New columns must have `DEFAULT` or be nullable |
+- **PART 10:** *All database connections MUST use connection pooling.**
+- **PART 10:** *All database queries MUST have timeouts.**
+- **PART 11:** *This is the hard rule that governs every public (no-auth) surface in the application — APIs, frontend pages, reports endpoints, RSS feeds, sitemaps, anything. If it can be loaded by anyone in the world, it MUST be safe for anyone in the world to see.**
+- **PART 11:** | `version` (semver) | `/server/healthz`, `Server:` header, `--version` | Required so security researchers can correlate reports against releases |
+- **PART 11:** | Public OG / social metadata | HTML `<meta>` | Required for sharing / SEO |
+- **PART 11:** *Standing rule:** if a piece of information helps a researcher / monitor / debugger and doesn't belong in Tier 1, it goes in Tier 2 (always public) or Tier 3 (debug-only). When unsure between Tier 2 and Tier 3, default to Tier 3 — the operator can promote later. When unsure between Tier 1 and Tier 3, default to Tier 1 — debug mode is not a license to leak secrets.
+- **PART 11:** *Security is hard. The codebase MUST defend in layers so a single missed check doesn't cascade into a breach. Each layer below is mandatory — none can be skipped because "the layer above will catch it."**
+- **PART 11:** | Markdown | Store the original markdown. HTML preview MUST disable raw HTML passthrough, then sanitize the rendered output through an allow-list policy. | Raw markdown download remains plain text. | Keep fenced code blocks, tables, lists, and links working. External links get `rel="noopener noreferrer nofollow ugc"`. |
+- **PART 11:** *Non-negotiable rules:**
+- **PART 11:** 3. Markdown helpers such as `markdownToHTML` MUST disable raw HTML input and MUST sanitize the final HTML before returning `template.HTML`.
+- **PART 11:** | Type safety | Always set exact `Content-Type` + `X-Content-Type-Options: nosniff` |
+- **PART 11:** | Active content | User-controlled active types (`text/html`, `application/xhtml+xml`, `image/svg+xml`, `text/xml`, `application/xml`) MUST be served as attachment |
+- **PART 11:** Syntax highlighting, previews, diffing, indexing, and metadata extraction MUST use in-process libraries or isolated subprocesses with fixed inputs
+- **PART 11:** *Interpretation rule:** "easy to use" means the safe deployment is the default deployment. AI must reduce operator burden by making secure configuration automatic and understandable, not by removing protections.
+- **PART 11:** | Backup | Always — see PART 21 → "Backup Contents". Required for any restore: without it, the PGP private key in the backup is undecryptable. |
+- **PART 11:** Always included in backups (PART 21 → "Backup Contents").
+- **PART 11:** *All responses MUST include:**
+- **PART 11:** Permissions-Policy is **fully configurable per project** — see "Permissions-Policy Configuration" below. Defaults strike a balance: features required by the spec itself (WebAuthn, fullscreen, payment, picture-in-picture, encrypted-media, web-share, autoplay, storage-access) are scoped to `self`; advertising-tracking proposals (`interest-cohort`, `browsing-topics`, `attribution-reporting`) are disabled; everything else (camera, microphone, geolocation, USB, MIDI, sensors, screen capture, etc.) is **disabled by default but trivially enable-able** by the project's `IDEA.md` declaring which features it uses. A mapping app, video chat, voice notes, and similar projects flip a single config key per feature and the header updates automatically.
+- **PART 11:** *Goal: don't break general-audience apps that legitimately embed cross-origin resources (CDN images, third-party iframes, OAuth pop-ups). Tighten only when the project's `IDEA.md` flags isolation-required content.**
+- **PART 11:** | `Cross-Origin-Embedder-Policy` (COEP) | HTML Living Standard | `unsafe-none` | Project uses `SharedArrayBuffer`, WebAssembly threads, high-resolution timers → `require-corp` (every embedded resource must opt in via CORP or CORS) |
+- **PART 11:** | `Origin-Agent-Cluster` | HTML Living Standard | `?1` (ON) | Always on — security/perf hygiene, no compatibility cost |
+- **PART 11:** | `X-Permitted-Cross-Domain-Policies` | Adobe legacy | `none` | Always — blocks Flash/PDF cross-domain embedding (no legitimate modern use) |
+- **PART 11:** *COOP+COEP=both `same-origin`/`require-corp`** unlocks `crossOriginIsolated=true` in the browser — required for `SharedArrayBuffer` and high-precision `performance.now()`. Don't enable unless the app needs it.
+- **PART 11:** *`Sec-GPC` is the load-bearing one.** When received, the binary MUST:
+- **PART 11:** 2. Skip personalization, behavioral analytics, and any cookie not strictly required.
+- **PART 11:** | `manifest-src` | `'self'` | PWA manifest must come from the app's own host. |
+- **PART 11:** Only documented, allowlisted well-known entries may be served; unsupported entries MUST return `404 Not Found`
+- **PART 11:** `GET` and `HEAD` are the only valid methods for `/.well-known/**`; other methods MUST return `405 Method Not Allowed`
+- **PART 11:** `/.well-known/security.txt` is canonical; `/security.txt` is NOT required and SHOULD return `404` unless a project-specific requirement in `IDEA.md` explicitly says otherwise
+- **PART 11:** | Path | Default | Required When | Source | Content-Type | Behavior |
+- **PART 11:** | `/.well-known/openid-configuration` | Disabled | Project itself is an OIDC provider in `IDEA.md` | Dynamic handler | `application/json` | Provider metadata; MUST stay disabled for OIDC client-only apps |
+- **PART 11:** The exact path, source of truth, content type, auth model, and unsupported behavior MUST be documented in the template/`IDEA.md`
+- **PART 11:** New entries MUST be added to the route tables, reserved-route checks, and the audit/final checklist
+- **PART 11:** *ALL projects MUST serve a valid security.txt file.**
+- **PART 11:** | Field | Required | Description |
+- **PART 11:** | Path | Default | Required When | Source | Content-Type |
+- **PART 11:** | `Origin` | If an `Origin` header is present it MUST be the request's own origin, a configured public origin (PART 8 → "Resolution Order"), or an explicit entry of the resolved CORS allow-list (PART 16 → "CORS Allow-list Resolution Order"); the `*` default of that list does NOT authorize MCP origins; anything else → `403` (DNS-rebinding protection required by the spec). Requests without an `Origin` header (non-browser clients) are unaffected |
+- **PART 11:** | Header checks | `MCP-Protocol-Version`, `Mcp-Method` and `Mcp-Name` MUST match the JSON-RPC body; mismatch → `400` with the spec's `HeaderMismatch` error |
+- **PART 11:** | Supported entries | Read-only table | Shows each allowlisted `/.well-known/...` entry and whether it is required, enabled, or disabled |
+- **PART 11:** | Field | Type | Required | Notes |
+- **PART 11:** | **Export private key** | `--maintenance pgp export private <path>` | **Full export, ASCII-armored, decrypted after operator token confirmation.** Triggers a sensitive-operation flow (PART 5 → "Sensitive Operations"): re-prompt for the operator token, log to `audit.log` as `security.private_key_exported`, write the key to `<path>` with mode 0600. **The export is rate-limited to 1 per hour per operator and the audit entry includes operator IP and reason text the operator must type.** |
+- **PART 11:** | **Delete** | `--maintenance pgp delete` | Sensitive-operation flow. Deletes both keys, sets `web.security.publish_pgp_key: false`, removes `Encryption:` line from security.txt. In-flight encrypted reports become un-decryptable — operator warned and must type confirmation. |
+- **PART 11:** | `{config_dir}/security/pgp.pub.asc` | Always | Public key (also published, but back up anyway for completeness) |
+- **PART 11:** | `{config_dir}/security/pgp.priv.asc.enc` | Always | Encrypted private key. The decryption KDF input is `installation_secret`, which is also part of the backup — so a backup is sufficient to restore. |
+- **PART 11:** | Security reports DB rows | Always | Tracking metadata. The encrypted report bodies are restored too (encrypted at rest with the same PGP key). |
+- **PART 11:** | `{config_dir}/security/keyservers.state` | Always | Per-keyserver publish state, so a restore doesn't double-submit. |
+- **PART 11:** | `audit.log` | Security events | `json` | `json` only (must be machine-parseable) |
+- **PART 11:** Any non-2xx health-check response — failures always log to `access.log` and `error.log`
+- **PART 11:** *All log FILES MUST use raw text only:**
+- **PART 11:** *Required Fields:**
+- **PART 11:** | `format` | `json` | JSON format (required) |
+- **PART 11:** Current log always available until rotation
+- **PART 11:** *ALWAYS Log:**
+- **PART 11:** Current day's log always available until next rotation
+- **PART 11:** | Cookie consent | Required popup before any tracking |
+- **PART 11:** | Privacy policy | Required, must specify data processing |
+- **PART 11:** | Token auth | Required for all API access |
+- **PART 11:** | Vulnerability scanning | Quarterly scans required |
+- **PART 11:** | Risk assessment | Documented risk register required |
+- **PART 11:** | Data residency | US-only data centers required |
+- **PART 11:** | International transfer | Adequacy or safeguards required |
+- **PART 11:** | Security control | Appropriate safeguards required |
+- **PART 11:** | Cross-border transfer | Consent or equivalent protection required |
+- **PART 11:** | Consent | Consent required before collection |
+- **PART 11:** | Config passwords (backup, etc.) | Always hashed | Argon2id |
+- **PART 11:** | API tokens | Always hashed | SHA-256 |
+- **PART 11:** | Data in transit | Always TLS | TLS 1.2+ required |
+- **PART 11:** | Path security (traversal) | No | Always enforced |
+- **PART 11:** | SSL/TLS | No | Always enforced when enabled |
+- **PART 11:** Must be valid IPv4, IPv6, or CIDR notation
+- **PART 31:** > **This PART covers two overlay-network integrations:** **PART 31.1 (Tor Hidden Service)** — REQUIRED, auto-enabled when the `tor` binary is found, no toggle — and **PART 31.2 (I2P Eepsite)** — OPTIONAL, opt-in (default off). Both serve the app over an anonymity network at an `http://` address that is itself the cryptographic identity; neither ever uses HTTPS, HSTS, or an upgrade redirect (see PART 12 → overlay HTTP semantics). The dedicated backend port for each is allocated smartly — only after a provider is confirmed available, so "no provider → no port, no generated config."
+- **PART 31:** > **Trust chain integration:** Tor detection is priority 0 in the FQDN resolution table — evaluated before reverse proxy headers, always trusted, no IP check required. See **PART 12 → "Tor Hidden Service Configuration"** for request detection rules, `BuildURL` / `GetURLVars` behavior, privacy rules, and the Tor security.txt variant.
+- **PART 31:** *ALL projects MUST have built-in Tor hidden service support.**
+- **PART 31:** 1. **Hidden Service** - server-side .onion hosting (always enabled if Tor binary found)
+- **PART 31:** *Hidden service is ALWAYS enabled if Tor binary is found.** No enable/disable toggle - if Tor exists, use it.
+- **PART 31:** *Tor directories are NOT configurable** - always derived from app's directories:
+- **PART 31:** | **Predictable behavior** | Always same configuration |
+- **PART 31:** | Bootstrap success | Always (once) | `Tor: {onion_address}` |
+- **PART 31:** | Bootstrap failed | Always | `Tor: bootstrap failed: {reason}` |
+- **PART 31:** | Connection lost | Always | `Tor: connection lost, reconnecting` |
+- **PART 31:** | Runtime errors | Always | `Tor: {error}` |
+- **PART 31:** *Tor process MUST run as the same user the server runs as (after privilege drop).**
+- **PART 31:** Tor control connection must be reachable by server over localhost
+- **PART 31:** *torrc lines REQUIRED for this sequence** (all in the generated torrc):
+- **PART 31:** *Test checklist (REQUIRED):** control_port file written late (delay 5 s) still succeeds; partial/empty file tolerated; stale file ignored; wrong cookie recovers via one restart; child killed during startup fails fast; bootstrap-timeout path leaves no `tor` process behind; server SIGKILL leaves no `tor` process behind.
+- **PART 31:** *Required bine imports:**
+- **PART 31:** *Required PROXY-protocol import (dedicated Tor backend listener):**
+- **PART 31:** Because the PROXY header is sent on every connection, the `HiddenServicePort` target MUST be a **dedicated loopback listener** the app binds specifically for Tor (`127.0.0.1:{tor_backend_port}`), **separate from the public clearnet listener** — clearnet connections carry no PROXY header and would fail to parse against a listener that requires one. The app:
+- **PART 31:** *The application MUST fully manage the Tor process lifecycle.**
+- **PART 31:** *Tor MUST be restarted when these events occur:**
+- **PART 31:** *Tor dirs are ALWAYS under the app's dirs (server binary owns Tor):**
+- **PART 31:** *Binary MUST ensure directories exist with correct permissions BEFORE creating any files.**
+- **PART 31:** | **Create before write** | Dirs must exist before creating torrc or keys |
+- **PART 31:** | **Enforce on exist** | Always chmod/chown even if dir/file already exists (Unix only) |
+- **PART 31:** **"No REST API for Tor configuration" means no *public* REST API** — nothing under `/server/tor/*` is documented, versioned, advertised in `FeaturesInfo`, or reachable through `/api/{api_version}/**`. It is exactly as internal as `/server/metrics`, just without the bearer-token requirement (Tor control has no legitimate remote caller — the CLI always runs on the same host as the server).
+- **PART 31:** *Every endpoint uses the canonical envelope (PART 14 → "Standard Response Formats" / "Error Response"): success is `{ "ok": true, "data": { ... } }`, failure is the canonical error body. Request bodies are JSON (`Content-Type: application/json`); field names below are fixed and match the CLI flag names. Unknown fields are rejected with `400 BAD_REQUEST`. No CSRF token is required or checked (backend routes — see PART 16 → "CSRF Protection").**
+- **PART 31:** | `POST /server/tor/regenerate` | `confirm` (bool, required `true`) | `onion_address` (the new address), `previous_address` | `VALIDATION_FAILED` (`confirm` not `true`), `SERVER_ERROR` |
+- **PART 31:** | `POST /server/tor/vanity/start` | `prefix` (string, required), `workers` (int, optional) | `202 Accepted`: `state` (`running`), `prefix`, `workers` | `VALIDATION_FAILED` (bad or too-long prefix, workers out of range), `CONFLICT` (a search is already running; `details.prefix` names it) |
+- **PART 31:** | `POST /server/tor/vanity/apply` | `address` (string, optional prefix of one candidate), `confirm` (bool, required `true`) | `onion_address` (the applied address) | `VALIDATION_FAILED` (`confirm` not `true`), `NOT_FOUND` (no matching candidate), `CONFLICT` (ambiguous prefix; `details.candidates` lists them), `SERVER_ERROR` (hostname mismatch after restart) |
+- **PART 31:** | `POST /server/tor/import-keys` | `path` (string, absolute path to a key directory readable by the app user, required), `confirm` (bool, required `true`) | `onion_address` (the imported address) | `VALIDATION_FAILED` (`confirm` not `true`, path not absolute, key files missing or malformed), `SERVER_ERROR` |
+- **PART 31:** | `prefix` | required | 1–6 chars, base32 charset `a-z2-7` only (`0`, `1`, `8`, `9`, and uppercase cannot appear in an onion address); an invalid or too-long prefix is rejected with a clear error before any worker starts |
+- **PART 31:** **I2P directories are NOT configurable** — always derived: config `{config_dir}/i2p/`, data `{data_dir}/i2p/`, log `{log_dir}/i2pd.log` (Model A only).
+- **PART 31:** | **Model B SAM** | `server.i2p.sam_address`. The router's SAM bridge must be enabled by its operator (`[sam] enabled = true` in i2pd, "SAM application bridge" in Java I2P). SAM 3.1 or newer is required (`HELLO VERSION MIN=3.1 MAX=3.3`) |
+- **PART 31:** `notransit = true` and `floodfill = false` keep the router a pure client (no relay or floodfill duty, as already required above). Launch: `i2pd --conf {config_dir}/i2p/i2pd.conf --tunconf {config_dir}/i2p/tunnels.conf --tunnelsdir {config_dir}/i2p/tunnels.d --datadir {data_dir}/i2p --pidfile {data_dir}/i2p/i2pd.pid`. Option names are validated against the installed i2pd in the startup self-test (below).
+- **PART 31:** | `HELLO` returns `NOVERSION` | Step 3 | `error`: router too old, SAM 3.1+ required |
+- **PART 31:** `i2pd.conf` is derived state, regenerated on every startup. The destination identity persists in `site-keys.dat` (written by the app), NOT in `i2pd.conf`, so overwriting it is always safe. Content: see "I2P Provider Contract".
+- **PART 31:** *I2P dirs are ALWAYS under the app's dirs (Model A; server binary owns i2pd):**
 
 ## Key Rules Summary
 
-### PART 9 — Error Handling & Caching
-- Canonical error body: `{"ok": false, "error": "CODE", "message": "text"}`; `error` is always
-  UPPERCASE_SNAKE_CASE, mapped 1:1 from the HTTP status (`NOT_FOUND`, `RATE_LIMITED`, `SERVER_ERROR`, etc.)
-- Content negotiation: `/api/**` defaults to JSON except a `.txt` path suffix, `Accept: text/plain`, or a
-  detected non-interactive tool (curl/wget/httpie); everything else gets the themed HTML error page
-- 5xx errors are always logged server-side with request_id, status, method, path, and client IP — the
-  client only ever receives the sanitized message, never the internal `error.Error()` value
-- Error-page rendering must go into a buffer first; only swap it into the live response on success, so a
-  template failure falls straight through to the guaranteed plain-text fallback instead of corrupting a
-  partially-written response
-- HTML documents: `Cache-Control: no-store` + a build-stamp `ETag`, paired with the version-change
-  Clear-Site-Data purge so intermediaries that ignore `no-store` still revalidate
-- A panic anywhere in a handler must be recovered by dedicated middleware, logged to `error.log` with full
-  context, and answered with the guaranteed fallback response — never a dropped connection
-- `RecoverMiddleware` is the OUTERMOST middleware, registered before routing, logging, or any other layer
-  that could itself panic; its fallback uses plain strings only (no template engine, no theme system, no
-  state that can panic) and is skipped only when the handler already wrote a status line
+### PART 9 — ERROR HANDLING & CACHING
+- Error Handling
+- Caching
 
-### PART 10 — Database
-- Driver: `modernc.org/sqlite` (local, `CGO_ENABLED=0`) or `tursodatabase/libsql-client-go` (remote/libsql);
-  never `mattn/go-sqlite3`, never `lib/pq`
-- SQLite DSN is a bare file path — `modernc.org/sqlite` ignores `mattn`-style `?_journal=...` query params;
-  WAL mode, `foreign_keys`, and `busy_timeout` must be set via explicit `PRAGMA` statements after opening
-- Connection pool: SQLite is pinned to 1 open/1 idle connection (single-writer); libsql/remote uses the
-  configured pool size. Lifetime/idle-time ceilings apply to every driver
-- No migrations table, no version tracking — every schema change is an idempotent `CREATE TABLE IF NOT
-  EXISTS` / `CREATE INDEX IF NOT EXISTS` / additive `ALTER TABLE ADD COLUMN`, safe to run on every startup
-  against a database that may already have the object; "already exists" errors are swallowed, not fatal
-- Parameterized queries only, explicit column lists always — no `SELECT *`, no string-built SQL
-- Every query carries a context timeout, sized by class: simple SELECT 5s, JOIN-heavy SELECT 15s,
-  INSERT/UPDATE/DELETE 10s, bulk 60s, reports 2m; a multi-statement transaction is bounded at 30s across
-  the whole `BeginTx`…`Commit`/`Rollback` span, not per statement — always the `*Context` call variants
-- Core self-managed tables include `config`/`config_meta` (with version-bump triggers), `rate_limits`,
-  `audit_log`, `owners`, `scheduler_tasks`/`scheduler_history`, `backups`, `api_tokens`, `app_secrets`,
-  `pgp_keypairs`
-  — `server.yml` remains the sole source of truth for configuration; the DB never stores user credentials
-  or settings, only resource state, tokens, and audit trails
+### PART 10 — DATABASE
+- Database Schema
+- Connection Pooling
+- Query Timeouts
+- Transaction Patterns
 
-### PART 11 — Security & Logging
-- Constant-time comparison (`crypto/subtle.ConstantTimeCompare`) for every secret/token/CSRF comparison;
-  pad failed-auth timing to a shared floor so rejection reason isn't observable via latency
-- Root secrets (`installation_secret`, `cookie_signing_key`, `csrf_token_secret`) live in `app_secrets` with
-  independent rotation lifecycles and a grace-overlap window (`previous_value`/`previous_until`)
-- Security headers are emitted on every response from a default set, overridable per-directive via
-  `web.*` config (CSP mode + `*_extra`/`*_override` per directive, HSTS, Permissions-Policy, NEL, COOP/
-  COEP/CORP, X-Content-Type-Options, X-Frame-Options, Referrer-Policy); reporting directives are dropped
-  entirely when `reports_enabled` is false
-- CSRF: double-submit cookie, validated on every state-changing cookie-authenticated request; bypassed only
-  for safe methods (GET/HEAD/OPTIONS), Bearer/API-token auth, WebSocket upgrades, and an explicit
-  `exempt_paths` allow-list (webhooks, browser report endpoints, debug routes) — never bypassed on Origin
-  match alone
-- Client IP extraction for rate limiting, audit logs, and CSRF failure records must go through the
-  trusted-proxy resolver — reading `X-Forwarded-For` unconditionally lets any client forge the IP a
-  fail2ban integration bans on
-- Every log file is raw text, one event per line, CR/LF-and-control-character stripped before write
-  (prevents log-line injection); console output may be pretty and respects `NO_COLOR`
-- Audit log is JSON Lines, append-only, tamper-evident; never logs secrets/credentials/PII in raw form;
-  separate log files exist per concern (access.log, server.log, error.log, app.log, auth.log, audit.log,
-  security.log, debug.log)
-- Rate limiting is per-IP sliding window by endpoint class (read/write/health) plus a global burst ceiling;
-  429 responses set `Retry-After` and `X-RateLimit-*` headers, and the JSON body never carries the wait
-  time as a top-level field
-- IP allow/block lists are config-file only (no web/API management route); the allowlist bypasses IP
-  blocklist/rate-limit/GeoIP/auto-block but never bypasses CSRF, path-security, or TLS
-- **Identity model**: one operator tier (`server.token`) plus anonymous owners; there are no passwords,
-  sessions, or user accounts. Owner resources bind to `owner_id`, never token hashes. A primary owner token
-  persists until rotated, operator-revoked, or eligible for configured idle purge; linked tokens have the
-  same resource access without token-management authority.
-- **Token storage and use**: tokens use `tok_` plus 32 URL-safe random base62 characters. Persist the
-  SHA-256 lookup hash and AES-256-GCM encrypted token copy; compare hashes in constant time. API routes
-  accept Bearer only and ignore cookies. Web management forms may fall back to the primary owner cookie;
-  invalid cookies are cleared and valid use refreshes its sliding expiry. Linked-token expiry/revocation
-  rejects access without revealing resource existence.
-- **Primary-only management**: reveal, rotate, restore, linked-token create/rename/expiry/revoke require
-  the owner's primary token. Rotations replace the existing row in place; linked rotation preserves its
-  name and expiry. Lists expose metadata and prefixes only. Reveal and restore are strictly rate-limited;
-  audit token events with owner ID and prefix, never token contents.
-- **Credential configuration**: `server.tokens.max_linked` defaults to 25,
-  `server.tokens.cookie_max_age` defaults to `1y`, and `server.tokens.idle_purge_days` defaults to 0
-  (disabled). Operator token maintenance lists prefixes and revokes by prefix; it never prints raw tokens.
+### PART 11 — SECURITY & LOGGING
+- Public Endpoint Safety Principle (Security First)
+- Cryptographic Keys
+- Security Headers
+- Cross-Origin Isolation Headers
+- Privacy Signal Headers
+- Sec-Fetch-* Request Validation
+- Reporting API (Modern + Legacy)
+- Server-Timing (Debug Mode Only)
+- IDEA.md → Header Tightening Auto-Map
+- Deprecated / Legacy Headers
+- Content Security Policy
+- Route Context
+- Well-Known Files
+- API
+- Endpoints
+- Capabilities
+- Contact
+- Security Reports — Coordinated Disclosure Pipeline
+- Logging
+- Audit Log Purpose
+- Audit Log Events
+- Audit Log Format
+- Severity Levels
+- Audit Log Configuration
+- Sane Defaults
+- Audit Log Rules
+- Audit Log Access
+- Audit Log Integrity
+- Audit Log Retention
+- Compliance Standards
 
-### PART 31 — Overlay Networks (Tor & I2P)
-- Tor hidden service is REQUIRED functionality — auto-enabled whenever the `tor` binary is found on the
-  host, no explicit opt-in flag needed
-- I2P eepsite support is OPTIONAL and strictly opt-in via `features.i2p.enabled` in `server.yml`
-- Full lifecycle, request-detection, and privacy-rule details are owned by another PART/agent — read
-  AI.md PART 31 directly before touching Tor/I2P-specific code
+### PART 31 — OVERLAY NETWORKS (TOR & I2P)
+- PART 31.1: Tor Hidden Service
+- Overview
+- Configuration
+- App-Scoped Only — No Relay, Exit, or Proxy Abuse
+- Tor Network for Outbound Connections
+- Platform-Specific Requirements
+- Tor Process Management
+- Implementation
+- Behavior
+- CLI
+- PART 31.2: I2P Eepsite (OPTIONAL — opt-in)
 
 For complete details, see AI.md PART 9, PART 10, PART 11, PART 31.

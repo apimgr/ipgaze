@@ -48,7 +48,6 @@ The following endpoints are accessible without authentication:
 | `GET /server/security/report/{tracking_id}` | Researcher report status using the one-shot token in the private acknowledgment link |
 | `GET /.well-known/security.txt` | RFC 9116 security contact information |
 | `GET /.well-known/pgp-key.asc` | Public report encryption key when configured |
-| `GET /server/metrics/...` | Metrics (when enabled; service-specific bearer token may be required) |
 | `GET /robots.txt` | Robots policy |
 | `GET /favicon.ico` | Site favicon |
 | `GET /manifest.json` | PWA manifest |
@@ -57,6 +56,11 @@ The following endpoints are accessible without authentication:
 | `GET /api/swagger` | OpenAPI schema (JSON) |
 | `GET /server/docs/graphql` | GraphiQL UI when enabled |
 | `GET /api/graphql` | GraphQL endpoint when enabled |
+
+Metrics endpoints are internal operational interfaces, not public endpoints.
+When enabled, every service route requires its service-specific bearer token
+unless `server.metrics.auth.allow_unauthenticated` is enabled for a firewalled
+internal network. Do not expose these routes through a public reverse proxy.
 
 ---
 

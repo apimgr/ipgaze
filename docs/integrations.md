@@ -90,32 +90,66 @@ example.
 
 ## Prometheus Metrics
 
-When enabled in configuration, ipgaze exposes metrics endpoints under
-`/server/metrics` and `/api/v1/server/metrics`. The metrics service and its
-authentication are configured in `server.yml`.
+When enabled in configuration, ipgaze exposes internal metrics endpoints
+under `/server/metrics` and `/api/v1/server/metrics`, with `/metrics` and
+`/api/metrics` aliases. Every service endpoint requires its own bearer token
+by default; keep these routes on a trusted monitoring network.
 
 | Endpoint | Purpose |
 |----------|---------|
 | `GET /server/metrics/prometheus` | Prometheus text exposition format |
+| `GET /server/metrics/grafana` | Importable Grafana dashboard JSON |
+| `GET /server/metrics/loki` | Recent logs in Loki stream JSON format |
 
 **Enable in `server.yml`:**
 ```yaml
 server:
   metrics:
     enabled: true
-    endpoint: /server/metrics
+    auth:
+      tokens:
+        prometheus: "replace-with-a-long-random-token"
+        grafana: "replace-with-a-long-random-token"
+        loki: "replace-with-a-long-random-token"
 ```
+
+Send the matching token in `Authorization: Bearer <token>`. An empty token
+disables that service endpoint. `server.metrics.auth.allow_unauthenticated`
+can disable token checks for a firewalled internal network, but must not be
+enabled on a publicly reachable server. See the
+[metrics configuration](configuration.md) and AI.md PART 20 for the full
+access-control requirements.
 
 **Available metrics:**
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| `ipgaze_requests_total` | Counter | Total HTTP requests by method and route |
-| `ipgaze_request_duration_seconds` | Histogram | Request latency by route |
-| `ipgaze_geoip_cache_hits_total` | Counter | GeoIP cache hits |
-| `ipgaze_geoip_cache_misses_total` | Counter | GeoIP cache misses |
-| `process_goroutines` | Gauge | Active goroutines |
-| `process_resident_memory_bytes` | Gauge | Resident memory usage |
+| `ipgaze_app_info` | Gauge | Application version and build information |
+| `ipgaze_app_uptime_seconds` | Gauge | Application uptime |
+| `ipgaze_http_requests_total` | Counter | HTTP requests by method, normalized route, and status |
+| `ipgaze_http_request_duration_seconds` | Histogram | HTTP request latency by method and normalized route |
+| `ipgaze_http_request_size_bytes` | Histogram | HTTP request size by method and normalized route |
+| `ipgaze_http_response_size_bytes` | Histogram | HTTP response size by method and normalized route |
+| `ipgaze_http_active_requests` | Gauge | Requests currently being processed |
+| `ipgaze_db_queries_total` | Counter | Database queries by operation and known table |
+| `ipgaze_db_query_duration_seconds` | Histogram | Database query latency by operation and known table |
+| `ipgaze_db_connections_open` | Gauge | Open database connections |
+| `ipgaze_db_connections_in_use` | Gauge | Database connections currently in use |
+| `ipgaze_db_errors_total` | Counter | Database errors by operation and error category |
+| `ipgaze_auth_attempts_total` | Counter | Authentication attempts by mechanism and outcome |
+| `ipgaze_ratelimit_requests_total` | Counter | Rate-limiter requests by limit type and outcome |
+| `ipgaze_ratelimit_blocked_total` | Counter | Requests blocked by the rate limiter |
+
+Cache, scheduler, Tor, Go runtime, and host system metrics are also available
+when their related features are enabled. Host CPU, memory, and data-directory
+disk metrics require `server.metrics.include_system: true`; Go runtime metrics
+require `server.metrics.include_runtime: true`. The system metrics use the
+`ipgaze_system_*` prefix and runtime metrics use `ipgaze_go_*`.
+
+`ipgaze_auth_sessions_active` is listed in AI.md PART 20, but that PART also
+states that this project has no user sessions. Its meaning is unresolved in
+the source specification, so consumers should not use this gauge until the
+template contract is clarified.
 
 Scrape interval recommendation: `15s` or `30s`.
 

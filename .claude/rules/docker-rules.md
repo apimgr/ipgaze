@@ -3,71 +3,68 @@
 ⚠️ **These rules are NON-NEGOTIABLE. Violations are bugs.** ⚠️
 
 ## CRITICAL - NEVER DO
-- Never place a Dockerfile or docker-compose file in project root — everything lives under `docker/`,
-  with build-time overlay files under `docker/rootfs/` (which mirrors the container filesystem)
-- Never add a `LABEL` block to the Dockerfile — all OCI metadata (image title, description, licenses,
-  created/version/revision, url/source/documentation, vendor/authors, `com.github.containers.toolbox`) is
-  applied at build time by CI via `--label`/`--annotation` flags or `docker/metadata-action`, never baked in
-- Never add a `USER` directive or create a user/group in the Dockerfile — the container starts as root and
-  the binary creates its own user/group, directories, and permissions, then drops privileges itself; running
-  permanently as root is the exception and MUST be documented in `IDEA.md`
-- Never create data/config directories in the Dockerfile — the binary handles all setup from env vars, and
-  volume mounts auto-create their own mount points
-- Never modify `ENTRYPOINT` or `CMD` for customization — all customization goes through `entrypoint.sh`
-- Never omit `exec "$@"` (or `exec <binary> ... "$@"`) at the tail of `entrypoint.sh` — without `exec`, the
-  app is not PID 1 and tini/Docker signals never reach it, breaking graceful shutdown
-- Never bake `MODE` into the image via `ENV` — the binary defaults to production; compose files set `MODE`
-  explicitly (`production`/`development`)
-- Never include a `build:` or `version:` key in a docker-compose file
-- Never let `docker/docker-compose.test.yml` use a non-ephemeral cache/data service
-- Never hardcode secrets into any Dockerfile or compose file
-- Never create `.env`, `.env.example`, or `.env.sample`; use YAML map-style environment entries with
-  `${VAR:-default}` fallbacks
-- Never run `docker/docker-compose.yml` or `docker/docker-compose.dev.yml` as an AI agent, or run any
-  compose file from the repository directory / against repository `volumes/`
-- Never push `:dev` or `:test` tags to a production registry; those tags are local-only
+- **PART 26:** NEVER place Dockerfile or docker-compose.yml in project root
+- **PART 26:** | **NEVER modify ENTRYPOINT** | Always use entrypoint.sh for customization |
+- **PART 26:** | **NEVER modify CMD** | Pass commands to entrypoint.sh instead |
+- **PART 26:** **NEVER modify ENTRYPOINT or CMD** - all customization goes in `entrypoint.sh`
+- **PART 26:** `MODE=debug`: Explicit opt-in only — NEVER implied or auto-enabled. Minimal sanitization (internals, dumps, stack traces may be exposed). Credentials (keys, tokens, passwords, secrets) are ALWAYS redacted in every mode, no exceptions
+- **PART 26:** | `build:` | **NEVER include** |
+- **PART 26:** | `version:` | **NEVER include** |
+- **PART 26:** | `container_name:` | **Always set**, one fixed name per service, the same in production, dev, and test: `{project_name}-app`, `{project_name}-db`, `{project_name}-cache` (only the services that file includes). Dev and test never run on a production host, so a clash fails `docker compose up` instead of replacing production; their compose `name:` and network keep the `-dev` / `-test` suffix so it fails rather than adopting production's project |
+- **PART 26:** | Environment variables | **Hardcode with sane defaults** (NEVER use .env files); always YAML map style (`KEY: value`), never list style (`- KEY=value`) |
+- **PART 26:** *⚠️ FOR HUMAN USE ONLY — AI assistants must NEVER run this file.**
+- **PART 26:** *FOR HUMAN USE ONLY — AI assistants must NEVER run this file.**
+- **PART 26:** *There are TWO different filesystem concepts here - do not confuse them:**
+- **PART 26:** | **Runtime** | `./volumes/` next to the compose file | Volume mounts (config, data) | NEVER |
+- **PART 26:** *Runtime `./volumes/`** (never committed from repo-local runs):
+- **PART 26:** NEVER commit runtime `volumes/` from local runs
+- **PART 26:** *AI must NEVER run `docker-compose.yml` or `docker-compose.dev.yml` — those are human-only.** AI's preferred interface for testing is the project's `tests/` directory scripts (`tests/docker.sh`, `tests/run_tests.sh`), which wrap the temp-dir copy/run/cleanup sequence below. Direct invocation of `docker-compose.test.yml` is only a fallback when no `tests/` script exists yet.
+- **PART 26:** *NEVER:**
+- **PART 26:** | **NEVER** | Create `.env`, `.env.example`, `.env.sample` files |
+- **PART 26:** | **NEVER** | Use `${VAR}` without a fallback (stack breaks if var is unset) |
+- **PART 26:** | **NEVER** | Use list-style env vars (`- KEY=value`) — always YAML map style (`KEY: value`) |
+- **PART 26:** Debug enabled for test visibility. Includes an ephemeral Valkey cache service (`tmpfs`, no persistent volume). **MUST be copied to temp directory before direct use - NEVER run from project directory.**
+- **PART 26:** 3. **NEVER push `:dev` or `:test` tags to production registry**
 
 ## CRITICAL - ALWAYS DO
-- Use a multi-stage build: `casjaysdev/go:latest` builder stage (git+bash, `CGO_ENABLED=0` static build with
-  the standard `-ldflags "-s -w -X main.Version=... -X main.CommitID=... -X main.BuildEpoch=... -X
-  main.OfficialSite=..."`) → `alpine:latest` runtime stage
-- Install `git curl bash tini tor` in the runtime stage — Tor is installed but the binary controls all Tor
-  setup and startup (see PART 31), never configured in the Dockerfile
-- Copy the compiled binary from the builder stage and the `docker/rootfs/` build-time overlay
-  (`entrypoint.sh`) into the image; `chmod 755 /usr/local/bin/*`
-- `EXPOSE 80` always as the internal container port
-- `STOPSIGNAL SIGRTMIN+3` for proper shutdown
-- `ENTRYPOINT [ "tini", "-p", "SIGTERM", "--", "/usr/local/bin/entrypoint.sh" ]`
-- `HEALTHCHECK --start-period=10m --interval=5m --timeout=15s --retries=3 CMD /usr/local/bin/{project_name}
-  --status || exit 1`
-- Mount exactly two host volumes in every compose file: `./volumes/config:/config:z` and
-  `./volumes/data:/data:z` — never mount individual subdirectories
-- Keep container paths organized as documented: `/config/{project_name}/` (server.yml, ssl/, tor/),
-  `/data/{project_name}/` (uploads, cache, tor/), `/data/db/sqlite/server.db` (always this exact filename),
-  `/data/db/{service}/` for external services (e.g. valkey), `/data/log/{project_name}/`,
-  `/data/backups/{project_name}/`
-- Apply every required OCI label via CI (`maintainer`, `org.opencontainers.image.{vendor,authors,title,
-  base.name,description,licenses,created,version,schema-version,revision,url,source,documentation,
-  vcs-type}`, `com.github.containers.toolbox=false`) — apply the same metadata as manifest **annotations**
-  too (via `docker/metadata-action` + `build-push-action` with `annotations:` set and `labels: ""`), since
-  registries read multi-arch metadata from the manifest index, not per-platform `--label` layers
-- Build both `linux/amd64` and `linux/arm64` by default; keep builds reproducible in containers
-- For AI/automated container testing, prefer project `tests/` scripts. If none exist and direct test-compose
-  use is necessary, copy `docker-compose.test.yml` to a unique project-scoped OS temp directory and run it
-  there so `./volumes` cannot resolve inside the repository; clean up that temp directory afterward.
-- Use release tags `{PLATFORM_CONTAINER_REGISTRY}/{project_org}/{internal_name}:{latest|version|yymm|commit_id}`;
-  local development/test images use `{project_name}:dev` / `{project_name}:test` without a registry prefix
+- **PART 26:** ALWAYS use `docker/` for Dockerfiles/compose files and `docker/rootfs/` for build-time overlay files
+- **PART 26:** ALWAYS use `entrypoint.sh` for container startup
+- **PART 26:** ALWAYS use multi-stage build (no pre-built binaries needed)
+- **PART 26:** | Required packages | git, curl, bash, tini, tor |
+- **PART 26:** Database name is ALWAYS `server.db` (globally consistent)
+- **PART 26:** All images MUST carry these labels. Dockerfiles stay clean — no `LABEL` blocks; CI applies every label at build time via `--label` flags (or the workflow `labels:` input):
+- **PART 26:** See dockerfile_conventions.md → OCI Annotations for the complete list of required annotation keys.
+- **PART 26:** | **Privilege drop, not Dockerfile users** | NO `USER` directive and no user/group creation in the Dockerfile — the container starts as root and the binary creates its own user/group, creates its directories, sets permissions, then drops privileges after initialization (see "Privileged Port Binding (<1024)" for the run-mode and drop rules). Running permanently as root is the exception and MUST be documented in `IDEA.md`. |
+- **PART 26:** | **entrypoint.sh tail** | Must end with `exec "$@"` (or `exec <binary> ... "$@"`) so the application replaces the shell as PID 1 and receives signals directly — without `exec`, tini/Docker signals are delivered to bash, not the app, and graceful shutdown breaks |
+- **PART 26:** Self-contained - no pre-built binaries required
+- **PART 26:** *Note:** Tor is auto-enabled if the `tor` binary is installed. No `ENABLE_TOR` flag needed. Docker image always includes Tor.
+- **PART 26:** | `pull_policy:` | `always` |
+- **PART 26:** | `restart:` | `always` |
+- **PART 26:** | `restart:` | `always` | Always restart on failure |
+- **PART 26:** | `pull_policy:` | `always` | Always pull latest image |
+- **PART 26:** *Every docker-compose.yml MUST include the x-logging anchor:**
+- **PART 26:** *Every service MUST use the anchor:**
+- **PART 26:** *When a direct invocation is unavoidable, always use the temp directory workflow:**
+- **PART 26:** Internal port is always `80` (`PORT: 80` in every compose file)
+- **PART 26:** *Stack must work with zero `.env` files. Use inline `${VAR:-default}` fallbacks.**
+- **PART 26:** | **ALWAYS** | Use `${VAR:-default}` so the stack works without any `.env` |
+- **PART 26:** | **ALWAYS** | Operators may override via `.env` or shell env — the fallback just handles zero-config |
+- **PART 26:** Works out of the box — no setup required
+- **PART 26:** *AI/Automated Testing Workflow (REQUIRED — prefer `tests/` scripts; this is the fallback):**
+- **PART 26:** | Internal port | **80** (always) |
+- **PART 26:** | Always enabled | Docker image includes `tor`, so always enabled in containers |
+- **PART 26:** 1. **Release builds** MUST push to `{PLATFORM_CONTAINER_REGISTRY}/{project_org}/{internal_name}`
+- **PART 26:** 2. **Development builds** MUST use local-only tags (no registry prefix)
 
 ## Key Rules Summary
-Dockerfiles are multi-stage (`casjaysdev/go:latest` → `alpine:latest`), carry no `LABEL`/`USER`/directory-
-creation instructions — the binary self-manages users, directories, and privilege drop entirely from env
-vars — and route all customization through `entrypoint.sh` behind `tini`. All OCI metadata is CI-applied as
-both build-time labels and manifest annotations, never hardcoded in the Dockerfile. Compose files mount only
-`/config` and `/data` as whole trees, never `build:`/`version:` keys, and keep the container path layout
-(`/config/{project_name}`, `/data/{project_name}`, `/data/db/sqlite/server.db`, `/data/log`,
-`/data/backups`) exactly as documented so the binary's auto-created host `./volumes/` tree matches. AI
-container tests use project test scripts or a copied test compose file in a unique temp directory; production
-and development compose files are human-only. Environment configuration has inline defaults and no checked-
-in `.env` examples, and release images use the project organization/internal name registry path.
+
+### PART 26 — DOCKER
+- Docker Directory Structure
+- Dockerfile Requirements
+- Docker Compose Requirements
+- Container Configuration
+- Tor in Container
+- Container Detection
+- Image Tags
 
 For complete details, see AI.md PART 26.

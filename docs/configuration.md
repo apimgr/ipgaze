@@ -269,7 +269,11 @@ I2P hosting is disabled by default. Set `server.i2p.enabled` to `true` to
 enable an eepsite. IPGaze manages an `i2pd` process when its binary is
 available; otherwise it connects to an external SAMv3 bridge. Tunnel lengths
 and quantities apply to the managed `i2pd` provider. `bootstrap_timeout` is
-expressed in seconds.
+expressed in seconds and must be between 30 and 600. The managed provider
+uses an isolated `i2pd.conf`, disables unrelated router services, and creates
+the eepsite through a private SAM port; it does not load server tunnels from
+other configuration locations. External SAM bridges must support SAM 3.1 or
+newer.
 
 ```yaml
 server:
@@ -344,8 +348,9 @@ labels:
 ## MCP Endpoint
 
 The Streamable HTTP MCP endpoint is enabled by default. Set
-`server.mcp.enabled: false` to return `404` from `/api/v1/server/mcp`,
-`/api/mcp`, and `/mcp` without restarting the server.
+`server.mcp.enabled: false` to return the standard JSON `NOT_FOUND` error
+(HTTP `404`) from `/api/v1/server/mcp`, `/api/mcp`, and `/mcp` without
+restarting the server.
 
 ```yaml
 server:

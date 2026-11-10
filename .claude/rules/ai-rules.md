@@ -1,40 +1,289 @@
-# AI Assistant Rules (PART 0, 1)
+# AI Rules (PART 0, PART 1)
 
 ⚠️ **These rules are NON-NEGOTIABLE. Violations are bugs.** ⚠️
 
 ## CRITICAL - NEVER DO
-- Never guess or assume a requirement, file location, or design choice — STOP and ASK
-- Never edit AI.md — it is the read-only source-of-truth template (project overrides go in SPEC.md)
-- Never claim "done" without reading, searching, testing, and verifying first
-- Never create report/analysis files (AUDIT.md, COMPLIANCE.md, SUMMARY.md); temporary `AUDIT.AI.md` only during an explicit audit with >5 issues, deleted when resolved
-- Never rely on memory for spec content — read the relevant AI.md PART before implementing
-- Never add unrequested features or "improve"/"optimize" the spec
-- Never attribute any output to an AI tool anywhere (code, comments, commit trailers, PRs, docs) — output must read as human-authored
-- Never run plain `git commit` / `git push` — use the `gitcommit` wrapper only
-- Subagents never write `.git/COMMIT_MESS` or call `gitcommit` — they edit and report back to the parent
-- Never read an image >1000×1000 directly — resize to a tempdir copy first
-- Never treat a non-conforming IDEA.md as authoritative without running the migration procedure
+- **PART 0:** | **AI.md (PARTS 0-33 + PART 33 reference)** | Implementation patterns, standards, rules, and reference material | **NEVER** |
+- **PART 0:** | **Verify before claim** | NEVER say "done" without verification |
+- **PART 0:** *If ANY answer is "no" → DO NOT claim completion.**
+- **PART 0:** | **AI.md is source of truth** | ALWAYS read relevant PART before implementing. NEVER guess. |
+- **PART 0:** | **Read relevant spec before each task** | Spec drift is #1 cause of violations. Read only the PARTs relevant to the current task — do not pre-load speculatively. |
+- **PART 0:** 3. CRITICAL - NEVER DO section (from relevant PARTs)
+- **PART 0:** *Rule:** before reading any image file, check its dimensions. If either dimension exceeds 1000 px, produce a downscaled copy in `${TMPDIR:-/tmp}` and read THAT copy. The original is never modified.
+- **PART 0:** | 1 | ImageMagick 7 | `magick "$img" -resize '1000x1000>' "$out"` | Modern IM7. The `>` flag means "only shrink, never enlarge". |
+- **PART 0:** Never assume an image is small because of its filename or extension. Run the dimension check.
+- **PART 0:** If no resizer is installed, do NOT silently fall back to reading the original — STOP and tell the user which tool to install (the error message above lists the options).
+- **PART 0:** *Detection (use a command, do not eyeball):**
+- **PART 0:** *Migration procedure (NEVER overwrite without confirmation):**
+- **PART 0:** 3. **Read the whole file** before proposing anything. Do NOT skim.
+- **PART 0:** 6. **Show the user the proposed rewrite** as a diff or full file preview. Wait for explicit approval. Do NOT write the new file until approved.
+- **PART 0:** Migration is a one-time operation per project. Once IDEA.md is in the three-section format, do NOT re-run migration on subsequent reads (the detection step above is the gate).
+- **PART 0:** If old content does not fit cleanly into one of the three sections, ASK the user — do not invent a fourth section, do not silently drop content.
+- **PART 0:** | Adding a new `http.Error()` call | Use `t(r, "errors.*")` — never hardcoded English |
+- **PART 0:** | Adding HTML templates | Use `{{t .Lang "key"}}` — never hardcoded text |
+- **PART 0:** | Modifying `<html>` tag | Use `lang="{{.Lang}}" dir="{{.Dir}}"` — never hardcoded `lang="en"` |
+- **PART 0:** 1. Treat the Spanish (`es.json`) block in PART 30 as a read-only illustration: add keys to the project's real locale files, never to `AI.md` (template maintainers keep the illustration current)
+- **PART 0:** 2. Add a best-effort translation of the key to EVERY other locale file (`fr`, `de`, `it`, `ar`, and every translator-added language) in the same change — likewise update the translation when the English text changes, and remove the key from every file when it is removed. The AI translates the strings itself in every language it is fluent in; human translators can fix wording later. Never leave a key changed in `en.json` alone so the files drift apart
+- **PART 0:** Exceptions (do NOT translate):
+- **PART 0:** 3. **Never edit `AI.md` in a project** — it is a read-only copy of the template. Project values go in `IDEA.md ## Project variables`; deviations go in `SPEC.md`
+- **PART 0:** | **TODO.md** | Task tracking (human-owned) | AI may mark items done; never delete/empty |
+- **PART 0:** | **PLAN.md** | Implementation plan (human-owned) | AI may mark items done; never rewrite |
+- **PART 0:** | **Before EACH task** | Read the relevant PART(s) for that task | Prevent drift; do not pre-load speculatively |
+- **PART 0:** | **When uncertain** | Read the relevant spec section or ASK | Never guess |
+- **PART 0:** *Read the spec sections relevant to the current task before implementing. Do NOT rely on memory; do NOT pre-load the whole spec speculatively.**
+- **PART 0:** 1. **Read the AI.md PART(s) relevant to the first task** - do not load the entire file speculatively
+- **PART 0:** 4. **Never assume** - when in doubt, ask the user
+- **PART 0:** 4. **Update TODO.AI.md and TODO.md** as tasks are completed — remove items from TODO.AI.md when fully resolved and committed; mark items done in TODO.md in place (never delete from TODO.md)
+- **PART 0:** 2. **Do NOT modify AI.md** — it is read-only spec
+- **PART 0:** *AI MUST verify its own work with real tools before reporting a task as done. Do not rely on "the code looks right."**
+- **PART 0:** | Security-sensitive change (auth, crypto, input validation) | Test both the success path AND attempted bypass paths; never assume a guard works without exercising it |
+- **PART 0:** Never report "done" while any verification is still red
+- **PART 0:** If verification reveals the change is wrong in a way that can't be patched, revert and re-plan; do not paper over a failing check
+- **PART 0:** *When verification is genuinely impossible in this environment** (e.g., no browser, no DB, no display, no internet for an external API): say so explicitly. Do not imply success — list what was checked and what could not be checked, so the user knows where to look.
+- **PART 0:** *Subagents:** do not write COMMIT_MESS or call gitcommit — complete your edits and report back to the parent instance to handle the commit. Subagents also never run `make`, tests, lint, or any build/test gate — the parent runs them once after reviewing the full diff.
+- **PART 0:** 1. **Remove all completed items from TODO.AI.md** - delete each item only after it is fully resolved and committed; never truncate the whole file at once
+- **PART 0:** Remove completed items from TODO.AI.md as each one is fully resolved and committed — do not empty the file before writing COMMIT_MESS
+- **PART 0:** *This completion ritual applies ONLY to TODO.AI.md.** The human-owned `TODO.md` is never emptied or truncated by AI — AI may only mark individual items done in place. The ✅ commit format is also reserved for TODO.AI.md completion.
+- **PART 0:** *Every finding lives in exactly one place. Never duplicate it, and never leave it only in conversation.**
+- **PART 0:** | Human-owned tasks | `TODO.md` | Never emptied or deleted by AI; mark items done in place |
+- **PART 0:** | Defects found while doing other work, including the exploratory pass | Fixed immediately, otherwise `TODO.AI.md` | Never left only in conversation |
+- **PART 0:** | Defects or contradictions in `AI.md` itself | `SPEC.md` (the project's tie-break override) for the local decision, plus a report appended as one bullet under `## {project_name} AI.md issues` in the `TODO.API.md` of the project's parent directory (the shared template-maintainers' inbox; for apimgr projects `~/Projects/github/apimgr/TODO.API.md`) | `AI.md` is read-only: never edit it, and never log its defects in `TODO.AI.md`. Maintainers clear the inbox once the template is fixed |
+- **PART 0:** | File/directory rules | Critical Rules | No forbidden files/dirs, naming correct |
+- **PART 0:** 3. Section: `## CRITICAL - NEVER DO`
+- **PART 0:** *Use `AUDIT.AI.md` only for explicit audits that uncover more than 5 issues. Do NOT use `TODO.AI.md` for audit findings (see "Where Findings Are Tracked").**
+- **PART 0:** *NEVER output:** "Found X issues. Here's a list..." → FIX THEM instead.
+- **PART 0:** | **NEVER** | Include AI attribution anywhere (code, comments, commits, PRs, documentation) |
+- **PART 0:** | **NEVER** | Add "authored by Claude", "generated by AI", "Co-Authored-By: Claude/AI", etc. |
+- **PART 0:** | **NEVER** | Add AI-related comments like "AI-generated", "written by assistant", etc. |
+- **PART 0:** | **NEVER** | Reference AI tools in commit messages, PR descriptions, or changelogs |
+- **PART 0:** | **PROHIBITED** | `git commit`, `git push` (plain git) — denied by sandbox/permission rules. They bypass commit signing AND the unified commit+push wrapper |
+- **PART 0:** | **PROHIBITED (subagents)** | Writing `.git/COMMIT_MESS` or calling `gitcommit` — subagents complete edits and report back; the parent (main) instance reviews the diff and owns the commit |
+- **PART 0:** *AI commits via the `gitcommit` wrapper script, not plain `git commit`.** The wrapper resolves the signing key, picks up the commit message from `{project_dir}/.git/COMMIT_MESS`, signs the commit, and pushes to the remote — all in one invocation. Plain `git commit` and `git push` remain prohibited because they skip the wrapper. Because gitcommit pushes automatically, the message file MUST be verified accurate before invocation — there is no local staging window to catch mistakes. **Subagents (spawned via the Agent tool) are exempt from the commit workflow entirely — they make edits and return; the parent instance handles diff review, COMMIT_MESS, and gitcommit.**
+- **PART 0:** | **Modifying PARTS 0-33** | **Implementation patterns are fixed - NEVER modify** |
+- **PART 0:** | Bare `@name` in commit body | Any `@username` in a commit message creates a GitHub contributor notification/link — never use bare `@` unless intentionally crediting a real contributor; write names without `@` or wrap in backticks |
+- **PART 0:** *Comments MUST always be placed ABOVE the code they describe. NEVER inline or below.**
+- **PART 0:** | **No inline comments** | Comments ALWAYS go above code, NEVER on same line |
+- **PART 0:** | **Error handling** | Always handle errors, never ignore |
+- **PART 0:** *Rule: ALL comments go on lines ABOVE the code, NEVER inline. This prevents confusion and improves readability.**
+- **PART 0:** **JSON has NO comment syntax** — never place comments in `.json` files or JSON examples; JSON must always parse valid
+- **PART 0:** **JavaScript comments are `//` or `/* */`** — never `#`; JS must always parse valid
+- **PART 0:** *Exception:** GitHub Actions SHA-pin version annotations stay inline — `uses: owner/action@{40-char-sha}  # vX.Y.Z` — Renovate reads and rewrites the same-line comment when bumping pins; never move it above the `uses:` line.
+- **PART 0:** **Every file** ends with exactly ONE newline character — never blank lines at EOF
+- **PART 0:** *These are defined by the template and MUST NOT be modified by projects:**
+- **PART 0:** 2. **NO INVENTION** - Never invent, assume, or hallucinate. If not in SPEC, don't add it.
+- **PART 0:** | SPEC doesn't cover this case | **ASK USER** - never assume |
+- **PART 0:** | Multiple interpretations possible | **ASK USER** - never guess |
+- **PART 0:** | Seems like SPEC has an error | **ASK USER** - never "fix" it |
+- **PART 0:** | `localStorage` | Optional JS-enhancement copy of the owner API token, and pure client-only state — never load-bearing; every flow must also work via the `owner_token` cookie with JS disabled | Until cleared |
+- **PART 0:** *AI MUST NOT jump around. Complete each feature FULLY before moving to the next.**
+- **PART 0:** *NEVER:** "I'll skip this for now and come back later"
+- **PART 0:** | SPEC section unclear | **ASK USER** - never interpret |
+- **PART 1:** 1. **Read only the spec sections relevant to the current task** — do not pre-load the spec speculatively; read on demand when a section directly applies
+- **PART 1:** 3. **Never assume or guess** - ask questions if unclear
+- **PART 1:** 5. **Never modify AI.md** - it is read-only; keep IDEA.md in sync with the project (project values and business logic) and record deviations in SPEC.md
+- **PART 1:** 6. **NEVER install Go on local machine** - ALL builds use Docker, testing uses Docker or Incus
+- **PART 1:** *The local machine does NOT have Go installed. NEVER attempt to run `go` commands directly.**
+- **PART 1:** *Every project follows security-first design. Security MUST NOT compromise usability.**
+- **PART 1:** | **Never Trust Input** | All input is validated before use - never executed directly |
+- **PART 1:** | **Suggest, Don't Block** | Recommend security features (token rotation), never force them |
+- **PART 1:** Usability work MUST make the secure path easier; it MUST NOT make the secure path weaker
+- **PART 1:** AI MUST NOT reduce friction by disabling, loosening, or bypassing:
+- **PART 1:** explicit, never default
+- **PART 1:** Refactors, UX improvements, and simplifications MUST preserve or strengthen the current security posture. "Easier" never means "less secure."
+- **PART 1:** *All input is SEARCHED, never EXECUTED.**
+- **PART 1:** | **No direct execution** | Never pass user input directly to shell, SQL, eval |
+- **PART 1:** | **Password whitespace** | Passwords must NOT start or end with whitespace (reject, don't trim) |
+- **PART 1:** *Never use `SELECT *` in application code — always name columns explicitly.** `SELECT *` couples queries to schema drift (new columns silently flow into responses, dropped columns crash decoders), defeats covering indexes, and leaks sensitive columns when a row's shape changes. Acceptable only in ad-hoc `psql`/`sqlite3` shell exploration, never in committed code.
+- **PART 1:** | **SQL Injection** | Parameterized queries ONLY - never string concatenation |
+- **PART 1:** | **Command Injection** | Never shell out with user input, use libraries |
+- **PART 1:** *Never reveal to clients:**
+- **PART 1:** *NEVER use generic names that could mean multiple things:**
+- **PART 1:** | NEVER Use | Use Instead | Why |
+- **PART 1:** | **Consistent formatting** | Use `go fmt`, never manual formatting |
+- **PART 1:** | **AI.md** | Project repository | Implementation spec (HOW) | **NEVER** |
+- **PART 1:** | **TODO.md** | Project repository | Task tracking (human-owned) | **MARK ITEMS DONE ONLY** (never delete/empty) |
+- **PART 1:** | **PLAN.md** | Project repository | Implementation plan (human-owned) | **MARK ITEMS DONE ONLY** (never rewrite) |
+- **PART 1:** | **AI.md is SOURCE OF TRUTH** | Read-only — do not modify |
+- **PART 1:** *Every badge MUST be a linked badge** — `[![alt](image_url)](link_url)` is the only valid form. A bare `![alt](image_url)` with no wrapping link is never acceptable. Each badge links to the resource it represents: CI badge → CI runs page; Release badge → releases page; License badge → `LICENSE.md`; Docs badge → documentation URL.
+- **PART 1:** 3. Do NOT modify the license text (except copyright year/name in header)
+- **PART 1:** | None | **Do not add docs badge** | No docs deployed |
+- **PART 1:** Do NOT add a docs badge if documentation is not deployed
+- **PART 1:** Do NOT use `https://img.shields.io/badge/docs-unknown-lightgrey` or similar
+- **PART 1:** For code that runs in the application, NEVER use bare `/path`. Always use `{fqdn}/path`.
+- **PART 1:** *NEVER let README become outdated. It is the first thing users see.**
+- **PART 1:** | **Only save valid** | Never persist invalid data to database/config |
+- **PART 1:** | **Never clear valid** | Don't destroy/overwrite valid data with invalid |
+- **PART 1:** | **Security First** | But security should never block usability |
+- **PART 1:** | **Built-in Scheduler** | NEVER use cron, Task Scheduler, or external schedulers (PART 18) |
+- **PART 1:** *NEVER expose sensitive information anywhere in the project.**
+- **PART 1:** *Where to NEVER expose:**
+- **PART 1:** User must copy immediately - never retrievable again (**exception: owner and linked API tokens** are always viewable, masked by default, on `/server/preferences/tokens` — see "API Token Model")
+- **PART 1:** **NEVER log sensitive data**
+- **PART 1:** **NEVER in error messages or stack traces**
 
 ## CRITICAL - ALWAYS DO
-- Read only the AI.md PART(s) relevant to the current task, on demand — never pre-load speculatively
-- Session start: check `.claude/rules/` exists and is newer than AI.md; regenerate all 13 files if missing/outdated
-- Ask when unsure — asking (~100 tokens) is far cheaper than a wrong implementation + redo (~5000+ tokens)
-- Read before edit; search before create; verify before claim; test before commit
-- Every 3-5 changes: stop and check for drift against the spec
-- Update IDEA.md when features change; update TODO.AI.md/TODO.md as tasks progress (never delete/empty human-owned TODO.md, only mark done)
-- Translate all new user-facing text (`t(r, "errors.*")`, `i18n.T`, `{{t .Lang "key"}}`) — add keys to `en.json` plus note for all other locale files
-- Full Web Application Architecture: every feature works via Browser (HTML), PWA, API/automation (JSON), and CLI client — one endpoint pattern for all (`/x` web ⇄ `/api/{api_version}/x` JSON)
-- MCP tools are generated from the same public API/OpenAPI operation definitions, named by `operationId`, and dispatched through the existing API handler and auth path; never maintain a second hand-written tool list
-- Security-first, secure-by-default: never weaken authn/authz, TLS, CSRF/CSP/CORS, rate limiting, or input validation to "improve" usability
-- Parameterized queries only; never `SELECT *`; never string-concatenate SQL
-- Use intent-revealing names — never generic `Mode`, `Type`, `Status`, `Config`, `Get()`, `Init()` etc. without a qualifying subject
-- Verify every change with a real tool appropriate to its type (tests, curl, build+run, browser, etc.) before reporting done
+- **PART 0:** 3. **Keep documentation in sync** - README.md, docs/, Swagger, GraphQL must match code
+- **PART 0:** | **Read before edit** | MUST read file before modifying - no exceptions |
+- **PART 0:** *It is ALWAYS cheaper to ask than to guess wrong.**
+- **PART 0:** *ALWAYS stop and ask when:**
+- **PART 0:** | **No report files** | Fix issues directly. No AUDIT.md, COMPLIANCE.md, SUMMARY.md, etc. Temporary `AUDIT.AI.md` is allowed only for explicit audits and must be deleted when resolved |
+- **PART 0:** *On first session with a project containing AI.md, MUST perform these steps:**
+- **PART 0:** *Each rule file MUST contain:**
+- **PART 0:** 2. Warning: `⚠️ **These rules are NON-NEGOTIABLE. Violations are bugs.** ⚠️`
+- **PART 0:** 4. CRITICAL - ALWAYS DO section (from relevant PARTs)
+- **PART 0:** Read an image larger than 1000×1000 directly. Always check dimensions and resize to ≤1000×1000 first (see "Large Image Handling").
+- **PART 0:** | 4 | libvips | `vipsthumbnail "$img" --size=1000x1000 -o "$out"` | Fastest, lowest memory. Always shrinks-only. |
+- **PART 0:** Always check dimensions BEFORE reading. Reading first to "see what's in it" is the failure mode this rule prevents.
+- **PART 0:** *When this kicks in:** AI reads `IDEA.md` and finds it does NOT have all three required top-level sections (`## Project description`, `## Project variables`, `## Business logic`) in that order. This applies to projects created before the three-section format was specified, or any IDEA.md that drifted.
+- **PART 0:** 5. **Inject required variables** if missing from the old file:
+- **PART 0:** `internal_name` — initial value MUST equal `project_name` (stable after this — see PART 0 first-time setup rules)
+- **PART 0:** *Every time AI writes or modifies code that contains user-facing text, it MUST be translated.**
+- **PART 0:** | Trigger | Required Action |
+- **PART 0:** *After adding, changing or removing translation keys, AI MUST:**
+- **PART 0:** *Rule:** Check Files is discovery only. For compliance verification, use the Audit process (explicit "audit" command required).
+- **PART 0:** | **SPEC.md** | Project-specific rule overrides (optional, may be empty) | When a project rule must contradict the template or global |
+- **PART 0:** | **IDEA.md** | Project plan (WHAT) - must follow AI.md | Features change |
+- **PART 0:** AI.md is ALWAYS the source of truth for the template baseline
+- **PART 0:** IDEA.md is the project PLAN — must be SPEC compliant
+- **PART 0:** The ✅ emoji MUST be used for todo completion commits
+- **PART 0:** Body MUST summarize what was accomplished
+- **PART 0:** | File Set | Must Match | Check For |
+- **PART 0:** *Do AI rule files exist and follow the required format?**
+- **PART 0:** | **Required format** | Each file has all required sections | See format requirements below |
+- **PART 0:** *Each rule file MUST contain (in order):**
+- **PART 0:** 4. Section: `## CRITICAL - ALWAYS DO`
+- **PART 0:** *All documentation MUST match actual code/project state AND comply with spec PART:**
+- **PART 0:** | **Sync items** | Docs, Swagger, GraphQL, CI/CD must match code |
+- **PART 0:** | **ALWAYS** | All output should appear as if written by a human senior developer |
+- **PART 0:** | **ALWAYS** | AI acts as an extension of the user, not a separate contributor |
+- **PART 0:** | **Required** | Write `{project_dir}/.git/COMMIT_MESS` BEFORE running `gitcommit --dir {project_dir} all`. Re-read it after writing to confirm accuracy |
+- **PART 0:** *When an image or screenshot is from a URL (not a local file), AI MUST:**
+- **PART 0:** | Subagent writing `.git/COMMIT_MESS` | Commit message must be written by the parent instance after reviewing the actual diff |
+- **PART 0:** | Changing NON-NEGOTIABLE sections | Specification violation |
+- **PART 0:** | **CSRF protection** | All forms must have CSRF tokens |
+- **PART 0:** **CSS comments are `/* */` only** — `//` and `#` are invalid CSS and break the stylesheet; CSS must always parse valid
+- **PART 0:** *ALL code, responses, and files MUST be properly formatted.**
+- **PART 0:** | **Makefile** | Tabs (required) | 180 | Single `\n` | Manual |
+- **PART 0:** | Using .yaml instead of .yml | Always use `server.yml` |
+- **PART 0:** | **Dependencies** | Required packages (add to Dockerfile) |
+- **PART 0:** *Before EVERY file change, AI MUST verify:**
+- **PART 0:** *After EVERY file change, AI MUST verify:**
+- **PART 0:** *AI must verify each item matches SPEC EXACTLY:**
+- **PART 0:** *When AI asks user a question, ALWAYS use numbered or lettered options for easy selection:**
+- **PART 0:** Always number (1, 2, 3) or letter (a, b, c) options
+- **PART 0:** 1. **SPEC IS LAW** - Every section of this SPEC must be implemented. No exceptions.
+- **PART 0:** 3. **COMPLETE COVERAGE** - All non-optional sections MUST be implemented fully.
+- **PART 0:** | PART | Section | Required |
+- **PART 0:** | 0 | AI Assistant Rules | ✅ Follow always |
+- **PART 0:** | 1 | Critical Rules | ✅ Follow always |
+- **PART 0:** *PART 32: Client — REQUIRED for ALL projects.** Every project ships the CLI client; there is no skip case.
+- **PART 0:** | **No partial implementations** | Every feature must be 100% complete per SPEC |
+- **PART 0:** | **No skipping "minor" details** | Every detail in SPEC is required |
+- **PART 0:** *ALWAYS:** "I'm blocked on X because Y. How should I proceed?"
+- **PART 1:** Every feature MUST work via:
+- **PART 1:** 4. **Every NON-NEGOTIABLE section MUST be implemented exactly as specified**
+- **PART 1:** | **Building** | Docker `casjaysdev/go:latest` | ALWAYS - Go compilation |
+- **PART 1:** | **Least Privilege** | Minimal permissions required for each operation |
+- **PART 1:** These applications are servers first. Unless the user explicitly says otherwise, AI MUST treat them as internet-facing and hostile-traffic-exposed by default
+- **PART 1:** Any intentionally weaker compatibility/convenience mode MUST be:
+- **PART 1:** *All code must be written as if by a human - clear, readable, and maintainable.**
+- **PART 1:** *Names MUST reveal intent. You should know what something does just by reading its name.**
+- **PART 1:** *Boolean functions MUST indicate what condition they check:**
+- **PART 1:** *Type names MUST be specific:**
+- **PART 1:** *Constants must include context:**
+- **PART 1:** *Helper functions must be explicit:**
+- **PART 1:** | **IDEA.md is the project PLAN** | Update when features change, must follow AI.md |
+- **PART 1:** | **TODO.AI.md for 3+ tasks** | Required when doing 3 or more tasks |
+- **PART 1:** *README.md MUST always be kept updated. Update after ANY feature change, bug fix, or configuration change.**
+- **PART 1:** *The build status badge MUST match the project's hosting platform.**
+- **PART 1:** 1. File must be named `LICENSE`, `LICENSE.md`, or `LICENSE.txt` (root of repo)
+- **PART 1:** 2. License text must match a known license (use exact template from choosealicense.com)
+- **PART 1:** *mkdocs.yml site_url must match:**
+- **PART 1:** *Every README.md MUST include a Disclaimer section, placed immediately before License.**
+- **PART 1:** **Embedded code**: Must use configured FQDN variable for the running instance.
+- **PART 1:** If `{official_site}` is defined, ALL documentation examples MUST use the full URL.
+- **PART 1:** 1. **API examples**: Always use `{official_site}` as base URL
+- **PART 1:** Document that user must specify their server URL
+- **PART 1:** *ALL curl commands in docs, examples, tests, and scripts MUST use this format:**
+- **PART 1:** | Flag | Purpose | Why Required |
+- **PART 1:** *EVERY principle below MUST be followed. No exceptions.**
+- **PART 1:** | **Validate everything** | All input must be validated before processing |
+- **PART 1:** | **Everything Configurable** | ALL settings MUST be configurable via `server.yml` |
+- **PART 1:** *Configuration changes MUST apply immediately without server restart.**
+- **PART 1:** | **No restart required** | Changes take effect immediately after saving |
+- **PART 1:** *What MUST live reload:**
+- **PART 1:** [ ] All NON-NEGOTIABLE sections must be implemented exactly
+- **PART 1:** [ ] TODO.AI.md required for 3+ tasks
 
 ## Key Rules Summary
-- AI.md PARTS 0-33 = HOW (read-only); IDEA.md = WHAT (editable); SPEC.md = project-specific overrides (SPEC.md > AI.md > global CLAUDE.md)
-- Golden rule ordering: Correct > Verified > Fast
-- Red-flag self-talk ("probably what they meant", "should work", "I'll fix later") means STOP
-- Audit is explicit-command-only ("audit" / "check compliance" / "verify project") — normal work is not an audit
-- All commits go through `gitcommit --dir {dir} all`, message written to `.git/COMMIT_MESS` first and re-read to verify
+
+### PART 0 — AI ASSISTANT RULES (READ FIRST)
+- AI.md Structure
+- AI Behavior Rules
+- Spec Compliance Rules
+- Check Files Process (Discovery)
+- Audit (Explicit Command Only)
+- Project Files
+- Mandatory Compliance Schedule
+- Before Starting Work
+- During Work
+- After Work
+- Self-Validation Loop
+- TODO.AI.md Completion
+- Where Findings Are Tracked
+- Project Audit
+- Issues Found
+- Sync Required
+- Completed
+- Common Drift Patterns to Avoid
+- Attribution
+- Tool Access
+- Prohibited Actions
+- Code Style Rules
+- Handling Ambiguity
+- Common Mistakes to Avoid
+- Migration Principles
+- Migration Process
+- Migration Conflicts
+- Post-Migration Checklist
+- The Three Laws of Migration
+- AI MUST Follow This Process
+- Common AI Deviation Patterns (NEVER DO THESE)
+- AI Migration Verification Protocol
+- When AI Is Unsure
+- Migration Checklist
+- Red Flags (AI Must Stop and Ask)
+- AI Question Format
+- Migration Success Criteria
+- Final Migration Verification
+- Terminology
+- The Three Laws of Implementation
+- Section Implementation Requirements
+- AI Implementation Process
+- Common AI Implementation Mistakes (NEVER DO THESE)
+- Implementation Discipline
+- Implementation Verification Protocol
+- New Project Completion Checklist
+- What To Do When Stuck
+
+### PART 1 — CRITICAL RULES
+- Full Web Application Architecture
+- Working Roles
+- CRITICAL: Specification Compliance
+- Security-First Design
+- Code Style & Naming
+- Disclaimer
+- API
+- About
+- Official Site
+- Features
+- Production
+- Client
+- Configuration
+- Other
+- Development
+- License
+- Development Principles
+- Target Audience
 
 For complete details, see AI.md PART 0, PART 1.

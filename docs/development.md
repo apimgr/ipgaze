@@ -236,7 +236,7 @@ release and tag. Go commands run in `casjaysdev/go:latest` containers.
 |----------|---------|-------------|
 | `ci.yml` | Push/pull request to main or master, weekly schedule, or manual | Tests, lint, build, coverage, vulnerability and full-history secret scans, image scan, and action SHA policy |
 | `licenses.yml` | Push/pull request to main or master, or manual | Dependency license check |
-| `daily.yml` | Daily schedule, push to main or master, or manual | Eight-platform build and rolling release |
+| `devel.yml` | Daily schedule, push to main or master, or manual | Eight-platform build and rolling release |
 | `beta.yml` | Push to `beta` or manual | Beta builds |
 | `release.yml` | Version tag push or manual | Tagged releases for eight platforms |
 | `docker.yml` | All branch pushes, version tags, daily schedule, or manual | Multi-architecture Docker image builds for amd64 and arm64 |

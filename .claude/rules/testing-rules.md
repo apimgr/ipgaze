@@ -1,46 +1,206 @@
-# Testing Rules (PART 28, 29, 30)
+# Testing Rules (PART 28, PART 29, PART 30)
 
 ⚠️ **These rules are NON-NEGOTIABLE. Violations are bugs.** ⚠️
 
 ## CRITICAL - NEVER DO
-- Never run `go test`, `go build`, or any build tooling directly on the host — Docker (`casjaysdev/go:latest`) for building, Incus (`debian:latest`/`alpine:latest`) or Docker for test execution only
-- Never run broad/host-affecting commands (`docker system prune`, unscoped `kill`, unscoped `pkill`) — all process/container management stays scoped to this project's own containers/processes
-- Never use a Docker Compose file other than `docker/docker-compose.test.yml` for AI-driven testing
-- Never commit runtime-generated config (`server.yml`, tokens, etc.) into the repo — config files are runtime-only, never checked in
-- Never commit with a failing test or missing the ≥60% coverage gate; never skip tests to save time
-- Never put non-ReadTheDocs files in `docs/` — it is ONLY for MkDocs documentation (source code goes in `src/`, scripts in `scripts/`)
-- Never let `docs/` describe a feature that doesn't exist, or omit a feature that does — it must reflect the shipped product as it actually behaves now
-- Never hardcode a user-facing string outside the i18n system — every human-readable string (web, API, Swagger/GraphQL, email, CLI/agent output, health page, cookie consent, legal pages) goes through translation keys
-- Never let a locale JSON file diverge from `en.json`'s key set — missing keys are a build-time failure, not a runtime fallback to design around
-- Never use `fmt.Sprintf` for translation interpolation — use literal `{variable}` replacement
-- Never skip WCAG 2.1 AA requirements (contrast, keyboard nav, ARIA, focus management, 44x44px touch targets) to simplify markup
+- **PART 28:** When a test or debug step requires `reboot`, `systemctl`, `iptables`, `mount`, package install, network reconfiguration, or any other host-affecting command, that step MUST run inside a container, VM, chroot, or network namespace — never on the host.
+- **PART 28:** *See PART 0: "Host System Safety Rule" for the full forbidden-command list, allowed contexts, detection guidance, and the required refusal flow. See FINAL: "HOST SYSTEM SAFETY CHECKLIST" for audit items.**
+- **PART 28:** *See Critical Rules: Files & Directories Master Rules for complete forbidden lists.**
+- **PART 28:** | Test databases | In temp directory, never project |
+- **PART 28:** *AI must NEVER:**
+- **PART 28:** | `./volumes/` | ❌ NEVER in the source repo | Pollutes project directory |
+- **PART 28:** | `./docker/rootfs/` | ❌ NEVER for runtime | Build-time overlay only |
+- **PART 28:** | **AI** | ❌ FORBIDDEN | ❌ FORBIDDEN | ✅ Preferred via `tests/` scripts; direct temp-dir invocation only as a fallback |
+- **PART 28:** *See Critical Rules: Files & Directories Master Rules - "NEVER Create These Files"**
+- **PART 28:** Config files are NEVER in the repository. They are generated at RUNTIME:
+- **PART 28:** *CRITICAL: NEVER use `/tmp` root directory directly. ALWAYS use `/tmp/{project_org}/{internal_name}-XXXXXX` structure.**
+- **PART 28:** *FORBIDDEN:**
+- **PART 28:** | **NEVER** | Use project directory for test/runtime data |
+- **PART 28:** | **NEVER** | Hardcode `/tmp` - use `os.TempDir()` or `mktemp` |
+- **PART 28:** | **NEVER** | Use bare `mktemp -d` without org prefix |
+- **PART 28:** | `/tmp/` | `/tmp/{project_org}/{internal_name}-XXXXXX/` | NEVER use root tmp |
+- **PART 28:** | Hardcoded org name | Detect from git remote or path | Auto-detect, never hardcode |
+- **PART 28:** *⚠️ NEVER RUN BINARIES DIRECTLY ON THE LOCAL MACHINE. ALWAYS USE CONTAINERS. ⚠️**
+- **PART 28:** | **NEVER run binaries locally** | All binaries run inside containers, never directly |
+- **PART 28:** | **NEVER** | Run `go build` directly on local machine |
+- **PART 28:** | **NEVER** | Run `go test` directly on local machine |
+- **PART 28:** | **NEVER** | Run `binaries/{project_name}` on local machine |
+- **PART 28:** | **NEVER** | Run `$BUILD_DIR/{project_name}` on local machine |
+- **PART 28:** *Timing rule:** Do NOT defer unit tests to the end. When you add or change logic in a package, create or update the matching `*_test.go` in the same work pass.
+- **PART 28:** *Engine:** `github.com/chromedp/chromedp` driving headless Chromium over CDP — pure Go, no Node toolchain. Test code lives in `tests/e2e/` behind the `e2e` build tag, so `make test` never sees it; the entry point is `./tests/e2e.sh`, which Docker-wraps `go test -tags e2e ./tests/e2e/...` and joins the existing manual `./tests/*.sh` script family (this PART → "Testing Strategy"). No new Makefile target — the six-target set (PART 25) is fixed. Everything runs inside Docker like every other test (this PART → "Host System Safety Applies to All Testing & Debugging").
+- **PART 28:** | 1 — SSR | plain `net/http` client (no browser) | n/a (raw HTML) | Server renders complete, correct HTML: real page content in the initial response, correct `<title>`, meta tags, valid structure — never an empty shell that JS fills in later |
+- **PART 28:** The initial HTML response contains the actual page content — assert on real domain data (the paste body, the joke text, the resource name), never just HTTP 200
+- **PART 28:** Fixture data seeded into a fresh test database before the suite; never depends on prior runs
+- **PART 28:** Failure artifacts (screenshots, page HTML, server log) go to the tempdir structure (this PART → "Temporary Directory Structure") — never the project tree
+- **PART 28:** | `make test` | Unit + route tests only — the commit gate; NEVER runs E2E | Before every commit |
+- **PART 28:** `./tests/e2e.sh` follows the same manual, developer-initiated pattern as `./tests/incus.sh` and is Docker-wrapped: the E2E container needs Chromium (`chromedp/headless-shell` as a sidecar, or Chromium installed in the test image). In CI, E2E is at most a manually triggered job (`workflow_dispatch`) that uploads failure artifacts — it is never a required check and never blocks commits, merges, or releases.
+- **PART 28:** Every exploratory-pass finding is either fixed immediately or logged in `TODO.AI.md` (explicit-audit findings follow "Where Findings Are Tracked") — never left only in conversation
+- **PART 28:** Every confirmed finding is converted into a committed deterministic chromedp test so it can never regress silently
+- **PART 28:** Agent runs are not reproducible: they are NEVER a gate of any kind — the committed deterministic suite is the repeatable record of frontend correctness, run on demand alongside this pass
+- **PART 28:** | **No auth setup** | Tests MUST NOT attempt login or pass tokens |
+- **PART 28:** *NEVER run binaries directly on local machine - always use Docker or Incus containers!**
+- **PART 28:** *STRICT RULES: Only kill/remove the EXACT process or container being worked on. NEVER anything else.**
+- **PART 28:** | **One at a time** | Kill ONE specific PID, never patterns |
+- **PART 28:** | **NEVER other containers** | Even if they look related or unused |
+- **PART 28:** | **NEVER images not ours** | Only remove `{project_org}/{internal_name}:*` images |
+- **PART 28:** | **NEVER base images** | Never remove `golang`, `alpine`, `ubuntu`, etc. |
+- **PART 28:** | **NEVER volumes** | Unless explicitly part of this project |
+- **PART 28:** 3. **Be specific**: Use exact names, PIDs, or paths - NEVER patterns
+- **PART 29:** *CRITICAL:** The `docs/` directory is **ONLY** for ReadTheDocs files (MkDocs documentation). **NEVER** put other files in `docs/` - use `src/` for source code, `scripts/` for scripts, etc.
+- **PART 30:** | **Unsupported language fallback** | If `--lang` or `Accept-Language` specifies an unsupported language, silently fall back to English (`en`) — never error or crash |
+- **PART 30:** *The table above is the REQUIRED MINIMUM, not the exhaustive list.** A project may support more languages; it never supports fewer. Translators are expected to add more over time (see "Translating"); Chinese and Japanese, for example, are deliberately not in the minimum and can be contributed later. Rules for any language beyond the table:
+- **PART 30:** | **Defaults** | The runtime default enabled languages are every embedded locale (the required minimum six plus any extra); an operator may narrow the list but never below the six |
+- **PART 30:** The selector is a plain GET form — the server already handles `?lang=`, so switching languages works with zero JavaScript. As progressive enhancement, external JS may auto-submit the form on `change` and hide the Go button (bound via `addEventListener` in an external file — never inline, the CSP blocks inline event handlers).
+- **PART 30:** | **HTTP errors** | All `http.Error()` responses MUST use `t(r, "errors.*")` — never hardcoded English |
+- **PART 30:** | **Interpolation** | Named `{variable}` tokens only: `"Hello, {name}"` — substituted by LITERAL string replacement (`TranslateFormat`), never by `fmt.Sprintf` (a translation is not a format string); `%s`/`%d` verbs and positional `{0}` placeholders are forbidden in locale files |
+- **PART 30:** *Every project ships `docs/translating.md` (ReadTheDocs page, linked from `CONTRIBUTING`/README) with the content of this section, so a translator can contribute without reading the code. `en.json` is the single source: translators never edit it, they translate it.**
+- **PART 30:** | **File format** | UTF-8 JSON, same structure and key order as `en.json`, 2-space indent, no trailing commas, no comments. Keys are never translated or renamed; only values are |
+- **PART 30:** | **Whole sentences** | Each value is a complete phrase. Never rely on joining fragments; word order, gender and case differ per language. If an English string looks like a fragment, report it as an issue instead of working around it |
+- **PART 30:** | **Register and tone** | One consistent register per language (formal "you": `Sie`, `usted`, `vous`, `Lei`, ...). Short and neutral, matching the English UI tone; no slang, humor or idioms that do not travel |
+- **PART 30:** | **Keeping translations current** | AI assistants keep every locale file in sync with each English string change (add, change, remove) using best-effort translations in the same change — the AI rule in PART 0 → "Translation Rule" — so key sets never drift. The AI writes them whenever it is fluent in the language; human translators refine or correct them at any time through the normal contribution flow, and no marker or flag is needed. A language is dropped from the build only if its maintainer asks to retire it |
+- **PART 30:** *Plural key parity (exception to exact key parity):** key parity with `en.json` is measured on MESSAGE keys. A plural message (an object under `plurals`, for example `plurals.items`) counts as ONE key whatever categories it holds. Inside it, each language provides exactly the CLDR categories that language needs (always `other`): English `one`, `other`; Arabic `zero`, `one`, `two`, `few`, `many`, `other`; Italian `one`, `many`, `other`; Chinese or Japanese `other` only. A language never needs to copy English's categories and never omits one it requires. `zero` is additionally allowed in any language as an optional explicit zero-count text ("No items"). Any other category the language does not use is an orphan and fails the build. Placeholder parity inside a plural message: `{count}` is optional in every category (an explicit zero or singular text such as "No items" may omit it); every OTHER placeholder (`{name}`, ...) must appear, spelled identically, in every category of that message and in every language's version of it.
+- **PART 30:** | Toast notification | Do NOT move focus (use aria-live) |
+- **PART 30:** *Never convey information by color alone:**
 
 ## CRITICAL - ALWAYS DO
-- Run `make test` (Docker, `casjaysdev/go:latest`) as the Phase 1 Toolchain Gate before every commit — unit tests via `*_test.go`, ≥60% coverage required
-- Use `./tests/run_tests.sh`, `./tests/docker.sh`, `./tests/incus.sh` for Phase 2 Binary Validation (100% endpoint coverage; manual/developer-initiated, not a commit gate)
-- Use temp directories shaped `/tmp/{project_org}/{internal_name}-XXXXXX/` for all test/build scratch output — never write test artifacts into the project tree
-- Test every route under both applicable content-negotiation types: frontend routes with `text/html` and `text/plain`; API routes with `application/json` and `text/plain`; verify `.txt` endpoints explicitly
-- Keep browser E2E tests (`tests/e2e.sh`, `tests/e2e/`, `e2e` build tag, chromedp-based) covering all 3 mandatory tiers: SSR/No-JS, Full-JS, and the universal project-feature checklist — these run outside the commit gate
-- Host documentation on ReadTheDocs via MkDocs Material (`mkdocs.yml`, `.readthedocs.yaml`) with dark/light/auto theme switching per PART 16
-- Keep all of `docs/index.md`, `installation.md`, `configuration.md`, `api.md`, `security.md`, `integrations.md`, `development.md`, `requirements.txt` present and current; add `cli.md` if the project ships a CLI
-- Document any public discovery/standards endpoints (`/.well-known/**`, Swagger/GraphQL docs, autodiscover, OAuth/OIDC metadata, native app association files, security-reporting endpoints) in the relevant docs page
-- Document and validate MCP at `/api/{api_version}/server/mcp` plus `/api/mcp` and `/mcp`, including Streamable HTTP, Bearer auth, disabled behavior, and generated tool coverage
-- Support all 7 required languages (en, es, zh, fr, ar, de, ja) with locale files at `src/common/i18n/locales/{lang}.json`, embedded via `go:embed`
-- Resolve language via `?lang= query param → lang cookie → Accept-Language header → default en`; resolve `--lang` CLI flag via `flag > config > LANG/LC_ALL env > default en`
-- Use dot-separated lowercase translation keys; nest plurals under `zero/one/two/few/many/other` per language's actual plural rules (e.g. Arabic uses all six categories, English/German/Spanish use only `one`/`other`)
-- Enforce key-set parity between `en.json` and every other locale at build/init time (this project implements it as `validateKeys()` + an `init()` panic in `src/common/i18n/i18n.go`, not a standalone CLI tool)
-- Provide skip links, correct ARIA roles/labels, visible focus states, and `lang="{{.Lang}}" dir="{{.Dir}}"` (never hardcoded `lang="en"`) on every rendered page
+- **PART 28:** *Testing Rule:** ALL runtime/test data MUST use temp directories:
+- **PART 28:** | REQUIRED | Example |
+- **PART 28:** | `$TEMP_DIR/volumes/` | ✅ ALWAYS | Proper temp directory isolation |
+- **PART 28:** | `/tmp/{org}/{project}-XXXXXX/volumes/` | ✅ ALWAYS | Full path equivalent |
+- **PART 28:** | **Always current** | Embedded defaults always in sync with code |
+- **PART 28:** *REQUIRED:**
+- **PART 28:** *Always use `{project_org}/{internal_name}-` structure for identifiable temp dirs:**
+- **PART 28:** | **ALWAYS** | Use `{project_org}/{internal_name}-` structure for all temp dirs |
+- **PART 28:** | **ALWAYS** | Detect org from git remote or directory path |
+- **PART 28:** | `/tmp/myfile` | `/tmp/cloudops/echoip-aB3xY9/myfile` | Always use org/project structure |
+- **PART 28:** | `mktemp -d` | `mktemp -d "${TMPDIR:-/tmp}/${PROJECT_ORG}/${INTERNAL_NAME}-XXXXXX"` | Must include org/project |
+- **PART 28:** | `os.TempDir()` alone | `os.MkdirTemp(filepath.Join(os.TempDir(), projectOrg), projectName+"-")` | Must nest under org |
+- **PART 28:** *Rule: ALL temp directories MUST be under `/tmp/{project_org}/{internal_name}-XXXXXX/` - no exceptions.**
+- **PART 28:** *ALL builds, tests, and binary execution MUST use containers. The local machine is for orchestration only.**
+- **PART 28:** | **ALWAYS** | Build inside container, run inside container |
+- **PART 28:** *Two test phases are REQUIRED:**
+- **PART 28:** No server running required
+- **PART 28:** Minimum required scripts: `./tests/run_tests.sh`, `./tests/docker.sh`, `./tests/incus.sh`, `./tests/e2e.sh` (browser E2E — see "Browser E2E Testing" below; standalone entry point, not invoked by `./tests/run_tests.sh`)
+- **PART 28:** These scripts complement binary coverage; they do **NOT** replace required Go unit tests in `*_test.go`
+- **PART 28:** *Reason both are required:**
+- **PART 28:** *Both test phases are REQUIRED for all projects:**
+- **PART 28:** *Integration tests MUST be comprehensive:**
+- **PART 28:** ✓ Test content negotiation with ALL required Accept headers (see below)
+- **PART 28:** *Every route MUST be tested with ALL applicable Accept headers. No exceptions.**
+- **PART 28:** | Route Type | Required Accept Headers | Why |
+- **PART 28:** *Example: Open data API project MUST test:**
+- **PART 28:** *Example: Jokes API (read-only) MUST test:**
+- **PART 28:** *Example: Weather API (external integration) MUST test:**
+- **PART 28:** *Example: Link Shortener (URL mapping) MUST test:**
+- **PART 28:** *Every package with logic MUST have unit tests:**
+- **PART 28:** *Go unit tests must achieve ≥60% code coverage. Integration tests must cover 100% of endpoints.**
+- **PART 28:** | **Phase 1 — Toolchain Gate** | ≥60% code coverage | `go test -cover` must report ≥60% |
+- **PART 28:** | Endpoint Type | Must Test |
+- **PART 28:** *In CI/CD Pipeline (REQUIRED):**
+- **PART 28:** | **Always** | Auth, token validation, error paths | Security-critical; bugs here are severe |
+- **PART 28:** | **Always** | DB queries, schema init, migrations | Data integrity |
+- **PART 28:** | **Always** | API handlers, request parsing | Public contract |
+- **PART 28:** | **Before committing** | `make test` (Phase 1 required) | Toolchain gate must pass before every commit |
+- **PART 28:** | **Availability** | May not be installed | Always available |
+- **PART 28:** *ALL projects MUST have these test scripts in `tests/` directory:**
+- **PART 28:** *docker.sh and incus.sh MUST:**
+- **PART 28:** | **Build method** | ALWAYS use Docker (casjaysdev/go:latest) with host cache dirs (`GO_CACHE`/`GO_BUILD`) |
+- **PART 28:** | **Test container tools** | Docker alpine MUST install: `apk add --no-cache curl bash file jq` |
+- **PART 28:** | **API endpoint testing** | MUST test .txt extension and Accept headers on API routes |
+- **PART 28:** | **Frontend testing** | MUST test smart detection (CLI → formatted text, browser → HTML) |
+- **PART 28:** | **Project-specific tests** | MUST test ALL endpoints from IDEA.md (CRUD, API, frontend) |
+- **PART 28:** | **Cleanup** | ALWAYS use `trap` for cleanup |
+- **PART 28:** | **Always current** | Completions match binary version exactly |
+- **PART 28:** The web frontend (PART 16) is verified end to end by driving the real frontend in a real headless browser. This suite is the project's beta-testing harness: it is built alongside the frontend and run **on demand** — when the user asks for beta testing, before a release, or after major frontend work. It is **NOT part of the commit gate** (`make test` does not run it). When it does run, every requirement in this section is non-negotiable: route unit tests and `curl` smoke tests are not a substitute for verifying what a user actually sees and does, with and without JavaScript. It covers every web surface the server exposes: the project's resource pages and forms, the API docs pages (Swagger UI, GraphiQL), and the standard server pages (about, status, error pages).
+- **PART 28:** All three tiers are REQUIRED. A feature that only passes Tier 3 is a PART 14 progressive-enhancement violation, not a passing test.
+- **PART 28:** No loading spinners, empty `<div id="app">` shells, or client-side-only rendering — that violates PART 14 (Server-Side Processing Philosophy) and MUST fail the test
+- **PART 28:** Generic route checks alone are NON-COMPLIANT. The suite MUST exercise this project's actual domain features end to end, derived feature-by-feature from IDEA.md — every user-facing feature gets at least one Tier-1 assertion, one Tier-2 scenario, and one Tier-3 scenario, each a named test.
+- **PART 28:** | Example project | Minimum required E2E scenarios |
+- **PART 28:** **Zero external network**: every outbound dependency (webhooks, GeoIP downloads, update checks) is stubbed with local `httptest` servers — the whole suite MUST pass offline
+- **PART 28:** *All routes are publicly accessible — no authentication required. Tests verify responses, not access control.**
+- **PART 28:** | **Test all public routes** | Every route MUST return 200 for valid requests |
+- **PART 28:** | Purpose | Image | Required Packages | Why |
+- **PART 28:** *When a Makefile exists (standard for all bootstrapped projects), always use make targets:**
+- **PART 28:** *Build outputs to `binaries/`, test by running in container. Always use `make build` when a Makefile exists.**
+- **PART 28:** | **Identify first** | ALWAYS get exact PID before killing |
+- **PART 28:** *Always be explicit and project-scoped when deleting files.**
+- **PART 28:** *Note:** Always use `mktemp -d "${TMPDIR:-/tmp}/${PROJECT_ORG}/${INTERNAL_NAME}-XXXXXX"` and save the path to a variable for cleanup. Temp dirs are auto-cleaned on reboot.
+- **PART 29:** *Every project MUST have documentation hosted on ReadTheDocs.**
+- **PART 29:** *`docs/` is the operator/user/integrator documentation set. It MUST explain the shipped product as it actually behaves now.**
+- **PART 29:** `docs/` MUST cover the browser surface, CLI surface, API surface, configuration surface, and any enabled public protocol/integration surface
+- **PART 29:** If the project exposes public discovery or standards endpoints (for example `/.well-known/**`, Swagger/GraphQL docs, autodiscover, OAuth/OIDC provider metadata, native app association files, or security-reporting endpoints), the relevant docs pages MUST explain them
+- **PART 29:** If a feature exists in code and affects operators, integrators, or end users, it MUST be reflected in `docs/`
+- **PART 29:** `docs/` is prose/reference documentation; generated OpenAPI/GraphQL output does NOT replace the required docs pages
+- **PART 29:** | File | Required | Purpose |
+- **PART 29:** *The theme colors defined above are DEFAULT values.** Individual projects MAY customize colors to match their branding, but MUST:
+- **PART 30:** *Every human-readable string in the entire application MUST be translatable.** This includes:
+- **PART 30:** | **One registry** | The supported set comes from ONE registry (code, native name, direction, CLDR plural categories) that is checked at build time against the embedded locale files: registry entries, locale files and the runtime default list MUST be the same set. No separate hardcoded language list in config defaults, the language selector, `Accept-Language` matching or `isSupported` |
+- **PART 30:** | **Documentation** | README, `--help` and the language selector list only supported languages, derived from or verified against the registry; the stated count MUST equal the number of locale files. Claiming a language with no locale file (for example a README listing Korean without `ko.json`) is a defect |
+- **PART 30:** *Every key in `en.json` MUST exist in all other language files.** Build-time validation enforces this.
+- **PART 30:** | **No hardcoded strings** | Every user-facing string MUST use `t(key)` or `{{t .Lang key}}` |
+- **PART 30:** | **API responses** | All error/status messages in JSON responses MUST use translation keys |
+- **PART 30:** | **Config defaults** | Config values shown to users (e.g., `reject_message`) MUST fall back to translated keys |
+- **PART 30:** 7. Update the project's README language list and `docs/translating.md` credits (the count MUST equal the number of locale files)
+- **PART 30:** | **WCAG 2.1 AA** | Mandatory | Full compliance required |
+- **PART 30:** *Automated tests MUST include accessibility checks:**
 
 ## Key Rules Summary
-- **Two-phase testing strategy**: Phase 1 = Toolchain Gate (`make test`, Docker, ≥60% coverage, blocks commits) — Phase 2 = Binary Validation (`tests/*.sh`, full endpoint/content-negotiation coverage, developer-initiated, not a commit gate)
-- **Container-only builds/tests**: `casjaysdev/go:latest` for building; Docker (`docker/docker-compose.test.yml` only) or Incus (`alpine:latest`/`debian:latest`) for test execution — never on the host
-- **E2E is separate from the commit gate**: chromedp-based `tests/e2e/` behind the `e2e` build tag, 3 mandatory tiers (SSR/No-JS, Full-JS, feature checklist), must be deterministic/hermetic
-- **`docs/` is operator/user/integrator documentation only**, must track the real shipped surface (browser, CLI, API, config, any public protocol/discovery endpoints) — generated OpenAPI/GraphQL output does not substitute for the required prose pages
-- **ReadTheDocs stack**: MkDocs Material theme, `mkdocs.yml` + `.readthedocs.yaml` at repo root, `docs/requirements.txt` for Python deps, optional `docs/stylesheets/{dark,light}.css` (Dracula-like palette) for theme customization
-- **RTD URL formats**: org-project (`{project_org}-{project_name}.readthedocs.io`), project-only (`{project_name}.readthedocs.io`), or a custom domain — pick whichever matches the actual RTD project dashboard
-- **i18n scope is total**: every human-readable string anywhere in the system (web, API, Swagger/GraphQL, email, CLI, agent output, health page, legal/consent pages) must be translated, not just the main UI
-- **Locale files** live at `src/common/i18n/locales/{lang}.json`, one file per one of the 7 required languages, embedded via `go:embed`, and MUST carry the exact same key set as `en.json` (extra plural categories a language needs beyond English's `one`/`other`, e.g. Arabic's `two`/`few`/`many`/`zero`, are expected and not a violation)
-- **Language resolution precedence**: `?lang=` query param > `lang` cookie > `Accept-Language` header > default `en`; CLI `--lang` flag > config > `LANG`/`LC_ALL` env > default `en`
-- **A11y baseline**: WCAG 2.1 AA — keyboard navigation, screen-reader support, 4.5:1 contrast minimum, skip links, correct ARIA patterns, visible focus management, 44x44px minimum touch targets
+
+### PART 28 — TESTING & DEVELOPMENT
+- Host System Safety Applies to All Testing & Debugging
+- NEVER Use Project Directory for Testing
+- AI Docker Compose Rules
+- Config Files: Runtime-Generated Only
+- Temporary Directory Structure
+- Container Usage
+- Test Coverage
+- Browser E2E Testing (Headless Browser, On-Demand Beta Testing)
+- Testing Open API Routes
+- Build and Test
+- Process Management
+- File Cleanup Rules
+
+### PART 29 — READTHEDOCS DOCUMENTATION
+- Overview
+- Required Files
+- mkdocs.yml Template
+- .readthedocs.yaml Template
+- docs/requirements.txt
+- Theme CSS Files
+- Documentation Templates
+- Quick Start
+- Features
+- Documentation
+- Links
+- License
+- Docker (Recommended)
+- Binary
+- Systemd Service
+- Configuration
+- Config File
+- Environment Variables
+- Server Administration
+- REST API
+- Swagger UI
+- GraphQL
+- Rate Limiting & Abuse Prevention
+- Public Security Endpoints
+- Security Reporting
+- Well-Known Namespace
+- External Identity
+- Discovery & Protocol Endpoints
+- Platform Integrations
+- Operator Notes
+- Prerequisites
+- Build
+- Run Locally
+- Testing
+- Contributing
+- Code Style
+- Project-Specific Customization
+
+### PART 30 — I18N & A11Y
+- Internationalization (i18n)
+- Accessibility (a11y)
 
 For complete details, see AI.md PART 28, PART 29, PART 30.

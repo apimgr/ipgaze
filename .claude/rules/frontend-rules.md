@@ -3,119 +3,286 @@
 ⚠️ **These rules are NON-NEGOTIABLE. Violations are bugs.** ⚠️
 
 ## CRITICAL - NEVER DO
-- Never hardcode English UI strings — use `{{t .Lang "key"}}` translation keys for every label/button/message
-- Never hardcode `lang="en"` in `<html>` — use `lang="{{.Lang}}" dir="{{.Dir}}"`
-- Never use bare relative `/path` fetches in JS — use `window.location.origin`-based or configured base URLs
-- Never add JavaScript for anything HTML5+CSS already does (forms, validation, show/hide, dialogs, tabs) —
-  JS is a LAST RESORT; every `<script>` must name a capability impossible without it; default answer to
-  "add JS?" is NO. Forms use native `<form method>`; disclosure uses `<details>/<summary>` or
-  checkbox+`:checked`; dialogs use `<dialog>`; tabs use radio inputs + `:checked` + CSS
-- Never use `alert()`/`confirm()`/`prompt()` or plain-text option lists — use a custom modal/native
-  `<dialog>`/custom input modal/`<select>`/checkboxes/radio buttons instead
-- Never use inline event handlers (`onclick=`, `onchange=`, etc.) — CSP blocks them; bind listeners in
-  `static/js/app.js` only
-- Never let a service worker `respondWith()` branch resolve to `undefined` or reject uncaught — every
-  branch (navigations, static assets, everything else) MUST end in a guaranteed synthesized `Response`
-  (offline page for navigations, 504 for subresources) or the browser shows `net::ERR_FAILED` instead of
-  a page
-- Never persist `theme`/`lang` preferences server-side — no preferences table; the server only ever reads
-  the cookie per request
-- Never apply the `theme-{dark|light|auto}` class to `<body>` — it belongs on `<html>` so there is zero
-  FOUC and zero JS needed to paint the correct theme on first byte
-- Never hardcode the next value in a theme-toggle control — compute it server-side via `nextTheme(current)`
-  (cycle: dark → light → auto → dark)
-- Never include `cookie_consent` or `ccpa_opt_out` in preference export/import — consent is a per-browser
-  legal acknowledgment, not a portable preference; never include `{project_name}_build` either — it is a
-  device-local cache-purge stamp
-- Never add a standalone `/prefs/*` path — export/import are sub-routes of `/server/preferences`
-  (API-mirrored at `/api/{api_version}/server/preferences`)
-- Never trust imported preference values as-is — validate each against its normal enum/BCP-47 allowlist;
-  reject or drop anything unknown or malformed
-- Never write generic placeholder content on standard pages (`/server/about`, `/server/privacy`,
-  `/server/contact`, `/server/help`, `/server/terms`) — content must be sourced from IDEA.md (real
-  endpoints, real curl examples), never "Your application name here" or example.com URLs
-- Never embed GeoIP databases, IP/domain blocklists, CVE databases, or SSL certificates via `//go:embed`
-  — those are downloaded/updated at runtime; only templates, CSS, JS, images, icons, fonts, and static
-  application data (JSON) are embedded in the binary
-- Never let a long unbreakable string (IP address, API token, hash, UUID) overflow its container — and
-  never pair it with an adjacent copy button unless it also gets single-line horizontal scroll
-- Never pin/fix the header, nav, or footer to the viewport — they scroll with the page; the only fixed
-  elements are the cookie-consent banner (bottom) and toasts (top-right)
-- Never put the Help, API, or Preferences links in the main nav-links row — they live in the
-  header-actions cluster or footer instead
-- Never ship more than one JS file (`static/js/app.js`) or more than one CSS load order
-  (`common.css` → `components.css` → `public.css`)
-- Implement the PART 14 MCP settings controls when an admin settings panel exists: a live
-  `server.mcp.enabled` toggle, read-only resolved endpoint URL, and read-only note that MCP uses API Bearer
-  tokens; keep its default enabled state and do not invent MCP-specific credentials
-- Never expose owner-token management outside `/server/preferences`; keep the token section hidden unless a
-  valid primary owner cookie is present, and never treat a linked token as authority to manage tokens
-- Never reveal tokens in list/detail markup, page source, logs, or cacheable responses — reveal only through
-  the explicit CSRF-protected POST flow and return `Cache-Control: no-store`
+- **PART 16:** Routes are registered on the router in `main.go`/`routes.go`. All frontend routes are public — there is no admin web UI, no dashboard, and no settings pages beyond the guest `/server/preferences` page and its `/server/preferences/tokens` sub-page (no login, no user accounts). Auth is bearer-token only (operator token, owner token, or linked token) and applies to `/api/` routes. HTML pages never require auth, including `/server/preferences/tokens`: that page is public but credential-gated — it always renders (with the restore form) and lists tokens and accepts management actions only when a valid owner cookie is present (PART 8 → "Token Management"). The owner cookie is the only cookie credential, and only for those token-management forms.
+- **PART 16:** *Adjacent copy button → single-line scroll-box, never wrap** (the copy button is the intended way to get the value, so hiding overflow behind a scroll costs nothing and keeps the pill from inflating to multiple lines):
+- **PART 16:** | Onion / I2P address (always has a copy button) | `.onion-address` / `.i2p-address` | Single-line scroll, never wrap |
+- **PART 16:** | Any other value with an adjacent copy button | `.copy-value` | Single-line scroll, never wrap |
+- **PART 16:** *NEVER let long strings overflow their container or break mobile layouts.**
+- **PART 16:** | **Content fills the viewport width correctly** | The `.container` rules above apply on every page: phones use the full width minus `1rem` padding; a content column is centered, never stuck left with dead space on the right |
+- **PART 16:** | **Dynamic viewport** | `100dvh` / `min-height: 100dvh`, never bare `100vh` (mobile browser bars); `env(safe-area-inset-*)` padding on anything touching a screen edge (drawer, toast, banner, bottom actions) |
+- **PART 16:** | **Spacing scale** | Only the `--space-*` tokens from "CSS Variable Reference" (`--space-1` 4 px, `--space-2` 8 px, `--space-3` 12 px, `--space-4` 16 px, `--space-6` 24 px, `--space-8` 32 px, `--space-12` 48 px). Label to control `--space-1`, control to control `--space-4`, card to card `--space-6` (24 px). A page is never a bare stream of headings, text and controls: group content in `.section-card` blocks |
+- **PART 16:** | **Page header pattern** | Exactly one `<h1>` per page (the page title); an optional back link above it written `← {parent title}` (arrow icon + one full translated string); one `<h2>` per card. A heading is never repeated at a lower level (an "Owner tokens" `<h1>` followed by an "Owner tokens" `<h2>` is a defect) |
+- **PART 16:** | **No UI string concatenation** | Every visible label is ONE translation key holding the whole phrase (`nav.back_to_preferences` = "Back to Preferences"). Never join fragments ("Back" + "Preferences" rendered "Back Preferences"; this also breaks RTL and other languages) |
+- **PART 16:** | **No empty or unlabeled controls** | A `<select>` always has options and a visible selected default; an input always has a visible `<label>`; a button always has visible text or an `aria-label` plus tooltip. Two controls never share a label (a duplicated "Expiry" with a blank select is a defect) |
+- **PART 16:** | **Opaque surfaces** | Modals, drawers, dropdowns and popovers have solid backgrounds; page content never shows through |
+- **PART 16:** Use CSS custom properties for repeated or long strings. Never hardcode them inline.
+- **PART 16:** This rule governs the entire spec — it is not restricted to buttons, not restricted to import/export controls, and not restricted to whatever the reader might assume is the "main" UI. Every section describing a function, variable, component, or UI element inherits this rule automatically; sections do not need to restate it.
+- **PART 16:** | **One field, one label, one control** | The `<label>` sits ABOVE its control, always visible (a placeholder is never the label). Help text goes below in muted style; an error goes below with an icon and `aria-describedby` |
+- **PART 16:** | **Tablet and desktop** | Short related fields pair on one row (Name + Expiry) using `grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr))`; never more than two columns inside a card; long fields (text areas, tokens) span the full row |
+- **PART 16:** | **Optional extras** | A rarely used extra (for example a custom date) is a second, clearly labeled input revealed in a `<details>` or via `:has()` — never a second `<select>` and never a blank control |
+- **PART 16:** *Toasts and modals serve DIFFERENT purposes. Do NOT use them interchangeably.**
+- **PART 16:** *NEVER Do This:**
+- **PART 16:** *Theme Cycle Logic (this is what makes repeated clicks keep working):** the button's POST target is never a hardcoded value — it is always the *next* mode after whatever the server just rendered, computed server-side from the current `theme` cookie via `nextTheme()`. A hardcoded target (e.g. a button that always submits `"light"`) is the classic bug: the first click changes the theme away from the default, but every click after that resubmits the same value and nothing changes. Computing the target from actual current state on every render is what prevents that.
+- **PART 16:** *Every list, table, and data view MUST have a proper empty state - NEVER show blank space.**
+- **PART 16:** | Field focus | Do NOT validate (let user type) |
+- **PART 16:** | Passwords don't match | "Passwords do not match" |
+- **PART 16:** *Export — never a forced/silent direct download:**
+- **PART 16:** **Never** implement export via JavaScript `Blob` + `URL.createObjectURL()` + a synthetic clicked `<a download>`, and never make the File System Access API (`showSaveFilePicker()`) the *only* path — both require JavaScript and are unavailable (or fail silently) in Text Browsers and with JS disabled. A plain link/GET response is the platform-agnostic mechanism: it behaves the same in Chrome, Firefox, Safari, lynx, w3m, and any other HTTP client.
+- **PART 16:** Never hide the native `<input type="file">` behind a custom-styled JS trigger/fake button, or the feature stops working with JavaScript disabled.
+- **PART 16:** *No-JS-first (PART 16 rule):** build the server-rendered form → POST → redirect path FIRST and verify it works with JavaScript disabled; JS may only enhance what already works. The PWA layer itself is an enhancement — the site must be fully usable if the service worker never installs.
+- **PART 16:** *After `--update` / a restart the open page must recover without a manual reload and never hang.**
+- **PART 16:** | **New build detected** | Every API/SSE response carries the build stamp in `X-Build` (public value). When it differs from the stamp the page was rendered with, the client finishes the current action, then does ONE `location.reload()` (guarded by the `{project_name}_recovered` flag) - never mid-form-edit: if a form is dirty, show an "Update available - reload" button instead |
+- **PART 16:** > When a service worker calls `event.respondWith()` it owns that response completely. If the promise it passes **resolves to `undefined`** (a cache miss on the last fallback) or **rejects** (an uncaught network failure), the browser shows **`net::ERR_FAILED`** — a dead tab — instead of a page. A transient network blip on a page navigation MUST degrade to a real offline/error page, never a broken site. The handler below, and any service worker a project ships, MUST obey:
+- **PART 16:** > - **Every `respondWith()` branch ends in a guaranteed `Response`** — a terminal `.catch()` returning a real `Response` (a synthesized 503 offline page for navigations, a 504 for subresources). Never end a chain on `cached || caches.match('/offline…')`: that link can itself miss and resolve `undefined`.
+- **PART 16:** > - **Only intercept same-origin GET.** Let API calls, cross-origin requests, and non-GET methods fall through untouched — never call `respondWith()` for them.
+- **PART 16:** > - **The service worker is an enhancement, never a dependency** — the site stays fully usable if it never installs (the No-JS-first rule above).
+- **PART 16:** | **localStorage** | API token — optional JS convenience copy (copy button, pre-fill); never load-bearing | Manual/revocation |
+- **PART 16:** *This page must be editable, not read-only:** every cookie above except `{project_name}_build` needs a control on `/server/preferences` that the visitor can act on directly — a theme selector, a language selector, cookie-consent category toggles (reachable here, not only from the first-visit banner), a CCPA opt-out toggle, and a control for every app-specific `{project_name}_pref_*` setting below. Rendering the current values as plain text with no way to change them turns a preferences page into a status page — the entire point of this page is letting the guest change these settings in place. The page layout, buttons and save behavior are fixed by rules 13–17 of the sync contract below. `{project_name}_build` is the one exemption from the control requirement: it is an automatic, device-local cache-purge stamp set by the server on the first HTML response — it has no control, is never exported or imported, and is removed only by Reset.
+- **PART 16:** *App-specific guest preferences:** the table above is the base set every project needs; a project adds its own guest-scoped preferences as further cookies of the same kind, recorded in IDEA.md `## Business logic` → `### Product scope & non-goals` and never as new rows in this `AI.md` table (a project whose table lacks its `{project_name}_pref_*` cookies is correct, not incomplete): settings a visitor can adjust without an account (default view mode, results-per-page, sort order, syntax-highlighting theme, unit system, etc.). Name them `{project_name}_pref_{key}`, document each one (exact name, allowed values, default, export/import behavior) in IDEA.md `## Business logic` → `### Product scope & non-goals` — `AI.md` is read-only, so the base table above is never edited, and hold them to the same rules as `theme`/`lang`: cookie-only, read per request, never persisted server-side. They belong here because API projects have no authenticated end-user accounts to attach a preference to (only `Server`/`Operator` plus credential-only owners — see "Account Types") — if a setting genuinely needs identity-scoping, it belongs on the relevant resource/tenant config, never in a user-preferences table, since none exists here.
+- **PART 16:** Never persist preferences server-side — the server reads the cookie per request; there is no preferences table (owner and linked tokens are credentials, not preferences: they live in `api_tokens` and are managed on the separate `/server/preferences/tokens` page, see "API Token Model")
+- **PART 16:** Never store PII in cookies or localStorage
+- **PART 16:** `theme`, `lang`, and every app-specific `{project_name}_pref_*` cookie are exportable — export/import round-trips the full guest preference set, not just theme/lang. `cookie_consent` and `ccpa_opt_out` are NEVER included — consent is a per-browser legal acknowledgment that must be re-affirmed on each device, not a portable preference. `{project_name}_build` is NEVER included — it is a device-local cache-purge stamp. Credential cookies (session, CSRF, and any owner/linked token cookie) are NEVER exportable — tokens are credentials, not preferences.
+- **PART 16:** Guest preferences live at `/server/preferences`, API-mirrored at `/api/{api_version}/server/preferences` — the export/import actions are sub-routes of it, never the standalone `/prefs/*` path, nor bare `/preferences` without the `/server` prefix. API projects have no admin panel or admin WebUI (the public frontend that PART 16 requires — landing page, `/server/*` pages, guest `/server/preferences` and its `/tokens` sub-page — still exists) — administration is done entirely via `server.yml`/CLI (see "Account Types": `Server` and `Operator` are the only administrative roles; an owner is a credential-only identity with no account) — so there is no `/server/admin` route and no `{admin_path}`/`{admin_username}` segment to collide with, and the `{admin_path}` reserved-word-list rule (SERVER.md/HYBRID.md) does not apply here. If an old/non-canonical route (e.g. a bare `/preferences` or `/prefs/*`) exists in already-written code, delete it outright and update all callers to `/server/preferences` — never keep it as a redirect or alias "for backward compatibility" (see "Canonical Terms Only").
+- **PART 16:** **Export** (`GET /server/preferences/export`, API-mirrored at `GET /api/{api_version}/server/preferences/export`, rendered inline on the page per rule 13), **Import** (`GET /server/preferences/import`, API-mirrored at `GET /api/{api_version}/server/preferences/import`, via the inline `code` field per rule 14), and **Save** (`POST /server/preferences`, API-mirrored at `POST /api/{api_version}/server/preferences`) follow the exact contract below. Every value, name, status and field in it is fixed — implement it as written; never invent alternative parameter names, JSON fields, routes (`/server/preferences/save`, `/prefs/*`) or formats.
+- **PART 16:** | 1 | **Exportable set** | `theme`, `lang`, and every `{project_name}_pref_{key}` cookie. Nothing else, ever: not `cookie_consent`, `ccpa_opt_out`, `{project_name}_build`, session/CSRF cookies, or any credential cookie. A request parameter outside the set is **ignored** (reported in `ignored`), never applied. Control fields (the CSRF token, `code`, `redirect`, `action`, `consent_form`, `consent_preferences`, `consent_analytics`, `ccpa_opt_out`) are not preferences and never appear in `ignored`; the consent and CCPA fields are writable only through rule 17 and are never exported or imported |
+- **PART 16:** | 3 | **Full URL** | `{origin}/server/preferences/import?{canonical query}`; `{origin}` is resolved per request by the URL-resolution rules (PART 8 → "Resolution Order"), never a cached value |
+- **PART 16:** | 5 | **Import input** | The request's own query parameters AND an optional `code` parameter. Resolve `code` as: trim whitespace → if it contains `?`, discard everything up to and including the FIRST `?` (a pasted full URL) → if the rest contains `=`, it is a plain query string → otherwise base64url-decode it → parse as a query string. Any decode/parse failure yields an empty set, never an error. **Direct request parameters win over `code` values, key by key** |
+- **PART 16:** | 6 | **Limits** | `code` longer than 2048 characters is discarded whole before decoding, exactly like a decode failure (rule 5: empty set, no error, `303`/`200` as usual); because `code` is a control field (rule 1) it is NEVER reported in `ignored`, and the visitor's other submitted values still apply. At most 32 parameters are considered (extras dropped); each value at most 64 characters |
+- **PART 16:** | 8 | **Apply** | Each valid value sets its cookie with `Path=/`, `Max-Age=31536000`, `SameSite=Lax`, not HttpOnly (JS reads them), no `Domain`, and `Secure` whenever the resolved request scheme is `https` (resolved behind reverse proxies exactly as in rule 3, not from the raw socket). Import is **additive**: preferences absent from the input keep their current cookie — import never resets or deletes anything |
+- **PART 16:** | 9 | **Web response** | `303 See Other` with `Cache-Control: no-store`, no body, for import AND save — including when nothing validated (an untrusted link is never grounds for a `4xx` error page) |
+- **PART 16:** | 10 | **Redirect target** | First match wins: (a) a `redirect` parameter that is a relative path (starts with a single `/`, not `//` or `/\`, no scheme or host, no CR/LF); (b) the path + query of a same-origin `Referer` under the same rule; (c) `/`. A target under `/server/preferences/import`, `/server/preferences/export` or the save route falls through to the next option. Never an external URL |
+- **PART 16:** | 11 | **API import / save** | No redirect: `200` with the JSON below. Save (`POST`) accepts `application/json` or form fields (`theme`, `lang`, `{project_name}_pref_{key}`; the web-only control fields of rules 14, 15 and 17 are not accepted by the API mirror), applies a partial update, and returns `400 VALIDATION_FAILED` only when NO supplied value was valid. Import never returns `4xx` for invalid values (same as rule 9) |
+- **PART 16:** | 12 | **Auth and CSRF** | None required — guest cookies. `POST` forms carry the normal CSRF token; the API mirror needs none (no ambient authority: it accepts and sets only these UI cookies). Import is a `GET` on purpose so a shared link works; it can set only the exportable set (rule 1), so it can never change credentials or consent. Standard rate limits apply |
+- **PART 16:** | 13 | **Export response** | The export block (full URL and short code as read-only selectable text, each with one Copy control) is rendered inline on `/server/preferences` on every load — never behind a button, toggle, accordion or separate step. Web `GET /server/preferences/export` is content-negotiated like every page: HTML → the same preferences page; `text/plain` → the lines `URL: ...` and `Code: ...`; JSON → the API body below. Copy is a client-side action (clipboard) and never submits the form; the export link and code use CSS `user-select: all` so one click selects the whole value for a manual copy, and the Copy control is an optional JS enhancement over that baseline — the page is fully usable without JS |
+- **PART 16:** | 14 | **Import field** | An always-visible field named `code` (textarea or text input, accepts a pasted full URL, query string or short code) inside the single preferences form (rule 15) — no separate Import form or button. On save, a non-empty `code` is resolved per rule 5 and its valid values override the form's submitted values key by key (the visitor pasted it on purpose); an empty `code` is ignored. `GET /server/preferences/import` stays for shared links and API parity (rule 5 unchanged). JS may enhance (clipboard paste) but never changes the request |
+- **PART 16:** | 15 | **Page layout and buttons** | `/server/preferences` is ONE `<form method="POST" action="/server/preferences">` carrying the CSRF token and every section: appearance (`theme`), language (`lang`), cookie-consent and CCPA controls, every `{project_name}_pref_{key}` control, and a Data Management section (export block, rule 13; import field, rule 14) — all sections always visible, none collapsed or revealed by a button. The form has exactly three action buttons (the header theme toggle is a separate mini-form on other pages and is not part of this page's form): **Save** (submit; applies every changed field plus `code`, then `303` per rules 9–10), **Cancel** (a link to the rule 10 redirect target; discards unsaved edits, sends no write) and **Reset** (a `type="button"` with `popovertarget` that opens a native HTML `popover` — no JS; the popover holds the warning, an **Erase everything** submit with `action=reset`, and a dismiss control using `popovertargetaction="hide"`; those two belong to Reset, not to the page's button set; forgets the visitor completely: every noncredential cookie this app set — `theme`, `lang`, `{project_name}_pref_*`, `cookie_consent`, `ccpa_opt_out`, `{project_name}_build`, plus any other noncredential cookie the project defines (announcement dismissals, flash messages, age-verification or content-acknowledgment cookies, forwarding preferences) — is deleted (`Max-Age=0`, same `Path`/attributes as rule 8), and the `303` carries `Clear-Site-Data: "storage"` to wipe localStorage/sessionStorage/IndexedDB without JS. Defaults apply and the consent banner returns on the next page. Never deletes session, CSRF or other credential cookies — signing out is a separate action. The popover warning states exactly what is erased. Only Reset confirms — Save and Cancel never ask for confirmation. The popover is styled with CSS, and a direct `POST action=reset` behaves identically on the server). No per-section save buttons, no "Sync", "Export", "Import" or "Show" buttons; Copy controls (rule 13) are the only other controls. Owner-token management (PART 12) is NOT part of this form: it lives on its own page, `GET /server/preferences/tokens`, reached from a plain link on this page (rendered only when the project defines owner tokens), and that page's per-action mini-forms are exempt from this button limit. Reset never deletes credential cookies: session, CSRF and, when the project defines owner tokens, the owner-token cookie |
+- **PART 16:** | 16 | **Web save never `400`** | `400 VALIDATION_FAILED` (rule 11) is API-only. A web `POST /server/preferences` always answers `303` (rule 9) — including empty submits, unchecked checkboxes (absent fields), invalid values (dropped) and a bad `code`. The only `4xx` is a missing/invalid CSRF token (`403`), so the page form MUST always render the token and post only to the canonical route, never to the `/api/{api_version}/…` mirror |
+- **PART 16:** | 17 | **Consent and CCPA controls** | The page form's cookie-consent toggles (`consent_preferences`, `consent_analytics`; `essential` is always on and not a field) and CCPA opt-out toggle (`ccpa_opt_out`) are web-form-only controls handled by `POST /server/preferences`, with a hidden `consent_form=1` marker rendered inside the form. They are applied only when `consent_form=1` is present — an unchecked checkbox then means off, while a POST without the marker (the header theme toggle) never touches consent or CCPA. Applying writes `cookie_consent` (JSON per PART 16 consent state, with a fresh timestamp in Unix seconds) and `ccpa_opt_out` with the rule 8 attributes. Import and the API mirror never write them, Reset deletes them (rule 15), and they are never exported (rule 1) |
+- **PART 16:** `prefs` is keyed by the bare `{key}` (without the `{project_name}_pref_` prefix) and is `{}` when none are set. `theme`, `lang` and `prefs` are the resulting effective state. `applied` and `ignored` list request parameter names (`theme`, `lang`, `{project_name}_pref_{key}`, or the unrecognized name) and are always arrays. The names `url` and `code` are fixed — never `full_url`, `short_code`, `export_url` or `export_code`.
+- **PART 16:** *Tests required** (the preferences sync is easy to get subtly wrong; these are the minimum): round trip export → import yields identical cookies; direct params override `code`; pasted full URL, plain query string, padded and unpadded base64url all import; invalid `theme`/`lang`/pref values are dropped and listed in `ignored`; excluded names (`cookie_consent`, `{project_name}_build`, an owner/session token) are never exported and are ignored on import; import never removes an existing cookie; redirect rejects `//evil.example`, `/\evil`, absolute URLs and CR/LF; cookie attributes match rule 8 behind a TLS-terminating proxy; oversized `code` is ignored; the web page renders the export block, import field and exactly Save/Cancel/Reset with no other buttons, and Save/Cancel without any confirmation; a web `POST` with no valid values, with an empty body or with only a bad `code` returns `303`, not `400`; Reset deletes every noncredential app-set cookie (including `cookie_consent`, `ccpa_opt_out`, `{project_name}_build`, dismissal and flash cookies) and sends `Clear-Site-Data: "storage"` but leaves session/CSRF/credential cookies, and the Reset popover opens without JS, shows the warning and only its confirm submits; a non-empty `code` on save overrides the form's values.
+- **PART 16:** | Never cache | API responses | Except explicit offline-first data |
+- **PART 16:** | SW never yields `undefined`/rejects | ◻️ | Every `respondWith` branch ends in a guaranteed `Response`; transient failure shows the offline page, not `net::ERR_FAILED` |
+- **PART 16:** | 403 | Forbidden | Authenticated but not authorized |
+- **PART 16:** *Canonical envelope — see PART 14 → "Error Response" for the authoritative definition.** All API endpoints return the same JSON shape; absent fields are omitted entirely, never emitted as `null`, and no endpoint may invent its own shape or add ad-hoc top-level fields.
+- **PART 16:** | `FORBIDDEN` | 403 | "Permission denied" | Access denied |
+- **PART 16:** | Never return 200 on error | Use the correct 4xx or 5xx code |
+- **PART 16:** | Sanitize error messages | Never leak stack traces or internal paths to clients |
+- **PART 16:** | Hover effects | CSS `:hover`, `:focus`, `:active` | Never - always CSS |
+- **PART 16:** | Responsive design | CSS media queries | Never - always CSS |
+- **PART 16:** *Small JS Behaviors (external file) — inline handlers are NEVER allowed (the CSP blocks `onclick`/`onchange`):**
+- **PART 16:** Keep bindings in `static/js/app.js`; never emit inline `onclick`/`onchange` attributes.
+- **PART 16:** *Untrusted-content rule:** pasted text, repo blobs, markdown files, and any user-submitted file content are data, not templates. Follow PART 11 "Untrusted File / Rich Content Handling" and NEVER pass user-controlled content through `template.HTML` unless it came from a sanitizer for an explicitly approved field.
+- **PART 16:** | 403 | Forbidden | ✅ Yes |
+- **PART 16:** **Every request MUST terminate in a rendered response — the error path itself must never fail the request.** A panic/`recover` middleware and a template-render failure MUST both fall back to a minimal, hardcoded error response (correct status code, short body, honoring content negotiation — HTML for browsers, JSON for API clients) instead of a blank body, a dropped connection, or a leaked stack trace. The failure handler must never be the thing that breaks the site — the backend mirror of the service-worker guaranteed-`Response` rule.
+- **PART 16:** | **NO admin links** | NEVER link to server administration from public pages |
+- **PART 16:** | **NO admin hints** | Do not advertise server-administration paths (there is no admin web UI) |
+- **PART 16:** *Public nav NEVER contains:**
+- **PART 16:** | **No layout-specific themes** | Do NOT create layout-scoped CSS theme files |
+- **PART 16:** | **NO inline styles** | All styles in CSS files, never in HTML |
+- **PART 16:** *Small behaviors also live in app.js (never inline — the CSP blocks inline event handlers).** One-liners are bound via `addEventListener` on IDs or data-attributes:
+- **PART 16:** sits right. Do NOT split header/nav into two separate rows on desktop — that
+- **PART 16:** | **Overflow detection ("Smart Menu")** | On load and resize, if the inline `.nav-links` do not fit at >= 768px, add `nav-collapsed` to `<html>` so the hamburger is used instead. Without the script the 768px breakpoint decides |
+- **PART 16:** | **Never hide off-canvas with a negative offset** (`right: -280px`, `left: -100%`) | The box still extends the scrollable width, so the page becomes wider than the screen and mobile browsers shrink the whole layout (content at ~60% width, dead space on the right). Hide with `transform: translateX(100%)` + `visibility: hidden` (and `inert` when JS is present), never with a negative position |
+- **PART 16:** | **The drawer and its scrim are children of `<body>`**, siblings after `<main>`, not descendants of `<header>` | A `position: fixed` element inside an ancestor that has `transform`, `filter`, `backdrop-filter`, `perspective`, `contain` or `will-change` is positioned against that ancestor, not the viewport: the drawer collapses to header size, clips ("Cairnb…") and renders under page content. The header MUST NOT use those properties on any ancestor of the panel; apply a frosted-glass effect to a `::before` pseudo-element of the header instead |
+- **PART 16:** Profile/preferences and theme toggle ALWAYS in header actions (never in the mobile slide-in menu)
+- **PART 16:** Security-related data that needs frequent updates is NEVER embedded
+- **PART 16:** *NEVER use default JavaScript UI elements. ALWAYS use custom styled components.**
+- **PART 16:** | NEVER Use | ALWAYS Use Instead |
+- **PART 16:** **Auto-close on action** - clicking any action button (OK, Yes, No, Cancel, Save, Delete, Submit, etc.) automatically closes the modal after performing the action. User should never need to click an action then manually close.
+- **PART 16:** Non-blocking notifications (never use JS alerts)
+- **PART 16:** Auto-dismiss: 3 seconds (success/info), 5 seconds (warning), never (error)
+- **PART 16:** *CLI and TUI do NOT consume the literal hex palette above** — terminals
+- **PART 16:** auto-detect); CLI/TUI output MUST gate on that same result, never a
+- **PART 16:** name above per role and per theme — never a hardcoded hex/RGB value
+- **PART 16:** (`nextTheme()`, dark → light → auto → dark) — never a hardcoded value. This is
+- **PART 16:** `{robots}` is computed server-side per route, never hardcoded:
+- **PART 16:** *NEVER render:**
+- **PART 16:** | Authenticated server-management pages | **NEVER** | - | - |
+- **PART 16:** | API endpoints (`/api/*`) | **NEVER** | - | - |
+- **PART 16:** *Rule:** remote user-controlled images follow the same active-content rules as uploads. Do NOT allow remote SVG unless the project explicitly sanitizes and rasterizes it before storage/display.
+- **PART 16:** *Never `*` here:** the Fetch spec's `Access-Control-Allow-Headers: *` wildcard does NOT cover `Authorization`, and wildcards are invalid when credentials are allowed. Every header a browser client may send is listed by name — keep in sync with PART 8 → "Auth Token Presentation".
+- **PART 16:** *No query-param auth:** credentials are never accepted in a URL (they leak into logs, history and `Referer`); a `?token=` parameter is ignored. One-shot link tokens (PART 8 → "Auth Token Presentation") are not credentials and are exempt.
+- **PART 16:** Credentials (`Access-Control-Allow-Credentials: true`) are sent only when the resolved list is explicit — never with `*`. CSP `connect-src` `{learned_origins}` (PART 11 → "Content Security Policy") uses this same resolved list.
+- **PART 16:** *Use the stateless double-submit cookie pattern — there are no sessions, so the token is never stored server-side. The server sets a `csrf_token` cookie (`SameSite=Strict`, `Secure`, NOT `HttpOnly` — JavaScript must read it) and every mutating frontend (HTML form/page) request must echo the same value in the `X-CSRF-Token` header or a `csrf_token` form field. The middleware compares the two in constant time.**
+- **PART 16:** *CSRF applies ONLY to the frontend: server-rendered HTML pages and forms (web UI, admin panel) that authenticate with a browser cookie. It NEVER applies to the backend.**
+- **PART 16:** | Backend: every `/api/**` route, regardless of auth method | **Never** — no token issued, required, or checked |
+- **PART 16:** | Compatibility layers (PART 14 → "External API Compatibility" — external-service routes/APIs) | **Never** — unless the emulated protocol itself defines a CSRF token and expects clients to send it; then enforce exactly what that protocol specifies, on that layer's routes only |
+- **PART 16:** The CSRF middleware is mounted on the frontend route group only — never on `/api/**` or on a compatibility-layer route group
+- **PART 16:** Backend and compatibility clients (CLI tools, agents, SDKs, webhooks, third-party clients of an emulated service) never receive or send `csrf_token` / `X-CSRF-Token` and are never rejected with `CSRF_FAILED`
+- **PART 16:** | Request targets a frontend route (HTML page/form) — NOT `/api/**` and NOT a compatibility-layer route | CSRF is frontend-only; the backend never validates it (see "Scope") |
+- **PART 16:** | Request targets the backend: any `/api/**` route, or any compatibility-layer route (unless that layer's protocol expects CSRF — see "Scope") | CSRF is frontend-only; backend clients (CLI, agents, SDKs, webhooks, compat clients) never carry or need a token |
+- **PART 16:** | Endpoint is in the explicit `server.csrf.exempt_paths` allow-list | Operator-declared exception for FRONTEND endpoints only (e.g. a cross-site POST to a frontend callback). Backend routes are never subject to CSRF and need no entry. |
+- **PART 16:** *There is NO Origin-based bypass.** A same-origin `Origin` header never skips token validation — `Origin`/`Referer` can be absent or spoofed by non-browser clients, and the double-submit check is cheap. Every mutating frontend request presents the token.
+- **PART 16:** | Pre-auth cookies (e.g., auth continuation) | `Strict` | Set during auth flow; never crosses sites. |
+- **PART 16:** *Modern browsers default to `SameSite=Lax` if unset.** Always set `SameSite` explicitly — never rely on the default.
+- **PART 16:** | Validation failure → `403 FORBIDDEN` with canonical error body | `{"ok": false, "error": "CSRF_FAILED", "message": "CSRF token validation failed"}` (PART 14 → "Error Response"). |
+- **PART 16:** *`custom_html` is SANITIZED before rendering. Scripts and dangerous elements are NEVER executed.**
+- **PART 16:** *Progressive enhancement (consent module in `static/js/app.js` — ONE JS file, referenced via `<script src>`, never inline):**
+- **PART 16:** | **Analytics/Tracking** | **NEVER loaded** | No tracking scripts injected, no data sent to analytics providers |
+- **PART 16:** *⚠️ CRITICAL: Content MUST come from IDEA.md - NEVER use generic placeholders.**
+- **PART 16:** *DO NOT use:**
+- **PART 16:** *GeoIP attribution content above is canonical — see PART 19: GEOIP → "License & Attribution" for the source of these notices; do not let this copy drift if that section is ever updated.**
+- **PART 16:** | **CCPA Opt-Out** | Conditional | **Only shown when `data.sold = true`** - Do Not Sell toggle |
+- **PART 16:** *Below the form, the page MUST render exactly two informational sections — the content is spec'd here; never improvise it:**
+- **PART 16:** | Security Issues | "To report a security vulnerability, consult our security policy at `/server/security`." — rendered as a link to `/server/security`. Never point users at the raw `/.well-known/security.txt` file from this page. |
+- **PART 16:** | Abuse Reports | "To report abusive content or policy violations, use this contact form." — append " or email {abuse_email}" where `{abuse_email}` resolves to `server.contact.abuse.email` if set, else `server.contact.general.email` if set; omit the email clause entirely when neither is set. NEVER render `server.contact.admin.email` here (it is never public). |
+- **PART 16:** | `recaptcha` | Google reCAPTCHA v2 checkbox. Needs `pages.contact.captcha_site_key` (public, rendered in the page) and `pages.contact.captcha_secret_key` (server-side only, kept in `server.yml` like other secrets, never returned in a response or written to a log). The server verifies by POSTing `secret`, `response` and `remoteip` to `https://www.google.com/recaptcha/api/siteverify` and accepts only `"success": true` |
+- **PART 16:** **Fail closed:** if the provider cannot be reached, the submission is rejected with a retryable error — never accepted unverified
+- **PART 16:** **Tor and I2P:** requests served through the onion or I2P address always use `simple`, whatever `captcha` is set to — clearnet providers are never called from there (PART 16 → Tor). The same challenge protects the security-report form
+- **PART 16:** *⚠️ CRITICAL: Content MUST reflect the ACTUAL project - NEVER use generic placeholders.**
+- **PART 16:** *MCP help page — how to connect an AI assistant to this application. The base content below is defined here and rendered by every project; a project expands it and never removes or contradicts it.**
+- **PART 16:** | `#endpoint` | Endpoint | The full MCP URL resolved for this request (PART 8 → "Resolution Order", never hardcoded) with the two aliases (`/api/mcp`, `/mcp`) and a copy control; the URL text uses CSS `user-select: all` so it works without JS |
+- **PART 16:** | `#authentication` | Authentication | Requests authenticate with `Authorization: Bearer {token}` — the same tokens as the REST API, no MCP-specific token. Anonymous access works for public tools. Use a **linked token** created for this client on `/server/preferences/tokens` (named for the client, revocable alone). Never the primary token and never the operator token (`server.token`). A project without owner tokens has no client credential to issue: MCP clients get its public tools anonymously. |
+- **PART 16:** | `#tools` | Tools | The live tool list for an anonymous caller (name and description from the same registry that backs `tools/list`) — never hand-written. When authenticated callers see more tools, say so |
+- **PART 16:** *Project expansion (required content):** the project appends its own section, `#project`, after the base sections. The text comes from IDEA.md `## Business logic` and is stored as Markdown in `pages.help.mcp` (canonical storage is `server.yml` `pages.help.mcp`, edited there by the operator and applied on config reload; a project that has an admin panel also exposes it in Pages → Help. API projects have no admin panel or web editor, so `server.yml` is the only editing path). It MUST use the project's real tool names and real data — example prompts a user can paste into an assistant, per-tool tips and limits, and documentation of any MCP resources or prompts the project exposes. It never repeats or contradicts the base sections, and generic placeholder text is forbidden (same rule as `/server/help`).
 
 ## CRITICAL - ALWAYS DO
-- Support dark/light/auto theme via CSS custom properties defined once in `:root`, never hardcoded colors
-- Keep web UIs mobile-responsive from day one — breakpoints at 768px (tablet) and 1024px (desktop);
-  interactive/touch targets ≥44×44px, including icon-only controls
-- Negotiate content by Accept header/User-Agent on the same route: HTML for browsers, `text/plain` for
-  CLI tools (curl), JSON for `Accept: application/json` — one endpoint, three representations
-- Navigations in the service worker are network-first (fetch first, cache fallback, then synthesized
-  offline `Response`); static assets are cache-first with a synthesized 504 fallback — only intercept
-  same-origin GET, let API/cross-origin/non-GET fall through untouched
-- Precache the PWA shell (`manifest.json`, `offline.html`, core CSS/JS) via the service worker's
-  `PRECACHE_ASSETS` list
-- Make `/server/preferences` EDITABLE, never read-only — every cookie in the preferences table needs a
-  control the visitor can act on in place: a theme selector, a language selector, cookie-consent category
-  toggles (reachable here, not only from the first-visit banner), a CCPA opt-out toggle, and a control for
-  every app-specific `{project_name}_pref_*` setting; rendering current values as plain text turns the
-  preferences page into a status page
-- Name app-specific guest preferences `{project_name}_pref_{key}` and hold them to the same rules as
-  `theme`/`lang` — cookie-only, read per request, never persisted server-side, no second storage mechanism
-- Preference export (`GET /server/preferences/export`, API-mirrored) returns both a full URL
-  (`https://{host}/server/preferences/import?theme=dark&lang=fr`) and a short code
-  (`base64url(theme=dark&lang=fr)`) built from the current `theme`, `lang`, and every
-  `{project_name}_pref_*` cookie — the full guest preference set, not just theme/lang
-- Preference import (`GET /server/preferences/import?theme=…&lang=…`, API-mirrored) decodes, validates,
-  sets the matching cookies, then `303 See Other`s to `/` (or referrer) in one request — code must never
-  linger in the visible URL/history
-- API-only projects (no admin panel/WebUI — see Account Types: only `Server`/`Operator`) still get
-  `/server/preferences` and its export/import sub-routes; there is no `/server/admin` or
-  `{admin_path}`/`{admin_username}` segment to collide with
-- Build the mobile nav menu CSS-only (checkbox + `:checked`), sliding from the right edge with a
-  closing overlay — no JS
-- Keep nav to a single row, 4 zones in order: `{logo/text} {links} {profile/preferences} {theme_toggle}`
-- Use the print utility classes (`.no-print`, `.print-only`, `.print-include`) for print stylesheets
-- Render the owner primary token masked by default, with a plain form POST for reveal and rotation so the
-  core management flow works without JavaScript; keep the `owner_token` cookie HttpOnly, Secure,
-  SameSite=Strict, and refresh its configured sliding Max-Age on valid use
-- Provide “Use an existing token” restore on `/server/preferences`; accept the primary token only, set the
-  owner cookie on success, and do not offer an API restore route
-- Expose MCP configuration as specified by PART 14: an enabled/disabled toggle that takes effect without
-  restart, a read-only per-request endpoint URL, and a read-only shared-Bearer-auth note
-- Show linked-token name, masked value, dates, and status; provide create/reveal/rotate/rename/expiry/revoke
-  controls with the primary token only. Reveals are one-response only; rotation replaces the old token
-  immediately, and confirmation is required for primary rotation.
+- **PART 16:** *ALL PROJECTS MUST HAVE A PROFESSIONAL, WELL-DESIGNED, FULLY FUNCTIONAL FRONTEND.**
+- **PART 16:** *Route Priority (NON-NEGOTIABLE when implemented):**
+- **PART 16:** *Reserved Names (MUST block from registration):**
+- **PART 16:** 2. **Reserved names**: Always check `isReserved(slug)` before lookup
+- **PART 16:** *ALL routes MUST normalize URLs before processing. Apply this middleware FIRST in the chain.**
+- **PART 16:** *Frontend MUST work without JavaScript for core functionality:**
+- **PART 16:** *Frontend routes (`/**`) MUST automatically detect request type and respond appropriately.**
+- **PART 16:** *ALL frontend routes with CRUD operations MUST work in BOTH modes:**
+- **PART 16:** *Frontend routes MUST respond differently based on client:**
+- **PART 16:** *ALL CRUD operations must be accessible via:**
+- **PART 16:** *Rule:** CRUD must work for browsers (HTML forms), APIs (JSON), and CLI (text/form-encoded).
+- **PART 16:** *ALL frontend CSS MUST be mobile-first: base styles for mobile, media queries for larger screens.**
+- **PART 16:** *Every page must look finished — polished, professional, intuitive — on phones, tablets and desktops, in both themes and both text directions. "It renders" is not the bar.**
+- **PART 16:** *Review matrix (REQUIRED for every new or changed page, and automated where possible):**
+- **PART 16:** *Copy feedback is mandatory:** every copy button MUST show a visible "Copied!" confirmation on success — checkmark icon plus the translated label (i18n key `copied`, rendered server-side into `data-copied-label`), `.copied` class for the success colors (CSS custom properties only), reverting after 2 seconds. The `aria-live="polite"` region announces the change to screen readers. Icon-only buttons (e.g. the footer 📋) swap their own content and carry `aria-live="polite"` on the button itself.
+- **PART 16:** *Every UI element in this spec — every button, link, form, input, label, table, card, banner, badge, toast, modal, tooltip, status message, and any other visible element, in every feature described anywhere in this document — MUST be styled. None of it is left at raw/unstyled browser default.**
+- **PART 16:** | JavaScript | Vanilla ES modules (no bundler required) |
+- **PART 16:** | **Per-item actions** | A list item's actions live in the card footer toolbar: at most three visible buttons with text labels, any more inside a `<details class="menu">`. Icon-only is allowed only for universally understood icons (copy, close) and always has an `aria-label` and tooltip |
+- **PART 16:** | **Escape key** | Close modal (unless confirmation required) |
+- **PART 16:** | **Blocking workflow** | Must complete before continuing (login, terms acceptance) |
+- **PART 16:** | Toast requiring action | Modal if action required |
+- **PART 16:** | **Click to dismiss** | Always | User can click X or entire toast to dismiss |
+- **PART 16:** There is no client-side init and no `matchMedia` script. The only JS is an optional instant-preview enhancement (external file) — it does not intercept or replace the submit, so the cookie is always set server-side on every click, with or without JS:
+- **PART 16:** Always include an icon or illustration
+- **PART 16:** *All forms MUST provide clear, inline validation feedback.**
+- **PART 16:** *HTML5 first:** `required`, `pattern`, `min`/`max`, and `type="email"`/`type="url"`/`type="number"` are the first line of validation (see the "HTML5 & CSS Over JavaScript" table) — the browser blocks invalid submits with zero JS. CSS `:user-invalid` handles error-after-interaction styling with zero JS. JS only mirrors the field's `validationMessage` into the styled message element.
+- **PART 16:** | Required empty | "{Field name} is required" |
+- **PART 16:** | Password too short | "Password must be at least 8 characters" |
+- **PART 16:** | Number out of range | "Value must be between {min} and {max}" |
+- **PART 16:** Export is a plain `<a href="...">` link or a plain `<button>`/`<form method="get">` — **no JavaScript required**, consistent with the "Text Browsers" no-JS convention (see Terminology).
+- **PART 16:** Import uses a plain `<input type="file">` inside a plain `<form method="post" enctype="multipart/form-data">` — the browser's native file picker, no JavaScript required to select or submit a file.
+- **PART 16:** The server parses the uploaded file from the multipart body; server-side validation is always authoritative regardless of any client-side JS mirroring.
+- **PART 16:** *WCAG 2.1 AA Compliance Required:**
+- **PART 16:** | **Manifest** | `/manifest.json` with app metadata | Required for install |
+- **PART 16:** | **HTTPS** | Required for service workers | Non-negotiable |
+- **PART 16:** | **Geolocation** | GPS access via Geolocation API | User permission required |
+- **PART 16:** > **Service worker safety — every response MUST resolve to a real `Response` (NON-NEGOTIABLE).**
+- **PART 16:** | Always high accuracy | Use low accuracy when approximate is fine |
+- **PART 16:** Always fall back to a safe default when a cookie is missing or invalid
+- **PART 16:** *Cross-device preference sync (export/import — stateless, no preferences table required):**
+- **PART 16:** | 2 | **Canonical query** | `theme` and `lang` always present (effective value: the cookie, else the default), then each app preference only when its cookie is set and valid. Keys sorted ascending (bytewise); encoded as `application/x-www-form-urlencoded`. Example: `lang=fr&{project_name}_pref_sort=name&theme=dark`. The same preferences always produce the same string |
+- **PART 16:** | 4 | **Short code** | `base64url` (RFC 4648 §5 URL-safe alphabet) of the UTF-8 canonical query, **no padding**. Decoders MUST accept padded and unpadded input |
+- **PART 16:** *Page layout (`/server/preferences`) — one form, one Save, always visible:**
+- **PART 16:** | Field | Purpose | Required |
+- **PART 16:** | **Rule** | `start_url` must be within `scope` |
+- **PART 16:** | **Installable** | Valid manifest | All required fields present |
+- **PART 16:** *Required files for full PWA:**
+- **PART 16:** | HTTPS enabled | ◻️ | Required for SW |
+- **PART 16:** | manifest.json valid | ◻️ | All required fields |
+- **PART 16:** | `UNAUTHORIZED` | 401 | "Authentication required" | Authentication required |
+- **PART 16:** | **Human-friendly** | `message` always displayable |
+- **PART 16:** | Always return `Content-Type` | Include charset for text types: `text/html; charset=utf-8` |
+- **PART 16:** | Redirect after POST | Always redirect (302) after a successful POST mutation |
+- **PART 16:** *ALL non-HTML responses MUST end with a single newline (`\n`).**
+- **PART 16:** | UTF-8 encoding | Always UTF-8 | Other encodings |
+- **PART 16:** *JavaScript is the exception, not the rule. Every JS line must be justified.**
+- **PART 16:** | Form validation | HTML5 `required`, `pattern`, `min`, `max`, `type="email"` | Complex cross-field validation |
+- **PART 16:** **Progressive enhancement** - features must work without JS where possible
+- **PART 16:** *HTML5 Required :**
+- **PART 16:** ALL HTML MUST be valid HTML5
+- **PART 16:** Use HTML5 attributes: `required`, `pattern`, `placeholder`, `autofocus`, `autocomplete`
+- **PART 16:** **Required for**: API calls, dynamic content loading, complex state, WebSockets
+- **PART 16:** *ALL frontend HTML MUST use Go's `html/template` package.**
+- **PART 16:** *ALL error pages MUST use the site theme system. No plain/unstyled error pages.**
+- **PART 16:** | Status | Page | Theme Required |
+- **PART 16:** NO generic browser error pages - always render themed template
+- **PART 16:** | Header `.header-actions` | TOP | Cross-cutting UI state | Profile/preferences zone (always `/server/preferences`; contents vary if an `owner_token` cookie exists), then theme toggle — in that order, right of the centered nav links |
+- **PART 16:** Preferences link (lives next to the theme toggle in the header, not in nav — it's UI state, not app content; also always present in the footer for discoverability)
+- **PART 16:** *No-JS first; a small script is an enhancement only:** the CSS below is the complete baseline and MUST work with JavaScript disabled — hamburger below 768px, inline links from 768px, open and close through the checkbox, the scrim label and the ✕ label. A small script in `app.js` MAY enhance it, and nothing may depend on it:
+- **PART 16:** *Drawer containment (NON-NEGOTIABLE — a phone screenshot of a shipped site showed every one of these failures):**
+- **PART 16:** | **Stacking** | Use the z-index tokens from "CSS Variable Reference" (`--z-raised` 10 header, `--z-dropdown` 100, `--z-overlay` 300 scrim, `--z-drawer` 350, `--z-modal` 400, `--z-banner` 450, `--z-toast` 500); no magic numbers such as `9999`. Scrim and drawer must sit above `<main>` and the hero in the same stacking context |
+- **PART 16:** Footer ALWAYS at bottom of page (not floating in middle)
+- **PART 16:** *Rule:** Every page template MUST include header, nav, and footer partials. No page may define its own.
+- **PART 16:** All templates and static assets MUST be embedded in the binary:
+- **PART 16:** *All styles MUST be in CSS files, not HTML elements.**
+- **PART 16:** | Footer | Always centered, always at bottom |
+- **PART 16:** *Three Required Themes:**
+- **PART 16:** **BOTH light AND dark themes MUST be easy to read**
+- **PART 16:** **Theme switching MUST work seamlessly** without page reload
+- **PART 16:** **All interactive elements MUST be clearly visible** in both themes
+- **PART 16:** **Syntax highlighting MUST adapt** to theme (use appropriate colors for each theme)
+- **PART 16:** an opt-in enhancement, but the ANSI mapping is the required baseline
+- **PART 16:** The toggle's target is always the NEXT mode computed from the current cookie
+- **PART 16:** NO page reload required when JS is available - it intercepts the form submit,
+- **PART 16:** Both themes MUST pass WCAG AA contrast requirements (4.5:1 minimum)
+- **PART 16:** Focus indicators MUST be visible in both themes
+- **PART 16:** Keyboard navigation MUST work identically in both themes
+- **PART 16:** Screen readers MUST work correctly in both themes
+- **PART 16:** *Custom verification meta tags for search engines and services MUST be validated before rendering.**
+- **PART 16:** | Field | Required | Validation |
+- **PART 16:** | `name` OR `property` | One required | Must be valid meta attribute name |
+- **PART 16:** *ALL projects MUST serve a dynamically generated sitemap at `/sitemap.xml`.**
+- **PART 16:** | Homepage (`/`) | Always | 1.0 | daily |
+- **PART 16:** | Public pages | Always | 0.8 | weekly |
+- **PART 16:** | API docs (`/server/docs/swagger`, `/server/docs/graphql`) | Always | 0.7 | weekly |
+- **PART 16:** | Method is `GET`, `HEAD`, or `OPTIONS` | Safe per RFC 9110. Must remain side-effect-free; if a `GET` mutates, that is a separate spec violation, not a CSRF problem. |
+- **PART 16:** | Attacker page calls our JSON API with `fetch()` from another origin, no Bearer | n/a — backend is outside CSRF scope (no token required or checked); CORS preflight and `SameSite=Strict` cookies still block it |
+- **PART 16:** *Fixed bottom banner for GDPR/privacy compliance. ALWAYS enabled - we use cookies.**
+- **PART 16:** | **First visit** | Server renders the banner (visible, no JS required) until the user responds |
+- **PART 16:** | No `cookie_consent` cookie (first visit) | **Yes** | Yes (always) | Wait | Wait |
+- **PART 16:** *Cookie consent is ALWAYS enabled - we use cookies for sessions and preferences.**
+- **PART 16:** *When user clicks "Decline", the following MUST happen:**
+- **PART 16:** | **Essential cookies** | **Still work** | Session, CSRF, auth tokens required for app to function |
+- **PART 16:** | **localStorage** | **Not used** | Decline is remembered in the `cookie_consent` cookie (essential — the server must read it to skip the banner and block tracking) |
+- **PART 16:** *ALL applications MUST have these standard pages. Content is defined per-application.**
+- **PART 16:** | Third-party attribution | GeoIP (DB-IP / NRO CC BY 4.0 notices — see PART 19: GEOIP), plus any other license-required attribution |
+- **PART 16:** *Privacy policy page - MUST display all privacy information from `server.privacy` config.**
+- **PART 16:** *Required Sections (auto-generated from config):**
+- **PART 16:** `ccpa.applicable`: `true` only when `data.sold = true` (the `ccpa` object is always included; the CCPA opt-out UI is only shown when `applicable` is `true`)
+- **PART 16:** | Field | Type | Required | Description |
+- **PART 16:** | Captcha | Captcha | Yes | Spam prevention - rendered on the initial form and required on EVERY submission (anonymous form: no failed-attempt state exists). Single-use; a new challenge is issued after each submit, failed or not |
+- **PART 16:** *API Documentation section (always shown):**
+- **PART 16:** *⚠️ REMINDER: All content sections MUST be populated from IDEA.md - see sourcing rules above.**
+- **PART 16:** *Base sections (always rendered, in this order, each with its anchor id):**
 
 ## Key Rules Summary
-- **Directory layout**: `template/layout/base.tmpl` is the ONE web layout (no separate admin/dashboard
-  layout — there are no user accounts); `template/page/*.tmpl` per route; `template/partial/*.tmpl` for
-  shared fragments (header, nav, footer, error, consent/announcement banners); `static/css/{common,
-  components,public}.css` load in that order; `static/js/app.js` is the single JS file
-- **Standard pages & content sourcing**: `/server/about`, `/server/privacy`, `/server/contact`,
-  `/server/help`, `/server/terms` render real project content pulled from IDEA.md — real endpoints, real
-  example commands, no filler text
-- **Embedded vs external assets**: templates/CSS/JS/images/icons/fonts/app-data JSON are `//go:embed`;
-  GeoIP DBs, IP/domain blocklists, CVE DBs, and SSL certs are downloaded at runtime and never embedded
-- **Long-string CSS**: `.long-string`/`.ip-address`/`.api-token`/`.hash`/`.uuid`/`.monospace-data` use
-  `word-break: break-all` with no adjacent copy button; `.onion-address`/`.i2p-address`/`.copy-value` use
-  single-line horizontal scroll with an adjacent copy button — never mix the two patterns
-- **Theme system**: `theme` cookie read server-side only, `theme-{dark|light|auto}` class on `<html>`,
-  zero JS/zero FOUC; toggle target computed via `nextTheme()`, never hardcoded
-- **Owner-token controls**: `/server/preferences` is the only web token-management surface. Its token
-  section is conditional on a valid primary owner cookie; linked tokens provide resource access but cannot
-  manage credentials. Reveal/rotation/restore are POST forms with CSRF, and token-bearing responses are
-  `no-store`. API mirrors use Bearer authentication and never ambient cookies.
-- **Accessibility/touch targets**: interactive controls ≥44×44px; `lang`/`dir` always template-driven,
-  never hardcoded; no inline handlers (CSP)
+
+### PART 16 — WEB FRONTEND
+- Requirements
+- Frontend Consumes Backend
+- Smart Content Detection
+- Mobile-First Responsive Design
+- Semantic HTML Elements
+- CSS — Font Family Variables
+- CSS Variable Reference
+- Reuse Before Creating
+- Technology Stack
+- UI Components
+- Import/Export UI Convention
+- Accessibility
+- PWA Support
+- HTTP Status Codes
+- Unified Response Format
+- Text Response Format
+- Server Response Rules
+- CORS Configuration
+- Error Pages (MUST Match Theme)
+- Layout Separation
+- Layout
+- Themes (NON-NEGOTIABLE - PROJECT-WIDE)
+- Branding & SEO
+- Announcements
+- CORS
+- CSRF Protection
+- Footer Customization
+- Cookie Consent Banner
+- Standard Pages
 
 For complete details, see AI.md PART 16.

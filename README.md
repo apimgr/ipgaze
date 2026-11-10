@@ -568,7 +568,7 @@ docker run --rm --network host casjaysdev/go:latest \
 - **Workflows**:
   - `ci.yml` - Lint, tests, builds, coverage, vulnerability and full-history secret scans, image scan, and action SHA policy; main/master push and pull request, weekly, or manual
   - `licenses.yml` - Dependency license check; main/master push and pull request, or manual
-  - `daily.yml` - Eight-platform daily builds and rolling release; daily, main/master push, or manual
+  - `devel.yml` - Eight-platform devel builds and rolling release; daily, main/master push, or manual
   - `beta.yml` - Beta builds; push to `beta` or manual
   - `release.yml` - Eight-platform tagged release; version tag or manual
   - `docker.yml` - Multi-architecture Docker images (amd64, arm64); all branch pushes, version tags, daily, or manual

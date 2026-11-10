@@ -1,59 +1,40 @@
-# Project Alignment Audit
+# Project Audit
 
-Updated: 2026-11-07
-Source of truth: `AI.md` (read-only)
+Started: 2026-11-09
+Status: in progress; AI.md is the sole implementation authority and remains read-only.
 
-## Completed during this alignment
+## Pass 5: Spec and Rules Compliance
 
-- Corrected public help examples, request-aware URLs, MCP help page and JSON endpoint, OpenAPI entries, and setup documentation.
-- Added the HTML and enveloped JSON security overview, policy, acknowledgments, and researcher report-status routes. Added the coordinated disclosure form mode, rotating `security_id`, CAPTCHA, encrypted report storage, notifications, acknowledgment, and one-shot daily status access.
-- Added PGP report encryption and AES-256-GCM fallback delivery as an encrypted attachment. Encryption-key rotation now re-encrypts AES-encrypted report rows in a transaction.
-- Added the authorized `--maintenance security-report list|set` workflow so operators can update the documented researcher-visible triage states without a web admin route. Listing exposes non-identifying metadata only; updates are audit-logged.
-- Removed obsolete 2024 terms-page dates, standardized page/contact JSON envelopes, and updated README and docs for current routes and behavior.
-- Updated `.github/SECURITY.md` and `docs/security.md` to make GitHub private reporting primary for repository vulnerabilities, state the in-scope targets and exclusions, provide conservative safe-harbor terms, and document the official service's 90-day disclosure policy. Corrected the MCP authentication guidance in configuration docs.
-- Updated Docker/Incus smoke checks and the SSR test for canonical security.txt behavior; `/security.txt` is checked as a 404.
-- Removed the unsupported `/security.txt` alias; `/.well-known/security.txt` remains canonical.
-- Corrected IDEA.md's duplicate MCP entry and documented encrypted storage for consented researcher credit names and handles.
-- Searched `/root/Projects/github/apimgr/TODO.API.md` before adding each confirmed AI.md conflict or underspecified requirement found during the segmented review. AI.md remains unchanged.
-- Added PGP rotation archives retained for the 30-day grace window, re-encrypted them when the installation secret rotates, and made PGP deletion remove active and archived key material.
-- Added `--maintenance backup test` as a dry-run archive extraction and private-key decryption check using the installation secret from the extracted database. Restore now consumes keyserver publish state and republishes the restored public key when configured.
-- Redacted sensitive query values from access and debug logs. Added a separate researcher handle field for handle-based credit.
-- Bounded encryption-key rotation's database transaction to AI.md's 30-second transaction deadline.
-- Updated third-party license versions to match go.mod and added the MCP SDK attribution from its module license.
-- Added individual compliance-standard settings and report output; an enabled standard now requires encrypted backups, and report generation is audit-logged.
-- Corrected CLI, Tor, and I2P integration documentation to match actual command and feature behavior.
-- Added the documented I2P configuration options, defaults, timeout units, and storage path to `docs/configuration.md`.
-- Completed the `/server/about` page's required version and repository, website, and documentation links; the page and JSON response now use configured branding values.
-- Updated `docs/api.md` with the missing consent, CCPA, announcement dismissal, and browser-report POST endpoints.
-- Fixed Tor startup handling so the control-port file is read only after Tor writes a valid port value; tests cover the startup behavior.
-- Encrypted researcher credit names and handles at rest, migrated existing plaintext values at startup, and re-encrypts them during key rotation.
-- Routed server-owned outbound HTTP clients through the optional Tor transport and fail closed when Tor routing is enabled but unavailable.
-- Updated ReadTheDocs to its current supported Ubuntu LTS and Python version.
-- Made service uninstall remove the OS-specific paths resolved for the current command, including CLI directory overrides.
+- [ ] Part 32 CLI GUI: AI.md requires native `gogpu/ui` + `gogpu/gogpu` GUI mode on Linux/macOS/Windows for local display sessions (PART 32 lines 45286-45305 and 45522-45620), but `src/client/main.go` and `src/client/setup/wizard.go` collapse GUI mode to TUI and no GUI implementation/dependencies exist.
+- [ ] Part 21 restore verification: `verifyBackup` previously accepted a missing/blank manifest checksum because SHA-256 comparison only ran when `checksum` was non-empty; PART 21 requires every backup checksum check to pass before restore.
+- [ ] Part 22 scheduled notifications: `update_check` logged the same update on every run and only persisted the seen version when email was enabled; PART 22 requires update-available notification/logging once per version.
+- [ ] Part 22 defer eligibility: `updater.IsEligible` treated absent or invalid `published_at` as eligible despite the PART 22 rule requiring the release age to meet `defer_days`.
+- [ ] Part 22 eligible release selection: the scheduler checked only the newest release and skipped the whole task if it was too young, instead of continuing to the newest older eligible release; added a scheduled selector that scans releases newest-first and stops at the running version.
+- [ ] Part 22 service-aware update: scheduled and `--update yes` installs always called `RestartSelf`, even when running under a service manager; PART 22 requires coordinating restart with the manager. Added runtime service detection and dispatch to `RestartService` for managed processes.
+- [ ] Part 24 Windows services: the installer created an SCM service but the binary had no `windows/svc` entrypoint/control handler, so it could not report running state or receive SCM Stop/Shutdown as required by PART 24's Windows service integration example.
+- [ ] Part 26 test Compose names: the test stack used `ipgaze-test`/`ipgaze-cache-test` container and service names instead of the fixed cross-variant names `ipgaze-app`/`ipgaze-cache` required at AI.md PART 26 lines 34377 and 34466.
+- [ ] Part 28 project-specific E2E: the required three-tier domain coverage had SSR and no-JS IP lookup checks but no browser-tier specific-IP lookup assertion; added a named browser test for `8.8.8.8` rendering.
+- [ ] Part 27 devel workflow naming: provider workflows were named `daily.yml` while AI.md requires `devel.yml`; files and display labels are synchronized. A follow-up comparison also changed rolling release tags and Jenkins `BUILD_TYPE` from `daily` to `devel`, matching the Part 27 devel workflow contract.
+- [ ] Part 25 Makefile contract: implementation used noncanonical `PROJECTNAME`/`PROJECTORG`/`INTERNALNAME`, prevented `PLATFORMS` overrides, used `unknown` instead of `N/A` for missing commit IDs, and formed the registry from `internal_name`; aligned variable names, overridability, fallback, and registry source with the AI.md example.
+- [ ] Part 23 Windows VSA paths: system config path lacked the required `config` subdirectory, Windows SCM context could select user-scope paths, and installer did not grant the VSA access to required ProgramData/runtime directories; aligned system paths and added service-context detection plus per-service ACL preparation before start.
+- [ ] AI tool rules: all 13 `.claude/rules/*.md` files are older than AI.md; Part 0 lines 2644 and 3172 require regeneration when AI.md is newer. Regenerate each file from its mapped PARTs and the required format.
+- [ ] I2P Model A: `src/i2p/i2p.go` writes a server-tunnel `tunnels.conf` and starts i2pd without the dedicated `i2pd.conf`, private random SAM port, empty tunnel config, and `--conf`/`--pidfile` contract in AI.md PART 31.2 lines 43874-43918 and 43995-44020.
+- [ ] I2P SAM protocol: implementation negotiates SAM 3.0 (MIN=3.0), while PART 31.2 lines 43965 and 44513 require SAM 3.1; all SAM socket commands need bounded deadlines.
+- [ ] I2P sockets: `SESSION CREATE` and `STREAM FORWARD` share one connection and the forward omits `SILENT=true`; PART 31.2 lines 43964-43977 and required checklist line 44039 mandate distinct HELLO-negotiated sockets and silent forwarding.
+- [ ] I2P backend readiness: session setup issued `STREAM FORWARD` before the dedicated listener's HTTP accept loop started; PART 31.2 line 43982 requires the listener to be accepting first. The listener now starts its handler loop before SAM setup; primary validation remains pending.
+- [ ] I2P bootstrap: `SESSION STATUS` uses an unbounded read and the configured timeout is not range-checked to 30-600 seconds; PART 31.2 lines 43990-44008 requires bounded waits and timeout recovery.
+- [ ] I2P Model B monitoring: added the separate 30-second SAM probe, session-loss recovery, and bounded backoff. Follow-up review found speculative deadline reads could consume bytes from idle SAM sockets; replaced them with passive watchers and focused tests. Primary validation remains pending.
+- [ ] I2P Model A lifecycle: process shutdown only signals Interrupt and does not wait/kill after 10 seconds; startup has no stale PID reap, PID-file backstop, or Linux parent-death signal as required by PART 31.2 lines 44016-44037 and 44037.
+- [ ] I2P runtime state: preserved the `no_provider`/`starting`/`building`/`running`/`error` transitions through status reporting; session recovery now exposes `error` before restart. Primary validation remains pending.
+- [ ] Metrics database category: PART 20 lines 29655-29663 and 29710-29739 require query totals/duration, DB pool open/in-use gauges, and error totals. `src/server/metrics/metrics.go` declares them, but no production caller updates them; database queries use `src/db`/`database/sql` directly.
+- [ ] Metrics system category: PART 20 lines 29798-29807 and configuration require system CPU/memory/disk metrics when `include_system: true` (default true). `RegisterSystemMetrics` exists in `src/server/metrics/metrics.go` but has no call site, and no system collector updates those gauges; `src/main.go` only registers and starts the optional Go runtime collector.
+- [ ] Metrics authentication category: PART 20 lines 29665-29670 requires auth attempt counters and an active-session gauge. `src/server/metrics/metrics.go` declares both, but no production code updates them. The active-session metric's semantics conflict with PART 11's no-session model; clarification is recorded in `../TODO.API.md`.
+- [ ] Metrics Tor category: PART 20 lines 29817-29823 requires Tor enabled/running/circuit/request metrics when using PART 31 Tor. The metrics were declared but had no production update sites in `src/tor/tor.go`.
 
-## Remaining confirmed alignment gaps
+## Pass Progress
 
-- AI.md PART 11 lines 14966 and 14972 conflict: the policy is described as API-editable, while server security is also declared file-configured with no administration routes. The policy uses the user-approved conservative default with read-only HTML/JSON routes; the conflict is logged in `/root/Projects/github/apimgr/TODO.API.md`.
-- AI.md PART 12 lists `recaptcha`, `hcaptcha`, and `simple` CAPTCHA choices without defining provider credentials or verification protocols. The implementation provides the built-in `simple` challenge; the missing provider contract is logged in `/root/Projects/github/apimgr/TODO.API.md`.
-- AI.md conflicts on the default tracking consent model and whether supplied invalid `security_id` values must be logged. The implementation requires affirmative consent and does not log the secret token; both conflicts are logged in `/root/Projects/github/apimgr/TODO.API.md`.
-- PART 17 leaves operator email localization and startup/shutdown event semantics unspecified; these questions are recorded in `/root/Projects/github/apimgr/TODO.API.md`.
-- Daily backup archives are still full archives rather than deltas. AI.md does not define the delta format or restore/apply contract, so this is logged for specification clarification before implementing incremental restore.
-- AI.md also conflicts about whether README's Development section is absolutely last, whether configuration may be database-backed, and whether path environment variables are init-only. These are listed in `/root/Projects/github/apimgr/TODO.API.md`.
-- AI.md PART 8 gives conflicting help syntax (`--service help`/`<command> help` versus `--service --help`); the runtime help follows the explicit server command/startup examples, and the mismatch is logged in `/root/Projects/github/apimgr/TODO.API.md`.
-- PART 11 still requires configured permanent IP blocks, abuse-triggered temporary blocking/alerting, and a `/server/dpo` contact route. The blocked-IP YAML schema, auto-block threshold semantics, and DPO contact source are underspecified and logged in `/root/Projects/github/apimgr/TODO.API.md`.
-- Fixed the concrete allowlist rate-limit bypass gap. The automatic flood-blocking trigger remains unspecified (window, threshold basis, persistence) and is logged in `/root/Projects/github/apimgr/TODO.API.md`.
-- PART 11's per-standard flags now exist, but its detailed behaviors (including breach workflows, retention, and organization-specific controls) are not fully implemented. Do not treat the flags or report as certification.
-- PART 31.2 has inconsistent I2P configuration names (`features.i2p.enabled` versus `server.i2p.enabled` and other interfaces); this is recorded in `/root/Projects/github/apimgr/TODO.API.md`.
-- PART 31.2's `bootstrap_timeout` example uses `5m`, while its struct and implementation use integer seconds; this is logged for spec correction. The docs follow the implemented integer-seconds contract.
-- PART 26 conflicts on whether production compose sets `MODE` and on whether Tor's data tree includes `site/`; PART 30's translation rule conflicts with PART 19's verbatim English data attributions. All three issues are recorded in `/root/Projects/github/apimgr/TODO.API.md`.
-- The `go-licenses` scan identifies `modernc.org/mathutil` as unknown because its module archive lacks a recognized license filename. Upstream identifies it as BSD-3-Clause; the attribution is in `LICENSE.md`. The scan did not complete successfully.
-- Segmented reviews covered PARTS 1–7 and focused portions of PARTS 8–33; they were not exhaustive line-by-line walks of every PART. Full-project compliance is not claimed.
-
-## Verification status
-
-- `bash "$HOME/.codex/hooks/test-lint-run.sh" test -- make test` — passed with 60.1% statement coverage after the latest code changes.
-- `shellcheck tests/docker.sh tests/incus.sh` — passed through the lint gate.
-- `mkdocs build --strict --site-dir <project-scoped temp directory>` — passed in Python 3.14; output stayed inside the disposable container.
-- `git diff --check` — passed.
-- `golangci-lint run` — passed with zero issues after the latest Go edits.
-- Remaining AI.md questions are listed in `/root/Projects/github/apimgr/TODO.API.md`; the exhaustive checklist audit is not yet complete.
+- PART 0: requirement walk begun; AI rule freshness and generation requirements checked.
+- PART 1: requirement headings reviewed; implementation checks pending.
+- PART 3: structure/build-output requirements reviewed; tracked `binaries/` still under investigation.
+- PART 31.2: provider contract compared with implementation; findings above confirmed.
+- All other PARTs and audit passes remain in progress.
