@@ -610,6 +610,60 @@ func TestServerOperatorTokenSetAndValidate(t *testing.T) {
 	}
 }
 
+func TestAPIV1AuthCheckEndpoint(t *testing.T) {
+	srv := testServer()
+	srv.SetOperatorToken("test-operator-token")
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	for _, token := range []string{"", "wrong-token"} {
+		req, err := http.NewRequest(http.MethodGet, ts.URL+"/api/v1/server/auth/check", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if token != "" {
+			req.Header.Set("Authorization", "Bearer "+token)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = resp.Body.Close()
+		if resp.StatusCode != http.StatusUnauthorized {
+			t.Errorf("invalid token status = %d, want 401", resp.StatusCode)
+		}
+	}
+
+	req, err := http.NewRequest(http.MethodGet, ts.URL+"/api/v1/server/auth/check", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer test-operator-token")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("valid token status = %d, want 200", resp.StatusCode)
+	}
+	var body map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if body["ok"] != true {
+		t.Errorf("valid-token response = %#v, want standard success envelope", body)
+	}
+	data, ok := body["data"].(map[string]interface{})
+	if !ok || data["kind"] != "operator" {
+		t.Errorf("valid-token data = %#v, want kind operator", body["data"])
+	}
+	encoded, _ := json.Marshal(body)
+	if strings.Contains(string(encoded), "test-operator-token") {
+		t.Fatal("auth check echoed the bearer token")
+	}
+}
+
 func TestServerSetThreatLookupAndSetHostIPs(t *testing.T) {
 	s := testServer()
 

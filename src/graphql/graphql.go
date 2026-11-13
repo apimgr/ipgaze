@@ -17,10 +17,9 @@ import (
 var Schema gql.Schema
 
 // GraphQLHandlerConfig holds GraphQL handler configuration.
-// The three lookup callbacks are optional; a nil callback makes the matching
-// resolver return a GraphQL error instead of serving live data. Pass the
-// *server.Server methods that already back the REST endpoints (see main.go)
-// so GraphQL and REST share one implementation.
+// Resolver callbacks are optional; a nil callback makes the matching resolver
+// return a GraphQL error instead of serving live data. Pass the same server
+// methods and page definitions that back REST endpoints (see main.go).
 type GraphQLHandlerConfig struct {
 	Version  string
 	CommitID string
@@ -32,17 +31,21 @@ type GraphQLHandlerConfig struct {
 	CheckPort func(ip net.IP, port uint64) (bool, error)
 	// Health returns the same model.HealthResponse the REST health endpoints
 	// render, keeping the GraphQL health query functionally equivalent to REST.
-	Health func() model.HealthResponse
+	Health      func() model.HealthResponse
+	AuthCheck   func(r *http.Request) (string, error)
+	ContactForm func(r *http.Request) (map[string]interface{}, error)
 }
 
 // Handler serves the GraphQL endpoint and GraphiQL UI
 func Handler(cfg GraphQLHandlerConfig) http.HandlerFunc {
 	// Wire resolver dependencies from cfg — see Deps in resolvers.go.
 	resolverDeps = Deps{
-		ClientIP:  cfg.ClientIP,
-		LookupIP:  cfg.LookupIP,
-		CheckPort: cfg.CheckPort,
-		Health:    cfg.Health,
+		ClientIP:    cfg.ClientIP,
+		LookupIP:    cfg.LookupIP,
+		CheckPort:   cfg.CheckPort,
+		Health:      cfg.Health,
+		AuthCheck:   cfg.AuthCheck,
+		ContactForm: cfg.ContactForm,
 	}
 
 	// Initialize schema on first call

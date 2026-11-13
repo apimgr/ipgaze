@@ -50,6 +50,7 @@ var swaggerDefaults = map[string]string{
 	"swagger.responses.invalid_port":                   "Invalid port number",
 	"swagger.responses.not_found":                      "Resource not found",
 	"swagger.responses.bad_request":                    "Malformed request",
+	"swagger.responses.unauthorized":                   "Bearer token is missing or invalid",
 	"swagger.responses.unavailable":                    "Server is unhealthy, in maintenance mode, or shutting down",
 	"swagger.responses.too_many_requests":              "Rate limit exceeded",
 	"swagger.paths.server_tracking_script.summary":     "Load consented analytics",
@@ -222,6 +223,10 @@ var swaggerDefaults = map[string]string{
 	"swagger.paths.v1_security_thanks.summary":        "Security acknowledgments (API v1)",
 	"swagger.paths.v1_contact.summary":                "Submit the contact form (API v1)",
 	"swagger.paths.v1_contact.description":            "Validates and delivers a contact message, returning the result as JSON.",
+	"swagger.paths.v1_contact_get.summary":            "Get contact form definition (API v1)",
+	"swagger.paths.v1_contact_get.description":        "Returns the public contact form fields, captcha descriptor, security URL and abuse contact address.",
+	"swagger.paths.v1_auth_check.summary":             "Validate operator token (API v1)",
+	"swagger.paths.v1_auth_check.description":         "Requires an Authorization: Bearer token. Returns its kind when valid and 401 otherwise; the token is never returned.",
 	"swagger.paths.v1_preferences.summary":            "Get preferences (API v1)",
 	"swagger.paths.v1_preferences.description":        "Returns the theme and locale currently stored in the caller's cookies.",
 	"swagger.paths.v1_preferences_update.summary":     "Update preferences (API v1)",
@@ -300,6 +305,7 @@ type routeDoc struct {
 	bodySchema   *Schema
 	errs         []apiErr
 	statusOK     string
+	requiresAuth bool
 }
 
 // RouteDefinition exposes the stable HTTP identity shared by runtime API
@@ -541,7 +547,9 @@ func routeDocs(lang string) []routeDoc {
 		{path: "/api/v1/server/security", method: "get", id: "v1_security", descKey: apiMirrorKey, tagSlug: "api_v1", okSlug: "json_object", content: jsonObject()},
 		{path: "/api/v1/server/security/policy", method: "get", id: "v1_security_policy", descKey: apiMirrorKey, tagSlug: "api_v1", okSlug: "json_object", content: jsonObject()},
 		{path: "/api/v1/server/security/thanks", method: "get", id: "v1_security_thanks", descKey: apiMirrorKey, tagSlug: "api_v1", okSlug: "json_object", content: jsonObject()},
+		{path: "/api/v1/server/contact", method: "get", id: "v1_contact_get", tagSlug: "api_v1", okSlug: "json_object", content: jsonObject()},
 		{path: "/api/v1/server/contact", method: "post", id: "v1_contact", tagSlug: "api_v1", okSlug: "json_object", content: jsonObject(), bodySlug: "contact", bodySchema: &Schema{Ref: "#/components/schemas/ContactRequest"}, errs: []apiErr{{"400", "bad_request"}, {"429", "too_many_requests"}}},
+		{path: "/api/v1/server/auth/check", method: "get", id: "v1_auth_check", tagSlug: "api_v1", okSlug: "json_object", content: jsonObject(), errs: []apiErr{{"401", "unauthorized"}}, requiresAuth: true},
 		{path: "/api/v1/server/preferences", method: "get", id: "v1_preferences", tagSlug: "api_v1", okSlug: "json_object", content: jsonRef("PreferencesResponse")},
 		{path: "/api/v1/server/preferences", method: "post", id: "v1_preferences_update", tagSlug: "api_v1", okSlug: "json_object", content: jsonRef("PreferencesResponse"), bodySlug: "preferences", bodySchema: &Schema{Ref: "#/components/schemas/PreferencesRequest"}},
 		{path: "/api/v1/server/preferences/export", method: "get", id: "v1_preferences_export", tagSlug: "api_v1", okSlug: "json_object", content: jsonRef("PreferencesExportResponse")},
@@ -623,6 +631,9 @@ func buildOperation(lang string, d routeDoc) *Operation {
 		Parameters:  d.params,
 		Responses:   responses,
 	}
+	if d.requiresAuth {
+		op.Security = []map[string][]string{{"BearerAuth": {}}}
+	}
 	if d.bodySchema != nil {
 		op.RequestBody = &RequestBody{
 			Description: tr(lang, "swagger.bodies."+d.bodySlug),
@@ -663,6 +674,7 @@ func generatePaths(lang string) map[string]PathItem {
 // generateComponents generates reusable component schemas for the OpenAPI specification.
 func generateComponents() Components {
 	return Components{
+		SecuritySchemes: map[string]SecurityScheme{"BearerAuth": {Type: "http", Scheme: "bearer", BearerFormat: "opaque"}},
 		Schemas: map[string]Schema{
 			"IPResponse": {
 				Type: "object",

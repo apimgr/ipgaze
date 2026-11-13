@@ -955,8 +955,15 @@ func (h *PagesHandler) ServerContactHandler(w http.ResponseWriter, r *http.Reque
 	form.CaptchaQuestion, form.CaptchaToken = data.CaptchaQuestion, data.CaptchaToken
 	form.CaptchaProvider, form.CaptchaSiteKey = data.CaptchaProvider, data.CaptchaSiteKey
 	form.SecurityReportMode = data.SecurityReportMode
+	form.Captcha = ContactCaptcha{Provider: data.CaptchaProvider, Challenge: data.CaptchaToken, Question: data.CaptchaQuestion}
+	if data.CaptchaProvider != "simple" {
+		form.Captcha.SiteKey = data.CaptchaSiteKey
+	}
+	form.SecurityURL = netutil.BuildURL(r, h.Trust, "/server/security")
+	form.AbuseEmail = data.AbuseEmail
 	if data.SecurityReportMode {
-		form.Fields = []string{"name", "handle", "email", "captcha", "captcha_token", "researcher_gpg", "affected_component", "affected_endpoint", "severity", "summary", "steps_to_reproduce", "impact", "suggested_fix", "cve_requested", "disclosure_days", "credit_preference", "coordinated_disclosure_agreement"}
+		form.FieldNames = []string{"name", "handle", "email", "captcha", "captcha_token", "researcher_gpg", "affected_component", "affected_endpoint", "severity", "summary", "steps_to_reproduce", "impact", "suggested_fix", "cve_requested", "disclosure_days", "credit_preference", "coordinated_disclosure_agreement"}
+		form.Fields = contactFieldsForNames(form.FieldNames)
 	}
 	h.renderNegotiated(w, r, "contact.tmpl", data, form)
 }
@@ -987,24 +994,87 @@ func contactRequestFromForm(r *http.Request, provider string) ContactRequest {
 // our CLI can render the same submission form the HTML page offers. The field
 // list mirrors the form fields ServerContactHandler's POST branch reads.
 type ContactFormResponse struct {
-	Method             string   `json:"method"`
-	Action             string   `json:"action"`
-	Fields             []string `json:"fields"`
-	CaptchaQuestion    string   `json:"captcha_question,omitempty"`
-	CaptchaToken       string   `json:"captcha_token,omitempty"`
-	CaptchaProvider    string   `json:"captcha_provider"`
-	CaptchaSiteKey     string   `json:"captcha_site_key,omitempty"`
-	SecurityReportMode bool     `json:"security_report_mode,omitempty"`
+	Method             string         `json:"-"`
+	Action             string         `json:"-"`
+	Fields             []ContactField `json:"fields"`
+	FieldNames         []string       `json:"-"`
+	Captcha            ContactCaptcha `json:"captcha"`
+	SecurityURL        string         `json:"security_url"`
+	AbuseEmail         string         `json:"abuse_email"`
+	CaptchaQuestion    string         `json:"-"`
+	CaptchaToken       string         `json:"-"`
+	CaptchaProvider    string         `json:"-"`
+	CaptchaSiteKey     string         `json:"-"`
+	SecurityReportMode bool           `json:"-"`
+}
+
+type ContactField struct {
+	Name      string `json:"name"`
+	Type      string `json:"type"`
+	Required  bool   `json:"required"`
+	MaxLength *int   `json:"max_length"`
+}
+
+type ContactCaptcha struct {
+	Provider  string `json:"provider"`
+	SiteKey   string `json:"site_key,omitempty"`
+	Challenge string `json:"challenge_id,omitempty"`
+	Question  string `json:"question,omitempty"`
 }
 
 // buildContactFormResponse returns the contact form description served to
 // non-browser clients on GET /server/contact.
 func buildContactFormResponse() ContactFormResponse {
+	names := []string{"name", "email", "subject", "message", "captcha", "captcha_token"}
 	return ContactFormResponse{
-		Method: http.MethodPost,
-		Action: "/api/v1/server/contact",
-		Fields: []string{"name", "email", "subject", "message", "captcha", "captcha_token"},
+		Method:     http.MethodPost,
+		Action:     "/api/v1/server/contact",
+		Fields:     contactFieldsForNames(names),
+		FieldNames: names,
 	}
+}
+
+// ContactFormDefinition returns the request-specific public form metadata used
+// by the REST and GraphQL renderings.
+func (h *PagesHandler) ContactFormDefinition(r *http.Request) ContactFormResponse {
+	data := h.NewPageData(r)
+	provider, question, challenge := h.newContactCaptcha(r, time.Now())
+	form := buildContactFormResponse()
+	form.Captcha = ContactCaptcha{Provider: provider, Challenge: challenge, Question: question}
+	if provider != "simple" && h.Config != nil {
+		form.Captcha.SiteKey = h.Config.Pages.Contact.CaptchaSiteKey
+	}
+	form.SecurityURL = netutil.BuildURL(r, h.Trust, "/server/security")
+	form.AbuseEmail = data.AbuseEmail
+	if securityID := r.URL.Query().Get("security_id"); securityID != "" {
+		if valid, err := h.validSecurityID(securityID); err == nil && valid {
+			form.Fields = contactFieldsForNames([]string{"name", "handle", "email", "captcha", "captcha_token", "researcher_gpg", "affected_component", "affected_endpoint", "severity", "summary", "steps_to_reproduce", "impact", "suggested_fix", "cve_requested", "disclosure_days", "credit_preference", "coordinated_disclosure_agreement"})
+		}
+	}
+	return form
+}
+
+func contactFieldsForNames(names []string) []ContactField {
+	fields := make([]ContactField, 0, len(names))
+	for _, name := range names {
+		typeName, required := "text", false
+		switch name {
+		case "name", "email", "subject", "message", "captcha":
+			required = true
+		}
+		switch name {
+		case "email":
+			typeName = "email"
+		case "message", "summary", "steps_to_reproduce", "impact", "suggested_fix":
+			typeName = "textarea"
+		case "cve_requested", "coordinated_disclosure_agreement":
+			typeName = "checkbox"
+		case "captcha":
+			typeName = "captcha"
+		}
+		fields = append(fields, ContactField{Name: name, Type: typeName, Required: required})
+	}
+	return fields
 }
 
 // ContactRequest for POST submissions
@@ -1040,6 +1110,10 @@ type ContactResponse struct {
 
 // APIV1ServerContactHandler handles POST /api/v1/server/contact
 func (h *PagesHandler) APIV1ServerContactHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodGet {
+		SendAPIResponseOK(w, h.ContactFormDefinition(r), nil)
+		return
+	}
 	if r.Method != http.MethodPost {
 		SendAPIResponseError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", i18n.T(r.Context(), "errors.method_not_allowed"), nil)
 		return

@@ -50,6 +50,11 @@ ipgaze exposes a GraphQL endpoint for flexible IP lookup queries:
 | `/server/docs/graphql` | Interactive GraphiQL UI |
 | `/api/graphql` | GraphQL query endpoint (`GET` or `POST`) |
 
+GraphQL is query-only. Its `authCheck` field validates the caller's operator
+Bearer token without returning it; invalid tokens produce a GraphQL error.
+The REST contact-form description is available through
+`GET /api/v1/server/contact`.
+
 Example query:
 
 ```graphql

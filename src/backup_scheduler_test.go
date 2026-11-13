@@ -31,6 +31,15 @@ func TestScheduledBackupCreatesVerifiedFullAndIncremental(t *testing.T) {
 		if err != nil {
 			t.Fatalf("marshal config: %v", err)
 		}
+		var document yaml.Node
+		if err := yaml.Unmarshal(contents, &document); err != nil {
+			t.Fatalf("unmarshal config: %v", err)
+		}
+		removeNullConfigNodes(document.Content[0])
+		contents, err = yaml.Marshal(&document)
+		if err != nil {
+			t.Fatalf("marshal normalized config: %v", err)
+		}
 		if err := os.WriteFile(filepath.Join(configDir, "server.yml"), contents, 0o600); err != nil {
 			t.Fatalf("write config: %v", err)
 		}
@@ -75,5 +84,24 @@ func TestScheduledBackupCreatesVerifiedFullAndIncremental(t *testing.T) {
 	}
 	if incrementalManifest["type"] != "incremental" || incrementalManifest["base_backup"] != filepath.Base(fullPath) {
 		t.Fatalf("incremental manifest = %#v", incrementalManifest)
+	}
+}
+
+func removeNullConfigNodes(node *yaml.Node) {
+	if node.Kind == yaml.MappingNode {
+		content := node.Content[:0]
+		for index := 0; index+1 < len(node.Content); index += 2 {
+			key, value := node.Content[index], node.Content[index+1]
+			if value.Tag == "!!null" {
+				continue
+			}
+			removeNullConfigNodes(value)
+			content = append(content, key, value)
+		}
+		node.Content = content
+		return
+	}
+	for _, child := range node.Content {
+		removeNullConfigNodes(child)
 	}
 }

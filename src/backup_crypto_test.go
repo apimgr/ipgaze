@@ -202,6 +202,9 @@ func TestBuildAndExtractBackupArchive_RoundTrip(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(configDir, "security"), 0o700); err != nil {
 		t.Fatalf("mkdir security: %v", err)
 	}
+	if err := os.MkdirAll(filepath.Join(configDir, "yaml.d"), 0o700); err != nil {
+		t.Fatalf("mkdir yaml.d: %v", err)
+	}
 	if err := os.MkdirAll(dataDir, 0o700); err != nil {
 		t.Fatalf("mkdir data: %v", err)
 	}
@@ -210,6 +213,9 @@ func TestBuildAndExtractBackupArchive_RoundTrip(t *testing.T) {
 	}
 	if err := os.WriteFile(filepath.Join(configDir, "server.yml"), []byte("port: 8080\n"), 0o600); err != nil {
 		t.Fatalf("write config file: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(configDir, "yaml.d", "10-extra.yml"), []byte("extra: true\n"), 0o600); err != nil {
+		t.Fatalf("write config drop-in: %v", err)
 	}
 	if err := os.WriteFile(filepath.Join(configDir, "sub", "nested.yml"), []byte("nested: true\n"), 0o600); err != nil {
 		t.Fatalf("write nested config file: %v", err)
@@ -251,13 +257,16 @@ func TestBuildAndExtractBackupArchive_RoundTrip(t *testing.T) {
 	if len(contents) == 0 {
 		t.Fatal("manifest contents missing/empty")
 	}
-	var hasData, hasSecurity bool
+	var hasData, hasSecurity, hasDropIns bool
 	for _, c := range contents {
 		if c == "data/" {
 			hasData = true
 		}
 		if c == "security/" {
 			hasSecurity = true
+		}
+		if c == "yaml.d/" {
+			hasDropIns = true
 		}
 		if c == "ssl/" {
 			t.Fatalf("manifest contents should not list ssl/ when includeSSL is false: %v", contents)
@@ -268,6 +277,9 @@ func TestBuildAndExtractBackupArchive_RoundTrip(t *testing.T) {
 	}
 	if !hasSecurity {
 		t.Fatalf("manifest contents missing security/ directory: %v", contents)
+	}
+	if !hasDropIns {
+		t.Fatalf("manifest contents missing yaml.d/ directory: %v", contents)
 	}
 	checksum, _ := gotManifest["checksum"].(string)
 	if !strings.HasPrefix(checksum, "sha256:") {
@@ -287,6 +299,13 @@ func TestBuildAndExtractBackupArchive_RoundTrip(t *testing.T) {
 	}
 	if string(gotServerYML) != "port: 8080\n" {
 		t.Fatalf("server.yml mismatch: %q", gotServerYML)
+	}
+	gotDropIn, err := os.ReadFile(filepath.Join(destDir, "config", "yaml.d", "10-extra.yml"))
+	if err != nil {
+		t.Fatalf("read extracted drop-in: %v", err)
+	}
+	if string(gotDropIn) != "extra: true\n" {
+		t.Fatalf("drop-in mismatch: %q", gotDropIn)
 	}
 
 	gotNested, err := os.ReadFile(filepath.Join(destDir, "config", "sub", "nested.yml"))

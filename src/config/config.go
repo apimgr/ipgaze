@@ -19,7 +19,6 @@ import (
 	"github.com/apimgr/ipgaze/src/common/i18n"
 	"github.com/apimgr/ipgaze/src/common/updatechannel"
 	"github.com/google/uuid"
-	"gopkg.in/yaml.v3"
 )
 
 // brandingDefaultTitle is the fallback value for server.branding.title, which
@@ -2493,11 +2492,23 @@ func LoadConfigFromFile(path string) (*AppConfig, error) {
 			cfg.Server.Address = envListen
 		}
 		if err := validateOperatorSecurityConfig(cfg); err != nil {
-			return nil, err
+			return nil, configValidationError(path, err)
 		}
 		if err := saveConfig(cfg, path); err != nil {
 			return nil, fmt.Errorf("failed to create default config: %w", err)
 		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read created config file: %w", err)
+		}
+		cfg, err = parseMergedConfig(path, data)
+		if err != nil {
+			return nil, err
+		}
+		if err := validateOperatorSecurityConfig(cfg); err != nil {
+			return nil, configValidationError(path, err)
+		}
+		validateConfig(cfg)
 		applyRuntimeDatabaseEnv(cfg)
 		current = cfg
 		return cfg, nil
@@ -2508,12 +2519,12 @@ func LoadConfigFromFile(path string) (*AppConfig, error) {
 		return nil, fmt.Errorf("failed to read config file: %w", err)
 	}
 
-	cfg := DefaultConfig()
-	if err := yaml.Unmarshal(data, cfg); err != nil {
+	cfg, err := parseMergedConfig(path, data)
+	if err != nil {
 		return nil, fmt.Errorf("failed to parse config file: %w", err)
 	}
 	if err := validateOperatorSecurityConfig(cfg); err != nil {
-		return nil, err
+		return nil, configValidationError(path, err)
 	}
 
 	validateConfig(cfg)
@@ -2843,12 +2854,12 @@ func reloadConfigFromFile() error {
 		return fmt.Errorf("failed to read config file: %w", err)
 	}
 
-	cfg := DefaultConfig()
-	if err := yaml.Unmarshal(data, cfg); err != nil {
+	cfg, err := parseMergedConfig(configPath, data)
+	if err != nil {
 		return fmt.Errorf("failed to parse config file: %w", err)
 	}
 	if err := validateOperatorSecurityConfig(cfg); err != nil {
-		return err
+		return configValidationError(configPath, err)
 	}
 
 	validateConfig(cfg)
@@ -2935,8 +2946,11 @@ func saveConfig(cfg *AppConfig, path string) error {
 	}
 
 	content := generateConfigYAML(cfg)
-	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+	if err := os.WriteFile(path, []byte(content), 0600); err != nil {
 		return fmt.Errorf("failed to write config file: %w", err)
+	}
+	if err := os.Chmod(path, 0600); err != nil {
+		return fmt.Errorf("failed to secure config file: %w", err)
 	}
 
 	return nil

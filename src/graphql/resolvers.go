@@ -34,10 +34,8 @@ func requestFromContext(ctx context.Context) *http.Request {
 }
 
 // Deps declares the callbacks GraphQL resolvers need from the running HTTP server
-// so they share the exact lookup logic used by the REST endpoints (/json, /{ip},
-// /port/{port}) instead of duplicating it. Populated by Handler() from
-// GraphQLHandlerConfig; nil fields make the corresponding resolver return a
-// GraphQL error instead of placeholder data.
+// so they share REST lookup logic and request-specific page definitions. Populated
+// by Handler() from GraphQLHandlerConfig; nil fields return resolver errors.
 type Deps struct {
 	// ClientIP extracts the caller's IP from an incoming HTTP request.
 	// allowOverride mirrors REST semantics: true permits the "?ip=" query
@@ -52,7 +50,31 @@ type Deps struct {
 	// Health returns the same model.HealthResponse the REST health endpoints
 	// render, so the GraphQL health query is functionally equivalent to REST
 	// instead of reporting a reduced view of the server's state.
-	Health func() model.HealthResponse
+	Health      func() model.HealthResponse
+	AuthCheck   func(r *http.Request) (string, error)
+	ContactForm func(r *http.Request) (map[string]interface{}, error)
+}
+
+func resolveContactForm(p gql.ResolveParams) (interface{}, error) {
+	if resolverDeps.ContactForm == nil {
+		return nil, errors.New("contactForm is unavailable: GraphQL server dependencies are not configured")
+	}
+	r := requestFromContext(p.Context)
+	if r == nil {
+		return nil, errors.New("contactForm requires an HTTP request context")
+	}
+	return resolverDeps.ContactForm(r)
+}
+
+func resolveAuthCheck(p gql.ResolveParams) (interface{}, error) {
+	if resolverDeps.AuthCheck == nil {
+		return nil, errors.New("authCheck is unavailable: GraphQL server dependencies are not configured")
+	}
+	r := requestFromContext(p.Context)
+	if r == nil {
+		return nil, errors.New("authCheck requires an HTTP request context")
+	}
+	return resolverDeps.AuthCheck(r)
 }
 
 // resolverDeps holds the dependencies wired in by Handler(). It is package-level

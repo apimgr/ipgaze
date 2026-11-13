@@ -160,6 +160,7 @@ ipgaze enhancements on top of the echoip-compatible surface:
 - OpenAPI/Swagger interactive documentation
 - Prometheus metrics (internal only)
 - Standard pages: security.txt, robots.txt, privacy, terms, contact
+- Public contact-form metadata and safe operator-token validation for CLI/GUI server setup
 - Coordinated vulnerability reporting for the official service, with encrypted submissions, private status tracking, configurable disclosure policy, selectable contact-form CAPTCHA, and researcher acknowledgments
 - Public DPO contact page/API and consent-gated, same-origin analytics loading
 

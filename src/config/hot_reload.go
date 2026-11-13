@@ -1,4 +1,4 @@
-// Package config — ConfigManager watches server.yml for changes and applies
+// Package config — ConfigManager watches server.yml and yaml.d/ for changes and applies
 // hot-reload or signals restart-required per AI.md PART 12.
 package config
 
@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/apimgr/ipgaze/src/common/display"
-	"gopkg.in/yaml.v3"
 )
 
 // restartRequiredPrefixes lists dot-notation config key prefixes that require
@@ -33,11 +32,12 @@ var restartRequiredPrefixes = []string{
 	"server.tor.",
 }
 
-// ConfigManager watches server.yml for changes and applies hot-reload or
+// ConfigManager watches server.yml and yaml.d/ for changes and applies hot-reload or
 // signals restart-required. Configuration is file-only — no runtime mutation.
 type ConfigManager struct {
 	configPath      string
 	lastFileModTime time.Time
+	lastFingerprint string
 	reloadHandler   func(*AppConfig, []string) error
 	// pendingRestart is true when a restart-required setting changed.
 	pendingRestart bool
@@ -54,7 +54,7 @@ func (m *ConfigManager) SetReloadHandler(handler func(*AppConfig, []string) erro
 	m.mu.Unlock()
 }
 
-// NewConfigManager creates a ConfigManager for the given server.yml path.
+// NewConfigManager creates a ConfigManager for the given server.yml path and adjacent yaml.d/ directory.
 // Call Start() to begin watching for file changes.
 func NewConfigManager(path string) *ConfigManager {
 	var modTime time.Time
@@ -64,10 +64,11 @@ func NewConfigManager(path string) *ConfigManager {
 	return &ConfigManager{
 		configPath:      path,
 		lastFileModTime: modTime,
+		lastFingerprint: mergedConfigFingerprint(path),
 	}
 }
 
-// Start launches a background goroutine that polls server.yml every 5 s.
+// Start launches a background goroutine that polls server.yml and yaml.d/ every 5 s.
 // Returns a stop function; call it to halt polling (e.g. on graceful shutdown).
 func (m *ConfigManager) Start() (stop func()) {
 	done := make(chan struct{})
@@ -92,17 +93,17 @@ func (m *ConfigManager) Start() (stop func()) {
 	}
 }
 
-// checkFileChanges compares the current mtime of server.yml against the
-// last-seen value. On change it reloads and calls applyConfigChanges.
+// checkFileChanges compares the current config tree against the last-seen
+// fingerprint. On change it reloads and calls applyConfigChanges.
 func (m *ConfigManager) checkFileChanges() {
+	fingerprint := mergedConfigFingerprint(m.configPath)
+	if fingerprint == m.lastFingerprint {
+		return
+	}
 	info, err := os.Stat(m.configPath)
 	if err != nil {
 		return
 	}
-	if info.ModTime().Equal(m.lastFileModTime) {
-		return
-	}
-	m.lastFileModTime = info.ModTime()
 
 	newCfg, err := loadConfigFromFile(m.configPath)
 	if err != nil {
@@ -111,19 +112,25 @@ func (m *ConfigManager) checkFileChanges() {
 	}
 
 	m.applyConfigChanges(newCfg)
+	m.lastFileModTime = info.ModTime()
+	m.lastFingerprint = fingerprint
 }
 
-// loadConfigFromFile reads and unmarshals a server.yml file into a new
-// AppConfig seeded with embedded defaults so missing keys fall back correctly.
+// loadConfigFromFile merges server.yml and ordered yaml.d/ overlays into an
+// AppConfig seeded with embedded defaults.
 func loadConfigFromFile(path string) (*AppConfig, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
-	cfg := DefaultConfig()
-	if err := yaml.Unmarshal(data, cfg); err != nil {
+	cfg, err := parseMergedConfig(path, data)
+	if err != nil {
 		return nil, err
 	}
+	if err := validateOperatorSecurityConfig(cfg); err != nil {
+		return nil, configValidationError(path, err)
+	}
+	validateConfig(cfg)
 	return cfg, nil
 }
 

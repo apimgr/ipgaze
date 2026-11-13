@@ -277,6 +277,9 @@ func backupArchiveContents(layout backupArchiveLayout) []string {
 	if fileExists(filepath.Join(layout.configDir, "server.yml")) {
 		contents = append(contents, "server.yml")
 	}
+	if dirExists(filepath.Join(layout.configDir, "yaml.d")) {
+		contents = append(contents, "yaml.d/")
+	}
 	if dirExists(layout.dbDir) {
 		contents = append(contents, "server.db")
 	}

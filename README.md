@@ -378,6 +378,11 @@ for `.txt`, `Accept: text/plain`, or a non-interactive client without an
 explicit `Accept` header. The root `/healthz` alias is disabled by default and
 can be enabled in `server.yml`.
 
+The versioned API also provides `GET /api/v1/server/contact` for the public
+contact-form definition and `GET /api/v1/server/auth/check` to validate a
+configured operator Bearer token. See [docs/api.md](docs/api.md) for the
+complete route list.
+
 Health checks also include per-database GeoIP and per-list blocklist status
 when those features are enabled. Results report only `ok`, `degraded`, or
 `error`; dataset checks refresh on the scheduler.

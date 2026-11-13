@@ -262,6 +262,22 @@ func LaunchSetupWizard(locale, _ string, defaultServer string) (string, string, 
 								}
 							}
 						}
+						if err == nil && tokenSnapshot != "" {
+							checkReq, checkErr := http.NewRequest(http.MethodGet, base+"/api/v1/server/auth/check", nil)
+							if checkErr == nil {
+								checkReq.Header.Set("Authorization", "Bearer "+tokenSnapshot)
+								checkResponse, requestErr := (&http.Client{Timeout: 10 * time.Second}).Do(checkReq)
+								if requestErr != nil {
+									checkErr = requestErr
+								} else {
+									_ = checkResponse.Body.Close()
+									if checkResponse.StatusCode != http.StatusOK {
+										checkErr = fmt.Errorf("invalid token")
+									}
+								}
+							}
+							err = checkErr
+						}
 						if err != nil {
 							status.Set(fmt.Sprintf("%s: %v", translate(locale, "gui.failed"), err))
 							return

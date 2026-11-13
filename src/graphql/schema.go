@@ -70,6 +70,19 @@ func schemaForLocale(lang string) gql.Schema {
 // with every description resolved for lang. The type system mirrors the REST
 // API field for field so both interfaces expose identical functionality.
 func buildSchema(lang string) (gql.Schema, error) {
+	contactFieldType := gql.NewObject(gql.ObjectConfig{Name: "ContactField", Fields: gql.Fields{
+		"name": &gql.Field{Type: gql.NewNonNull(gql.String)}, "type": &gql.Field{Type: gql.NewNonNull(gql.String)},
+		"required": &gql.Field{Type: gql.NewNonNull(gql.Boolean)}, "maxLength": &gql.Field{Type: gql.Int},
+	}})
+	contactCaptchaType := gql.NewObject(gql.ObjectConfig{Name: "ContactCaptcha", Fields: gql.Fields{
+		"provider": &gql.Field{Type: gql.NewNonNull(gql.String)}, "siteKey": &gql.Field{Type: gql.String},
+		"challengeId": &gql.Field{Type: gql.String}, "question": &gql.Field{Type: gql.String},
+	}})
+	contactFormType := gql.NewObject(gql.ObjectConfig{Name: "ContactForm", Fields: gql.Fields{
+		"fields":  &gql.Field{Type: gql.NewNonNull(gql.NewList(gql.NewNonNull(contactFieldType)))},
+		"captcha": &gql.Field{Type: gql.NewNonNull(contactCaptchaType)}, "securityUrl": &gql.Field{Type: gql.NewNonNull(gql.String)},
+		"abuseEmail": &gql.Field{Type: gql.NewNonNull(gql.String)},
+	}})
 	// Define the UserAgent type
 	userAgentType := gql.NewObject(gql.ObjectConfig{
 		Name:        "UserAgent",
@@ -448,6 +461,12 @@ func buildSchema(lang string) (gql.Schema, error) {
 				Description: tr(lang, "graphql.query.health.description"),
 				Resolve:     resolveHealth,
 			},
+			"authCheck": &gql.Field{
+				Type:        gql.String,
+				Description: tr(lang, "graphql.query.authCheck.description"),
+				Resolve:     resolveAuthCheck,
+			},
+			"contactForm": &gql.Field{Type: contactFormType, Description: tr(lang, "graphql.query.contactForm.description"), Resolve: resolveContactForm},
 		},
 	})
 

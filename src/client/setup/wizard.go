@@ -285,6 +285,21 @@ func testConnection(url, token string) tea.Cmd {
 		if err := json.NewDecoder(resp.Body).Decode(&health); err != nil {
 			return testResultMsg{serverName: url}
 		}
+		if token != "" {
+			checkReq, reqErr := http.NewRequest(http.MethodGet, url+"/api/v1/server/auth/check", nil)
+			if reqErr != nil {
+				return testResultMsg{err: reqErr}
+			}
+			checkReq.Header.Set("Authorization", "Bearer "+token)
+			checkResp, checkErr := client.Do(checkReq)
+			if checkErr != nil {
+				return testResultMsg{err: checkErr}
+			}
+			_ = checkResp.Body.Close()
+			if checkResp.StatusCode != http.StatusOK {
+				return testResultMsg{err: errors.New("invalid token")}
+			}
+		}
 		name := health.Project.Name
 		if name == "" {
 			name = url

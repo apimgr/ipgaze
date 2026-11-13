@@ -114,7 +114,7 @@ func TestInitSchema_ErrorViaInjection(t *testing.T) {
 func TestSchema_HasQueryFields(t *testing.T) {
 	ensureSchema(t)
 	qt := Schema.QueryType()
-	expected := []string{"myIP", "lookupIP", "checkPort", "health"}
+	expected := []string{"myIP", "lookupIP", "checkPort", "health", "authCheck", "contactForm"}
 	for _, name := range expected {
 		if _, ok := qt.Fields()[name]; !ok {
 			t.Errorf("schema missing expected field: %q", name)
@@ -779,6 +779,45 @@ func TestHandler_POST_ExecutesQuery(t *testing.T) {
 	}
 	if health["status"] != "healthy" {
 		t.Errorf("health.status = %v, want healthy", health["status"])
+	}
+}
+
+func TestHandler_POST_AuthCheckUsesBearerToken(t *testing.T) {
+	resetSchema()
+	h := Handler(GraphQLHandlerConfig{AuthCheck: func(r *http.Request) (string, error) {
+		if r.Header.Get("Authorization") != "Bearer valid-token" {
+			return "", errors.New("unauthorized")
+		}
+		return "operator", nil
+	}})
+	req := httptest.NewRequest(http.MethodPost, "/graphql", strings.NewReader(`{"query":"{ authCheck }"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer valid-token")
+	rec := httptest.NewRecorder()
+	h(rec, req)
+	if !strings.Contains(rec.Body.String(), `"authCheck": "operator"`) {
+		t.Fatalf("authCheck result does not report token kind: %s", rec.Body.String())
+	}
+}
+
+func TestHandler_POST_ContactFormQuery(t *testing.T) {
+	resetSchema()
+	h := Handler(GraphQLHandlerConfig{ContactForm: func(*http.Request) (map[string]interface{}, error) {
+		return map[string]interface{}{
+			"fields":      []map[string]interface{}{{"name": "email", "type": "email", "required": true, "maxLength": nil}},
+			"captcha":     map[string]interface{}{"provider": "simple", "challengeId": "challenge", "question": "2 + 2"},
+			"securityUrl": "https://example.test/server/security",
+			"abuseEmail":  "abuse@example.test",
+		}, nil
+	}})
+	req := httptest.NewRequest(http.MethodPost, "/graphql", strings.NewReader(`{"query":"{ contactForm { fields { name type required maxLength } captcha { provider challengeId question } securityUrl abuseEmail } }"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	h(rec, req)
+	for _, expected := range []string{`"name": "email"`, `"provider": "simple"`, `"securityUrl": "https://example.test/server/security"`} {
+		if !strings.Contains(rec.Body.String(), expected) {
+			t.Errorf("contactForm result missing %s: %s", expected, rec.Body.String())
+		}
 	}
 }
 

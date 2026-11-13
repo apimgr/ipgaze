@@ -84,6 +84,8 @@ Health endpoints are the exception and return the bare health document.
 | `GET /api/v1/server/security/policy` | Disclosure policy in the standard JSON envelope |
 | `GET /server/security/thanks` | Public researcher acknowledgments |
 | `GET /api/v1/server/security/thanks` | Acknowledgments in the standard JSON envelope |
+| `GET /api/v1/server/contact` | Public form definition, CAPTCHA challenge, security URL, and abuse contact |
+| `GET /api/v1/server/auth/check` | Validate an operator Bearer token; returns `data.kind = "operator"` or 401 |
 | `GET /server/security/report/{tracking_id}` | Researcher status page; requires the one-shot token when an acknowledgment email was delivered |
 | `GET /api/v1/server/preferences` | Current guest preferences |
 | `POST /api/v1/server/preferences` | Update guest preferences |

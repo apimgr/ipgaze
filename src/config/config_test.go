@@ -784,6 +784,13 @@ func TestLoadConfigFromFile_CreatesDefaultWhenMissing(t *testing.T) {
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		t.Error("LoadConfigFromFile: config file was not created")
 	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat created config: %v", err)
+	}
+	if info.Mode().Perm() != 0o600 {
+		t.Errorf("created config permissions = %04o, want 0600", info.Mode().Perm())
+	}
 	if cfg.Server.Mode != "production" {
 		t.Errorf("Created default: Mode: got %q, want production", cfg.Server.Mode)
 	}
@@ -917,6 +924,189 @@ func TestLoadConfigFromFile_MissingFieldsGetDefaults(t *testing.T) {
 	// Address was not in the file — should keep the default
 	if cfg.Server.Address != "[::]" {
 		t.Errorf("Address fallback: got %q, want %q", cfg.Server.Address, "[::]")
+	}
+}
+
+func TestLoadConfigDropInsMergeMapsReplaceListsAndSortFiles(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "server.yml")
+	if err := os.WriteFile(path, []byte("server:\n  branding:\n    title: Base\n  trusted_proxies:\n    additional: [192.0.2.0/24]\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	dropinDir := filepath.Join(dir, "yaml.d")
+	if err := os.Mkdir(dropinDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for name, body := range map[string]string{
+		"20-late.yml":  "server:\n  branding:\n    title: Later\n",
+		"10-early.yml": "server:\n  branding:\n    tagline: Kept\n  trusted_proxies:\n    additional: [198.51.100.0/24]\n",
+	} {
+		if err := os.WriteFile(filepath.Join(dropinDir, name), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cfg, err := LoadConfigFromFile(path)
+	if err != nil {
+		t.Fatalf("LoadConfigFromFile: %v", err)
+	}
+	if cfg.Server.Branding.Title != "Later" || cfg.Server.Branding.Tagline != "Kept" {
+		t.Errorf("merged branding = title %q, tagline %q", cfg.Server.Branding.Title, cfg.Server.Branding.Tagline)
+	}
+	if got := strings.Join(cfg.Server.TrustedProxies.Additional, ","); got != "198.51.100.0/24" {
+		t.Errorf("drop-in list = %q, want replacement list", got)
+	}
+}
+
+func TestLoadConfigDropInsRejectNullDuplicatesAndUnsafePermissions(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		body string
+		mode os.FileMode
+		want string
+	}{
+		{name: "null", body: "server:\n  branding: null\n", mode: 0o600, want: "server.branding"},
+		{name: "duplicate", body: "server:\n  port: 1\n  port: 2\n", mode: 0o600, want: "duplicate configuration key server.port"},
+		{name: "type", body: "server:\n  rate_limit:\n    global_burst: []\n", mode: 0o600, want: "key server.rate_limit.global_burst"},
+		{name: "writable", body: "server: {}\n", mode: 0o666, want: "group or world writable"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, "server.yml")
+			if err := os.WriteFile(path, []byte("server: {}\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			dropinDir := filepath.Join(dir, "yaml.d")
+			if err := os.Mkdir(dropinDir, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			dropin := filepath.Join(dropinDir, "10-invalid.yml")
+			if err := os.WriteFile(dropin, []byte(test.body), test.mode); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Chmod(dropin, test.mode); err != nil {
+				t.Fatal(err)
+			}
+			_, err := LoadConfigFromFile(path)
+			if err == nil || !strings.Contains(err.Error(), test.want) || !strings.Contains(err.Error(), dropin) {
+				t.Fatalf("LoadConfigFromFile error = %v, want path and %q", err, test.want)
+			}
+		})
+	}
+}
+
+func TestLoadConfigDropInValidationErrorNamesSourceLineAndKey(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "server.yml")
+	if err := os.WriteFile(path, []byte("server: {}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	dropinDir := filepath.Join(dir, "yaml.d")
+	if err := os.Mkdir(dropinDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	dropin := filepath.Join(dropinDir, "10-contact.yml")
+	if err := os.WriteFile(dropin, []byte("pages:\n  contact:\n    captcha: recaptcha\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := LoadConfigFromFile(path)
+	if err == nil {
+		t.Fatal("LoadConfigFromFile succeeded with incomplete CAPTCHA configuration")
+	}
+	for _, want := range []string{dropin + ":2:", "key pages.contact.captcha_site_key"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q does not contain %q", err, want)
+		}
+	}
+}
+
+func TestLoadConfigDropInsIgnoreExcludedFilesAndExternalSymlinks(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "server.yml")
+	if err := os.WriteFile(path, []byte("server: {}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	dropinDir := filepath.Join(dir, "yaml.d")
+	if err := os.Mkdir(dropinDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dropinDir, ".hidden.yml"), []byte("server:\n  branding:\n    title: Hidden\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dropinDir, "ignored.yml.bak"), []byte("bad: ["), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(dropinDir, "nested"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dropinDir, "nested", "ignored.yml"), []byte("bad: ["), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	external := filepath.Join(dir, "outside.yml")
+	if err := os.WriteFile(external, []byte("server:\n  branding:\n    title: External\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(external, filepath.Join(dropinDir, "external.yml")); err != nil {
+		t.Fatal(err)
+	}
+	internal := filepath.Join(dropinDir, "payload")
+	if err := os.WriteFile(internal, []byte("server:\n  branding:\n    title: Linked\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(internal, filepath.Join(dropinDir, "15-linked.yml")); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadConfigFromFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Server.Branding.Title != "Linked" {
+		t.Errorf("in-directory symlink title = %q, want Linked", cfg.Server.Branding.Title)
+	}
+}
+
+func TestConfigManagerReloadsDropInAdditions(t *testing.T) {
+	resetGlobals()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "server.yml")
+	if err := os.WriteFile(path, []byte("server: {}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadConfigFromFile(path); err != nil {
+		t.Fatal(err)
+	}
+	manager := NewConfigManager(path)
+	dropinDir := filepath.Join(dir, "yaml.d")
+	if err := os.Mkdir(dropinDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dropinDir, "10-brand.yml"), []byte("server:\n  branding:\n    tagline: Drop-in value\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	manager.checkFileChanges()
+	if got := Get().Server.Branding.Tagline; got != "Drop-in value" {
+		t.Errorf("reloaded tagline = %q, want drop-in value", got)
+	}
+	dropin := filepath.Join(dropinDir, "10-brand.yml")
+	if err := os.WriteFile(dropin, []byte("server:\n  branding:\n    tagline: Updated drop-in value\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	manager.checkFileChanges()
+	if got := Get().Server.Branding.Tagline; got != "Updated drop-in value" {
+		t.Errorf("updated tagline = %q, want Updated drop-in value", got)
+	}
+	if err := os.WriteFile(dropin, []byte("server:\n  branding: null\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	manager.checkFileChanges()
+	if got := Get().Server.Branding.Tagline; got != "Updated drop-in value" {
+		t.Errorf("invalid drop-in replaced last good tagline: %q", got)
+	}
+	if err := os.Remove(dropin); err != nil {
+		t.Fatal(err)
+	}
+	manager.checkFileChanges()
+	if got := Get().Server.Branding.Tagline; got != DefaultConfig().Server.Branding.Tagline {
+		t.Errorf("removed drop-in tagline = %q, want default %q", got, DefaultConfig().Server.Branding.Tagline)
 	}
 }
 

@@ -59,6 +59,7 @@ type Operation struct {
 	Parameters  []Parameter            `json:"parameters,omitempty"`
 	RequestBody *RequestBody           `json:"requestBody,omitempty"`
 	Responses   map[string]APIResponse `json:"responses"`
+	Security    []map[string][]string  `json:"security,omitempty"`
 }
 
 // Parameter holds an API operation parameter definition
@@ -99,7 +100,14 @@ type Schema struct {
 
 // Components holds reusable OpenAPI component definitions
 type Components struct {
-	Schemas map[string]Schema `json:"schemas,omitempty"`
+	Schemas         map[string]Schema         `json:"schemas,omitempty"`
+	SecuritySchemes map[string]SecurityScheme `json:"securitySchemes,omitempty"`
+}
+
+type SecurityScheme struct {
+	Type         string `json:"type"`
+	Scheme       string `json:"scheme"`
+	BearerFormat string `json:"bearerFormat,omitempty"`
 }
 
 // SwaggerHandlerConfig holds swagger handler configuration.

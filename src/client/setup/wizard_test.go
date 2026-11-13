@@ -13,11 +13,15 @@ import (
 
 func TestTestConnection_UsesVersionedHealthEndpoint(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/v1/server/healthz" {
-			t.Errorf("request path = %q, want /api/v1/server/healthz", r.URL.Path)
-		}
 		if got := r.Header.Get("Authorization"); got != "Bearer token-value" {
 			t.Errorf("Authorization = %q, want supplied bearer token", got)
+		}
+		if r.URL.Path == "/api/v1/server/auth/check" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		if r.URL.Path != "/api/v1/server/healthz" {
+			t.Errorf("request path = %q, want health or auth-check endpoint", r.URL.Path)
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"project":{"name":"IPGaze"},"version":"1.2.3"}`))

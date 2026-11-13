@@ -827,14 +827,34 @@ func TestAPIV1ServerContactHandler_EmptyBody_BadRequest(t *testing.T) {
 
 func TestAPIV1ServerContactHandler_MethodNotAllowed(t *testing.T) {
 	h := newTestPagesHandler()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/server/contact", nil)
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/server/contact", nil)
 	w := httptest.NewRecorder()
 
 	h.APIV1ServerContactHandler(w, req)
 
 	res := w.Result()
 	if res.StatusCode != http.StatusMethodNotAllowed {
-		t.Errorf("StatusCode = %d, want %d for GET", res.StatusCode, http.StatusMethodNotAllowed)
+		t.Errorf("StatusCode = %d, want %d for PUT", res.StatusCode, http.StatusMethodNotAllowed)
+	}
+}
+
+func TestAPIV1ServerContactHandler_GET(t *testing.T) {
+	h := newTestPagesHandler()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/server/contact", nil)
+	w := httptest.NewRecorder()
+	h.APIV1ServerContactHandler(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %s", w.Code, w.Body.String())
+	}
+	var response struct {
+		OK   bool                `json:"ok"`
+		Data ContactFormResponse `json:"data"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&response); err != nil {
+		t.Fatal(err)
+	}
+	if !response.OK || len(response.Data.Fields) != 6 || response.Data.SecurityURL == "" || response.Data.Captcha.Provider == "" {
+		t.Errorf("contact form response is incomplete: %#v", response)
 	}
 }
 

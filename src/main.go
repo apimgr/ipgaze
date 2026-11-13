@@ -1748,6 +1748,26 @@ func runMain() {
 		// Resolved lazily: HealthHandler is constructed during route setup, so a
 		// method value taken here would bind a nil receiver permanently.
 		Health: func() model.HealthResponse { return srv.HealthHandler.HealthSnapshot() },
+		AuthCheck: func(r *http.Request) (string, error) {
+			auth := r.Header.Get("Authorization")
+			if !strings.HasPrefix(auth, "Bearer ") || !srv.ValidateOperatorToken(strings.TrimPrefix(auth, "Bearer ")) {
+				return "", errors.New("unauthorized")
+			}
+			return "operator", nil
+		},
+		ContactForm: func(r *http.Request) (map[string]interface{}, error) {
+			form := srv.PagesHandler.ContactFormDefinition(r)
+			fields := make([]map[string]interface{}, 0, len(form.Fields))
+			for _, field := range form.Fields {
+				fields = append(fields, map[string]interface{}{"name": field.Name, "type": field.Type, "required": field.Required, "maxLength": field.MaxLength})
+			}
+			return map[string]interface{}{
+				"fields":      fields,
+				"captcha":     map[string]interface{}{"provider": form.Captcha.Provider, "siteKey": form.Captcha.SiteKey, "challengeId": form.Captcha.Challenge, "question": form.Captcha.Question},
+				"securityUrl": form.SecurityURL,
+				"abuseEmail":  form.AbuseEmail,
+			}, nil
+		},
 	})
 
 	// Print startup banner. Per AI.md PART 12 startup step 20 the banner's
