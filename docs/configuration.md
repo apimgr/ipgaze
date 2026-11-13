@@ -5,9 +5,9 @@ Complete configuration reference for **ipgaze**.
 ## Configuration File
 
 ipgaze uses `server.yml` for configuration. The file is auto-created with
-sane defaults on first run. `server.yml` is the sole source of truth for
-operator configuration — the database only stores resource state, tokens,
-and the audit log, never operator settings.
+sane defaults on first run. Optional drop-in files in `yaml.d/` can override
+or extend it; the database stores resource state, tokens, and the audit log,
+never operator settings.
 
 ### Default Location
 
@@ -19,6 +19,22 @@ and the audit log, never operator settings.
 
 The `--config` flag or the `CONFIG_DIR` environment variable (first run only)
 can override the configuration directory.
+
+### Drop-in Files
+
+For large configurations, place `*.yml` or `*.yaml` files in
+`{config_dir}/yaml.d/`. The server reads them after `server.yml` in
+byte-wise filename order, so a later file overrides an earlier value.
+Mappings merge recursively; later scalar and list values replace earlier
+values, and lists are never appended. Explicit `null` values, duplicate keys,
+and drop-ins writable by group or other users are rejected.
+
+Hidden files, backups (`*.bak`, `*~`, `*.orig`), other file extensions, and
+subdirectories are ignored. Symlinks are read only when their target remains
+inside `yaml.d/`. Changes to either `server.yml` or this directory are merged
+and reloaded; an invalid result leaves the last valid configuration active.
+Generated values are written only to `server.yml`. Backups include `yaml.d/`
+when it exists.
 
 ### Migration
 
