@@ -4,6 +4,10 @@ IPGaze accepts requests at the configured server URL. The public service is
 available at `https://ifcfg.us`. All lookup endpoints are anonymous. A
 deployment may apply rate limits and block abusive traffic.
 
+When deployed behind a trusted proxy, caller identity follows the configured
+proxy-header priority. Addresses are normalized before lookup, logging, and
+per-client enforcement; IPv4-mapped IPv6 addresses share their IPv4 identity.
+
 ## Address Lookup
 
 | Request | Result |

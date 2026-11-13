@@ -464,6 +464,9 @@ curl -q -LSsf https://ifcfg.us/2001:4860:4860::8888
 Rate limiting is enabled by default and bucketed by request class — 120 reads
 and 10 writes per 60-second window per client IP. Tune it under
 `server.rate_limit` in `server.yml`.
+IPv4 and IPv6 addresses use separate exact-address buckets; IPv6 prefixes are
+never grouped automatically. Proxy addresses are used only when the immediate
+peer is trusted, and equivalent IPv4-mapped IPv6 forms share the IPv4 bucket.
 
 On the public instance at https://ifcfg.us, please keep automated use to
 **1 request per minute**.

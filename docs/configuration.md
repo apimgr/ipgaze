@@ -296,11 +296,18 @@ for provider behavior and the persistent destination.
 
 ## Reverse Proxy
 
-When behind a reverse proxy, the built-in proxy-header detection trusts
-standard forwarding headers automatically (`X-Real-IP`,
-`X-Forwarded-For`, `X-Forwarded-Proto`, `X-Forwarded-Port`,
-`X-Forwarded-Prefix`). Additional trusted proxy CIDRs (beyond the
-private ranges, which are always trusted) can be added under
+When behind a reverse proxy, the built-in proxy-header detection uses
+client-IP headers only when the immediate peer is trusted. Client address
+priority is `CF-Connecting-IP`, `True-Client-IP`, `X-Real-IP`, the first
+`X-Forwarded-For` value, the first RFC 7239 `Forwarded` element, then
+`X-Client-IP`. Invalid values fall through to the next source. IPv4-mapped
+IPv6 addresses are unmapped, IPv6 zones and transport ports are stripped, and
+all consumers use the canonical full address. IPv6 addresses are not grouped
+by prefix for rate limits or bans. Rate-limit state is bounded and expires.
+
+Standard URL-forwarding headers (`X-Forwarded-Proto`, `X-Forwarded-Port`,
+`X-Forwarded-Prefix`) are also accepted from trusted peers. Additional trusted
+proxy CIDRs (beyond the private ranges, which are always trusted) can be added under
 `server.trusted_proxies`:
 
 ```yaml
