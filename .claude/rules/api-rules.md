@@ -75,7 +75,9 @@
 - **PART 13:** *ALL stable releases MUST follow semantic versioning:**
 - **PART 13:** Plain text, no color. The first line is always `{project_name} {project_version} ({short_commit})` so scripts can parse it; the build metadata lines follow it.
 - **PART 14:** *IF A ROUTE EXISTS, IT MUST FOLLOW THESE RULES. NO EXCEPTIONS.**
-- **PART 14:** | **Versioning** | All API routes MUST be versioned | `/api/items` | `/api/{api_version}/items` |
+- **PART 14:** | **Versioning** | All canonical API routes MUST be versioned; only paths in "Unversioned API Exceptions" are exempt | `/api/items` | `/api/{api_version}/items` |
+- **PART 14:** **Canonical API routes are versioned.** The exhaustive exceptions are the unversioned aliases in "Unversioned API Exceptions" plus `/api/autodiscover`, which is unversioned by design.
+- **PART 14:** Docs and examples name canonical versioned routes; aliases appear only where the alias itself is documented. Every alias has a parity test for status, headers, and body.
 - **PART 14:** | **Plural nouns** | All resource names MUST be plural | `/api/{api_version}/item` | `/api/{api_version}/items` |
 - **PART 14:** | **Lowercase** | All routes MUST be lowercase | `/api/{api_version}/Items` | `/api/{api_version}/items` |
 - **PART 14:** | API Type | Frontend Required | Example |
@@ -163,3 +165,5 @@
 - Built-in Let's Encrypt Support
 
 For complete details, see AI.md PART 13, PART 14, PART 15.
+
+<!-- AI.md source: 03cc45ec58df -->

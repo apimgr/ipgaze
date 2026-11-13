@@ -131,3 +131,5 @@
 - Settings Configuration (config file)
 
 For complete details, see AI.md PART 5, PART 6, PART 12.
+
+<!-- AI.md source: 03cc45ec58df -->

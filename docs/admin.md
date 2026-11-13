@@ -5,12 +5,16 @@ runtime configuration API.
 
 ## Overview
 
-All configuration is managed via `server.yml`. The server watches this file for changes
-and reloads immediately — no restart required.
+All configuration is managed via `server.yml`. The server watches this file
+and reloads settings that support live changes. Settings bound at startup, such
+as the listen address or port, require a restart; the health endpoint reports
+when a restart is required.
 
 ## Configuration
 
-Edit `server.yml` with any text editor. Changes take effect as soon as the file is saved.
+Edit `server.yml` with any text editor. Live-changeable settings take effect
+after the file is saved; restart-required settings are applied after restarting
+the service.
 
 See the [Configuration](configuration.md) reference for all available settings.
 

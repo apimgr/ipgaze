@@ -39,6 +39,9 @@ This software includes the following third-party libraries:
 | github.com/go-acme/lego/v4 | v4.35.2 | MIT | 2015-2017 Sebastian Erhart |
 | github.com/go-chi/chi/v5 | v5.2.0 | MIT | 2015 Peter Kieltyka, Google Inc |
 | github.com/go-co-op/gocron/v2 | v2.21.2 | MIT | 2014 go-co-op |
+| github.com/gogpu/gg | v0.52.6 | MIT | 2025 Andrey Kolkov and GoGPU Contributors |
+| github.com/gogpu/gogpu | v0.54.1 | MIT | 2025 Andrey Kolkov and GoGPU Contributors |
+| github.com/gogpu/ui | v0.1.55 | MIT | 2025 Andrey Kolkov and GoGPU Contributors |
 | github.com/google/uuid | v1.6.0 | BSD-3-Clause | 2009 Google Inc |
 | github.com/graphql-go/graphql | v0.8.1 | MIT | 2015 Chris Ramon |
 | github.com/microcosm-cc/bluemonday | v1.0.27 | BSD-3-Clause | 2014 David Kitchen |

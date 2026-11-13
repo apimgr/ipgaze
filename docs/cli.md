@@ -54,8 +54,6 @@ Only `-h` (help) and `-v` (version) have short forms.
 | `--cache DIR` | Cache directory | - |
 | `--log DIR` | Log directory | - |
 | `--backup DIR` | Backup directory | - |
-| `--include-ssl` | Include SSL/TLS keys in backup | excluded |
-| `--include-data` | Include full data dir in backup | excluded |
 | `--pid FILE` | PID file path | - |
 | `--address ADDR` | Listen address | `0.0.0.0` |
 | `--port PORT` | Listen port | random `64xxx` (`80` in container) |
@@ -64,15 +62,13 @@ Only `-h` (help) and `-v` (version) have short forms.
 | `--debug` | Enable debug mode | `false` |
 | `--color {auto\|yes\|no}` | Color output | `auto` |
 | `--lang CODE` | Language for output | `auto` |
-| `--header HEADER` | Header to trust for remote IP (repeatable) | - |
 | `--service CMD` | Service management (`--service --help` for details) | - |
-| `--maintenance CMD` | Maintenance operations (`--maintenance --help` for details) | - |
+| `--maintenance CMD` | Maintenance operations; `backup` accepts `--include-ssl` and `--include-data` opt-ins (`--maintenance --help` for details) | - |
 | `--update [CMD]` | Check/perform updates (`--update --help` for details) | - |
 | `--shell --help` | Show shell integration help | - |
 
 Reverse DNS hostname lookup and port reachability testing (`/port/{port}`)
-are server features. Port lookup is available when enabled by the server's
-runtime configuration.
+are server features. Port reachability testing is always enabled.
 
 ### Examples
 

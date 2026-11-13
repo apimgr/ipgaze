@@ -23,11 +23,15 @@ for reverse proxy, binary, and service setup.
 ## Features
 
 - IPv4 and IPv6 address detection and lookup
-- GeoIP country, region, city, timezone, and coordinate information
+- GeoIP country, region, city, postal code, timezone, coordinates, and EU membership
 - ASN and organization lookup
+- VPN, proxy, and Tor exit-node detection
+- Reverse DNS and caller port reachability checks
 - Plain text, JSON, and server-rendered HTML responses
-- Versioned REST API, OpenAPI, and GraphQL
-- Optional GeoIP, cache, metrics, Tor, and I2P services
+- echoip-compatible endpoints plus a versioned REST API, OpenAPI, and GraphQL
+- Guest theme and language preferences
+- Optional GeoIP, cache, metrics, Tor, I2P, and MCP services
+- Scheduled GeoIP, threat-list, CVE, certificate, log, and backup maintenance
 - Server rendered pages and a companion `ipgaze-cli` client
 
 Optional services and their defaults are documented in

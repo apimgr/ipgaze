@@ -90,8 +90,8 @@ the public-key URL.
 - All SQL queries use parameterized statements — no string interpolation
 - HTML output is escaped via Go's `html/template` package — XSS is structurally prevented
 - All untrusted input is size-capped before buffering — no unbounded reads from network streams
-- GeoIP lookup uses local databases. Optional port reachability checks perform
-  network connections and are controlled by the server configuration.
+- GeoIP lookup uses local databases. Port reachability checks are always
+  enabled and only test the requested TCP port.
 
 ---
 

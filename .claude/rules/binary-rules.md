@@ -188,3 +188,5 @@
 - Determining If Project Needs CLI
 
 For complete details, see AI.md PART 7, PART 8, PART 32.
+
+<!-- AI.md source: 03cc45ec58df -->

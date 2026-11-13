@@ -4,9 +4,12 @@ IPGaze accepts requests at the configured server URL. The public service is
 available at `https://ifcfg.us`. All lookup endpoints are anonymous. A
 deployment may apply rate limits and block abusive traffic.
 
-When deployed behind a trusted proxy, caller identity follows the configured
-proxy-header priority. Addresses are normalized before lookup, logging, and
-per-client enforcement; IPv4-mapped IPv6 addresses share their IPv4 identity.
+When deployed behind a trusted proxy, caller identity uses the configured
+`server.trusted_proxies.client_ip_header` selection and validates forwarded
+chains against trusted proxy ranges. Addresses are normalized before lookup,
+logging, and per-client enforcement; IPv4-mapped IPv6 addresses share their
+IPv4 identity. See [Trusted Proxies](configuration.md#reverse-proxy) for the
+automatic header order, pinning, and chain-walk behavior.
 
 ## Address Lookup
 
@@ -22,7 +25,7 @@ per-client enforcement; IPv4-mapped IPv6 addresses share their IPv4 identity.
 | `GET /asn` | Autonomous system number |
 | `GET /asn-org` | Autonomous system organization |
 | `GET /{ip}` | Lookup the supplied IPv4 or IPv6 address |
-| `GET /port/{port}` | Check TCP reachability for a port when port lookup is enabled |
+| `GET /port/{port}` | Check TCP reachability for a port |
 
 GeoIP field routes require the corresponding database to be enabled and
 available. A `.txt` suffix forces plain text for supported field and API
@@ -55,8 +58,16 @@ Health endpoints are the exception and return the bare health document.
 | Request | Description |
 |---------|-------------|
 | `GET /api/v1` | Caller lookup information |
+| `GET /api/v1/json` | Caller lookup information (JSON alias) |
 | `GET /api/v1/ip` | Caller IP |
 | `GET /api/v1/ip/{ip}` | Lookup a specific IP address |
+| `GET /api/v1/country` | Caller country name |
+| `GET /api/v1/country-iso` | Caller ISO country code |
+| `GET /api/v1/city` | Caller city |
+| `GET /api/v1/coordinates` | Caller latitude and longitude |
+| `GET /api/v1/asn` | Caller autonomous system number |
+| `GET /api/v1/asn-org` | Caller autonomous system organization |
+| `GET /api/v1/port/{port}` | Check TCP reachability for a port |
 | `GET /api/v1/server/healthz` | Server health |
 | `GET /api/v1/version` | Version, commit, and build date |
 | `GET /api/v1/server/about` | Application information |
@@ -99,8 +110,9 @@ Security report submission persists the encrypted report and returns its
 tracking ID even when SMTP is unavailable or delivery fails. In that case the
 researcher acknowledgment is skipped; use the returned tracking ID for follow-up.
 
-The GeoIP lookup endpoints, port check, and some protocol endpoints are
-registered only when their backing feature is available. See the live
+GeoIP field endpoints are registered when their database is available; port
+reachability is always enabled. Some protocol endpoints depend on their
+feature configuration. See the live
 [OpenAPI document](https://ifcfg.us/api/swagger) for the deployed route
 inventory and request schemas.
 

@@ -137,6 +137,7 @@ access-control requirements.
 | `ipgaze_db_connections_in_use` | Gauge | Database connections currently in use |
 | `ipgaze_db_errors_total` | Counter | Database errors by operation and error category |
 | `ipgaze_auth_attempts_total` | Counter | Authentication attempts by mechanism and outcome |
+| `ipgaze_owner_tokens_active` | Gauge | Active owner tokens by token kind (`primary` or `linked`) |
 | `ipgaze_ratelimit_requests_total` | Counter | Rate-limiter requests by limit type and outcome |
 | `ipgaze_ratelimit_blocked_total` | Counter | Requests blocked by the rate limiter |
 
@@ -145,11 +146,6 @@ when their related features are enabled. Host CPU, memory, and data-directory
 disk metrics require `server.metrics.include_system: true`; Go runtime metrics
 require `server.metrics.include_runtime: true`. The system metrics use the
 `ipgaze_system_*` prefix and runtime metrics use `ipgaze_go_*`.
-
-`ipgaze_auth_sessions_active` is listed in AI.md PART 20, but that PART also
-states that this project has no user sessions. Its meaning is unresolved in
-the source specification, so consumers should not use this gauge until the
-template contract is clarified.
 
 Scrape interval recommendation: `15s` or `30s`.
 

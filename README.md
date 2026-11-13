@@ -191,9 +191,6 @@ docker run -d \
 | `--debug` | Enable debug mode (unlocks `/debug/*` only — never bypasses auth) |
 | `--color {auto\|yes\|no}` | Color output (default: `auto`; `NO_COLOR` honored) |
 | `--lang CODE` | Language for output (default: auto-detect from `LANG`; supported (8): `en`, `es`, `fr`, `de`, `it`, `zh`, `ar`, `ja`) |
-| `--header HEADER` | Header to trust for the remote IP; repeatable. Replaces the default priority list when set |
-| `--include-ssl` | Include SSL/TLS private keys in a backup (default: excluded) |
-| `--include-data` | Include the full data directory in a backup (default: excluded) |
 
 ### Subcommands
 
@@ -201,7 +198,7 @@ docker run -d \
 |---------|-------------|
 | `--service start\|stop\|restart\|reload\|status` | Control the installed OS service |
 | `--service --install\|--uninstall\|--disable` | Install, remove, or disable the detected service (Linux systemd/OpenRC/runit/SysVinit/s6-overlay, macOS launchd, BSD rc.d, or Windows Service Control Manager) |
-| `--maintenance backup [file]` | Create and verify a timestamped full `.tar.gz` archive (add `--include-ssl` / `--include-data` to widen it) |
+| `--maintenance backup [file]` | Create and verify a timestamped full `.tar.gz` archive; backup modifiers `--include-ssl` and `--include-data` opt in to private keys and the full data directory |
 | `--maintenance backup test` | Dry-run restore the backup set and verify the encrypted PGP key decrypts |
 | `--maintenance restore <file>` | Restore from a backup archive |
 | `--maintenance update` | Alias for `--update yes` — install the newest binary |

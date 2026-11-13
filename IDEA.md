@@ -93,7 +93,7 @@ CLI operator tokens are stored server-side (DB) and cleaned up by the `token_cle
 |--------------------|-------------|-------------|
 | sapics/ip-location-db via jsDelivr CDN | Trusted source for GeoIP DB downloads; no API key required | GeoIP features disabled if download fails; server continues without GeoIP |
 | MMDB binary format | Trusted format, validated on load by maxminddb-golang | Error logged; GeoIP disabled if DB corrupt |
-| Proxy client-IP headers | UNTRUSTED unless the immediate peer matches the operator-configured `trusted_proxies`; only then are the documented proxy headers honored | Untrusted headers are ignored and `r.RemoteAddr` is used; `--header` selects which headers are considered |
+| Proxy client-IP headers | UNTRUSTED unless the immediate peer matches the operator-configured `trusted_proxies`; only then are the configured proxy headers honored | Untrusted headers are ignored and `r.RemoteAddr` is used; `server.trusted_proxies.client_ip_header` selects `auto` order or one pinned header |
 | Tor network | Optional, no trust required | Hidden service silently disabled if Tor binary not found |
 | jsDelivr CDN (https://cdn.jsdelivr.net) | Trusted delivery channel for ip-location-db MMDB files | Download retried; GeoIP disabled if unavailable |
 | Official site (https://ifcfg.us) | Production endpoint embedded as default server in CLI binary | CLI falls back to manual `--server` flag |
@@ -116,7 +116,7 @@ CLI operator tokens are stored server-side (DB) and cleaned up by the `token_cle
 **Untrusted inputs:**
 - All inbound HTTP requests: IP headers, query parameters, request body, user-agent string
 - Any IP address submitted for lookup via path or query parameter
-- X-Forwarded-For / X-Real-IP headers (unless explicitly trusted via `--header`)
+- X-Forwarded-For / X-Real-IP headers (unless the immediate peer is trusted and the header is selected by `server.trusted_proxies.client_ip_header`)
 
 **Attacker/abuser goals:**
 - Trigger SSRF via IP lookup of internal/RFC1918 addresses
@@ -182,7 +182,7 @@ Both binaries are built together. See AI.md PART 7, 8, 32, 33 for build, flag, a
 **IP Address Detection**
 - Returns the visitor's public IP address (IPv4 and IPv6)
 - Lookup any specific IP address
-- Handles proxy headers when operator opts in via `--header` flag
+- Handles proxy headers only from trusted peers, using configured automatic selection or a pinned `server.trusted_proxies.client_ip_header`
 - IP decimal representation alongside dotted-decimal
 
 **GeoIP Information** (from sapics/ip-location-db, downloaded at runtime)

@@ -297,13 +297,10 @@ for provider behavior and the persistent destination.
 ## Reverse Proxy
 
 When behind a reverse proxy, the built-in proxy-header detection uses
-client-IP headers only when the immediate peer is trusted. Client address
-priority is `CF-Connecting-IP`, `True-Client-IP`, `X-Real-IP`, the first
-`X-Forwarded-For` value, the first RFC 7239 `Forwarded` element, then
-`X-Client-IP`. Invalid values fall through to the next source. IPv4-mapped
-IPv6 addresses are unmapped, IPv6 zones and transport ports are stripped, and
-all consumers use the canonical full address. IPv6 addresses are not grouped
-by prefix for rate limits or bans. Rate-limit state is bounded and expires.
+client-IP headers only when the immediate peer is trusted. IPv4-mapped IPv6
+addresses are unmapped, IPv6 zones and transport ports are stripped, and all
+consumers use the canonical full address. IPv6 addresses are not grouped by
+prefix for rate limits or bans. Rate-limit state is bounded and expires.
 
 Standard URL-forwarding headers (`X-Forwarded-Proto`, `X-Forwarded-Port`,
 `X-Forwarded-Prefix`) are also accepted from trusted peers. Additional trusted
@@ -313,9 +310,19 @@ proxy CIDRs (beyond the private ranges, which are always trusted) can be added u
 ```yaml
 server:
   trusted_proxies:
+    client_ip_header: auto
     additional:
       - "203.0.113.0/24"
 ```
+
+`client_ip_header: auto` selects the first present client address header in this
+order: `X-Forwarded-For`, `Forwarded`, `CF-Connecting-IP`, `True-Client-IP`,
+`X-Real-IP`, then `X-Client-IP`. Set it to one of those header names to read only
+that header. The default chain headers combine repeated header fields, examine
+at most the rightmost 32 hops, and walk from the nearest proxy toward the
+client using the configured trusted proxy ranges. Invalid or obfuscated hops
+stop the walk at the nearest valid address. Production deployments should pin
+the header to the one their front proxy controls.
 
 ### nginx
 
