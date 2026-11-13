@@ -181,7 +181,7 @@ func recoverAndRespond(lm *applog.Manager, rw *recoverResponseWriter, w http.Res
 	detail := fmt.Sprintf("request_id=%s method=%s path=%s panic=%s",
 		sanitizeLogValue(requestID), sanitizeLogValue(r.Method),
 		sanitizeLogValue(r.URL.Path), sanitizeLogValue(fmt.Sprint(rec)))
-	log.Printf("panic recovered: %s ip=%s", detail, r.RemoteAddr)
+	log.Printf("panic recovered: %s ip=%s", detail, clientIPIdentifier(r))
 	if lm != nil {
 		lm.WriteError("error", "panic recovered: "+detail)
 	}
@@ -706,7 +706,7 @@ func LoggingMiddleware(tr *netutil.TrustResolver, lm *applog.Manager, debug bool
 			}
 
 			// Resolve client IP through trusted proxy headers only.
-			clientIP := netutil.GetClientIdentifier(r, tr)
+			clientIP := clientIPIdentifier(r, tr)
 
 			// Get referer and user-agent (use "-" if empty). Sanitized so a client
 			// cannot inject CR/LF into the log stream to forge extra log lines.
@@ -861,5 +861,5 @@ func (s *Server) RequireOperatorToken(next http.Handler) http.Handler {
 // authClientIP resolves the client IP for auth logging, honouring proxy
 // headers only when the peer is trusted (AI.md PART 11/15).
 func (s *Server) authClientIP(r *http.Request) string {
-	return netutil.GetClientIdentifier(r, s.getTrust())
+	return clientIPIdentifier(r, s.getTrust())
 }

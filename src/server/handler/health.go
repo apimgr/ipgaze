@@ -200,7 +200,7 @@ func validHealthCheckKey(key string) bool {
 			separator = true
 			continue
 		}
-		if !(char >= 'a' && char <= 'z' || char >= '0' && char <= '9') {
+		if (char < 'a' || char > 'z') && (char < '0' || char > '9') {
 			return false
 		}
 	}

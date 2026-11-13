@@ -108,9 +108,10 @@ build: clean
 			ARCH=$${platform#*/}; \
 			OUTPUT=$(BINDIR)/$(PROJECT_NAME)-cli-$$OS-$$ARCH; \
 			[ "$$OS" = "windows" ] && OUTPUT=$$OUTPUT.exe; \
+			TAGS="-tags gui"; [ "$$OS" != "freebsd" ] || TAGS=""; \
 			echo "Building CLI $$OS/$$ARCH..."; \
 			$(GO_DOCKER) sh -c "GOOS=$$OS GOARCH=$$ARCH \
-				go build -buildvcs=false -trimpath -ldflags \"$(LDFLAGS)\" \
+				go build $$TAGS -buildvcs=false -trimpath -ldflags \"$(LDFLAGS)\" \
 				-o $$OUTPUT ./src/client" || exit 1; \
 		done; \
 	fi
@@ -139,7 +140,7 @@ local: clean
 	@if [ -d "src/client" ]; then \
 		echo "Building $(PROJECT_NAME)-cli..."; \
 		$(GO_DOCKER) sh -c "GOOS=$$(go env GOOS) GOARCH=$$(go env GOARCH) \
-			go build -buildvcs=false -trimpath -ldflags \"$(LDFLAGS)\" -o $(BINDIR)/$(PROJECT_NAME)-cli ./src/client"; \
+			go build -tags gui -buildvcs=false -trimpath -ldflags \"$(LDFLAGS)\" -o $(BINDIR)/$(PROJECT_NAME)-cli ./src/client"; \
 	fi
 
 	@echo "Local build complete: $(BINDIR)/"
@@ -161,7 +162,7 @@ dev:
 		echo "Built: $$BUILD_DIR/$(PROJECT_NAME)" && \
 		if [ -d "src/client" ]; then \
 			$(GO_DOCKER_RUN) -v $$BUILD_DIR:/build casjaysdev/go:latest \
-				go build -buildvcs=false -o /build/$(PROJECT_NAME)-cli ./src/client && \
+				go build -tags gui -buildvcs=false -o /build/$(PROJECT_NAME)-cli ./src/client && \
 			echo "Built: $$BUILD_DIR/$(PROJECT_NAME)-cli"; \
 		fi && \
 		echo "Test:  docker run --rm --name $(PROJECT_NAME)-test -v $$BUILD_DIR:/app alpine:latest /app/$(PROJECT_NAME) --help"

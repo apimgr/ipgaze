@@ -17,7 +17,6 @@ import (
 	"io"
 	"log"
 	"math/big"
-	"net"
 	"net/http"
 	"net/mail"
 	"net/url"
@@ -899,7 +898,7 @@ func (h *PagesHandler) ServerContactHandler(w http.ResponseWriter, r *http.Reque
 			req := contactRequestFromForm(r, h.contactCaptchaProvider(r))
 			validSecurityID, _ := h.validSecurityID(req.SecurityID)
 			if validSecurityID {
-				if !allowContactSubmission(clientIP(r)) {
+				if !allowContactSubmission(h.clientIP(r)) {
 					h.renderContactError(w, r, http.StatusTooManyRequests)
 					return
 				}
@@ -930,7 +929,7 @@ func (h *PagesHandler) ServerContactHandler(w http.ResponseWriter, r *http.Reque
 				h.renderContactError(w, r, http.StatusBadRequest)
 				return
 			}
-			if !allowContactSubmission(clientIP(r)) {
+			if !allowContactSubmission(h.clientIP(r)) {
 				h.renderContactError(w, r, http.StatusTooManyRequests)
 				return
 			}
@@ -1063,7 +1062,7 @@ func (h *PagesHandler) APIV1ServerContactHandler(w http.ResponseWriter, r *http.
 		h.logInvalidSecurityID(r, req.SecurityID)
 	}
 	if securityIDErr == nil && validSecurityID {
-		if !allowContactSubmission(clientIP(r)) {
+		if !allowContactSubmission(h.clientIP(r)) {
 			SendAPIResponseError(w, http.StatusTooManyRequests, "RATE_LIMITED", i18n.T(r.Context(), "errors.rate_limited"), nil)
 			return
 		}
@@ -1084,7 +1083,7 @@ func (h *PagesHandler) APIV1ServerContactHandler(w http.ResponseWriter, r *http.
 	case !validStandardContactRequest(req):
 		SendAPIResponseError(w, http.StatusBadRequest, "BAD_REQUEST", i18n.T(r.Context(), "errors.bad_request"), nil)
 		return
-	case !allowContactSubmission(clientIP(r)):
+	case !allowContactSubmission(h.clientIP(r)):
 		SendAPIResponseError(w, http.StatusTooManyRequests, "RATE_LIMITED", i18n.T(r.Context(), "errors.rate_limited"), nil)
 		return
 	default:
@@ -1127,7 +1126,7 @@ func (h *PagesHandler) logInvalidSecurityID(r *http.Request, supplied string) {
 	if len(userAgent) > 256 {
 		userAgent = userAgent[:256]
 	}
-	h.SecurityLogger(fmt.Sprintf("security.security_id_invalid user_agent=%q security_id_sha256_prefix=%s", userAgent, hex.EncodeToString(digest[:4])), clientIP(r))
+	h.SecurityLogger(fmt.Sprintf("security.security_id_invalid user_agent=%q security_id_sha256_prefix=%s", userAgent, hex.EncodeToString(digest[:4])), h.clientIP(r))
 }
 
 func newSimpleCaptcha(parent context.Context, db *sql.DB, now time.Time) (string, string, error) {
@@ -1246,7 +1245,7 @@ func (h *PagesHandler) verifyContactCaptcha(r *http.Request, token, answer strin
 	switch provider {
 	case "recaptcha":
 		endpoint = "https://www.google.com/recaptcha/api/siteverify"
-		values.Set("remoteip", clientIP(r))
+		values.Set("remoteip", h.clientIP(r))
 	case "hcaptcha":
 		endpoint = "https://api.hcaptcha.com/siteverify"
 	default:
@@ -1409,7 +1408,7 @@ func (h *PagesHandler) submitSecurityReport(r *http.Request, req ContactRequest)
 	}
 	if ack != "" && h.EmailMgr != nil && h.EmailMgr.IsEnabled() {
 		if sendErr := h.EmailMgr.SendDirect(&email.Message{To: []string{req.Email}, Subject: translateRequest(r, "security.report_email_subject", "tracking_id", trackingID), Body: ack}); sendErr != nil && h.SecurityLogger != nil {
-			h.SecurityLogger("security.report_acknowledgment_failed tracking_id="+trackingID, clientIP(r))
+			h.SecurityLogger("security.report_acknowledgment_failed tracking_id="+trackingID, h.clientIP(r))
 		}
 	}
 	if resolved.Email != "" && h.EmailMgr != nil && h.EmailMgr.IsEnabled() {
@@ -1419,11 +1418,11 @@ func (h *PagesHandler) submitSecurityReport(r *http.Request, req ContactRequest)
 			notification.Attachments = []email.Attachment{{Filename: trackingID + ".enc", ContentType: "application/octet-stream", Data: ciphertext}}
 		}
 		if sendErr := h.EmailMgr.SendDirect(notification); sendErr != nil && h.SecurityLogger != nil {
-			h.SecurityLogger("security.report_notification_failed tracking_id="+trackingID, clientIP(r))
+			h.SecurityLogger("security.report_notification_failed tracking_id="+trackingID, h.clientIP(r))
 		}
 	}
 	if h.SecurityLogger != nil {
-		h.SecurityLogger("security.report_received tracking_id="+trackingID+" severity="+req.Severity+" component="+security.SanitizeReportComponent(req.AffectedComponent), clientIP(r))
+		h.SecurityLogger("security.report_received tracking_id="+trackingID+" severity="+req.Severity+" component="+security.SanitizeReportComponent(req.AffectedComponent), h.clientIP(r))
 	}
 	return trackingID, nil
 }
@@ -1489,16 +1488,10 @@ func translateWithLocale(lang, key string, replacements ...string) string {
 	return message
 }
 
-// clientIP extracts the request's remote IP (without port) for the contact
-// throttle key. This is a plain RemoteAddr read, not the trust-aware
-// resolver used for GeoIP/rate-limit decisions elsewhere — sufficient for a
-// best-effort per-sender cooldown.
-func clientIP(r *http.Request) string {
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		return r.RemoteAddr
-	}
-	return host
+// clientIP uses the canonical trusted-proxy resolver for contact throttling,
+// matching the identity used by the other per-client enforcement paths.
+func (h *PagesHandler) clientIP(r *http.Request) string {
+	return netutil.GetClientIdentifier(r, h.Trust)
 }
 
 // dispatchContactSubmission resolves the "general" contact role (AI.md PART
@@ -1548,7 +1541,7 @@ func (h *PagesHandler) dispatchContactSubmission(r *http.Request, req ContactReq
 			Body:    body,
 		}); err != nil {
 			log.Printf("contact email delivery failed: request_id=%s method=%s path=%s ip=%s err=%v",
-				r.Header.Get("X-Request-ID"), r.Method, r.URL.Path, clientIP(r), err)
+				r.Header.Get("X-Request-ID"), r.Method, r.URL.Path, h.clientIP(r), err)
 		}
 	}
 }
@@ -1740,7 +1733,7 @@ func (h *PagesHandler) securityThanksResponse(r *http.Request) (SecurityThanksRe
 
 func (h *PagesHandler) securityThanksError(r *http.Request, err error) error {
 	log.Printf("security acknowledgments unavailable: request_id=%s method=%s path=%s ip=%s err=%v",
-		r.Header.Get("X-Request-ID"), r.Method, r.URL.Path, clientIP(r), err)
+		r.Header.Get("X-Request-ID"), r.Method, r.URL.Path, h.clientIP(r), err)
 	return err
 }
 

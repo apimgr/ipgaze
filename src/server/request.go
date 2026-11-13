@@ -8,60 +8,27 @@ import (
 	"strings"
 
 	"github.com/apimgr/ipgaze/src/common/httputil"
+	"github.com/apimgr/ipgaze/src/netutil"
 	"github.com/apimgr/ipgaze/src/useragent"
 )
 
-// ipFromForwardedForHeader extracts the first IP from X-Forwarded-For header
-func ipFromForwardedForHeader(v string) string {
-	sep := strings.Index(v, ",")
-	if sep == -1 {
-		return strings.TrimSpace(v)
-	}
-	return strings.TrimSpace(v[:sep])
-}
-
-// ipFromRequest detects the IP address for this transaction.
-//
-//   - `headers` - the specific HTTP headers to trust
-//   - `r` - the incoming HTTP request
-//   - `customIP` - whether to allow the IP to be pulled from query parameters
-//   - `trusted` - whether the immediate peer passes the trusted_proxies gate
-//     (AI.md PART 8 "Client IP Detection" / PART 12 "Trusted Proxies"); when
-//     false, `headers` are ignored and resolution falls straight through to
-//     `r.RemoteAddr`
-func ipFromRequest(headers []string, r *http.Request, customIP bool, trusted bool) (net.IP, error) {
-	remoteIP := ""
+// ipFromRequestWithResolver applies the configured peer and forwarding-chain
+// trust policy used by production request handlers.
+func ipFromRequestWithResolver(r *http.Request, customIP bool, resolver *netutil.TrustResolver) (net.IP, error) {
 	if customIP && r.URL != nil {
-		if v, ok := r.URL.Query()["ip"]; ok {
-			remoteIP = v[0]
-		}
-	}
-	if remoteIP == "" && trusted {
-		for _, header := range headers {
-			v := r.Header.Get(header)
-			if http.CanonicalHeaderKey(header) == "X-Forwarded-For" {
-				v = ipFromForwardedForHeader(v)
-			} else {
-				v = strings.TrimSpace(v)
+		if values, ok := r.URL.Query()["ip"]; ok && len(values) > 0 {
+			addr, valid := netutil.ParseClientIP(values[0])
+			if !valid {
+				return nil, fmt.Errorf("could not parse IP")
 			}
-			if v != "" {
-				remoteIP = v
-				break
-			}
+			return net.IP(addr.AsSlice()), nil
 		}
 	}
-	if remoteIP == "" {
-		host, _, err := net.SplitHostPort(r.RemoteAddr)
-		if err != nil {
-			return nil, err
-		}
-		remoteIP = host
+	addr, valid := netutil.ParseClientIP(netutil.GetClientIPWithResolver(r, resolver))
+	if !valid {
+		return nil, fmt.Errorf("could not parse client IP")
 	}
-	ip := net.ParseIP(remoteIP)
-	if ip == nil {
-		return nil, fmt.Errorf("could not parse IP: %s", remoteIP)
-	}
-	return ip, nil
+	return net.IP(addr.AsSlice()), nil
 }
 
 // userAgentFromRequest parses the User-Agent header from the request

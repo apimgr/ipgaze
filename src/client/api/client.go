@@ -136,7 +136,7 @@ type IPResponse struct {
 	IPDecimal  uint64  `json:"ip_decimal,omitempty"`
 	Country    string  `json:"country,omitempty"`
 	CountryISO string  `json:"country_iso,omitempty"`
-	CountryEU  bool    `json:"country_eu,omitempty"`
+	CountryEU  *bool   `json:"country_eu,omitempty"`
 	City       string  `json:"city,omitempty"`
 	RegionName string  `json:"region_name,omitempty"`
 	RegionCode string  `json:"region_code,omitempty"`
@@ -147,6 +147,10 @@ type IPResponse struct {
 	ASN        string  `json:"asn,omitempty"`
 	ASNOrg     string  `json:"asn_org,omitempty"`
 	Hostname   string  `json:"hostname,omitempty"`
+	IsVPN      *bool   `json:"is_vpn,omitempty"`
+	IsProxy    *bool   `json:"is_proxy,omitempty"`
+	IsTor      *bool   `json:"is_tor,omitempty"`
+	IsTorHiddenService *bool `json:"is_tor_hidden_service,omitempty"`
 }
 
 // GetMyIP returns the caller's IP address as a plain string.

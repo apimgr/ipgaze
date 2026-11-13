@@ -3,6 +3,7 @@ package i2p
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -15,6 +16,13 @@ import (
 	"testing"
 	"time"
 )
+
+func checkTestConnClose(t *testing.T, conn interface{ Close() error }) {
+	t.Helper()
+	if err := conn.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
+		t.Errorf("close test connection: %v", err)
+	}
+}
 
 func TestProviderString(t *testing.T) {
 	cases := []struct {
@@ -536,8 +544,8 @@ func TestLoadOrCreateSAMDestination_GeneratesAndPersistsAtomically(t *testing.T)
 	tmp := t.TempDir()
 	keysPath := filepath.Join(tmp, "site", "site-keys.dat")
 	server, client := net.Pipe()
-	defer server.Close()
-	defer client.Close()
+	t.Cleanup(func() { checkTestConnClose(t, server) })
+	t.Cleanup(func() { checkTestConnClose(t, client) })
 	priv := fakeSAMPrivateKey()
 	go func() {
 		r := bufio.NewReader(server)
@@ -572,13 +580,13 @@ func TestStartSAMEepsite_UsesSAM31AndSeparateSilentForwardSocket(t *testing.T) {
 	if err != nil {
 		t.Fatalf("listen: %v", err)
 	}
-	defer ln.Close()
+	t.Cleanup(func() { checkTestConnClose(t, ln) })
 	backend, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("listen backend: %v", err)
 	}
 	backendPort := backend.Addr().(*net.TCPAddr).Port
-	defer backend.Close()
+	t.Cleanup(func() { checkTestConnClose(t, backend) })
 	priv := fakeSAMPrivateKey()
 	commands := make(chan []string, 2)
 	serverErr := make(chan error, 1)
@@ -594,16 +602,16 @@ func TestStartSAMEepsite_UsesSAM31AndSeparateSilentForwardSocket(t *testing.T) {
 			for _, step := range []struct{ prefix, response string }{{"HELLO VERSION", "HELLO REPLY RESULT=OK VERSION=3.3\n"}, {wantPrefix, reply}} {
 				line, re := r.ReadString('\n')
 				if re != nil {
-					c.Close()
+					checkTestConnClose(t, c)
 					return nil, nil, re
 				}
 				got = append(got, strings.TrimSpace(line))
 				if !strings.HasPrefix(line, step.prefix) {
-					c.Close()
+					checkTestConnClose(t, c)
 					return nil, nil, fmt.Errorf("got %q, want %s", line, step.prefix)
 				}
 				if _, re = c.Write([]byte(step.response)); re != nil {
-					c.Close()
+					checkTestConnClose(t, c)
 					return nil, nil, re
 				}
 			}
@@ -616,28 +624,28 @@ func TestStartSAMEepsite_UsesSAM31AndSeparateSilentForwardSocket(t *testing.T) {
 		}
 		line, e := bufio.NewReader(controlConn).ReadString('\n')
 		if e != nil || !strings.HasPrefix(line, "SESSION CREATE") {
-			controlConn.Close()
+			checkTestConnClose(t, controlConn)
 			serverErr <- fmt.Errorf("SESSION CREATE missing: %q (%v)", line, e)
 			return
 		}
 		control = append(control, strings.TrimSpace(line))
 		_, e = controlConn.Write([]byte("SESSION STATUS RESULT=OK\n"))
 		if e != nil {
-			controlConn.Close()
+			checkTestConnClose(t, controlConn)
 			serverErr <- e
 			return
 		}
 		forward, forwardConn, e := readConn("STREAM FORWARD", "STREAM STATUS RESULT=OK\n")
 		if e != nil {
-			controlConn.Close()
+			checkTestConnClose(t, controlConn)
 			serverErr <- e
 			return
 		}
 		commands <- control
 		commands <- forward
 		<-release
-		controlConn.Close()
-		forwardConn.Close()
+		checkTestConnClose(t, controlConn)
+		checkTestConnClose(t, forwardConn)
 	}()
 	m := NewI2PManager(I2PServiceConfig{Enabled: true, ConfigDir: t.TempDir(), DataDir: t.TempDir(), SAMAddress: ln.Addr().String(), SignatureType: 7, InboundLength: 3, OutboundLength: 3, InboundQuantity: 5, OutboundQuantity: 5, BootstrapTimeout: 30})
 	svc := &service{}
@@ -719,13 +727,13 @@ func TestSAMDialRequiresVersion31(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer ln.Close()
+	t.Cleanup(func() { checkTestConnClose(t, ln) })
 	go func() {
 		conn, acceptErr := ln.Accept()
 		if acceptErr != nil {
 			return
 		}
-		defer conn.Close()
+		defer checkTestConnClose(t, conn)
 		line, _ := bufio.NewReader(conn).ReadString('\n')
 		if !strings.Contains(line, "MIN=3.1 MAX=3.3") {
 			t.Errorf("HELLO = %q, want SAM 3.1 range", line)
@@ -734,15 +742,15 @@ func TestSAMDialRequiresVersion31(t *testing.T) {
 	}()
 	conn, _, err := samDial(context.Background(), ln.Addr().String())
 	if err == nil {
-		conn.Close()
+		checkTestConnClose(t, conn)
 		t.Fatal("samDial accepted a router without SAM 3.1")
 	}
 }
 
 func TestSAMCommandHasDeadline(t *testing.T) {
 	client, server := net.Pipe()
-	defer client.Close()
-	defer server.Close()
+	t.Cleanup(func() { checkTestConnClose(t, client) })
+	t.Cleanup(func() { checkTestConnClose(t, server) })
 	go func() { _, _ = bufio.NewReader(server).ReadString('\n') }()
 	if _, err := samCommand(client, bufio.NewReader(client), 20*time.Millisecond, "SESSION STATUS"); err == nil {
 		t.Fatal("samCommand without a reply succeeded; expected deadline error")
@@ -751,7 +759,7 @@ func TestSAMCommandHasDeadline(t *testing.T) {
 
 func TestWatchSAMConnectionReportsCloseWithoutPollingReads(t *testing.T) {
 	local, remote := net.Pipe()
-	defer local.Close()
+	t.Cleanup(func() { checkTestConnClose(t, local) })
 	reader := bufio.NewReader(local)
 	lost := watchSAMConnection(reader)
 	if err := remote.Close(); err != nil {
@@ -769,8 +777,8 @@ func TestWatchSAMConnectionReportsCloseWithoutPollingReads(t *testing.T) {
 
 func TestWatchSAMConnectionRejectsUnexpectedIdleData(t *testing.T) {
 	local, remote := net.Pipe()
-	defer local.Close()
-	defer remote.Close()
+	t.Cleanup(func() { checkTestConnClose(t, local) })
+	t.Cleanup(func() { checkTestConnClose(t, remote) })
 	lost := watchSAMConnection(bufio.NewReader(local))
 	writeDone := make(chan error, 1)
 	go func() {

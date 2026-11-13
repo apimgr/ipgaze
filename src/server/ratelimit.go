@@ -1,6 +1,7 @@
 package server
 
 import (
+	"container/list"
 	"encoding/json"
 	"net/http"
 	"strconv"
@@ -102,6 +103,7 @@ func (c RateLimitConfig) bucketFor(class rateClass) RateLimitBucket {
 // RateLimiter manages per-IP, per-class rate limiting with trusted proxy support.
 type RateLimiter struct {
 	limiters        map[string]*clientLimiter
+	lru             *list.List
 	config          RateLimitConfig
 	trust           *netutil.TrustResolver
 	mu              sync.RWMutex
@@ -120,7 +122,11 @@ type RateLimiter struct {
 type clientLimiter struct {
 	limiter  *rate.Limiter
 	lastSeen time.Time
+	entry    *list.Element
+	key      string
 }
+
+const maxPerIPRateLimiters = 65536
 
 // NewRateLimiter creates a new rate limiter.
 // trust is used to gate proxy header trust when extracting client IPs per AI.md PART 11/15.
@@ -143,6 +149,7 @@ func NewRateLimiter(cfg RateLimitConfig, trust *netutil.TrustResolver) *RateLimi
 
 	rl := &RateLimiter{
 		limiters:        make(map[string]*clientLimiter),
+		lru:             list.New(),
 		config:          cfg,
 		trust:           trust,
 		cleanupInterval: 10 * time.Minute,
@@ -180,12 +187,35 @@ func (rl *RateLimiter) cleanup() {
 	rl.mu.Lock()
 	defer rl.mu.Unlock()
 
-	cutoff := time.Now().Add(-10 * time.Minute)
+	cutoff := time.Now().Add(-rl.retentionDuration())
 	for key, cl := range rl.limiters {
 		if cl.lastSeen.Before(cutoff) {
 			delete(rl.limiters, key)
+			rl.lru.Remove(cl.entry)
 		}
 	}
+}
+
+func (rl *RateLimiter) retentionDuration() time.Duration {
+	retention := time.Minute
+	for _, bucket := range []RateLimitBucket{rl.config.Read, rl.config.Write, rl.config.Health, rl.config.Global} {
+		window := bucket.effectiveWindow()
+		burst := time.Duration(bucket.effectiveBurst()) * window / time.Duration(maxInt(bucket.Limit, 1))
+		if window > retention {
+			retention = window
+		}
+		if burst > retention {
+			retention = burst
+		}
+	}
+	return retention
+}
+
+func maxInt(left, right int) int {
+	if left > right {
+		return left
+	}
+	return right
 }
 
 // Stop stops the rate limiter cleanup goroutine
@@ -202,6 +232,7 @@ func (rl *RateLimiter) Stop() {
 type ReportRateLimiter struct {
 	mu       sync.Mutex
 	limiters map[string]*clientLimiter
+	lru      *list.List
 	// perMinute is the sustained ceiling across all report types.
 	perMinute int
 	// burst is the short-burst allowance.
@@ -221,6 +252,7 @@ func NewReportRateLimiter(perMinute, burst int) *ReportRateLimiter {
 	}
 	rrl := &ReportRateLimiter{
 		limiters:    make(map[string]*clientLimiter),
+		lru:         list.New(),
 		perMinute:   perMinute,
 		burst:       burst,
 		stopCleanup: make(chan struct{}),
@@ -237,21 +269,44 @@ func (rrl *ReportRateLimiter) Allow(clientIP string) bool {
 	}
 	rrl.mu.Lock()
 	defer rrl.mu.Unlock()
+	if rrl.lru == nil {
+		rrl.lru = list.New()
+		for key, cl := range rrl.limiters {
+			cl.key = key
+			cl.entry = rrl.lru.PushFront(cl)
+		}
+	}
 
 	cl, exists := rrl.limiters[clientIP]
 	if !exists {
+		if rrl.lru.Len() >= maxPerIPRateLimiters {
+			rrl.removeLRU()
+		}
 		cl = &clientLimiter{
 			limiter: rate.NewLimiter(rate.Limit(float64(rrl.perMinute)/60.0), rrl.burst),
+			key:     clientIP,
 		}
 		rrl.limiters[clientIP] = cl
+		cl.entry = rrl.lru.PushFront(cl)
 	}
 	cl.lastSeen = time.Now()
+	rrl.lru.MoveToFront(cl.entry)
 	return cl.limiter.Allow()
+}
+
+func (rrl *ReportRateLimiter) removeLRU() {
+	entry := rrl.lru.Back()
+	if entry == nil {
+		return
+	}
+	cl := entry.Value.(*clientLimiter)
+	delete(rrl.limiters, cl.key)
+	rrl.lru.Remove(entry)
 }
 
 // cleanupLoop drops limiters for IPs that have stopped reporting.
 func (rrl *ReportRateLimiter) cleanupLoop() {
-	ticker := time.NewTicker(10 * time.Minute)
+	ticker := time.NewTicker(time.Minute)
 	defer ticker.Stop()
 
 	for {
@@ -269,10 +324,11 @@ func (rrl *ReportRateLimiter) cleanup() {
 	rrl.mu.Lock()
 	defer rrl.mu.Unlock()
 
-	cutoff := time.Now().Add(-10 * time.Minute)
+	cutoff := time.Now().Add(-time.Minute)
 	for key, cl := range rrl.limiters {
 		if cl.lastSeen.Before(cutoff) {
 			delete(rrl.limiters, key)
+			rrl.lru.Remove(cl.entry)
 		}
 	}
 }
@@ -288,18 +344,36 @@ func (rl *RateLimiter) getLimiter(clientIP string, class rateClass) *rate.Limite
 
 	rl.mu.Lock()
 	defer rl.mu.Unlock()
+	if rl.lru == nil {
+		rl.lru = list.New()
+		for existingKey, existing := range rl.limiters {
+			existing.key = existingKey
+			existing.entry = rl.lru.PushFront(existing)
+		}
+	}
 
 	cl, exists := rl.limiters[key]
 	if !exists {
+		if rl.lru.Len() >= maxPerIPRateLimiters {
+			entry := rl.lru.Back()
+			if entry != nil {
+				oldest := entry.Value.(*clientLimiter)
+				delete(rl.limiters, oldest.key)
+				rl.lru.Remove(entry)
+			}
+		}
 		bucket := rl.config.bucketFor(class)
 		rps := rate.Limit(float64(bucket.Limit) / bucket.effectiveWindow().Seconds())
 		cl = &clientLimiter{
 			limiter: rate.NewLimiter(rps, bucket.effectiveBurst()),
+			key:     key,
 		}
 		rl.limiters[key] = cl
+		cl.entry = rl.lru.PushFront(cl)
 	}
 
 	cl.lastSeen = time.Now()
+	rl.lru.MoveToFront(cl.entry)
 	return cl.limiter
 }
 
@@ -400,5 +474,5 @@ func writeRateLimitedBody(w http.ResponseWriter, msg string) {
 
 // getClientIP extracts the real client IP, honoring proxy headers only when the peer is trusted.
 func (rl *RateLimiter) getClientIP(r *http.Request) string {
-	return netutil.GetClientIdentifier(r, rl.trust)
+	return clientIPIdentifier(r, rl.trust)
 }

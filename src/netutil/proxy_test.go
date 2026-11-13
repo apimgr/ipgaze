@@ -229,7 +229,7 @@ func TestNewTrustResolver_IPv4ListenAddr(t *testing.T) {
 	if tr == nil {
 		t.Fatal("NewTrustResolver returned nil")
 	}
-	if tr.listenCIDR == nil {
+	if !tr.listenCIDR.IsValid() {
 		t.Error("expected listenCIDR to be set for 10.0.0.5")
 	}
 }
@@ -247,6 +247,15 @@ func TestIsTrustedPeer_Loopback_AlwaysTrusted(t *testing.T) {
 	r.RemoteAddr = "127.0.0.1:12345"
 	if !tr.IsTrustedPeer(r) {
 		t.Error("127.0.0.1 must always be trusted")
+	}
+}
+
+func TestIsTrustedPeer_UnmapsIPv4MappedPeer(t *testing.T) {
+	tr := NewTrustResolver(config.TrustedProxiesConfig{Additional: []string{"::ffff:192.0.2.0/120"}}, "")
+	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	r.RemoteAddr = "[::ffff:192.0.2.1]:1234"
+	if !tr.IsTrustedPeer(r) {
+		t.Fatal("IPv4-mapped peer was not normalized before trusted CIDR evaluation")
 	}
 }
 
@@ -477,53 +486,83 @@ func TestBuildURL_WithPort_IncludedInOutput(t *testing.T) {
 	}
 }
 
-// --- GetClientIP: full six-tier priority (AI.md PART 15) ---
+// --- GetClientIP: header selection and proxy-chain walking (AI.md PART 12) ---
 
-// clientIPHeaders holds one candidate value for each of the five proxy headers
-// GetClientIP consults, in the spec's priority order.
-var clientIPHeaders = []struct {
-	name  string
-	value string
-}{
-	{"CF-Connecting-IP", "198.51.100.1"},
-	{"True-Client-IP", "198.51.100.2"},
-	{"X-Real-IP", "198.51.100.3"},
-	{"X-Forwarded-For", "198.51.100.4, 10.0.0.1"},
-	{"X-Client-IP", "198.51.100.5"},
+func TestGetClientIP_AutoPrefersXFFOverOtherHeaders(t *testing.T) {
+	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	r.RemoteAddr = "10.0.0.1:1234"
+	r.Header.Set("X-Forwarded-For", "198.51.100.1, 10.0.0.2")
+	r.Header.Set("Forwarded", "for=198.51.100.2")
+	r.Header.Set("CF-Connecting-IP", "198.51.100.3")
+	if got := GetClientIP(r, true); got != "198.51.100.1" {
+		t.Errorf("GetClientIP auto header = %q; want 198.51.100.1 from XFF chain", got)
+	}
 }
 
-// clientIPWinners lists the value GetClientIP must return when the header at
-// the matching index of clientIPHeaders is the highest-priority one present.
-var clientIPWinners = []string{
-	"198.51.100.1",
-	"198.51.100.2",
-	"198.51.100.3",
-	"198.51.100.4",
-	"198.51.100.5",
+func TestGetClientIPWithResolver_PinnedHeader(t *testing.T) {
+	tr := NewTrustResolver(config.TrustedProxiesConfig{ClientIPHeader: "cf-connecting-ip"}, "")
+	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	r.RemoteAddr = "10.0.0.1:1234"
+	r.Header.Set("X-Forwarded-For", "198.51.100.1")
+	r.Header.Set("CF-Connecting-IP", "198.51.100.2")
+	if got := GetClientIPWithResolver(r, tr); got != "198.51.100.2" {
+		t.Errorf("GetClientIPWithResolver pinned header = %q; want 198.51.100.2", got)
+	}
 }
 
-func TestGetClientIP_PriorityOrder_Trusted(t *testing.T) {
-	for i := range clientIPHeaders {
-		r := httptest.NewRequest(http.MethodGet, "/", nil)
-		r.RemoteAddr = "203.0.113.1:1234"
-		// Set the winning header plus every lower-priority header, so a wrong
-		// order picks one of the losers instead.
-		for j := i; j < len(clientIPHeaders); j++ {
-			r.Header.Set(clientIPHeaders[j].name, clientIPHeaders[j].value)
-		}
-		if got := GetClientIP(r, true); got != clientIPWinners[i] {
-			t.Errorf("GetClientIP with %s highest = %q; want %q",
-				clientIPHeaders[i].name, got, clientIPWinners[i])
-		}
+func TestGetClientIPWithResolver_MultipleAndLongXFFChains(t *testing.T) {
+	tr := NewTrustResolver(config.TrustedProxiesConfig{Additional: []string{"198.51.100.0/24"}}, "")
+	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	r.RemoteAddr = "198.51.100.9:1234"
+	r.Header.Add("X-Forwarded-For", "203.0.113.9, 198.51.100.1")
+	r.Header.Add("X-Forwarded-For", "198.51.100.2")
+	if got := GetClientIPWithResolver(r, tr); got != "203.0.113.9" {
+		t.Errorf("GetClientIPWithResolver joined chain = %q; want 203.0.113.9", got)
+	}
+
+	r = httptest.NewRequest(http.MethodGet, "/", nil)
+	r.RemoteAddr = "198.51.100.9:1234"
+	chain := make([]string, 40)
+	chain[0] = "192.0.2.99"
+	for i := 1; i < len(chain); i++ {
+		chain[i] = "198.51.100.1"
+	}
+	r.Header.Set("X-Forwarded-For", strings.Join(chain, ", "))
+	if got := GetClientIPWithResolver(r, tr); got != "198.51.100.1" {
+		t.Errorf("GetClientIPWithResolver bounded chain = %q; want rightmost bounded proxy", got)
+	}
+}
+
+func TestGetClientIPWithResolver_MultipleForwardedFields(t *testing.T) {
+	tr := NewTrustResolver(config.TrustedProxiesConfig{Additional: []string{"198.51.100.0/24"}}, "")
+	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	r.RemoteAddr = "198.51.100.9:1234"
+	r.Header.Add("Forwarded", `for=203.0.113.9, for="[198.51.100.1]:4711"`)
+	r.Header.Add("Forwarded", "for=198.51.100.2")
+	if got := GetClientIPWithResolver(r, tr); got != "203.0.113.9" {
+		t.Errorf("GetClientIPWithResolver joined Forwarded chain = %q; want 203.0.113.9", got)
+	}
+}
+
+func TestGetClientIPWithResolver_InvalidHopStopsAtNearestValid(t *testing.T) {
+	tr := NewTrustResolver(testTrustCfg(), "")
+	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	r.RemoteAddr = "10.0.0.1:1234"
+	r.Header.Set("X-Forwarded-For", "203.0.113.9, unknown, 10.0.0.2")
+	if got := GetClientIPWithResolver(r, tr); got != "10.0.0.2" {
+		t.Errorf("GetClientIPWithResolver invalid hop = %q; want nearest valid hop 10.0.0.2", got)
 	}
 }
 
 func TestGetClientIP_AllHeadersUntrusted_UsesRemoteAddr(t *testing.T) {
 	r := httptest.NewRequest(http.MethodGet, "/", nil)
 	r.RemoteAddr = "203.0.113.1:1234"
-	for _, h := range clientIPHeaders {
-		r.Header.Set(h.name, h.value)
-	}
+	r.Header.Set("X-Forwarded-For", "198.51.100.1")
+	r.Header.Set("Forwarded", "for=198.51.100.2")
+	r.Header.Set("CF-Connecting-IP", "198.51.100.3")
+	r.Header.Set("True-Client-IP", "198.51.100.4")
+	r.Header.Set("X-Real-IP", "198.51.100.5")
+	r.Header.Set("X-Client-IP", "198.51.100.6")
 	if got := GetClientIP(r, false); got != "203.0.113.1" {
 		t.Errorf("GetClientIP untrusted = %q; want 203.0.113.1", got)
 	}
@@ -547,13 +586,62 @@ func TestGetClientIP_XClientIP_Trusted(t *testing.T) {
 	}
 }
 
-func TestGetClientIP_BlankXFF_FallsThroughToXClientIP(t *testing.T) {
+func TestGetClientIP_BlankXFF_StopsAtPeer(t *testing.T) {
 	r := httptest.NewRequest(http.MethodGet, "/", nil)
 	r.RemoteAddr = "203.0.113.1:1234"
 	r.Header.Set("X-Forwarded-For", "   ")
 	r.Header.Set("X-Client-IP", "198.51.100.5")
-	if got := GetClientIP(r, true); got != "198.51.100.5" {
-		t.Errorf("GetClientIP blank XFF = %q; want 198.51.100.5", got)
+	if got := GetClientIP(r, true); got != "203.0.113.1" {
+		t.Errorf("GetClientIP blank XFF = %q; want peer 203.0.113.1", got)
+	}
+}
+
+func TestParseClientIPCanonicalVectors(t *testing.T) {
+	tests := map[string]string{
+		"192.0.2.1":         "192.0.2.1",
+		"192.0.2.1:8080":    "192.0.2.1",
+		"::ffff:192.0.2.1":  "192.0.2.1",
+		"[2001:DB8::1]:443": "2001:db8::1",
+		"2001:0db8:0000:0000:0000:0000:0000:0001": "2001:db8::1",
+		"fe80::1%eth0":  "fe80::1",
+		"[2001:db8::1]": "2001:db8::1",
+	}
+	for input, want := range tests {
+		got, ok := ParseClientIP(input)
+		if !ok || got.String() != want {
+			t.Errorf("ParseClientIP(%q) = %v, %v; want %q", input, got, ok, want)
+		}
+	}
+	if _, ok := ParseClientIP("not-an-ip"); ok {
+		t.Fatal("ParseClientIP accepted invalid input")
+	}
+	if _, ok := ParseClientIP("192.0.2.1%eth0"); ok {
+		t.Fatal("ParseClientIP accepted an IPv6 zone suffix on IPv4")
+	}
+}
+
+func TestParseForwardedIPRejectsObfuscatedAndUsesFirstElement(t *testing.T) {
+	for _, input := range []string{"for=unknown", "for=_hidden"} {
+		if _, ok := ParseForwardedIP(input); ok {
+			t.Errorf("ParseForwardedIP(%q) accepted an obfuscated value", input)
+		}
+	}
+	got, ok := ParseForwardedIP(`for=192.0.2.60;proto=http, for=198.51.100.2`)
+	if !ok || got.String() != "192.0.2.60" {
+		t.Fatalf("ParseForwardedIP() = %v, %v; want 192.0.2.60", got, ok)
+	}
+}
+
+func TestGetClientIPInvalidSingleValueHeaderFallsThroughAndUnmaps(t *testing.T) {
+	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	r.RemoteAddr = "[::ffff:127.0.0.1]:1234"
+	r.Header.Set("CF-Connecting-IP", "not-an-ip")
+	r.Header.Set("X-Real-IP", "[2001:DB8::2]:80")
+	if got := GetClientIP(r, true); got != "2001:db8::2" {
+		t.Fatalf("GetClientIP() = %q; want next valid configured header 2001:db8::2", got)
+	}
+	if got := GetClientIP(r, false); got != "127.0.0.1" {
+		t.Fatalf("GetClientIP() for mapped peer = %q; want 127.0.0.1", got)
 	}
 }
 

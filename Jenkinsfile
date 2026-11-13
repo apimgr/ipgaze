@@ -233,7 +233,7 @@ pipeline {
                                 -e GOOS=linux \
                                 -e GOARCH=amd64 \
                                 casjaysdev/go:latest \
-                                go build -buildvcs=false -trimpath -ldflags "${LDFLAGS}" -o ${BINDIR}/${PROJECT_NAME}-cli-linux-amd64 ./src/client
+                                go build -tags gui -buildvcs=false -trimpath -ldflags "${LDFLAGS}" -o ${BINDIR}/${PROJECT_NAME}-cli-linux-amd64 ./src/client
                         '''
                     }
                 }
@@ -251,7 +251,7 @@ pipeline {
                                 -e GOOS=linux \
                                 -e GOARCH=arm64 \
                                 casjaysdev/go:latest \
-                                go build -buildvcs=false -trimpath -ldflags "${LDFLAGS}" -o ${BINDIR}/${PROJECT_NAME}-cli-linux-arm64 ./src/client
+                                go build -tags gui -buildvcs=false -trimpath -ldflags "${LDFLAGS}" -o ${BINDIR}/${PROJECT_NAME}-cli-linux-arm64 ./src/client
                         '''
                     }
                 }
@@ -269,7 +269,7 @@ pipeline {
                                 -e GOOS=darwin \
                                 -e GOARCH=amd64 \
                                 casjaysdev/go:latest \
-                                go build -buildvcs=false -trimpath -ldflags "${LDFLAGS}" -o ${BINDIR}/${PROJECT_NAME}-cli-darwin-amd64 ./src/client
+                                go build -tags gui -buildvcs=false -trimpath -ldflags "${LDFLAGS}" -o ${BINDIR}/${PROJECT_NAME}-cli-darwin-amd64 ./src/client
                         '''
                     }
                 }
@@ -287,7 +287,7 @@ pipeline {
                                 -e GOOS=darwin \
                                 -e GOARCH=arm64 \
                                 casjaysdev/go:latest \
-                                go build -buildvcs=false -trimpath -ldflags "${LDFLAGS}" -o ${BINDIR}/${PROJECT_NAME}-cli-darwin-arm64 ./src/client
+                                go build -tags gui -buildvcs=false -trimpath -ldflags "${LDFLAGS}" -o ${BINDIR}/${PROJECT_NAME}-cli-darwin-arm64 ./src/client
                         '''
                     }
                 }
@@ -305,7 +305,7 @@ pipeline {
                                 -e GOOS=windows \
                                 -e GOARCH=amd64 \
                                 casjaysdev/go:latest \
-                                go build -buildvcs=false -trimpath -ldflags "${LDFLAGS}" -o ${BINDIR}/${PROJECT_NAME}-cli-windows-amd64.exe ./src/client
+                                go build -tags gui -buildvcs=false -trimpath -ldflags "${LDFLAGS}" -o ${BINDIR}/${PROJECT_NAME}-cli-windows-amd64.exe ./src/client
                         '''
                     }
                 }
@@ -323,7 +323,7 @@ pipeline {
                                 -e GOOS=windows \
                                 -e GOARCH=arm64 \
                                 casjaysdev/go:latest \
-                                go build -buildvcs=false -trimpath -ldflags "${LDFLAGS}" -o ${BINDIR}/${PROJECT_NAME}-cli-windows-arm64.exe ./src/client
+                                go build -tags gui -buildvcs=false -trimpath -ldflags "${LDFLAGS}" -o ${BINDIR}/${PROJECT_NAME}-cli-windows-arm64.exe ./src/client
                         '''
                     }
                 }

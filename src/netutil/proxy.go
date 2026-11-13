@@ -6,7 +6,9 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
+	"net/textproto"
 	"os"
+	"strconv"
 	"strings"
 )
 
@@ -105,31 +107,30 @@ func getBaseURLPath(r *http.Request, trusted bool) string {
 }
 
 // GetClientIP returns the real client IP, honoring proxy headers only when trusted.
-// Resolution order per AI.md PART 15 "Client IP Detection":
-//  1. CF-Connecting-IP — Cloudflare, single IP (trusted only)
-//  2. True-Client-IP — Akamai / Cloudflare Enterprise, single IP (trusted only)
-//  3. X-Real-IP — nginx, single IP (trusted only)
-//  4. X-Forwarded-For — chain "client, proxy1, proxy2", leftmost entry (trusted only)
-//  5. X-Client-IP — alternative, single IP (trusted only)
-//  6. r.RemoteAddr host part — always used when the peer is not trusted
+// For chain headers, it uses the built-in trusted proxy ranges to walk right to left.
 func GetClientIP(r *http.Request, trusted bool) string {
 	if trusted {
-		for _, h := range []string{"CF-Connecting-IP", "True-Client-IP", "X-Real-IP"} {
-			if v := strings.TrimSpace(r.Header.Get(h)); v != "" {
-				return v
-			}
-		}
-		if xff := r.Header.Get("X-Forwarded-For"); strings.TrimSpace(xff) != "" {
-			// XFF is a comma-separated chain; the leftmost entry is the original client.
-			if idx := strings.IndexByte(xff, ','); idx > 0 {
-				return strings.TrimSpace(xff[:idx])
-			}
-			return strings.TrimSpace(xff)
-		}
-		if v := strings.TrimSpace(r.Header.Get("X-Client-IP")); v != "" {
-			return v
+		if addr, ok := resolveProxyHeader(r, "auto", func(addr netip.Addr) bool {
+			return isAlwaysTrustedIP(addr)
+		}); ok {
+			return addr.String()
 		}
 	}
+	return remoteClientIP(r)
+}
+
+// GetClientIPWithResolver resolves a client IP using the configured proxy trust
+// ranges for both the immediate peer and every hop in a forwarding chain.
+func GetClientIPWithResolver(r *http.Request, resolver *TrustResolver) string {
+	if resolver != nil && resolver.IsTrustedPeer(r) {
+		if addr, ok := resolveProxyHeader(r, resolver.clientIPHeader, resolver.isTrustedIP); ok {
+			return addr.String()
+		}
+	}
+	return remoteClientIP(r)
+}
+
+func remoteClientIP(r *http.Request) string {
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
 		host = r.RemoteAddr
@@ -137,7 +138,189 @@ func GetClientIP(r *http.Request, trusted bool) string {
 	if id, ok := torCircuitIdentifier(host); ok {
 		return id
 	}
-	return host
+	if addr, ok := ParseClientIP(r.RemoteAddr); ok {
+		return addr.String()
+	}
+	return ""
+}
+
+var clientIPHeaderOrder = []string{
+	"X-Forwarded-For", "Forwarded", "CF-Connecting-IP", "True-Client-IP", "X-Real-IP", "X-Client-IP",
+}
+
+func resolveProxyHeader(r *http.Request, configured string, trustedIP func(netip.Addr) bool) (netip.Addr, bool) {
+	headers := clientIPHeaderOrder
+	if configured != "" && !strings.EqualFold(configured, "auto") {
+		headers = []string{textproto.CanonicalMIMEHeaderKey(configured)}
+	}
+	for _, name := range headers {
+		values := r.Header.Values(name)
+		if len(values) == 0 {
+			continue
+		}
+		if name != "X-Forwarded-For" && name != "Forwarded" {
+			if addr, ok := ParseClientIP(strings.Join(values, ",")); ok {
+				return addr, true
+			}
+			// Invalid single-value headers do not hide a later configured
+			// source. Chain headers retain their separate stop-on-invalid rule.
+			continue
+		}
+		var hops []string
+		if name == "X-Forwarded-For" {
+			hops = splitHeaderValues(values, ',')
+		} else {
+			hops = forwardedForValues(values)
+		}
+		if len(hops) > 32 {
+			hops = hops[len(hops)-32:]
+		}
+		peer := netip.Addr{}
+		if addr, ok := ParseClientIP(r.RemoteAddr); ok {
+			peer = addr
+		}
+		for i := len(hops) - 1; i >= 0; i-- {
+			addr, ok := ParseClientIP(hops[i])
+			if !ok {
+				if peer.IsValid() {
+					return peer, true
+				}
+				return netip.Addr{}, false
+			}
+			if !trustedIP(addr) {
+				return addr, true
+			}
+			peer = addr
+		}
+		if peer.IsValid() {
+			return peer, true
+		}
+		return netip.Addr{}, false
+	}
+	return netip.Addr{}, false
+}
+
+func splitHeaderValues(values []string, separator rune) []string {
+	var result []string
+	for _, value := range values {
+		for _, item := range strings.Split(value, string(separator)) {
+			result = append(result, strings.TrimSpace(item))
+		}
+	}
+	return result
+}
+
+func forwardedForValues(values []string) []string {
+	var result []string
+	for _, value := range values {
+		for _, element := range splitQuoted(value, ',') {
+			found := false
+			for _, parameter := range splitQuoted(element, ';') {
+				key, raw, ok := strings.Cut(strings.TrimSpace(parameter), "=")
+				if !ok || !strings.EqualFold(strings.TrimSpace(key), "for") {
+					continue
+				}
+				raw = strings.TrimSpace(raw)
+				if len(raw) >= 2 && raw[0] == '"' && raw[len(raw)-1] == '"' {
+					unquoted, err := strconv.Unquote(raw)
+					if err != nil {
+						result = append(result, "")
+						found = true
+						break
+					}
+					raw = unquoted
+				}
+				result = append(result, raw)
+				found = true
+				break
+			}
+			if !found {
+				result = append(result, "")
+			}
+		}
+	}
+	return result
+}
+
+func splitQuoted(value string, separator rune) []string {
+	var result []string
+	start := 0
+	quoted, escaped := false, false
+	for i, char := range value {
+		if escaped {
+			escaped = false
+			continue
+		}
+		if quoted && char == '\\' {
+			escaped = true
+			continue
+		}
+		if char == '"' {
+			quoted = !quoted
+			continue
+		}
+		if char == separator && !quoted {
+			result = append(result, strings.TrimSpace(value[start:i]))
+			start = i + len(string(char))
+		}
+	}
+	return append(result, strings.TrimSpace(value[start:]))
+}
+
+// ParseClientIP accepts an IP literal with optional transport port, brackets,
+// or IPv6 zone and returns its canonical, unmapped address.
+func ParseClientIP(value string) (netip.Addr, bool) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return netip.Addr{}, false
+	}
+	if host, port, err := net.SplitHostPort(value); err == nil {
+		parsedPort, portErr := strconv.ParseUint(port, 10, 16)
+		if portErr != nil || parsedPort > 65535 {
+			return netip.Addr{}, false
+		}
+		value = host
+	} else if strings.HasPrefix(value, "[") && strings.HasSuffix(value, "]") {
+		value = strings.TrimSuffix(strings.TrimPrefix(value, "["), "]")
+	}
+	addr, err := netip.ParseAddr(value)
+	if err != nil {
+		return netip.Addr{}, false
+	}
+	if addr.Zone() != "" {
+		if !addr.Is6() {
+			return netip.Addr{}, false
+		}
+		addr = addr.WithZone("")
+	}
+	return addr.Unmap(), true
+}
+
+// ParseForwardedIP reads the first RFC 7239 Forwarded element's for parameter.
+func ParseForwardedIP(value string) (netip.Addr, bool) {
+	if value == "" {
+		return netip.Addr{}, false
+	}
+	element := strings.Split(value, ",")[0]
+	for _, parameter := range strings.Split(element, ";") {
+		key, raw, ok := strings.Cut(strings.TrimSpace(parameter), "=")
+		if !ok || !strings.EqualFold(strings.TrimSpace(key), "for") {
+			continue
+		}
+		raw = strings.TrimSpace(raw)
+		if len(raw) >= 2 && raw[0] == '"' && raw[len(raw)-1] == '"' {
+			unquoted, err := strconv.Unquote(raw)
+			if err != nil {
+				return netip.Addr{}, false
+			}
+			raw = unquoted
+		}
+		if strings.EqualFold(raw, "unknown") || strings.HasPrefix(raw, "_") {
+			return netip.Addr{}, false
+		}
+		return ParseClientIP(raw)
+	}
+	return netip.Addr{}, false
 }
 
 // torCircuitPrefix is the range Tor uses to carry the per-rendezvous-circuit
@@ -192,7 +375,7 @@ func GetClientIdentifier(r *http.Request, tr *TrustResolver) string {
 	if IsI2PRequest(r, tr) {
 		return I2PClientSentinel
 	}
-	return GetClientIP(r, tr != nil && tr.IsTrustedPeer(r))
+	return GetClientIPWithResolver(r, tr)
 }
 
 // hostMatchesOverlayAddress reports whether r's Host header (port stripped,

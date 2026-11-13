@@ -22,7 +22,7 @@ func debugLogRequest(lm *applog.Manager, debug bool, r *http.Request, status int
 	method := r.Method
 	path := sanitizeLogValue(r.URL.Path)
 	query := sanitizeLogQuery(r.URL.RawQuery)
-	remoteAddr := sanitizeLogValue(r.RemoteAddr)
+	remoteAddr := sanitizeLogValue(clientIPIdentifier(r))
 	userAgent := sanitizeLogValue(r.UserAgent())
 	referer := sanitizeLogValue(r.Referer())
 	requestID := sanitizeLogValue(r.Header.Get("X-Request-ID"))

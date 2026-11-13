@@ -1090,6 +1090,8 @@ type SEOConfig struct {
 	Verification SEOVerificationConfig `yaml:"verification"`
 	// Sitemap controls /sitemap.xml generation.
 	Sitemap SitemapConfig `yaml:"sitemap"`
+	// Feed controls the public Atom and RSS feeds.
+	Feed FeedConfig `yaml:"feed"`
 }
 
 // SEOVerificationConfig holds search-engine site-ownership codes. Every value
@@ -1134,6 +1136,19 @@ type SitemapConfig struct {
 	IncludeImages bool `yaml:"include_images"`
 }
 
+// FeedConfig controls the generated public Atom and RSS feeds.
+type FeedConfig struct {
+	Enabled  bool             `yaml:"enabled"`
+	MaxItems int              `yaml:"max_items"`
+	Title    string           `yaml:"title"`
+	Search   SearchFeedConfig `yaml:"search"`
+}
+
+// SearchFeedConfig controls recent-search feeds for projects that publish searches.
+type SearchFeedConfig struct {
+	Enabled bool `yaml:"enabled"`
+}
+
 // DefaultSEOConfig returns the AI.md PART 24 defaults: no operator metadata,
 // sitemap enabled at the protocol's 50000-URL ceiling.
 func DefaultSEOConfig() SEOConfig {
@@ -1141,6 +1156,11 @@ func DefaultSEOConfig() SEOConfig {
 		Sitemap: SitemapConfig{
 			Enabled: true,
 			MaxURLs: 50000,
+		},
+		Feed: FeedConfig{
+			Enabled:  true,
+			MaxItems: 50,
+			Search:   SearchFeedConfig{Enabled: true},
 		},
 	}
 }
@@ -1703,7 +1723,8 @@ type CompressionConfig struct {
 // TrustedProxiesConfig lists additional trusted proxy CIDRs per AI.md PART 12.
 // Private ranges are always trusted; this adds public CDN/reverse-proxy IPs.
 type TrustedProxiesConfig struct {
-	Additional []string `yaml:"additional"`
+	Additional     []string `yaml:"additional"`
+	ClientIPHeader string   `yaml:"client_ip_header"`
 }
 
 // URLDetectionConfig controls the smart domain learning and live-reload behaviour per AI.md PART 12.
@@ -2315,7 +2336,8 @@ func DefaultConfig() *AppConfig {
 				},
 			},
 			TrustedProxies: TrustedProxiesConfig{
-				Additional: []string{},
+				Additional:     []string{},
+				ClientIPHeader: "auto",
 			},
 			URLDetection: URLDetectionConfig{
 				Learning:     true,
@@ -2525,6 +2547,17 @@ func applyRuntimeDatabaseEnv(cfg *AppConfig) {
 // It logs warnings but never returns an error — the server must start regardless.
 func validateConfig(cfg *AppConfig) {
 	def := DefaultConfig()
+	clientIPHeader := strings.ToLower(strings.TrimSpace(cfg.Server.TrustedProxies.ClientIPHeader))
+	if clientIPHeader == "" {
+		clientIPHeader = "auto"
+	}
+	switch clientIPHeader {
+	case "auto", "x-forwarded-for", "forwarded", "cf-connecting-ip", "true-client-ip", "x-real-ip", "x-client-ip":
+		cfg.Server.TrustedProxies.ClientIPHeader = clientIPHeader
+	default:
+		warnConfigReplaced("server.trusted_proxies.client_ip_header", cfg.Server.TrustedProxies.ClientIPHeader, def.Server.TrustedProxies.ClientIPHeader)
+		cfg.Server.TrustedProxies.ClientIPHeader = def.Server.TrustedProxies.ClientIPHeader
+	}
 	branch := cfg.Server.Update.Branch
 	if strings.TrimSpace(branch) == "" {
 		branch = cfg.Server.UpdateBranch
@@ -2588,6 +2621,10 @@ func validateConfig(cfg *AppConfig) {
 		warnConfigReplaced("server.seo.sitemap.max_urls", cfg.Server.SEO.Sitemap.MaxURLs,
 			def.Server.SEO.Sitemap.MaxURLs)
 		cfg.Server.SEO.Sitemap.MaxURLs = def.Server.SEO.Sitemap.MaxURLs
+	}
+	if cfg.Server.SEO.Feed.MaxItems < 1 || cfg.Server.SEO.Feed.MaxItems > 200 {
+		warnConfigReplaced("server.seo.feed.max_items", cfg.Server.SEO.Feed.MaxItems, def.Server.SEO.Feed.MaxItems)
+		cfg.Server.SEO.Feed.MaxItems = def.Server.SEO.Feed.MaxItems
 	}
 
 	// Verification codes are validated on startup so operators see the error in
@@ -3109,6 +3146,7 @@ server:
 
   # Additional trusted reverse-proxy CIDRs beyond the built-in private ranges
   trusted_proxies:
+    client_ip_header: "%s"
     additional: %s
 
   # Smart FQDN/proto/baseurl learning from reverse proxy headers
@@ -3356,6 +3394,12 @@ server:
       max_urls: %d
       # Include image URLs in each entry
       include_images: %t
+    feed:
+      enabled: %t
+      max_items: %d
+      title: "%s"
+      search:
+        enabled: %t
 
   notifications:
     email:
@@ -3585,6 +3629,7 @@ pages:
 		cfg.Server.Compression.Enabled,
 		cfg.Server.Compression.Level,
 		formatStringSlice(cfg.Server.Compression.Types),
+		cfg.Server.TrustedProxies.ClientIPHeader,
 		formatStringSlice(cfg.Server.TrustedProxies.Additional),
 		cfg.Server.URLDetection.Learning,
 		cfg.Server.URLDetection.MinSamples,
@@ -3757,6 +3802,10 @@ pages:
 		cfg.Server.SEO.Sitemap.Enabled,
 		cfg.Server.SEO.Sitemap.MaxURLs,
 		cfg.Server.SEO.Sitemap.IncludeImages,
+		cfg.Server.SEO.Feed.Enabled,
+		cfg.Server.SEO.Feed.MaxItems,
+		cfg.Server.SEO.Feed.Title,
+		cfg.Server.SEO.Feed.Search.Enabled,
 		cfg.Server.Notifications.Email.Events.Startup,
 		cfg.Server.Notifications.Email.Events.Shutdown,
 		cfg.Server.Notifications.Email.Events.BackupComplete,

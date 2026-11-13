@@ -4,13 +4,14 @@ import (
 	"crypto/subtle"
 	"encoding/json"
 	"log/slog"
-	"net"
 	"net/http"
+	"net/netip"
 	"sort"
 	"time"
 
 	i18n "github.com/apimgr/ipgaze/src/common/i18n"
 	"github.com/apimgr/ipgaze/src/config"
+	"github.com/apimgr/ipgaze/src/netutil"
 	"github.com/apimgr/ipgaze/src/server/metrics"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
@@ -23,12 +24,8 @@ const metricsAPIVersion = "v1"
 // ignored — this is the gate for INTERNAL endpoints (AI.md PART 20 /metrics,
 // PART 31.1 /server/tor/*), which must never be reachable through a proxy.
 func IsLoopbackRequest(r *http.Request) bool {
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		host = r.RemoteAddr
-	}
-	ip := net.ParseIP(host)
-	return ip != nil && ip.IsLoopback()
+	ip, ok := netip.ParseAddr(netutil.GetClientIP(r, false))
+	return ok == nil && ip.Unmap().IsLoopback()
 }
 
 // MetricsRouter is the subset of the router needed to mount metrics routes.

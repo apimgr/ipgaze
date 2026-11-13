@@ -1,11 +1,41 @@
 package setup
 
 import (
+	"errors"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"github.com/apimgr/ipgaze/src/common/display"
 	tea "github.com/charmbracelet/bubbletea"
 )
+
+func TestTestConnection_UsesVersionedHealthEndpoint(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/server/healthz" {
+			t.Errorf("request path = %q, want /api/v1/server/healthz", r.URL.Path)
+		}
+		if got := r.Header.Get("Authorization"); got != "Bearer token-value" {
+			t.Errorf("Authorization = %q, want supplied bearer token", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"project":{"name":"IPGaze"},"version":"1.2.3"}`))
+	}))
+	defer server.Close()
+
+	msg := testConnection(server.URL, "token-value")()
+	result, ok := msg.(testResultMsg)
+	if !ok {
+		t.Fatalf("testConnection result type = %T, want testResultMsg", msg)
+	}
+	if result.err != nil {
+		t.Fatalf("testConnection error = %v", result.err)
+	}
+	if result.serverName != "IPGaze" || result.version != "1.2.3" {
+		t.Errorf("testConnection result = (%q, %q), want (IPGaze, 1.2.3)", result.serverName, result.version)
+	}
+}
 
 func TestSetupModel_ServerURLNormalisation(t *testing.T) {
 	cases := []struct {
@@ -101,5 +131,34 @@ func TestSetupModel_ViewRendersLabels(t *testing.T) {
 		if !strings.Contains(view, want) {
 			t.Errorf("wizard view missing %q:\n%s", want, view)
 		}
+	}
+}
+
+func TestSelectSetupModeHonorsOverridesAndRemoteSessions(t *testing.T) {
+	cases := []struct {
+		name     string
+		override string
+		env      display.DisplayEnv
+		gui      bool
+		want     SetupMode
+		wantErr  error
+	}{
+		{name: "local display prefers GUI", env: display.DisplayEnv{HasDisplay: true, IsTerminal: true}, gui: true, want: SetupModeGUI},
+		{name: "remote display uses TUI", env: display.DisplayEnv{HasDisplay: true, IsTerminal: true, IsSSH: true}, gui: true, want: SetupModeTUI},
+		{name: "GUI override requires support", override: "gui", env: display.DisplayEnv{HasDisplay: true}, want: SetupModeError, wantErr: ErrGUIUnavailable},
+		{name: "TUI override requires terminal", override: "tui", want: SetupModeError, wantErr: ErrNoInteractiveSetup},
+		{name: "terminal without display uses TUI", env: display.DisplayEnv{IsTerminal: true}, want: SetupModeTUI},
+		{name: "headless cannot run setup", want: SetupModeError, wantErr: ErrNoInteractiveSetup},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := selectSetupModeFor(tc.override, tc.env, tc.gui)
+			if got != tc.want {
+				t.Errorf("selectSetupModeFor() = %v, want %v", got, tc.want)
+			}
+			if !errors.Is(err, tc.wantErr) {
+				t.Errorf("selectSetupModeFor() error = %v, want %v", err, tc.wantErr)
+			}
+		})
 	}
 }

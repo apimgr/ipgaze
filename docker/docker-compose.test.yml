@@ -9,7 +9,7 @@
 #   cd "$TEMP_DIR" && docker compose up --abort-on-container-exit
 #   rm -rf "$TEMP_DIR"  # Cleanup after tests
 
-name: ipgaze-test
+name: ipgaze
 
 # Logging anchor - reusable logging config
 x-logging: &default-logging
@@ -51,7 +51,7 @@ services:
       ipgaze-cache:
         condition: service_healthy
     networks:
-      - ipgaze-test
+      - ipgaze
 
   ipgaze-cache:
     image: valkey/valkey:alpine
@@ -68,9 +68,9 @@ services:
       retries: 3
       start_period: 30s
     networks:
-      - ipgaze-test
+      - ipgaze
 
 networks:
-  ipgaze-test:
-    name: ipgaze-test
+  ipgaze:
+    name: ipgaze
     external: false

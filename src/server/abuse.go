@@ -150,7 +150,7 @@ func AbuseMiddleware(db *sql.DB, policy AbusePolicy, trust *netutil.TrustResolve
 
 func writeAbuseStorageError(w http.ResponseWriter, r *http.Request, logs *applog.Manager, err error) {
 	detail := fmt.Sprintf("abuse storage unavailable: request_id=%s http_status=%d method=%s path=%s ip=%s internal=%v",
-		RequestIDFromContext(r.Context()), http.StatusServiceUnavailable, r.Method, r.URL.Path, r.RemoteAddr, err)
+		RequestIDFromContext(r.Context()), http.StatusServiceUnavailable, r.Method, r.URL.Path, clientIPIdentifier(r), err)
 	log.Print(detail)
 	if logs != nil {
 		logs.WriteError("error", detail)

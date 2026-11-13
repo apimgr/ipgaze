@@ -8,7 +8,6 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -394,47 +393,39 @@ func TestDebugEndpointsRequireOperatorBearer(t *testing.T) {
 	}
 }
 
-func TestIPFromRequest(t *testing.T) {
-	var tests = []struct {
-		remoteAddr     string
-		headerKey      string
-		headerValue    string
-		trustedHeaders []string
-		trustedPeer    bool
-		out            string
+func TestIPFromRequestUsesConfiguredProxyResolver(t *testing.T) {
+	tests := []struct {
+		name         string
+		header       http.Header
+		clientHeader string
+		want         string
 	}{
-		{"127.0.0.1:9999", "", "", nil, true, "127.0.0.1"},                                                                // No header given
-		{"127.0.0.1:9999", "X-Real-IP", "1.3.3.7", nil, true, "127.0.0.1"},                                                // Trusted header is empty
-		{"127.0.0.1:9999", "X-Real-IP", "1.3.3.7", []string{"X-Foo-Bar"}, true, "127.0.0.1"},                              // Trusted header does not match
-		{"127.0.0.1:9999", "X-Real-IP", "1.3.3.7", []string{"X-Real-IP", "X-Forwarded-For"}, true, "1.3.3.7"},             // Trusted header matches
-		{"127.0.0.1:9999", "X-Forwarded-For", "1.3.3.7", []string{"X-Real-IP", "X-Forwarded-For"}, true, "1.3.3.7"},       // Second trusted header matches
-		{"127.0.0.1:9999", "X-Forwarded-For", "1.3.3.7,4.2.4.2", []string{"X-Forwarded-For"}, true, "1.3.3.7"},            // X-Forwarded-For with multiple entries (commas separator)
-		{"127.0.0.1:9999", "X-Forwarded-For", "1.3.3.7, 4.2.4.2", []string{"X-Forwarded-For"}, true, "1.3.3.7"},           // X-Forwarded-For with multiple entries (space+comma separator)
-		{"127.0.0.1:9999", "X-Forwarded-For", "", []string{"X-Forwarded-For"}, true, "127.0.0.1"},                         // Empty header
-		{"127.0.0.1:9999?ip=1.2.3.4", "", "", nil, true, "1.2.3.4"},                                                       // passed in "ip" parameter
-		{"127.0.0.1:9999?ip=1.2.3.4", "X-Forwarded-For", "1.3.3.7,4.2.4.2", []string{"X-Forwarded-For"}, true, "1.2.3.4"}, // ip parameter wins over X-Forwarded-For with multiple entries
-		{"127.0.0.1:9999", "X-Forwarded-For", "1.3.3.7,4.2.4.2", []string{"X-Forwarded-For"}, false, "127.0.0.1"},         // Untrusted peer: header ignored even though it matches
-		{"127.0.0.1:9999", "X-Real-IP", "1.3.3.7", []string{"X-Real-IP"}, false, "127.0.0.1"},                             // Untrusted peer: X-Real-IP ignored
+		{
+			name:   "walks the forwarded chain from the trusted peer",
+			header: http.Header{"X-Forwarded-For": {"8.8.8.8, 10.0.0.2"}},
+			want:   "8.8.8.8",
+		},
+		{
+			name:         "pinned header overrides automatic order",
+			header:       http.Header{"X-Forwarded-For": {"8.8.8.8"}, "X-Real-Ip": {"9.9.9.9"}},
+			clientHeader: "X-Real-IP",
+			want:         "9.9.9.9",
+		},
 	}
 	for _, tt := range tests {
-		u, err := url.Parse("http://" + tt.remoteAddr)
-		if err != nil {
-			t.Fatal(err)
-		}
-		r := &http.Request{
-			RemoteAddr: u.Host,
-			Header:     http.Header{},
-			URL:        u,
-		}
-		r.Header.Add(tt.headerKey, tt.headerValue)
-		ip, err := ipFromRequest(tt.trustedHeaders, r, true, tt.trustedPeer)
-		if err != nil {
-			t.Fatal(err)
-		}
-		out := net.ParseIP(tt.out)
-		if !ip.Equal(out) {
-			t.Errorf("Expected %s, got %s", out, ip)
-		}
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/", nil)
+			req.RemoteAddr = "10.0.0.1:1234"
+			req.Header = tt.header
+			resolver := netutil.NewTrustResolver(config.TrustedProxiesConfig{ClientIPHeader: tt.clientHeader}, "")
+			got, err := ipFromRequestWithResolver(req, false, resolver)
+			if err != nil {
+				t.Fatalf("ipFromRequestWithResolver() error = %v", err)
+			}
+			if got.String() != tt.want {
+				t.Fatalf("ipFromRequestWithResolver() = %s, want %s", got, tt.want)
+			}
+		})
 	}
 }
 

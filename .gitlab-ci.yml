@@ -221,7 +221,11 @@ docker:devel:
             EXT=
             [ "$GOOS" != windows ] || EXT=.exe
             GOOS="$GOOS" GOARCH="$GOARCH" go build -buildvcs=false -trimpath -ldflags "$LDFLAGS" -o "/release/ipgaze-$GOOS-$GOARCH$EXT" ./src
-            GOOS="$GOOS" GOARCH="$GOARCH" go build -buildvcs=false -trimpath -ldflags "$LDFLAGS" -o "/release/ipgaze-cli-$GOOS-$GOARCH$EXT" ./src/client
+            if [ "$GOOS" = freebsd ]; then
+              GOOS="$GOOS" GOARCH="$GOARCH" go build -buildvcs=false -trimpath -ldflags "$LDFLAGS" -o "/release/ipgaze-cli-$GOOS-$GOARCH$EXT" ./src/client
+            else
+              GOOS="$GOOS" GOARCH="$GOARCH" go build -tags gui -buildvcs=false -trimpath -ldflags "$LDFLAGS" -o "/release/ipgaze-cli-$GOOS-$GOARCH$EXT" ./src/client
+            fi
           done
           cyclonedx-gomod mod -json -output "/release/ipgaze-${VERSION}-sbom.cdx.json"
       CONTAINER_SCRIPT

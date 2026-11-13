@@ -115,7 +115,7 @@ func (fn appHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// message resolved below.
 	if e.Code/100 == 5 {
 		detail := fmt.Sprintf("server error: request_id=%s http_status=%d method=%s path=%s ip=%s internal=%v",
-			RequestIDFromContext(r.Context()), e.Code, r.Method, r.URL.Path, r.RemoteAddr, e.Error)
+			RequestIDFromContext(r.Context()), e.Code, r.Method, r.URL.Path, clientIPIdentifier(r), e.Error)
 		log.Print(detail)
 		if errorLogManager != nil {
 			errorLogManager.WriteError("error", detail)

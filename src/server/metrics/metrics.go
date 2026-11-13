@@ -49,7 +49,7 @@ func classifyDBStatement(query string) (string, string) {
 	}
 	for i, field := range fields {
 		key := strings.ToLower(strings.Trim(field, "(\"`"))
-		if key != "from" && key != "into" && !(op == "update" && i == 0) {
+		if key != "from" && key != "into" && (op != "update" || i != 0) {
 			continue
 		}
 		if key == "from" || key == "into" || i == 0 {
@@ -245,11 +245,6 @@ var (
 		Name: "ipgaze_auth_attempts_total",
 		Help: "Total number of authentication attempts.",
 	}, []string{"method", "status"})
-
-	AuthSessionsActive = promauto.NewGauge(prometheus.GaugeOpts{
-		Name: "ipgaze_auth_sessions_active",
-		Help: "Number of active user sessions.",
-	})
 
 	// Rate limiting metrics (if rate limiting enabled)
 	RateLimitRequestsTotal = promauto.NewCounterVec(prometheus.CounterOpts{

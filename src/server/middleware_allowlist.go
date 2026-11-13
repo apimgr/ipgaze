@@ -4,6 +4,7 @@ import (
 	"context"
 	"net"
 	"net/http"
+	"net/netip"
 	"strings"
 
 	"github.com/apimgr/ipgaze/src/netutil"
@@ -22,6 +23,10 @@ var ctxKeyAllowlisted = ctxKeyAllowlistedType{}
 type ctxKeyClientIPType struct{}
 
 var ctxKeyClientIP = ctxKeyClientIPType{}
+
+type ctxKeyClientIdentifierType struct{}
+
+var ctxKeyClientIdentifier = ctxKeyClientIdentifierType{}
 
 // ctxKeyTorRequest marks a request that arrived over the hidden service. It is
 // set once by ClientIPMiddleware so that clearnet IP allow/deny lists and GeoIP
@@ -134,9 +139,15 @@ func ClientIPMiddleware(tr *netutil.TrustResolver) func(http.Handler) http.Handl
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if tr != nil {
 				if netutil.IsTorRequest(r, tr) {
-					r = r.WithContext(context.WithValue(r.Context(), ctxKeyTorRequest, true))
-				} else if ip := net.ParseIP(netutil.GetClientIdentifier(r, tr)); ip != nil {
-					r = r.WithContext(context.WithValue(r.Context(), ctxKeyClientIP, ip))
+					ctx := context.WithValue(r.Context(), ctxKeyTorRequest, true)
+					ctx = context.WithValue(ctx, ctxKeyClientIdentifier, netutil.GetClientIdentifier(r, tr))
+					r = r.WithContext(ctx)
+				} else if identifier := netutil.GetClientIdentifier(r, tr); identifier != "" {
+					ctx := context.WithValue(r.Context(), ctxKeyClientIdentifier, identifier)
+					if ip, err := netip.ParseAddr(identifier); err == nil {
+						ctx = context.WithValue(ctx, ctxKeyClientIP, ip.Unmap())
+					}
+					r = r.WithContext(ctx)
 				}
 			}
 			next.ServeHTTP(w, r)
@@ -148,12 +159,28 @@ func ClientIPMiddleware(tr *netutil.TrustResolver) func(http.Handler) http.Handl
 // trust-resolved IP stashed by ClientIPMiddleware and falls back to the raw
 // connection peer (r.RemoteAddr) when no resolved value is present.
 func extractIP(r *http.Request) net.IP {
-	if ip, ok := r.Context().Value(ctxKeyClientIP).(net.IP); ok && ip != nil {
-		return ip
+	if ip, ok := r.Context().Value(ctxKeyClientIP).(netip.Addr); ok && ip.IsValid() {
+		return net.IP(ip.AsSlice())
 	}
-	host := r.RemoteAddr
-	if h, _, err := net.SplitHostPort(host); err == nil {
-		host = h
+	if ip, ok := netutil.ParseClientIP(r.RemoteAddr); ok {
+		return net.IP(ip.AsSlice())
 	}
-	return net.ParseIP(host)
+	return nil
+}
+
+func clientIPIdentifier(r *http.Request, resolvers ...*netutil.TrustResolver) string {
+	if identifier, ok := r.Context().Value(ctxKeyClientIdentifier).(string); ok {
+		return identifier
+	}
+	if IsTorRequestContext(r.Context()) {
+		return netutil.TorClientSentinel
+	}
+	if ip, ok := r.Context().Value(ctxKeyClientIP).(netip.Addr); ok && ip.IsValid() {
+		return ip.String()
+	}
+	var resolver *netutil.TrustResolver
+	if len(resolvers) > 0 {
+		resolver = resolvers[0]
+	}
+	return netutil.GetClientIdentifier(r, resolver)
 }

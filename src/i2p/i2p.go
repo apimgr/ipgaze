@@ -874,7 +874,9 @@ func randomUnusedPort() (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	defer ln.Close()
+	if err := ln.Close(); err != nil {
+		return 0, fmt.Errorf("close temporary port listener: %w", err)
+	}
 	return ln.Addr().(*net.TCPAddr).Port, nil
 }
 
@@ -948,14 +950,18 @@ func readSAMReply(r *bufio.Reader, expectPrefix string) (string, error) {
 	return line, nil
 }
 
-func samCommand(conn net.Conn, reader *bufio.Reader, timeout time.Duration, command string) (string, error) {
+func samCommand(conn net.Conn, reader *bufio.Reader, timeout time.Duration, command string) (reply string, resultErr error) {
 	if timeout <= 0 {
 		return "", fmt.Errorf("invalid SAM command timeout")
 	}
 	if err := conn.SetDeadline(time.Now().Add(timeout)); err != nil {
 		return "", fmt.Errorf("set SAM deadline: %w", err)
 	}
-	defer conn.SetDeadline(time.Time{})
+	defer func() {
+		if err := conn.SetDeadline(time.Time{}); err != nil {
+			resultErr = errors.Join(resultErr, fmt.Errorf("clear SAM deadline: %w", err))
+		}
+	}()
 	if _, err := fmt.Fprintln(conn, command); err != nil {
 		return "", fmt.Errorf("SAM command write failed")
 	}
@@ -994,7 +1000,7 @@ func samDial(ctx context.Context, address string) (net.Conn, *bufio.Reader, erro
 // loadOrCreateSAMDestination loads the persisted destination from
 // keysPath, or generates a new one via SAM DEST GENERATE and persists it,
 // when none exists yet.
-func loadOrCreateSAMDestination(conn net.Conn, r *bufio.Reader, keysPath string, sigType int) (samDestination, error) {
+func loadOrCreateSAMDestination(conn net.Conn, r *bufio.Reader, keysPath string, sigType int) (destination samDestination, resultErr error) {
 	if data, err := os.ReadFile(keysPath); err == nil && len(data) > 0 {
 		priv := strings.TrimSpace(string(data))
 		if _, err := destinationBytes(priv); err != nil {
@@ -1030,18 +1036,19 @@ func loadOrCreateSAMDestination(conn net.Conn, r *bufio.Reader, keysPath string,
 		return samDestination{}, fmt.Errorf("create destination temp file: %w", err)
 	}
 	tmpName := tmp.Name()
-	defer os.Remove(tmpName)
+	defer func() {
+		if err := os.Remove(tmpName); err != nil && !errors.Is(err, os.ErrNotExist) {
+			resultErr = errors.Join(resultErr, fmt.Errorf("remove temporary destination key: %w", err))
+		}
+	}()
 	if err := tmp.Chmod(0o600); err != nil {
-		tmp.Close()
-		return samDestination{}, err
+		return samDestination{}, errors.Join(err, tmp.Close())
 	}
 	if _, err := tmp.WriteString(priv + "\n"); err != nil {
-		tmp.Close()
-		return samDestination{}, fmt.Errorf("write destination key: %w", err)
+		return samDestination{}, errors.Join(fmt.Errorf("write destination key: %w", err), tmp.Close())
 	}
 	if err := tmp.Sync(); err != nil {
-		tmp.Close()
-		return samDestination{}, fmt.Errorf("sync destination key: %w", err)
+		return samDestination{}, errors.Join(fmt.Errorf("sync destination key: %w", err), tmp.Close())
 	}
 	if err := tmp.Close(); err != nil {
 		return samDestination{}, fmt.Errorf("close destination key: %w", err)

@@ -383,7 +383,7 @@ func TestUptimeUpdaterStop(t *testing.T) {
 	time.Sleep(20 * time.Millisecond)
 }
 
-// TestAuthMetrics verifies authentication attempt counter and active sessions gauge.
+// TestAuthMetrics verifies authentication attempt counters.
 func TestAuthMetrics(t *testing.T) {
 	AuthAttemptsTotal.With(map[string]string{"method": "password", "status": "success"}).Inc()
 	AuthAttemptsTotal.With(map[string]string{"method": "api_token", "status": "failed"}).Add(2)
@@ -398,14 +398,6 @@ func TestAuthMetrics(t *testing.T) {
 		t.Errorf("AuthAttemptsTotal(password,success) = %v; want >= 1", got)
 	}
 
-	AuthSessionsActive.Set(5)
-	ms := &dto.Metric{}
-	if err := AuthSessionsActive.Write(ms); err != nil {
-		t.Fatalf("AuthSessionsActive.Write: %v", err)
-	}
-	if got := ms.GetGauge().GetValue(); got != 5 {
-		t.Errorf("AuthSessionsActive = %v; want 5", got)
-	}
 }
 
 // TestRateLimitMetrics verifies rate-limit counters.

@@ -15,6 +15,7 @@ import (
 
 	"github.com/apimgr/ipgaze/src/client/api"
 	cliout "github.com/apimgr/ipgaze/src/client/cli"
+	"github.com/apimgr/ipgaze/src/client/gui"
 	"github.com/apimgr/ipgaze/src/client/paths"
 	"github.com/apimgr/ipgaze/src/client/setup"
 	"github.com/apimgr/ipgaze/src/client/updater"
@@ -279,12 +280,18 @@ func main() {
 	serverURL = stringOrDefault(serverURL, cfg.Server.Primary)
 	serverURL = stringOrDefault(serverURL, cfg.Defaults.Server)
 	serverURL = stringOrDefault(serverURL, OfficialSite)
-
-	// --version prints without needing a server; the extended block is added
-	// only when one is configured and reachable (AI.md PART 32).
+	// --version exits before first-run setup and does not require a server.
 	if showVersion.Bool() {
 		printVersion(serverURL, lang)
 		os.Exit(exitSuccess)
+	}
+	args := flag.Args()
+	if serverURL == "" && len(args) == 0 && updateCmd == "" && outputFlag == "" && field == "" && !showVersion.Bool() {
+		if err := setup.RunSetupWizardFor(cfg, configPath, lang); err != nil {
+			fmt.Fprintf(os.Stderr, "%s\n", trf(lang, "gui.err_setup", "error", err.Error()))
+			os.Exit(exitConfig)
+		}
+		serverURL = stringOrDefault(cfg.Server.Primary, cfg.Defaults.Server)
 	}
 
 	if serverURL == "" {
@@ -321,8 +328,22 @@ func main() {
 
 	// Determine display mode per AI.md PART 32 auto-detection rules,
 	// honoring the cli.yml display.mode override when set.
-	args := flag.Args()
 	mode := detectMode(os.Args, cfg.Display.Mode)
+	if mode == "gui" {
+		if !gui.IsGUIAvailable() {
+			fmt.Fprintf(os.Stderr, "%s\n", tr(&lang, "gui.err_unavailable"))
+			os.Exit(exitConfig)
+		}
+		if err := gui.LaunchGUI(client, lang, "auto"); err != nil {
+			fmt.Fprintf(os.Stderr, "%s\n", trf(lang, "gui.err_launch", "error", err.Error()))
+			os.Exit(exitGeneral)
+		}
+		return
+	}
+	if mode == "tui" && cfg.Display.Mode == "tui" && !display.DetectDisplayEnv().IsTerminal {
+		fmt.Fprintf(os.Stderr, "%s\n", tr(&lang, "client.err_tui_unavailable"))
+		os.Exit(exitConfig)
+	}
 	if !cfg.TUIEnabled() && mode == "tui" {
 		mode = "cli"
 	}
@@ -601,12 +622,10 @@ func runCLI(ctx context.Context, client *api.APIClient, out *cliout.Output, args
 	return exitSuccess
 }
 
-// detectMode returns "tui", "cli", or "plain" based on environment and args (AI.md PART 32).
+// detectMode returns "gui", "tui", "cli", or "plain" based on environment and args (AI.md PART 32).
 // TUI auto-detection uses display.DetectDisplayEnv() per AI.md PART 32.
 // override is the cli.yml display.mode value ("auto"/"gui"/"tui"); a non-auto
-// value forces the interactive display mode instead of auto-detecting it. This
-// project ships no native GUI, so "gui" resolves to the TUI path (the same
-// collapse the auto path already applies to a detected GUI environment).
+// value forces the requested interactive display mode instead of auto-detecting it.
 func detectMode(args []string, override string) string {
 	// Exit-immediately flags — never TUI.
 	for _, arg := range args[1:] {
@@ -657,12 +676,25 @@ func detectMode(args []string, override string) string {
 	}
 
 	// Forced interactive mode wins over auto-detection once no command was given.
-	if forceInteractive {
+	if override == "gui" {
+		return "gui"
+	}
+	if override == "tui" {
 		return "tui"
 	}
 
+	// Local display takes precedence; remote sessions always use the terminal.
+	if denv.IsAutoDetectDisplayModeGUI() {
+		if gui.IsGUIAvailable() {
+			return "gui"
+		}
+		if denv.IsTerminal {
+			return "tui"
+		}
+		return "plain"
+	}
 	// No args or config-only flags → TUI when terminal supports it, else plain.
-	if denv.IsAutoDetectDisplayModeTUI() || denv.IsAutoDetectDisplayModeGUI() {
+	if denv.IsAutoDetectDisplayModeTUI() {
 		return "tui"
 	}
 	return "plain"

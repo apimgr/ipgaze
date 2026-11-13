@@ -57,10 +57,9 @@ type cliVersionEntry struct {
 }
 
 // Server holds the HTTP server's request-scoped dependencies: the trusted
-// IP header list, reverse-DNS and port-probe hooks, GeoIP reader, response
+// reverse-DNS and port-probe hooks, GeoIP reader, response
 // cache, templates, and the resolved runtime configuration.
 type Server struct {
-	IPHeaders  []string
 	LookupAddr func(net.IP) (string, error)
 	LookupPort func(net.IP, uint64) error
 	BaseURL    string
@@ -475,7 +474,7 @@ func (s *Server) LookupIP(ip net.IP) (model.IPLookupResponse, error) {
 // GraphQL myIP); pass false to require the detected connection IP (used by
 // /port/{port}, GraphQL checkPort).
 func (s *Server) RequestIP(r *http.Request, allowOverride bool) (net.IP, error) {
-	return ipFromRequest(s.IPHeaders, r, allowOverride, s.getTrust().IsTrustedPeer(r))
+	return ipFromRequestWithResolver(r, allowOverride, s.getTrust())
 }
 
 // CheckPort attempts a live TCP connection to ip:port, matching /port/{port}.
@@ -535,7 +534,7 @@ func (s *Server) newPortResponse(r *http.Request) (model.PortResponse, error) {
 // CLIHandler writes the requester's IP address as a single plain-text line,
 // the echoip-compatible response for CLI user agents.
 func (s *Server) CLIHandler(w http.ResponseWriter, r *http.Request) *appError {
-	ip, err := ipFromRequest(s.IPHeaders, r, true, s.getTrust().IsTrustedPeer(r))
+	ip, err := ipFromRequestWithResolver(r, true, s.getTrust())
 	if err != nil {
 		return badRequest(err).WithMessage(i18n.T(r.Context(), "errors.bad_request")).AsJSON()
 	}
@@ -1091,6 +1090,10 @@ func (s *Server) buildHandler() http.Handler {
 	// "Sitemap.xml"); HEAD is registered so crawlers can probe it cheaply.
 	r.Get("/sitemap.xml", s.sitemapHandler())
 	r.Head("/sitemap.xml", s.sitemapHandler())
+	r.Get("/feed.xml", s.feedHandler(true))
+	r.Head("/feed.xml", s.feedHandler(true))
+	r.Get("/rss.xml", s.feedHandler(false))
+	r.Head("/rss.xml", s.feedHandler(false))
 	// Browsers probe /favicon.ico unconditionally, so it must be served rather
 	// than fall through to the 404 page (AI.md PART 24 "Static Files").
 	r.Get("/favicon.ico", s.faviconHandler())

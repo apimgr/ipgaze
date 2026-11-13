@@ -334,10 +334,10 @@ func TestGetClientIP(t *testing.T) {
 		{"remote addr only", "192.0.2.1:1234", "", "", "192.0.2.1"},
 		// 10.x.x.x is RFC 1918 private — always trusted; proxy headers are honored.
 		{"x-forwarded-for single", "10.0.0.1:1234", "1.2.3.4", "", "1.2.3.4"},
-		{"x-forwarded-for multiple", "10.0.0.1:1234", "1.2.3.4,5.6.7.8", "", "1.2.3.4"},
+		{"x-forwarded-for multiple", "10.0.0.1:1234", "1.2.3.4,5.6.7.8", "", "5.6.7.8"},
 		{"x-real-ip", "10.0.0.1:1234", "", "9.9.9.9", "9.9.9.9"},
-		// AI.md PART 15 lists X-Real-IP ahead of X-Forwarded-For, so it wins.
-		{"x-real-ip wins over xff", "10.0.0.1:1234", "1.1.1.1", "9.9.9.9", "9.9.9.9"},
+		// AI.md PART 12 selects X-Forwarded-For first in auto mode.
+		{"xff wins over x-real-ip", "10.0.0.1:1234", "1.1.1.1", "9.9.9.9", "1.1.1.1"},
 	}
 	rl := NewRateLimiter(DefaultRateLimitConfig(), netutil.NewTrustResolver(config.TrustedProxiesConfig{}, ""))
 	defer rl.Stop()

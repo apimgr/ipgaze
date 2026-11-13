@@ -16,19 +16,24 @@ import (
 
 // IPData holds the resolved IP lookup fields shown in the TUI view.
 type IPData struct {
-	IP         string
-	Hostname   string
-	Country    string
-	CountryISO string
-	City       string
-	RegionName string
-	RegionCode string
-	ASN        string
-	ASNOrg     string
-	Latitude   float64
-	Longitude  float64
-	Timezone   string
-	PostalCode string
+	IP                 string
+	Hostname           string
+	Country            string
+	CountryISO         string
+	CountryEU          *bool
+	City               string
+	RegionName         string
+	RegionCode         string
+	ASN                string
+	ASNOrg             string
+	Latitude           float64
+	Longitude          float64
+	Timezone           string
+	PostalCode         string
+	IsVPN              *bool
+	IsProxy            *bool
+	IsTor              *bool
+	IsTorHiddenService *bool
 }
 
 // state tracks what the TUI is currently showing.

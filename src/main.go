@@ -125,29 +125,6 @@ const (
 	exGeneral = 1
 )
 
-// defaultTrustedIPHeaders is the standard reverse-proxy client-IP header
-// priority list per AI.md PART 12 "Client IP Detection". Applied whenever
-// --header is not explicitly set; still gated on trusted_proxies at the
-// TrustResolver level, so untrusted peers cannot spoof these headers.
-var defaultTrustedIPHeaders = multiValueFlag{
-	"CF-Connecting-IP",
-	"True-Client-IP",
-	"X-Real-IP",
-	"X-Forwarded-For",
-	"X-Client-IP",
-}
-
-type multiValueFlag []string
-
-func (f *multiValueFlag) String() string {
-	return strings.Join([]string(*f), ", ")
-}
-
-func (f *multiValueFlag) Set(v string) error {
-	*f = append(*f, v)
-	return nil
-}
-
 func init() {
 	log.SetPrefix("ipgaze: ")
 	log.SetFlags(log.Lshortfile)
@@ -249,9 +226,6 @@ func runMain() {
 	// Mode and update flags
 	modeFlag := flag.String("mode", "", "Application mode: production, development, debug")
 	updateCmd := flag.String("update", "", "Update commands: check, yes, branch {stable|beta|devel}")
-
-	var headers multiValueFlag
-	flag.Var(&headers, "header", "Additional header to trust for remote IP, if present (e.g. X-Real-IP); replaces the default priority list below when set")
 
 	// Per AI.md PART 22 a bare `--update` (no subcommand) is equivalent to
 	// `--update yes`. Go's flag package treats `--update` as requiring a value,
@@ -1452,14 +1426,6 @@ func runMain() {
 		}
 	}
 	srv.SetConfigManager(configMgr)
-	// Default to the standard reverse-proxy header priority list per AI.md
-	// PART 12 "Client IP Detection" when the operator has not overridden it
-	// via --header; these are only honored for trusted peers (see
-	// TrustResolver.IsTrustedPeer), so this is safe to enable unconditionally.
-	if len(headers) == 0 {
-		headers = defaultTrustedIPHeaders
-	}
-	srv.IPHeaders = headers
 	srv.SetConfig(cfg)
 	srv.SetEmailManager(emailMgr)
 	// Cache SHA-256 of operator token in memory per AI.md PART 11.
@@ -1756,10 +1722,6 @@ func runMain() {
 	// 331) and the zero-config first-run rule both rule out an opt-in flag here.
 	srv.LookupAddr = iputil.LookupAddr
 	srv.LookupPort = iputil.LookupPort
-	if len(headers) > 0 {
-		log.Printf("Trusting remote IP from header(s): %s", headers.String())
-	}
-
 	// Set up Swagger/OpenAPI handler
 	srv.SwaggerHandler = swagger.Handler(swagger.SwaggerHandlerConfig{
 		Version:  Version,
@@ -2242,7 +2204,6 @@ Server Configuration:
       --lang CODE                   Language for output (default: auto; supported (%d): %s)
 
 Additional Options:
-      --header HEADER               Header to trust for remote IP (repeatable)
 
 Service Management:
       --service CMD                 Service management (--service --help for details)

@@ -152,11 +152,17 @@ func TestGetMyIP_ServerError(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestGetMyIPJSON_DecodesResponse(t *testing.T) {
+	eu, vpn, proxy, tor, hidden := true, true, false, true, false
 	payload := IPResponse{
 		IP:         "203.0.113.1",
 		Country:    "Elbonia",
 		CountryISO: "EB",
 		City:       "Bornyasherk",
+		CountryEU:  &eu,
+		IsVPN:      &vpn,
+		IsProxy:    &proxy,
+		IsTor:      &tor,
+		IsTorHiddenService: &hidden,
 	}
 	srv := newTestServer(t, routeMap{
 		"/json": jsonHandler(payload),
@@ -176,6 +182,9 @@ func TestGetMyIPJSON_DecodesResponse(t *testing.T) {
 	}
 	if got.CountryISO != "EB" {
 		t.Errorf("CountryISO = %q, want EB", got.CountryISO)
+	}
+	if got.CountryEU == nil || !*got.CountryEU || got.IsVPN == nil || !*got.IsVPN || got.IsProxy == nil || *got.IsProxy || got.IsTor == nil || !*got.IsTor || got.IsTorHiddenService == nil || *got.IsTorHiddenService {
+		t.Errorf("security response fields were not decoded: EU=%v VPN=%v proxy=%v Tor=%v hidden=%v", got.CountryEU, got.IsVPN, got.IsProxy, got.IsTor, got.IsTorHiddenService)
 	}
 }
 

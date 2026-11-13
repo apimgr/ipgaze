@@ -4,6 +4,7 @@ import (
 	"context"
 	"net"
 	"net/http"
+	"net/netip"
 	"sync"
 	"time"
 
@@ -15,8 +16,9 @@ import (
 // address, covering the containerised sidecar reverse-proxy pattern per AI.md PART 12.
 // DNS names in cfg.Additional are resolved at construction and refreshed every 5 minutes.
 type TrustResolver struct {
+	clientIPHeader string
 	// listenCIDR is the /24 (IPv4) or /64 (IPv6) derived from the server's bind address.
-	listenCIDR *net.IPNet
+	listenCIDR netip.Prefix
 	// additional holds the raw config entries: IPs, CIDRs, and DNS names.
 	additional []string
 	mu         sync.RWMutex
@@ -36,22 +38,26 @@ type TrustResolver struct {
 // DNS names in cfg.Additional are resolved immediately. Call Start(ctx) to keep them fresh.
 func NewTrustResolver(cfg config.TrustedProxiesConfig, listenAddr string) *TrustResolver {
 	tr := &TrustResolver{
-		additional: cfg.Additional,
-		dnsCache:   make(map[string][]net.IP),
+		additional:     cfg.Additional,
+		clientIPHeader: cfg.ClientIPHeader,
+		dnsCache:       make(map[string][]net.IP),
+	}
+	if tr.clientIPHeader == "" {
+		tr.clientIPHeader = "auto"
 	}
 	// Derive a subnet from the listen address so a sidecar proxy on the same Docker network
 	// is automatically trusted without manual config.
 	if listenAddr != "" && listenAddr != "0.0.0.0" && listenAddr != "::" && listenAddr != "[::]" {
-		if ip := net.ParseIP(listenAddr); ip != nil {
+		if addr, ok := ParseClientIP(listenAddr); ok {
 			var cidrStr string
-			if ip4 := ip.To4(); ip4 != nil {
-				masked := ip4.Mask(net.CIDRMask(24, 32))
-				cidrStr = masked.String() + "/24"
+			if addr.Is4() {
+				prefix, _ := addr.Prefix(24)
+				cidrStr = prefix.Masked().String()
 			} else {
-				masked := ip.Mask(net.CIDRMask(64, 128))
-				cidrStr = masked.String() + "/64"
+				prefix, _ := addr.Prefix(64)
+				cidrStr = prefix.Masked().String()
 			}
-			_, tr.listenCIDR, _ = net.ParseCIDR(cidrStr)
+			tr.listenCIDR, _ = netip.ParsePrefix(cidrStr)
 		}
 	}
 	tr.refreshDNS()
@@ -81,15 +87,15 @@ func (tr *TrustResolver) Start(ctx context.Context) {
 // Additional trust entries from config are also honoured.
 // Safe to call on a nil receiver — only alwaysTrustedCIDRs apply in that case.
 func (tr *TrustResolver) IsTrustedPeer(r *http.Request) bool {
-	addr := r.RemoteAddr
-	host, _, err := net.SplitHostPort(addr)
-	if err != nil {
-		host = addr
-	}
-	ip := net.ParseIP(host)
-	if ip == nil {
+	ipAddr, ok := ParseClientIP(r.RemoteAddr)
+	if !ok {
 		return false
 	}
+	return tr.isTrustedIP(ipAddr)
+}
+
+func isAlwaysTrustedIP(ipAddr netip.Addr) bool {
+	ip := net.IP(ipAddr.AsSlice())
 
 	// Always-trusted ranges — checked even with nil resolver.
 	for _, n := range alwaysTrustedCIDRs {
@@ -97,14 +103,22 @@ func (tr *TrustResolver) IsTrustedPeer(r *http.Request) bool {
 			return true
 		}
 	}
+	return false
+}
 
-	// nil resolver: only always-trusted ranges pass.
+func (tr *TrustResolver) isTrustedIP(ipAddr netip.Addr) bool {
+	if !ipAddr.IsValid() {
+		return false
+	}
+	if isAlwaysTrustedIP(ipAddr) {
+		return true
+	}
 	if tr == nil {
 		return false
 	}
 
 	// Same /24 as configured listen address (containerised sidecar proxy pattern).
-	if tr.listenCIDR != nil && tr.listenCIDR.Contains(ip) {
+	if tr.listenCIDR.IsValid() && tr.listenCIDR.Contains(ipAddr) {
 		return true
 	}
 
@@ -113,15 +127,15 @@ func (tr *TrustResolver) IsTrustedPeer(r *http.Request) bool {
 
 	for _, entry := range tr.additional {
 		// Try CIDR.
-		if _, network, err := net.ParseCIDR(entry); err == nil {
-			if network.Contains(ip) {
+		if network, err := normalizedPrefix(entry); err == nil {
+			if network.Contains(ipAddr) {
 				return true
 			}
 			continue
 		}
 		// Try exact IP.
-		if entryIP := net.ParseIP(entry); entryIP != nil {
-			if entryIP.Equal(ip) {
+		if entryIP, ok := ParseClientIP(entry); ok {
+			if entryIP == ipAddr {
 				return true
 			}
 			continue
@@ -129,13 +143,25 @@ func (tr *TrustResolver) IsTrustedPeer(r *http.Request) bool {
 		// Use cached DNS results.
 		if resolved, ok := tr.dnsCache[entry]; ok {
 			for _, a := range resolved {
-				if a.Equal(ip) {
+				resolvedAddr, ok := ParseClientIP(a.String())
+				if ok && resolvedAddr == ipAddr {
 					return true
 				}
 			}
 		}
 	}
 	return false
+}
+
+func normalizedPrefix(value string) (netip.Prefix, error) {
+	prefix, err := netip.ParsePrefix(value)
+	if err != nil {
+		return netip.Prefix{}, err
+	}
+	if prefix.Addr().Is4In6() && prefix.Bits() >= 96 {
+		return netip.PrefixFrom(prefix.Addr().Unmap(), prefix.Bits()-96).Masked(), nil
+	}
+	return prefix.Masked(), nil
 }
 
 // refreshDNS resolves all DNS-name entries in additional and updates dnsCache.

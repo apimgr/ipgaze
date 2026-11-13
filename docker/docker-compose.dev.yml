@@ -11,7 +11,7 @@
 #   cp docker/docker-compose.dev.yml "$TEMP_DIR/docker-compose.yml"
 #   cd "$TEMP_DIR" && docker compose up -d
 
-name: ipgaze-dev
+name: ipgaze
 
 # Logging anchor - reusable logging config
 x-logging: &default-logging
@@ -47,9 +47,9 @@ services:
       retries: 3
       start_period: 90s
     networks:
-      - ipgaze-dev
+      - ipgaze
 
 networks:
-  ipgaze-dev:
-    name: ipgaze-dev
+  ipgaze:
+    name: ipgaze
     external: false

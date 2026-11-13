@@ -33,45 +33,6 @@ func TestRuntimeLogWriterKeepsNormalActivityOffConsole(t *testing.T) {
 	}
 }
 
-func TestMultiValueFlagString(t *testing.T) {
-	var xmvf = []struct {
-		values multiValueFlag
-		expect string
-	}{
-		{
-			values: multiValueFlag{
-				"test",
-				"with multiples",
-				"flags",
-			},
-			expect: `test, with multiples, flags`,
-		},
-		{
-			values: multiValueFlag{
-				"test",
-			},
-			expect: `test`,
-		},
-		{
-			values: multiValueFlag{
-				"",
-			},
-			expect: ``,
-		},
-		{
-			values: nil,
-			expect: ``,
-		},
-	}
-
-	for _, mvf := range xmvf {
-		got := mvf.values.String()
-		if got != mvf.expect {
-			t.Errorf("\nFor: %#v\nExpected: %v\nGot: %v", mvf.values, mvf.expect, got)
-		}
-	}
-}
-
 func TestResolvePIDFilePathPrecedence(t *testing.T) {
 	t.Setenv("PID_FILE", "/env/ipgaze.pid")
 	if got := resolvePIDFilePath("/flag/ipgaze.pid", "/default/ipgaze.pid"); got != "/flag/ipgaze.pid" {
@@ -157,36 +118,6 @@ func TestApplyModeString(t *testing.T) {
 	}
 	if os.Getenv("DEBUG") != "true" {
 		t.Errorf("DEBUG = %q, want true for debug alias", os.Getenv("DEBUG"))
-	}
-}
-
-// ---------------------------------------------------------------------------
-// multiValueFlag.Set
-// ---------------------------------------------------------------------------
-
-func TestMultiValueFlagSet_AppendsValue(t *testing.T) {
-	var f multiValueFlag
-	if err := f.Set("alpha"); err != nil {
-		t.Fatalf("Set() error: %v", err)
-	}
-	if err := f.Set("beta"); err != nil {
-		t.Fatalf("Set() error: %v", err)
-	}
-	if len(f) != 2 {
-		t.Errorf("len = %d, want 2", len(f))
-	}
-	if f[0] != "alpha" || f[1] != "beta" {
-		t.Errorf("values = %v, want [alpha beta]", []string(f))
-	}
-}
-
-func TestMultiValueFlagSet_EmptyString(t *testing.T) {
-	var f multiValueFlag
-	if err := f.Set(""); err != nil {
-		t.Fatalf("Set() with empty string error: %v", err)
-	}
-	if len(f) != 1 {
-		t.Errorf("len = %d, want 1", len(f))
 	}
 }
 

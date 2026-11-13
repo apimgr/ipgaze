@@ -132,12 +132,17 @@ func BuildInfoRows(lang string, layout LayoutConfig, d IPData) []InfoRow {
 	}{
 		{"hostname", d.Hostname},
 		{"country", formatCountry(d.Country, d.CountryISO)},
+		{"country_eu", formatOptionalBool(lang, d.CountryEU)},
 		{"city", d.City},
 		{"region", formatRegion(d.RegionName, d.RegionCode)},
 		{"postal_code", d.PostalCode},
 		{"timezone", d.Timezone},
 		{"asn", formatASN(d.ASN, d.ASNOrg)},
 		{"coordinates", formatCoords(d.Latitude, d.Longitude)},
+		{"vpn", formatOptionalBool(lang, d.IsVPN)},
+		{"proxy", formatOptionalBool(lang, d.IsProxy)},
+		{"tor", formatOptionalBool(lang, d.IsTor)},
+		{"tor_hidden_service", formatOptionalBool(lang, d.IsTorHiddenService)},
 	}
 
 	rows := make([]InfoRow, 0, len(fields))
@@ -152,6 +157,17 @@ func BuildInfoRows(lang string, layout LayoutConfig, d IPData) []InfoRow {
 		rows = append(rows, InfoRow{Label: i18n.Translate(lang, key), Value: f.value})
 	}
 	return rows
+}
+
+func formatOptionalBool(lang string, value *bool) string {
+	if value == nil {
+		return ""
+	}
+	key := "tui.status_no"
+	if *value {
+		key = "tui.status_yes"
+	}
+	return i18n.Translate(lang, key)
 }
 
 // RenderIPInfo renders an IP lookup result, honouring the layout's header,

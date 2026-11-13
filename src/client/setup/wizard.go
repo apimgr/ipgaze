@@ -12,6 +12,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/apimgr/ipgaze/src/client/gui"
 	"github.com/apimgr/ipgaze/src/client/paths"
 	"github.com/apimgr/ipgaze/src/common/display"
 	"github.com/apimgr/ipgaze/src/common/i18n"
@@ -21,6 +22,10 @@ import (
 
 // ErrSetupCancelled is returned when the user aborts the setup wizard.
 var ErrSetupCancelled = errors.New("setup cancelled")
+
+// ErrGUIUnavailable means GUI mode was requested but this binary or session
+// cannot open a native graphical interface.
+var ErrGUIUnavailable = errors.New("GUI support is unavailable for this platform or session")
 
 // ErrNoInteractiveSetup is returned when neither a terminal nor a display is
 // available, so the wizard cannot be shown (AI.md PART 32: headless CLI is an
@@ -43,19 +48,37 @@ const (
 // "Detection priority for setup wizard". Remote sessions always use the TUI —
 // X11 forwarding is slow and Mosh has none at all — a local display gets the
 // GUI, a plain terminal gets the TUI, and anything else is an error.
-func selectSetupMode() SetupMode {
-	env := display.DetectDisplayEnv()
+func selectSetupMode(override string) (SetupMode, error) {
+	return selectSetupModeFor(override, display.DetectDisplayEnv(), gui.IsGUIAvailable())
+}
+
+func selectSetupModeFor(override string, env display.DisplayEnv, guiAvailable bool) (SetupMode, error) {
+	switch override {
+	case "gui":
+		if !guiAvailable {
+			return SetupModeError, ErrGUIUnavailable
+		}
+		return SetupModeGUI, nil
+	case "tui":
+		if !env.IsTerminal {
+			return SetupModeError, ErrNoInteractiveSetup
+		}
+		return SetupModeTUI, nil
+	}
 
 	if env.IsSSH || env.IsMosh {
-		return SetupModeTUI
+		if env.IsTerminal {
+			return SetupModeTUI, nil
+		}
+		return SetupModeError, ErrNoInteractiveSetup
 	}
-	if env.HasDisplay {
-		return SetupModeGUI
+	if env.HasDisplay && guiAvailable {
+		return SetupModeGUI, nil
 	}
 	if env.IsTerminal {
-		return SetupModeTUI
+		return SetupModeTUI, nil
 	}
-	return SetupModeError
+	return SetupModeError, ErrNoInteractiveSetup
 }
 
 // wizardLang resolves the wizard's locale from the environment using the
@@ -230,7 +253,7 @@ func (m *setupModel) focusInput(idx focusIndex) tea.Cmd {
 // probes the server's health endpoint, per AI.md PART 32 "CONNECTION TEST".
 func testConnection(url, token string) tea.Cmd {
 	return func() tea.Msg {
-		req, err := http.NewRequest(http.MethodGet, url+"/healthz", nil)
+		req, err := http.NewRequest(http.MethodGet, url+"/api/v1/server/healthz", nil)
 		if err != nil {
 			return testResultMsg{err: err}
 		}
@@ -438,24 +461,50 @@ func wizardPalette() theme.TerminalPalette {
 // It returns nil immediately when a server is already configured.
 func RunSetupWizard() error {
 	cfg, err := LoadCLIConfigFromFile()
-	if err == nil && cfg != nil && cfg.Server.Primary != "" {
+	if err != nil {
+		cfg = nil
+	}
+	return RunSetupWizardFor(cfg, paths.ConfigFile(), wizardLang())
+}
+
+// RunSetupWizardFor runs setup using the resolved profile and language.
+func RunSetupWizardFor(cfg *CLIConfig, configPath, lang string) error {
+	if cfg != nil && cfg.Server.Primary != "" {
 		return nil
 	}
 	if cfg == nil {
 		cfg = &CLIConfig{}
 	}
 
-	// A GUI toolkit is not compiled into this binary, so the GUI branch runs
-	// the terminal wizard when a terminal is present and errors otherwise.
-	mode := selectSetupMode()
+	mode, modeErr := selectSetupMode(cfg.Display.Mode)
+	if modeErr != nil {
+		return modeErr
+	}
 	if mode == SetupModeError {
 		return ErrNoInteractiveSetup
 	}
-	if mode == SetupModeGUI && !display.DetectDisplayEnv().IsTerminal {
-		return ErrNoInteractiveSetup
+	if mode == SetupModeGUI {
+		server, token, saveConfig, confirmed, guiErr := gui.LaunchSetupWizard(lang, "auto", cfg.Server.Primary)
+		if guiErr != nil {
+			return guiErr
+		}
+		if !confirmed {
+			return ErrSetupCancelled
+		}
+		cfg.Server.Primary = server
+		if token != "" {
+			cfg.Auth.Token = token
+		}
+		if !saveConfig {
+			return nil
+		}
+		if err := SaveCLIConfigToFile(cfg, configPath); err != nil {
+			return err
+		}
+		fmt.Fprintln(os.Stderr, i18n.TranslateFormat(lang, "setup.saved", "path", configPath))
+		return nil
 	}
 
-	lang := wizardLang()
 	p := tea.NewProgram(newSetupModel(lang, wizardPalette()))
 	result, err := p.Run()
 	if err != nil {
@@ -474,11 +523,10 @@ func RunSetupWizard() error {
 	if !model.saveToCfg {
 		return nil
 	}
-	target := paths.ConfigFile()
-	if err := SaveCLIConfigToFile(cfg, target); err != nil {
+	if err := SaveCLIConfigToFile(cfg, configPath); err != nil {
 		return err
 	}
-	fmt.Fprintln(os.Stderr, i18n.TranslateFormat(lang, "setup.saved", "path", target))
+	fmt.Fprintln(os.Stderr, i18n.TranslateFormat(lang, "setup.saved", "path", configPath))
 	return nil
 }
 

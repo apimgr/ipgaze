@@ -53,6 +53,9 @@ func TestDefaultConfig_ServerDefaults(t *testing.T) {
 	if cfg.Server.CLIMinVersion != "1.0.0" {
 		t.Errorf("CLIMinVersion: got %q, want %q", cfg.Server.CLIMinVersion, "1.0.0")
 	}
+	if cfg.Server.TrustedProxies.ClientIPHeader != "auto" {
+		t.Errorf("TrustedProxies.ClientIPHeader: got %q, want auto", cfg.Server.TrustedProxies.ClientIPHeader)
+	}
 }
 
 func TestComplianceConfig_StandardsDefaultDisabledAndOrdered(t *testing.T) {
@@ -1221,6 +1224,7 @@ func TestGenerateConfigYAML_RoundTripsNewFields(t *testing.T) {
 	original.Server.RateLimit.Read.Requests = 42
 	original.Server.Limits.MaxBodySize = "5MB"
 	original.Server.Compression.Types = []string{"text/html", "application/json"}
+	original.Server.TrustedProxies.ClientIPHeader = "cf-connecting-ip"
 	original.Server.TrustedProxies.Additional = []string{"192.168.1.0/24"}
 	original.Server.URLDetection.MinSamples = 7
 	original.Server.Logging.Security.Filename = "security-custom.log"
@@ -1260,6 +1264,9 @@ func TestGenerateConfigYAML_RoundTripsNewFields(t *testing.T) {
 	}
 	if len(loaded.Server.TrustedProxies.Additional) != 1 || loaded.Server.TrustedProxies.Additional[0] != "192.168.1.0/24" {
 		t.Errorf("Round-trip TrustedProxies.Additional: got %+v", loaded.Server.TrustedProxies.Additional)
+	}
+	if loaded.Server.TrustedProxies.ClientIPHeader != "cf-connecting-ip" {
+		t.Errorf("Round-trip TrustedProxies.ClientIPHeader: got %q, want cf-connecting-ip", loaded.Server.TrustedProxies.ClientIPHeader)
 	}
 	if loaded.Server.URLDetection.MinSamples != 7 {
 		t.Errorf("Round-trip URLDetection.MinSamples: got %d, want 7", loaded.Server.URLDetection.MinSamples)
@@ -1822,6 +1829,24 @@ func TestValidateConfig_InvalidCacheType_ResetToDefault(t *testing.T) {
 	validateConfig(cfg)
 	if cfg.Server.Cache.Type != DefaultConfig().Server.Cache.Type {
 		t.Errorf("Cache.Type = %q, want default", cfg.Server.Cache.Type)
+	}
+}
+
+func TestValidateConfig_InvalidClientIPHeader_ResetToDefault(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Server.TrustedProxies.ClientIPHeader = "X-Forwarded-Host"
+	validateConfig(cfg)
+	if cfg.Server.TrustedProxies.ClientIPHeader != "auto" {
+		t.Errorf("TrustedProxies.ClientIPHeader = %q, want auto", cfg.Server.TrustedProxies.ClientIPHeader)
+	}
+}
+
+func TestValidateConfig_ClientIPHeader_Canonicalized(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Server.TrustedProxies.ClientIPHeader = " CF-CONNECTING-IP "
+	validateConfig(cfg)
+	if cfg.Server.TrustedProxies.ClientIPHeader != "cf-connecting-ip" {
+		t.Errorf("TrustedProxies.ClientIPHeader = %q, want cf-connecting-ip", cfg.Server.TrustedProxies.ClientIPHeader)
 	}
 }
 
