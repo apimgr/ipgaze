@@ -103,12 +103,15 @@ inventory and request schemas.
 ## Health Checks
 
 - `GET /server/healthz` is the canonical public route. Browsers receive the
-  health page; command-line tools receive localized, human-readable text;
-  `Accept: application/json` returns the bare machine-readable health object.
-- `GET /api/v1/server/healthz` returns the same health state as JSON by
-  default, with machine-readable dot-notation text for `.txt`,
-  `Accept: text/plain`, or non-interactive HTTP tools.
-- `GET /api/healthz` is a direct, versionless JSON alias using the same handler.
+  health page; recognized non-interactive HTTP clients without an explicit
+  `Accept` header and `Accept: text/plain` receive localized, human-readable
+  text; `Accept: application/json` returns the bare health JSON.
+- `GET /api/v1/server/healthz` returns bare JSON by default. It returns
+  machine-readable dot-notation text for `.txt`, `Accept: text/plain`, or a
+  non-interactive client without an explicit `Accept` header. Explicit
+  `Accept: application/json` overrides User-Agent detection.
+- `GET /api/healthz` is a direct, versionless alias using the same API
+  negotiation rules.
 - `GET /healthz` is available only when `server.healthz.root.enabled` is true;
   it directly uses the canonical frontend handler and never redirects.
 

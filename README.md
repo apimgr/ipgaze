@@ -372,11 +372,13 @@ Environment variables (`DOMAIN`, `MODE`, `DEBUG`, `DATABASE_DRIVER`, `SMTP_*`, a
 ### Health Check
 
 `GET /server/healthz` returns the public server status. Browsers receive the
-health page, while command-line tools receive readable text. Request
-`Accept: application/json` for the machine-readable JSON response. The
-versioned API route is `GET /api/v1/server/healthz`; `/api/healthz` is its
-direct versionless JSON alias. The root `/healthz` alias is disabled by
-default and can be enabled in `server.yml`.
+health page, while recognized non-interactive HTTP tools such as curl and wget
+receive readable text when they omit `Accept`. `Accept: application/json`
+returns bare JSON on either frontend route. The versioned
+API route is `GET /api/v1/server/healthz`; it returns JSON by default and text
+for `.txt`, `Accept: text/plain`, or a non-interactive client without an
+explicit `Accept` header. The root `/healthz` alias is disabled by default and
+can be enabled in `server.yml`.
 
 ### Quick Examples
 
