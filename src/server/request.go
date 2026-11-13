@@ -79,35 +79,32 @@ func userAgentFromRequest(r *http.Request) *useragent.UserAgent {
 // route per AI.md PART 14 "Smart Content Negotiation". Returns "html", "text",
 // or "json".
 //
-// Priority, matching AI.md's handleFrontendRequest reference implementation and
-// its Accept-header table:
+// Priority matches AI.md's frontend Accept table:
 //
-//  1. Our CLI client is INTERACTIVE and always receives JSON so it can render
-//     its own TUI/GUI — it is never given HTML or pre-formatted text.
-//  2. An explicit Accept header wins over User-Agent heuristics.
-//  3. Text browsers (lynx, w3m, links) are INTERACTIVE without JavaScript and
+//  1. Explicit Accept: application/json.
+//  2. Explicit Accept: text/html.
+//  3. Explicit Accept: text/plain.
+//  4. Text browsers (lynx, w3m, links) are INTERACTIVE without JavaScript and
 //     receive server-rendered HTML, never converted text.
-//  4. HTTP tools (curl, wget, httpie) are NON-INTERACTIVE and receive text.
-//  5. Everything else (regular browsers, unknown agents) receives HTML.
+//  5. Our CLI client receives JSON, HTTP tools receive text, and other
+//     clients (including unknown agents) receive HTML.
 //
 // Client classification is delegated to the canonical detectors in
 // src/common/httputil/detect.go — this package keeps no second User-Agent list.
 func detectClientType(r *http.Request) string {
 	ua := r.Header.Get("User-Agent")
 
-	// Our CLI client always gets JSON, regardless of Accept.
-	if httputil.IsOurCliClient(ua) {
+	accept := r.Header.Get("Accept")
+	if strings.Contains(accept, "application/json") {
 		return "json"
 	}
-
-	accept := r.Header.Get("Accept")
 	if strings.Contains(accept, "text/html") {
 		return "html"
 	}
 	if strings.Contains(accept, "text/plain") {
 		return "text"
 	}
-	if strings.Contains(accept, "application/json") {
+	if httputil.IsOurCliClient(ua) {
 		return "json"
 	}
 
@@ -128,13 +125,21 @@ func detectClientType(r *http.Request) string {
 // API routes emit raw data as plain text — never HTML2TextConverter output —
 // because there is no HTML to convert. Priority matches AI.md's
 // getAPIResponseFormat reference: `.txt` suffix, then Accept: text/plain, then
-// non-interactive client detection, then JSON.
+// explicit Accept preference, non-interactive detection only when Accept is absent,
+// then JSON.
 func apiResponseFormat(r *http.Request) string {
 	if r.URL != nil && strings.HasSuffix(r.URL.Path, ".txt") {
 		return "text"
 	}
-	if strings.Contains(r.Header.Get("Accept"), "text/plain") {
+	accept := r.Header.Get("Accept")
+	if strings.Contains(accept, "application/json") {
+		return "json"
+	}
+	if strings.Contains(accept, "text/plain") {
 		return "text"
+	}
+	if strings.TrimSpace(accept) != "" {
+		return "json"
 	}
 	if httputil.IsNonInteractiveClient(r.Header.Get("User-Agent")) {
 		return "text"

@@ -380,6 +380,10 @@ for `.txt`, `Accept: text/plain`, or a non-interactive client without an
 explicit `Accept` header. The root `/healthz` alias is disabled by default and
 can be enabled in `server.yml`.
 
+Health checks also include per-database GeoIP and per-list blocklist status
+when those features are enabled. Results report only `ok`, `degraded`, or
+`error`; dataset checks refresh on the scheduler.
+
 ### Quick Examples
 
 #### Get Your IP

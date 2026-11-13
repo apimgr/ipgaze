@@ -98,6 +98,13 @@ func TestIsHttpTool_KnownTools(t *testing.T) {
 		"axios/1.0.0",
 		"node-fetch/3.3.0",
 		"xh/0.19.0",
+		"hurl/4.2.0",
+		"python-httpx/0.27.0",
+		"reqwest/0.12.0",
+		"undici/6.0.0",
+		"okhttp/4.12.0",
+		"PostmanRuntime/7.36.0",
+		"k6/0.49.0",
 	}
 	for _, ua := range cases {
 		if !IsHttpTool(ua) {

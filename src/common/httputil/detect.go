@@ -48,10 +48,18 @@ func IsHttpTool(ua string) bool {
 	}
 	lower := strings.ToLower(ua)
 	for _, t := range []string{
-		"curl/", "wget", "httpie/", "httpie-go/",
-		"libcurl/", "python-requests/",
-		"go-http-client/", "axios/", "node-fetch/",
-		"xh/",
+		// Command-line tools.
+		"curl/", "wget/", "httpie/", "httpie-go/", "xh/", "hurl/", "libcurl/",
+		// Python.
+		"python-requests/", "python-urllib/", "python-httpx/", "aiohttp/", "urllib3/",
+		// Go and Rust.
+		"go-http-client/", "go-resty/", "fasthttp", "reqwest/", "ureq/", "hyper/",
+		// JavaScript runtimes and libraries.
+		"axios/", "node-fetch/", "undici", "superagent/", "deno/", "bun/",
+		// JVM, PHP, Perl, Ruby, Dart, PowerShell.
+		"okhttp/", "apache-httpclient/", "java/", "guzzlehttp/", "libwww-perl/", "lwp-trivial/", "faraday", "dart/", "windowspowershell/",
+		// API clients and load tools.
+		"postmanruntime/", "insomnia/", "bruno-runtime/", "k6/",
 		// IDEA.md "CLI user-agent detection" — echoip-compatible agents that
 		// poll the service for a plain-text address. "go 1." matches the Go
 		// standard library's older "Go 1.1 package http" User-Agent.

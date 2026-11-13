@@ -259,6 +259,39 @@ func TestReader_IsEmptyWithNoDatabases(t *testing.T) {
 	}
 }
 
+func TestHealthChecksReportsLoadedStaleAndMissingDatabases(t *testing.T) {
+	dir := t.TempDir()
+	m := NewGeoIPManager(dir)
+	if got := m.HealthChecks(); len(got) != 4 || got["geoip_asn"] != "error" {
+		t.Fatalf("uninitialized health checks = %#v", got)
+	}
+	if err := os.MkdirAll(m.dataDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	for _, file := range allFiles(m) {
+		if err := os.WriteFile(file, minimalMMDB, 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := m.loadDatabases(); err != nil {
+		t.Fatal(err)
+	}
+	if got := m.HealthChecks(); got["geoip_asn"] != "ok" || got["geoip_city_ipv6"] != "ok" {
+		t.Fatalf("loaded health checks = %#v", got)
+	}
+	old := time.Now().Add(-8 * 24 * time.Hour)
+	if err := os.Chtimes(m.asnFile, old, old); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(m.cityV6File); err != nil {
+		t.Fatal(err)
+	}
+	got := m.HealthChecks()
+	if got["geoip_asn"] != "degraded" || got["geoip_city_ipv6"] != "degraded" {
+		t.Fatalf("stale/missing health checks = %#v", got)
+	}
+}
+
 // --- loadDatabases error paths ---
 
 func TestLoadDatabases_MissingDatabases(t *testing.T) {
@@ -293,6 +326,9 @@ func TestLoadDatabases_InvalidFile_OthersStillLoad(t *testing.T) {
 	}
 	if m.asnDB != nil {
 		t.Error("expected asnDB to remain nil after failing to load")
+	}
+	if got := m.HealthChecks(); got["geoip_asn"] != "error" || got["geoip_country"] != "ok" {
+		t.Errorf("per-database health checks = %#v, want invalid ASN error and loaded country ok", got)
 	}
 	if m.countryDB == nil || m.cityV4DB == nil || m.cityV6DB == nil {
 		t.Error("expected country/cityV4/cityV6 readers to be loaded despite asn failure")

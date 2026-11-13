@@ -1142,6 +1142,9 @@ func (s *Server) buildHandler() http.Handler {
 	// Health check per PART 16
 	if s.HealthHandler == nil {
 		s.HealthHandler = handler.NewHealthHandler(s.Version, s.CommitID, s.BuildDate, s.Mode, s.StartTime)
+		s.HealthHandler.DBRequired = true
+		s.HealthHandler.SchedulerRequired = true
+		s.HealthHandler.DiskRequired = true
 	}
 	if s.configManager != nil {
 		s.HealthHandler.PendingRestart = func() (bool, []string) {

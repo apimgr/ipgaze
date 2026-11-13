@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -170,6 +171,75 @@ func TestGetOverallStatus_DegradedTor(t *testing.T) {
 	checks := model.ChecksInfo{Database: "ok", Cache: "ok", Disk: "ok", Scheduler: "ok", Tor: "error"}
 	if got := getOverallStatus(checks, false); got != "degraded" {
 		t.Errorf("getOverallStatus() = %q, want %q", got, "degraded")
+	}
+}
+
+func TestHealthCheckRegistryCachesAndAggregatesDatasetResults(t *testing.T) {
+	h := newTestHandler()
+	status := "ok"
+	h.RegisterHealthCheck("geoip_country", false, func() string { return status })
+	h.RegisterHealthCheck("../../private/path", false, func() string { return "ok" })
+	if got := h.HealthSnapshot().Checks.Datasets[0].Status; got != "ok" {
+		t.Fatalf("initial dataset status = %q", got)
+	}
+	if got := humanizeHealthCheckKey("en", "blocklist_ads"); got != "Blocklist: ads" {
+		t.Fatalf("humanized dataset label = %q", got)
+	}
+	status = "degraded"
+	if got := h.HealthSnapshot().Checks.Datasets[0].Status; got != "ok" {
+		t.Fatalf("dataset check ran during request: %q", got)
+	}
+	h.RefreshHealthChecks()
+	resp := h.HealthSnapshot()
+	if got := resp.Checks.Datasets[0].Status; got != "degraded" {
+		t.Fatalf("refreshed dataset status = %q", got)
+	}
+	if resp.Status != statusDegraded {
+		t.Fatalf("overall status = %q, want degraded", resp.Status)
+	}
+	h.RegisterHealthCheck("core_data", true, func() string { return "error" })
+	h.RefreshHealthChecks()
+	if got := h.HealthSnapshot().Status; got != statusUnhealthy {
+		t.Fatalf("critical failure status = %q, want unhealthy", got)
+	}
+}
+
+func TestHealthChecksJSONKeepsCoreAndDatasetOrder(t *testing.T) {
+	checks := model.ChecksInfo{
+		Database: "ok", Cache: "ok", Disk: "ok", Scheduler: "ok", Tor: "ok", I2P: "ok",
+		Datasets: []model.DatasetCheck{{Key: "geoip_country", Status: "ok"}, {Key: "blocklist_ads", Status: "degraded"}},
+	}
+	encoded, err := json.Marshal(checks)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(encoded)
+	keys := []string{`"database"`, `"cache"`, `"disk"`, `"scheduler"`, `"tor"`, `"i2p"`, `"geoip_country"`, `"blocklist_ads"`}
+	last := -1
+	for _, key := range keys {
+		position := strings.Index(body, key)
+		if position <= last {
+			t.Fatalf("health checks JSON order invalid at %s: %s", key, body)
+		}
+		last = position
+	}
+}
+
+func TestRequiredHealthProbesFailWhenUnavailable(t *testing.T) {
+	h := newTestHandler()
+	h.DBRequired = true
+	h.SchedulerRequired = true
+	h.DiskRequired = true
+	h.DiskPath = "/data"
+	h.DiskUsage = func(string) (uint64, int, error) { return 0, 0, errors.New("probe failed") }
+	if got := h.checkDatabase(); got != "error" {
+		t.Errorf("database status = %q", got)
+	}
+	if got := h.checkScheduler(); got != "error" {
+		t.Errorf("scheduler status = %q", got)
+	}
+	if got := h.checkDisk(); got != "error" {
+		t.Errorf("disk status = %q", got)
 	}
 }
 
@@ -420,6 +490,9 @@ func TestHealthzHandler_FrontendNegotiation(t *testing.T) {
 		{"curl", "/healthz", "", "curl/8.5.0", "text/plain"},
 		{"empty UA", "/healthz", "", "", "text/plain"},
 		{"accept json", "/healthz", "application/json", "", "application/json"},
+		{"explicit html beats CLI detection", "/healthz", "text/html", "ipgaze-cli/1.0", "text/html"},
+		{"explicit text beats CLI detection", "/healthz", "text/plain", "ipgaze-cli/1.0", "text/plain"},
+		{"explicit JSON beats curl detection", "/healthz", "application/json", "curl/8.5.0", "application/json"},
 	}
 
 	for _, tt := range tests {
@@ -659,6 +732,8 @@ func TestAPIV1HealthzHandler_JSONDefault(t *testing.T) {
 	}{
 		{"text/html", "text/html", ""},
 		{"application/json", "application/json", ""},
+		{"explicit JSON beats curl detection", "application/json", "curl/8.5.0"},
+		{"explicit Accept wildcard uses JSON", "*/*", "curl/8.5.0"},
 		{"browser UA", "", "Mozilla/5.0 (X11; Linux x86_64) Chrome/120.0"},
 		{"our client UA gets JSON", "", "ipgaze-cli/1.0"},
 	}
@@ -712,7 +787,7 @@ func TestAPIV1HealthzHandler_JSONDefault(t *testing.T) {
 	}
 }
 
-func TestUnversionedAPIHealthzAlwaysJSON(t *testing.T) {
+func TestUnversionedAPIHealthzNegotiation(t *testing.T) {
 	h := newTestHandler()
 	req := httptest.NewRequest(http.MethodGet, "/api/healthz", nil)
 	req.Header.Set("Accept", "text/plain")
@@ -721,15 +796,24 @@ func TestUnversionedAPIHealthzAlwaysJSON(t *testing.T) {
 
 	h.APIV1HealthzHandler(w, req)
 
-	if got := w.Result().Header.Get("Content-Type"); !strings.HasPrefix(got, "application/json") {
-		t.Errorf("unversioned health alias content type = %q, want application/json", got)
+	if got := w.Result().Header.Get("Content-Type"); !strings.HasPrefix(got, textMediaType) {
+		t.Errorf("unversioned health alias content type = %q, want text/plain", got)
+	}
+	if !strings.Contains(w.Body.String(), "status: healthy") {
+		t.Errorf("unversioned health alias text missing status: %s", w.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/healthz", nil)
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("User-Agent", "curl/8.5.0")
+	w = httptest.NewRecorder()
+	h.APIV1HealthzHandler(w, req)
+	if got := w.Result().Header.Get("Content-Type"); !strings.HasPrefix(got, jsonMediaType) {
+		t.Errorf("explicit JSON alias content type = %q, want application/json", got)
 	}
 	var body model.HealthResponse
-	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
-		t.Fatalf("unversioned health alias did not return JSON: %v", err)
-	}
-	if body.Status != statusHealthy {
-		t.Errorf("status = %q, want %q", body.Status, statusHealthy)
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil || body.Status != statusHealthy {
+		t.Errorf("explicit JSON alias body status = %q, error = %v", body.Status, err)
 	}
 }
 
@@ -749,6 +833,7 @@ func TestAPIV1HealthzHandler_TextNegotiation(t *testing.T) {
 		userAgent string
 	}{
 		{".txt extension", "/api/v1/server/healthz.txt", "", ""},
+		{".txt overrides JSON Accept", "/api/v1/server/healthz.txt", "application/json", "curl/8.5.0"},
 		{"accept text/plain", "/api/v1/server/healthz", "text/plain", ""},
 		{"curl user-agent", "/api/v1/server/healthz", "", "curl/8.5.0"},
 		{"wget user-agent", "/api/v1/server/healthz", "", "Wget/1.21.4"},

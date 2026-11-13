@@ -132,14 +132,14 @@ CLI operator tokens are stored server-side (DB) and cleaned up by the `token_cle
 
 **Intentional non-defenses (documented):**
 - GeoIP data is inherently approximate; it is not used for access control
-- No IP-based country blocking — GeoIP accuracy is too low for security decisions and VPNs trivially bypass country blocks
+- Country blocking may be configured as an advisory deny-only signal; it is never authoritative because GeoIP accuracy is limited and VPNs trivially bypass country checks
 
 ### Security decisions & exceptions
 
 | Decision | Reason |
 |----------|--------|
 | echoip-compatible API routes preserved | External route compatibility (AI.md line 212) — ipgaze is its own product but preserves the echoip wire format so existing integrations require zero changes |
-| GeoIP informational only, not used for access control | GeoIP accuracy is too low for security decisions; VPNs trivially bypass country-based blocks |
+| GeoIP country blocking is advisory and deny-only, never the sole access-control gate | GeoIP accuracy is limited; VPNs trivially bypass country-based blocks, so other security checks must always run |
 | `unsafe` Go package: NOT used | CGO_ENABLED=0, pure Go static binary — no unsafe memory operations |
 | Tor binary in container but not started by entrypoint | Binary controls Tor lifecycle per AI.md PART 31; entrypoint only sets env vars and execs binary |
 | Proxy client-IP headers are gated by `trusted_proxies` | Trusting headers from arbitrary peers enables IP spoofing; only a configured trusted proxy may supply the client IP, with `r.RemoteAddr` as fallback |

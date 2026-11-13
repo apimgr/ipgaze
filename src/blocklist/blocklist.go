@@ -77,9 +77,11 @@ func (m *BlocklistManager) Update() error {
 // Lookup holds a loaded in-memory copy of all blocklist CIDRs/IPs.
 // Call LoadDir to populate from disk; call Contains to check an IP.
 type Lookup struct {
-	mu      sync.RWMutex
-	nets    []*net.IPNet
-	singles []net.IP
+	mu            sync.RWMutex
+	nets          []*net.IPNet
+	singles       []net.IP
+	health        map[string]string
+	healthUpdated map[string]time.Time
 }
 
 // LoadDir reads all .txt files in dir and parses each non-comment line as an
@@ -96,6 +98,8 @@ func (l *Lookup) LoadDir(dir string) error {
 
 	var nets []*net.IPNet
 	var singles []net.IP
+	health := make(map[string]string)
+	healthUpdated := make(map[string]time.Time)
 
 	for _, e := range entries {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".txt") {
@@ -107,6 +111,7 @@ func (l *Lookup) LoadDir(dir string) error {
 			continue
 		}
 		scanner := bufio.NewScanner(f)
+		entries := 0
 		for scanner.Scan() {
 			line := strings.TrimSpace(scanner.Text())
 			if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, ";") {
@@ -120,13 +125,32 @@ func (l *Lookup) LoadDir(dir string) error {
 				_, ipnet, err := net.ParseCIDR(line)
 				if err == nil {
 					nets = append(nets, ipnet)
+					entries++
 				}
 			} else {
 				ip := net.ParseIP(line)
 				if ip != nil {
 					singles = append(singles, ip)
+					entries++
 				}
 			}
+		}
+		if err := scanner.Err(); err != nil {
+			_ = f.Close()
+			return fmt.Errorf("scan %s: %w", e.Name(), err)
+		}
+		info, statErr := e.Info()
+		key := strings.TrimSuffix(e.Name(), filepath.Ext(e.Name()))
+		if statErr == nil {
+			healthUpdated[key] = info.ModTime()
+		}
+		switch {
+		case entries == 0 || statErr != nil:
+			health[key] = "error"
+		case time.Since(info.ModTime()) > 7*24*time.Hour:
+			health[key] = "degraded"
+		default:
+			health[key] = "ok"
 		}
 		if err := f.Close(); err != nil {
 			return fmt.Errorf("close %s: %w", e.Name(), err)
@@ -136,8 +160,26 @@ func (l *Lookup) LoadDir(dir string) error {
 	l.mu.Lock()
 	l.nets = nets
 	l.singles = singles
+	l.health = health
+	l.healthUpdated = healthUpdated
 	l.mu.Unlock()
 	return nil
+}
+
+// HealthStatus reports the cached health of one parsed list by stable source ID.
+func (l *Lookup) HealthStatus(id string) string {
+	if l == nil {
+		return "error"
+	}
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	if status := l.health[id]; status != "" {
+		if status == "ok" && time.Since(l.healthUpdated[id]) > 7*24*time.Hour {
+			return "degraded"
+		}
+		return status
+	}
+	return "error"
 }
 
 // Contains returns true if ip is covered by any entry in the loaded blocklist.
@@ -158,6 +200,16 @@ func (l *Lookup) Contains(ip net.IP) bool {
 		}
 	}
 	return false
+}
+
+// HasData reports whether at least one parsed blocklist entry is loaded.
+func (l *Lookup) HasData() bool {
+	if l == nil {
+		return false
+	}
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	return len(l.nets) > 0 || len(l.singles) > 0
 }
 
 func (m *BlocklistManager) download(client *http.Client, src Source) error {

@@ -92,6 +92,9 @@
       {{if .Health.Checks.I2P}}
       <tr><td>{{t .Lang "healthz.check_i2p"}}</td><td><span class="status {{if eq .Health.Checks.I2P "ok"}}status-ok{{else}}status-error{{end}}">{{if eq .Health.Checks.I2P "ok"}}✅ {{t .Lang "health.ok"}}{{else}}❌ {{t .Lang "common.error"}}{{end}}</span></td></tr>
       {{end}}
+      {{range .DatasetChecks}}
+      <tr><td>{{.Label}}</td><td><span class="status {{.Class}}">{{.Status}}</span></td></tr>
+      {{end}}
       </tbody>
     </table>
   </div>

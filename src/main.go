@@ -49,6 +49,7 @@ import (
 	"github.com/apimgr/ipgaze/src/scheduler"
 	"github.com/apimgr/ipgaze/src/security"
 	"github.com/apimgr/ipgaze/src/server"
+	serverhandler "github.com/apimgr/ipgaze/src/server/handler"
 	smetrics "github.com/apimgr/ipgaze/src/server/metrics"
 	"github.com/apimgr/ipgaze/src/server/model"
 	svc "github.com/apimgr/ipgaze/src/service"
@@ -897,6 +898,8 @@ func runMain() {
 
 	// Initialize the built-in scheduler (AI.md PART 18: always-running, persistent state, catch-up).
 	// Backed by go-co-op/gocron/v2 per AI.md PART 3 and PART 18.
+	var blLookup *blocklist.Lookup
+	var srv *server.Server
 	sched, err := scheduler.NewScheduler(serverDB, scheduler.DefaultConfig())
 	if err != nil {
 		log.Printf("Warning: Failed to initialize scheduler: %v", err)
@@ -939,7 +942,11 @@ func runMain() {
 			Enabled:  enabledFor(true, cfg.Server.Schedule.Tasks.GeoIPUpdate),
 			Fn: func() error {
 				log.Println("scheduler: running geoip_update")
-				return geoMgr.Update()
+				err := geoMgr.Update()
+				if srv != nil && srv.HealthHandler != nil {
+					srv.HealthHandler.RefreshHealthChecks()
+				}
+				return err
 			},
 		}); err != nil {
 			log.Printf("Warning: Failed to add geoip_update task: %v", err)
@@ -1010,7 +1017,14 @@ func runMain() {
 			Enabled:  enabledFor(true, cfg.Server.Schedule.Tasks.BlocklistUpdate),
 			Fn: func() error {
 				log.Println("scheduler: running blocklist_update")
-				return blMgr.Update()
+				err := blMgr.Update()
+				if err == nil && blLookup != nil {
+					err = blLookup.LoadDir(filepath.Join(*dataDir, "security", "blocklists"))
+				}
+				if srv != nil && srv.HealthHandler != nil {
+					srv.HealthHandler.RefreshHealthChecks()
+				}
+				return err
 			},
 		}); err != nil {
 			log.Printf("Warning: Failed to add blocklist_update task: %v", err)
@@ -1426,7 +1440,17 @@ func runMain() {
 	// Legacy in-server response cache for GeoIP result caching; separate from appCache.
 	httpCache := server.NewCache(0)
 	// Profiling endpoints enabled only in debug mode, not via a separate flag
-	srv := server.NewHTTPServer(r, httpCache)
+	srv = server.NewHTTPServer(r, httpCache)
+	srv.HealthHandler = serverhandler.NewHealthHandler(Version, CommitID, BuildDate, cfg.Server.Mode, time.Now())
+	srv.HealthHandler.DBRequired = true
+	srv.HealthHandler.SchedulerRequired = true
+	srv.HealthHandler.DiskRequired = true
+	if cfg.Server.GeoIP.Enabled {
+		for _, datasetKey := range []string{"geoip_asn", "geoip_country", "geoip_city_ipv4", "geoip_city_ipv6"} {
+			key := datasetKey
+			srv.HealthHandler.RegisterHealthCheck(key, false, func() string { return geoMgr.HealthChecks()[key] })
+		}
+	}
 	srv.SetConfigManager(configMgr)
 	// Default to the standard reverse-proxy header priority list per AI.md
 	// PART 12 "Client IP Detection" when the operator has not overridden it
@@ -1661,11 +1685,15 @@ func runMain() {
 
 	// Blocklist: load downloaded firehol/spamhaus IP lists from disk
 	blDir := filepath.Join(*dataDir, "security", "blocklists")
-	blLookup := &blocklist.Lookup{}
+	blLookup = &blocklist.Lookup{}
 	if err := blLookup.LoadDir(blDir); err != nil {
 		log.Printf("Warning: failed to load blocklists from %s: %v", blDir, err)
 	} else {
 		srv.SetBlocklistLookup(blLookup)
+	}
+	for _, listID := range []string{"firehol_level1", "spamhaus_drop"} {
+		id := listID
+		srv.HealthHandler.RegisterHealthCheck("blocklist_"+id, false, func() string { return blLookup.HealthStatus(id) })
 	}
 
 	// Threat intelligence: VPN, proxy, Tor exit-node detection in responses.
@@ -1679,6 +1707,12 @@ func runMain() {
 	// Wire scheduler and DB to server for /debug/scheduler and /debug/db endpoints.
 	if sched != nil {
 		srv.SetScheduler(sched)
+		if err := sched.AddTask(&scheduler.Task{
+			ID: "health_dataset_refresh", Name: "Health Dataset Refresh", Schedule: "@every 1m", Enabled: true,
+			Fn: func() error { srv.HealthHandler.RefreshHealthChecks(); return nil },
+		}); err != nil {
+			log.Printf("Warning: Failed to add health_dataset_refresh task: %v", err)
+		}
 	}
 	if serverDB != nil {
 		srv.SetDB(serverDB)

@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // ---------------------------------------------------------------------------
@@ -61,6 +62,42 @@ func TestLookup_LoadDir_NonExistentDir_NoError(t *testing.T) {
 	var l Lookup
 	if err := l.LoadDir("/tmp/this-dir-does-not-exist-ipgaze-test"); err != nil {
 		t.Errorf("LoadDir on non-existent dir: %v", err)
+	}
+}
+
+func TestLookup_HealthStatus(t *testing.T) {
+	dir := t.TempDir()
+	writeTxt(t, dir, "fresh.txt", "203.0.113.1\n")
+	writeTxt(t, dir, "empty.txt", "# no entries\n")
+	old := time.Now().Add(-8 * 24 * time.Hour)
+	if err := os.Chtimes(filepath.Join(dir, "fresh.txt"), old, old); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(filepath.Join(dir, "empty.txt"), time.Now(), time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	var l Lookup
+	if got := l.HealthStatus("missing"); got != "error" {
+		t.Fatalf("missing list status = %q", got)
+	}
+	if err := l.LoadDir(dir); err != nil {
+		t.Fatal(err)
+	}
+	if !l.HasData() {
+		t.Fatal("expected parsed list data")
+	}
+	if got := l.HealthStatus("fresh"); got != "degraded" {
+		t.Errorf("stale list status = %q, want degraded", got)
+	}
+	if got := l.HealthStatus("empty"); got != "error" {
+		t.Errorf("empty list status = %q, want error", got)
+	}
+	writeTxt(t, dir, "fresh.txt", "203.0.113.1\n")
+	if err := l.LoadDir(dir); err != nil {
+		t.Fatal(err)
+	}
+	if got := l.HealthStatus("fresh"); got != "ok" {
+		t.Errorf("fresh list status = %q, want ok", got)
 	}
 }
 

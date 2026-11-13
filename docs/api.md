@@ -119,8 +119,10 @@ Every health route reports the status code from the health state: healthy,
 degraded, and restart-required return `200`; unhealthy, maintenance, and
 shutting-down return `503`. The public response reports version/build/runtime
 information, enabled features, subsystem checks, and aggregate statistics. It
-does not expose private configuration, credentials, internal addresses, or
-filesystem paths.
+includes cached per-database GeoIP and per-list blocklist checks when enabled.
+Those checks expose only `ok`, `degraded`, or `error` and refresh at least
+every 60 seconds and after a data update. The response does not expose private
+configuration, credentials, internal addresses, or filesystem paths.
 
 ## API Documentation and Discovery
 

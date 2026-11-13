@@ -16,6 +16,7 @@ import (
 	"github.com/apimgr/ipgaze/src/config"
 	"github.com/apimgr/ipgaze/src/iputil/geo"
 	"github.com/apimgr/ipgaze/src/netutil"
+	serverhandler "github.com/apimgr/ipgaze/src/server/handler"
 	"github.com/apimgr/ipgaze/src/server/model"
 )
 
@@ -77,13 +78,14 @@ func (t *testDb) IsEmpty() bool { return false }
 
 func testServer() *Server {
 	return &Server{
-		cache:      NewCache(100),
-		gr:         &testDb{},
-		LookupAddr: lookupAddr,
-		LookupPort: lookupPort,
-		StartTime:  time.Now(),
-		Version:    "test",
-		Mode:       "development",
+		HealthHandler: serverhandler.NewHealthHandler("test", "", "", "development", time.Now()),
+		cache:         NewCache(100),
+		gr:            &testDb{},
+		LookupAddr:    lookupAddr,
+		LookupPort:    lookupPort,
+		StartTime:     time.Now(),
+		Version:       "test",
+		Mode:          "development",
 		// Enable root /healthz alias (default config has this enabled).
 		HealthzRootEnabled: true,
 	}
@@ -448,7 +450,7 @@ func TestDetectClientType(t *testing.T) {
 	}{
 		{"curl/7.26.0", "text"},
 		{"Wget/1.13.4 (linux-gnu)", "text"},
-		{"Wget", "text"},
+		{"Wget", "html"},
 		{"fetch libfetch/2.0", "text"},
 		{"HTTPie/0.9.3", "text"},
 		{"httpie-go/0.6.0", "text"},
@@ -467,6 +469,42 @@ func TestDetectClientType(t *testing.T) {
 		r := &http.Request{Header: http.Header{"User-Agent": []string{tt.in}}}
 		if got := detectClientType(r); got != tt.out {
 			t.Errorf("Expected %q, got %q for %q", tt.out, got, tt.in)
+		}
+	}
+}
+
+func TestDetectClientTypeAcceptPriority(t *testing.T) {
+	tests := []struct{ accept, ua, want string }{
+		{"application/json", "curl/8.5.0", "json"},
+		{"text/html", "ipgaze-cli/1.0", "html"},
+		{"text/plain", "ipgaze-cli/1.0", "text"},
+		{"*/*", "curl/8.5.0", "text"},
+	}
+	for _, tt := range tests {
+		r := httptest.NewRequest(http.MethodGet, "/", nil)
+		r.Header.Set("Accept", tt.accept)
+		r.Header.Set("User-Agent", tt.ua)
+		if got := detectClientType(r); got != tt.want {
+			t.Errorf("detectClientType(%q, %q) = %q, want %q", tt.accept, tt.ua, got, tt.want)
+		}
+	}
+}
+
+func TestAPIResponseFormatAcceptPriority(t *testing.T) {
+	tests := []struct{ path, accept, ua, want string }{
+		{"/api/v1/ip", "", "curl/8.5.0", "text"},
+		{"/api/v1/ip", "application/json", "curl/8.5.0", "json"},
+		{"/api/v1/ip", "*/*", "curl/8.5.0", "json"},
+		{"/api/v1/ip", "text/plain", "Mozilla/5.0", "text"},
+		{"/api/v1/ip.txt", "application/json", "curl/8.5.0", "text"},
+		{"/api/v1/ip", "", "ipgaze-cli/1.0", "json"},
+	}
+	for _, tt := range tests {
+		r := httptest.NewRequest(http.MethodGet, tt.path, nil)
+		r.Header.Set("Accept", tt.accept)
+		r.Header.Set("User-Agent", tt.ua)
+		if got := apiResponseFormat(r); got != tt.want {
+			t.Errorf("apiResponseFormat(%q, %q) = %q, want %q", tt.path, tt.accept, got, tt.want)
 		}
 	}
 }

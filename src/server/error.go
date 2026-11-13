@@ -261,15 +261,24 @@ func NotFoundHandler(w http.ResponseWriter, r *http.Request) *appError {
 // reusing handler.IsNonInteractiveHTTPTool for the tool-detection step so the
 // two content-negotiation checks never drift out of sync:
 //  1. `.txt` extension on the path -> text (always wins)
-//  2. `Accept: text/plain` header -> text
-//  3. Non-interactive HTTP tool detected (curl, wget, httpie) -> text
-//  4. Default (browsers, API clients, `Accept: application/json`, empty UA) -> JSON
+//  2. `Accept: application/json` -> JSON
+//  3. `Accept: text/plain` -> text
+//  4. Any other explicit Accept value -> JSON
+//  5. Non-interactive HTTP tool detected with no Accept -> text
+//  6. Default -> JSON
 func apiNotFoundWantsText(r *http.Request) bool {
 	if strings.HasSuffix(r.URL.Path, ".txt") {
 		return true
 	}
-	if strings.Contains(r.Header.Get("Accept"), "text/plain") {
+	accept := r.Header.Get("Accept")
+	if strings.Contains(accept, "application/json") {
+		return false
+	}
+	if strings.Contains(accept, "text/plain") {
 		return true
+	}
+	if strings.TrimSpace(accept) != "" {
+		return false
 	}
 	return handler.IsNonInteractiveHTTPTool(r.Header.Get("User-Agent"))
 }

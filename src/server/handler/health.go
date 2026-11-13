@@ -14,6 +14,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -82,6 +83,7 @@ type I2PProviderNamer interface {
 type HealthzPageData struct {
 	PageData
 	Health                model.HealthResponse
+	DatasetChecks         []HealthCheckPageRow
 	StatusClass           string
 	StatusIcon            string
 	StatusMessageKey      string
@@ -93,6 +95,12 @@ type HealthzPageData struct {
 	RequestsTotalText     string
 	Requests24hText       string
 	ActiveConnectionsText string
+}
+
+type HealthCheckPageRow struct {
+	Label  string
+	Status string
+	Class  string
 }
 
 // HealthHandler handles health check routes
@@ -117,19 +125,22 @@ type HealthHandler struct {
 	PendingRestart func() (bool, []string)
 	// DB is the live database connection, pinged for checks.database.
 	// Nil is treated as a missing (required) subsystem -> "error" (AI.md PART 10).
-	DB *sql.DB
+	DB         *sql.DB
+	DBRequired bool
 	// CachePing verifies the configured cache backend (AI.md PART 9).
 	// Nil means no cache backend was wired -> reported "ok" (nothing to probe).
 	CachePing func(ctx context.Context) error
 	// Scheduler exposes Status() for checks.scheduler (AI.md PART 18).
 	// Nil is treated as the scheduler not running -> "error".
-	Scheduler SchedulerStatusProvider
+	Scheduler         SchedulerStatusProvider
+	SchedulerRequired bool
 	// DiskPath is the filesystem path checked by DiskUsage (typically data_dir).
 	DiskPath string
 	// DiskUsage returns free bytes and used-percent for DiskPath. Wired from
 	// main.go using the existing diskFreeAndUsedPercent platform helper
 	// (src/disk_space_unix.go / src/disk_space_other.go). Nil -> "ok" (can't probe).
-	DiskUsage func(path string) (freeBytes uint64, usedPercent int, err error)
+	DiskUsage    func(path string) (freeBytes uint64, usedPercent int, err error)
+	DiskRequired bool
 	// Stats returns the lifetime request total, requests in the last 24h, and
 	// current in-flight request count for the stats block (AI.md PART 13).
 	Stats func() (total int64, last24h int64, active int)
@@ -143,9 +154,88 @@ type HealthHandler struct {
 	// (AI.md PART 13: status "maintenance", HTTP 503). Nil means never active.
 	MaintenanceActive func() bool
 
+	healthChecksMu sync.RWMutex
+	healthChecks   []registeredHealthCheck
+
 	// shuttingDown is raised by MarkShuttingDown once graceful shutdown starts
 	// (AI.md PART 13: status "shutting_down", HTTP 503).
 	shuttingDown atomic.Bool
+}
+
+type registeredHealthCheck struct {
+	key      string
+	critical bool
+	check    func() string
+	status   string
+}
+
+// RegisterHealthCheck adds a cached data/dependency check in registration order.
+// The checker runs once immediately; periodic refreshes run from the scheduler.
+func (h *HealthHandler) RegisterHealthCheck(key string, critical bool, check func() string) {
+	if h == nil || !validHealthCheckKey(key) || check == nil {
+		return
+	}
+	status := normalizeHealthCheckStatus(check())
+	h.healthChecksMu.Lock()
+	defer h.healthChecksMu.Unlock()
+	for i := range h.healthChecks {
+		if h.healthChecks[i].key == key {
+			h.healthChecks[i].critical, h.healthChecks[i].check, h.healthChecks[i].status = critical, check, status
+			return
+		}
+	}
+	h.healthChecks = append(h.healthChecks, registeredHealthCheck{key: key, critical: critical, check: check, status: status})
+}
+
+func validHealthCheckKey(key string) bool {
+	if key == "" || strings.Contains(key, "__") || strings.HasPrefix(key, "_") || strings.HasSuffix(key, "_") {
+		return false
+	}
+	if key == "database" || key == "cache" || key == "disk" || key == "scheduler" || key == "tor" || key == "i2p" {
+		return false
+	}
+	separator := false
+	for _, char := range key {
+		if char == '_' {
+			separator = true
+			continue
+		}
+		if !(char >= 'a' && char <= 'z' || char >= '0' && char <= '9') {
+			return false
+		}
+	}
+	return separator && key[0] >= 'a' && key[0] <= 'z'
+}
+
+// RefreshHealthChecks refreshes registered values outside health request handling.
+func (h *HealthHandler) RefreshHealthChecks() {
+	if h == nil {
+		return
+	}
+	h.healthChecksMu.Lock()
+	defer h.healthChecksMu.Unlock()
+	for i := range h.healthChecks {
+		h.healthChecks[i].status = normalizeHealthCheckStatus(h.healthChecks[i].check())
+	}
+}
+
+func normalizeHealthCheckStatus(status string) string {
+	switch status {
+	case "ok", "degraded", "error":
+		return status
+	default:
+		return "error"
+	}
+}
+
+func (h *HealthHandler) datasetChecks() []model.DatasetCheck {
+	h.healthChecksMu.RLock()
+	defer h.healthChecksMu.RUnlock()
+	checks := make([]model.DatasetCheck, 0, len(h.healthChecks))
+	for _, check := range h.healthChecks {
+		checks = append(checks, model.DatasetCheck{Key: check.key, Status: check.status, Critical: check.critical})
+	}
+	return checks
 }
 
 // MarkShuttingDown records that graceful shutdown has begun, so every health
@@ -218,7 +308,10 @@ const (
 // handler) is not applicable and reports "ok".
 func (h *HealthHandler) checkDatabase() string {
 	if h.DB == nil {
-		return "ok"
+		if !h.DBRequired {
+			return "ok"
+		}
+		return "error"
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), healthCheckTimeout)
 	defer cancel()
@@ -248,6 +341,9 @@ func (h *HealthHandler) checkCache() string {
 // handler) is not applicable and reports "ok".
 func (h *HealthHandler) checkScheduler() string {
 	if h.Scheduler == nil {
+		if h.SchedulerRequired {
+			return "error"
+		}
 		return "ok"
 	}
 	// Status() only reads an in-memory map under a lock; calling it confirms
@@ -261,11 +357,17 @@ func (h *HealthHandler) checkScheduler() string {
 // See diskDegraded for the softer degraded threshold used in overall status.
 func (h *HealthHandler) checkDisk() string {
 	if h.DiskUsage == nil || h.DiskPath == "" {
-		return "ok"
+		if !h.DiskRequired {
+			return "ok"
+		}
+		return "error"
 	}
 	_, usedPercent, err := h.DiskUsage(h.DiskPath)
 	if err != nil {
-		return "ok"
+		return "error"
+	}
+	if usedPercent < 0 || usedPercent > 100 {
+		return "error"
 	}
 	freePercent := 100 - usedPercent
 	if freePercent < diskFreeErrorPercent {
@@ -373,6 +475,7 @@ func (h *HealthHandler) buildHealthResponse() model.HealthResponse {
 		Scheduler: h.checkScheduler(),
 		Tor:       torCheck,
 		I2P:       i2pCheck,
+		Datasets:  h.datasetChecks(),
 	}
 
 	torInfo := model.TorInfo{Status: "disabled"}
@@ -439,6 +542,15 @@ func (h *HealthHandler) buildHealthResponse() model.HealthResponse {
 		Checks: checks,
 		Stats:  model.StatsInfo{},
 	}
+	for _, dataset := range checks.Datasets {
+		if dataset.Status == "error" || dataset.Status == "degraded" {
+			if dataset.Critical {
+				resp.Status = statusUnhealthy
+			} else if resp.Status == statusHealthy {
+				resp.Status = statusDegraded
+			}
+		}
+	}
 
 	if h.Stats != nil {
 		total, last24h, active := h.Stats()
@@ -497,9 +609,14 @@ func healthzPageData(pd PageData, health model.HealthResponse) HealthzPageData {
 	if parsed, err := time.Parse(time.RFC3339, buildDate); err == nil {
 		buildDate = frontendTimestamp(parsed)
 	}
+	datasetRows := make([]HealthCheckPageRow, 0, len(health.Checks.Datasets))
+	for _, check := range health.Checks.Datasets {
+		datasetRows = append(datasetRows, HealthCheckPageRow{Label: humanizeHealthCheckKey(pd.Lang, check.Key), Status: i18n.Translate(pd.Lang, "health."+check.Status), Class: healthCheckClass(check.Status)})
+	}
 	return HealthzPageData{
 		PageData: pd, Health: health,
-		StatusClass: class, StatusIcon: icon, StatusMessageKey: messageKey,
+		DatasetChecks: datasetRows,
+		StatusClass:   class, StatusIcon: icon, StatusMessageKey: messageKey,
 		TorStatusText: healthFeatureStatus(pd.Lang, health.Features.Tor.Status),
 		I2PStatusText: healthFeatureStatus(pd.Lang, health.Features.I2P.Status),
 		UptimeText:    frontendDuration(health.Uptime), BuildDateText: buildDate,
@@ -508,6 +625,34 @@ func healthzPageData(pd PageData, health model.HealthResponse) HealthzPageData {
 		Requests24hText:       formatHealthCount(health.Stats.Requests24h),
 		ActiveConnectionsText: formatHealthCount(int64(health.Stats.ActiveConns)),
 	}
+}
+
+func healthCheckClass(status string) string {
+	switch status {
+	case "ok":
+		return "status-ok"
+	case "degraded":
+		return "status-warning"
+	default:
+		return "status-error"
+	}
+}
+
+func humanizeHealthCheckKey(lang, key string) string {
+	translated := i18n.Translate(lang, "health.check."+key)
+	if translated != "health.check."+key {
+		return translated
+	}
+	kind, id, found := strings.Cut(key, "_")
+	if !found {
+		return strings.ToUpper(key[:1]) + key[1:]
+	}
+	if kind == "geoip" {
+		kind = "GeoIP"
+	} else {
+		kind = strings.ToUpper(kind[:1]) + kind[1:]
+	}
+	return kind + ": " + strings.ReplaceAll(id, "_", " ")
 }
 
 func healthFeatureStatus(lang, status string) string {
@@ -580,6 +725,18 @@ func (h *HealthHandler) HealthzHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Explicit HTML preference wins over client detection, including our CLI.
+	if strings.Contains(accept, "text/html") {
+		h.writeHealthHTML(w, r, health, code)
+		return
+	}
+
+	// Explicit text and .txt preferences also precede User-Agent detection.
+	if strings.Contains(accept, textMediaType) || strings.HasSuffix(r.URL.Path, ".txt") {
+		writeFrontendHealthText(r, w, health, code)
+		return
+	}
+
 	// Our own CLI client is INTERACTIVE per AI.md PART 14's frontend rules —
 	// it receives JSON and renders its own TUI, the same as every other
 	// frontend route, even without an explicit Accept: application/json.
@@ -594,6 +751,10 @@ func (h *HealthHandler) HealthzHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	h.writeHealthHTML(w, r, health, code)
+}
+
+func (h *HealthHandler) writeHealthHTML(w http.ResponseWriter, r *http.Request, health model.HealthResponse, code int) {
 	// HTML response via template when renderer is available (preferred path)
 	if h.Render != nil {
 		var pd PageData
@@ -628,7 +789,7 @@ func writeHealthHTMLFallback(w http.ResponseWriter, r *http.Request, health mode
 <div class="status-banner {{.StatusClass}}" data-health-status="{{.Health.Status}}"><span class="status-icon">{{.StatusIcon}}</span><span class="status-text">{{t .Lang .StatusMessageKey}}</span></div>
 <section class="section-card"><h2>{{t .Lang "health.version"}} &amp; {{t .Lang "health.build"}}</h2><dl class="info-list"><dt>{{t .Lang "health.version"}}</dt><dd><code>{{.Health.Version}}</code></dd><dt>{{t .Lang "health.go_version"}}</dt><dd><code>{{.Health.GoVersion}}</code></dd><dt>{{t .Lang "healthz.commit_label"}}</dt><dd><code>{{.Health.Build.Commit}}</code></dd><dt>{{t .Lang "healthz.build_date_label"}}</dt><dd><time datetime="{{.Health.Build.Date}}">{{.BuildDateText}}</time></dd><dt>{{t .Lang "health.uptime"}}</dt><dd>{{.UptimeText}}</dd><dt>{{t .Lang "health.mode"}}</dt><dd><span class="badge badge-{{.Health.Mode}}">{{.Health.Mode}}</span></dd><dt>{{t .Lang "healthz.timestamp_label"}}</dt><dd><time datetime="{{.Health.Timestamp}}">{{.TimestampText}}</time></dd></dl></section>
 <section class="section-card"><h2>{{t .Lang "health.features"}}</h2><ul class="feature-list"><li class="{{if .Health.Features.Tor.Enabled}}feature-enabled{{else}}feature-disabled{{end}}">🧅 {{t .Lang "healthz.check_tor"}}: {{.TorStatusText}}{{if .Health.Features.Tor.Hostname}} - <code>{{.Health.Features.Tor.Hostname}}</code>{{end}}</li>{{if .Health.Features.I2P.Enabled}}<li class="feature-enabled">🔗 {{t .Lang "healthz.check_i2p"}}: {{.I2PStatusText}}{{if .Health.Features.I2P.Hostname}} - <code>{{.Health.Features.I2P.Hostname}}</code>{{end}} ({{.Health.Features.I2P.Provider}})</li>{{else}}<li class="feature-disabled">🔗 I2P: {{t .Lang "common.disabled"}}</li>{{end}}<li class="{{if .Health.Features.GeoIP}}feature-enabled{{else}}feature-disabled{{end}}">🌍 {{t .Lang "admin.geoip"}}</li></ul></section>
-<section class="section-card"><h2>{{t .Lang "health.component_status"}}</h2><div class="table-wrapper"><table class="data-table"><thead><tr><th>{{t .Lang "healthz.column_component"}}</th><th>{{t .Lang "health.status"}}</th></tr></thead><tbody><tr><td>{{t .Lang "healthz.check_database"}}</td><td>{{.Health.Checks.Database}}</td></tr><tr><td>{{t .Lang "healthz.check_cache"}}</td><td>{{.Health.Checks.Cache}}</td></tr><tr><td>{{t .Lang "healthz.check_disk"}}</td><td>{{.Health.Checks.Disk}}</td></tr><tr><td>{{t .Lang "healthz.check_scheduler"}}</td><td>{{.Health.Checks.Scheduler}}</td></tr>{{if .Health.Checks.Tor}}<tr><td>{{t .Lang "healthz.check_tor"}}</td><td>{{.Health.Checks.Tor}}</td></tr>{{end}}{{if .Health.Checks.I2P}}<tr><td>{{t .Lang "healthz.check_i2p"}}</td><td>{{.Health.Checks.I2P}}</td></tr>{{end}}</tbody></table></div></section>
+<section class="section-card"><h2>{{t .Lang "health.component_status"}}</h2><div class="table-wrapper"><table class="data-table"><thead><tr><th>{{t .Lang "healthz.column_component"}}</th><th>{{t .Lang "health.status"}}</th></tr></thead><tbody><tr><td>{{t .Lang "healthz.check_database"}}</td><td>{{.Health.Checks.Database}}</td></tr><tr><td>{{t .Lang "healthz.check_cache"}}</td><td>{{.Health.Checks.Cache}}</td></tr><tr><td>{{t .Lang "healthz.check_disk"}}</td><td>{{.Health.Checks.Disk}}</td></tr><tr><td>{{t .Lang "healthz.check_scheduler"}}</td><td>{{.Health.Checks.Scheduler}}</td></tr>{{if .Health.Checks.Tor}}<tr><td>{{t .Lang "healthz.check_tor"}}</td><td>{{.Health.Checks.Tor}}</td></tr>{{end}}{{if .Health.Checks.I2P}}<tr><td>{{t .Lang "healthz.check_i2p"}}</td><td>{{.Health.Checks.I2P}}</td></tr>{{end}}{{range .DatasetChecks}}<tr><td>{{.Label}}</td><td><span class="status {{.Class}}">{{.Status}}</span></td></tr>{{end}}</tbody></table></div></section>
 <section class="section-card"><h2>{{t .Lang "health.server_statistics"}}</h2><dl class="info-list stats-grid"><dt>{{t .Lang "health.total_requests"}}</dt><dd>{{.RequestsTotalText}}</dd><dt>{{t .Lang "health.requests_24h"}}</dt><dd>{{.Requests24hText}}</dd><dt>{{t .Lang "health.active_connections"}}</dt><dd>{{.ActiveConnectionsText}}</dd></dl></section>
 <footer class="health-footer"><p>{{t .Lang "health.last_checked"}} <time datetime="{{.Health.Timestamp}}">{{.TimestampText}}</time></p><p>{{t .Lang "healthz.refreshing_in_prefix"}} 30s</p></footer></main><footer></footer></body></html>`
 	tmpl, err := htmltemplate.New("healthz").Funcs(htmltemplate.FuncMap{"t": i18n.Translate}).Parse(source)
@@ -674,6 +835,9 @@ func writeAPIHealthText(w http.ResponseWriter, health model.HealthResponse, code
 	}
 	if health.Checks.I2P != "" {
 		_, _ = fmt.Fprintf(w, "checks.i2p: %s\n", health.Checks.I2P)
+	}
+	for _, check := range health.Checks.Datasets {
+		_, _ = fmt.Fprintf(w, "checks.%s: %s\n", check.Key, check.Status)
 	}
 	_, _ = fmt.Fprintf(w, "stats.requests_total: %d\nstats.requests_24h: %d\nstats.active_connections: %d\n", health.Stats.RequestsTotal, health.Stats.Requests24h, health.Stats.ActiveConns)
 }
@@ -734,6 +898,9 @@ func writeFrontendHealthText(r *http.Request, w http.ResponseWriter, health mode
 	if health.Checks.I2P != "" {
 		checks = append(checks, struct{ name, value string }{i18n.Translate(lang, "healthz.check_i2p"), health.Checks.I2P})
 	}
+	for _, check := range health.Checks.Datasets {
+		checks = append(checks, struct{ name, value string }{humanizeHealthCheckKey(lang, check.Key), i18n.Translate(lang, "health."+check.Status)})
+	}
 	for _, check := range checks {
 		_, _ = fmt.Fprintf(w, "  %-22s %s\n", check.name+":", check.value)
 	}
@@ -752,25 +919,25 @@ func frontendTimestampString(value string) string {
 // should receive the plain-text representation instead of the JSON envelope.
 // Follows the AI.md PART 14 API content-negotiation priority order exactly:
 //  1. `.txt` extension on the path -> text (always wins)
-//  2. `Accept: text/plain` header -> text
-//  3. Non-interactive HTTP tool detected (curl, wget, httpie, libcurl,
-//     python-requests, go-http-client, axios, node-fetch, empty UA) -> text
-//  4. Default (browsers, our CLI, `Accept: application/json`) -> JSON
+//  2. `Accept: application/json` -> JSON
+//  3. `Accept: text/plain` -> text
+//  4. An explicit non-text Accept value -> JSON
+//  5. Non-interactive HTTP tool detected with no Accept header -> text
+//  6. Default -> JSON
 func apiHealthWantsText(r *http.Request) bool {
-	if r.URL.Path == "/api/healthz" {
-		return false
-	}
 	if strings.HasSuffix(r.URL.Path, ".txt") {
 		return true
 	}
 	accept := r.Header.Get("Accept")
+	if strings.Contains(accept, jsonMediaType) {
+		return false
+	}
 	if strings.Contains(accept, textMediaType) {
 		return true
 	}
-	// An explicit Accept: text/html or application/json overrides the
-	// non-interactive-tool heuristic below — the client told us what it
-	// wants, so an absent/tool-like User-Agent must not force text.
-	if strings.Contains(accept, "text/html") || strings.Contains(accept, jsonMediaType) {
+	// Non-interactive clients receive text only when they did not express
+	// any explicit Accept preference.
+	if strings.TrimSpace(accept) != "" {
 		return false
 	}
 	return IsNonInteractiveHTTPTool(r.Header.Get("User-Agent"))
@@ -796,8 +963,7 @@ func IsNonInteractiveHTTPTool(ua string) bool {
 func (h *HealthHandler) APIV1HealthzHandler(w http.ResponseWriter, r *http.Request) {
 	health := h.buildHealthResponse()
 	code := healthStatusCode(health.Status)
-	// PART 14 API response rules: JSON by default, text for text/plain or
-	// non-interactive CLI clients (PART 13 references these rules for healthz).
+	// API JSON preference overrides tool detection; text/plain and .txt remain explicit.
 	if apiHealthWantsText(r) {
 		writeAPIHealthText(w, health, code)
 		return

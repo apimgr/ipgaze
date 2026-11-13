@@ -3,6 +3,8 @@
 package model
 
 import (
+	"bytes"
+	"encoding/json"
 	"math/big"
 	"net"
 	"time"
@@ -108,12 +110,63 @@ type FeaturesInfo struct {
 
 // ChecksInfo contains individual subsystem health results
 type ChecksInfo struct {
-	Database  string `json:"database"`
-	Cache     string `json:"cache"`
-	Disk      string `json:"disk"`
-	Scheduler string `json:"scheduler"`
-	Tor       string `json:"tor,omitempty"`
-	I2P       string `json:"i2p,omitempty"`
+	Database  string         `json:"database"`
+	Cache     string         `json:"cache"`
+	Disk      string         `json:"disk"`
+	Scheduler string         `json:"scheduler"`
+	Tor       string         `json:"tor,omitempty"`
+	I2P       string         `json:"i2p,omitempty"`
+	Datasets  []DatasetCheck `json:"-"`
+}
+
+// DatasetCheck is a public-safe, dynamically registered health result.
+type DatasetCheck struct {
+	Key      string `json:"-"`
+	Status   string `json:"-"`
+	Critical bool   `json:"-"`
+}
+
+// MarshalJSON preserves the AI.md-defined core check order before registered dataset checks.
+func (c ChecksInfo) MarshalJSON() ([]byte, error) {
+	var out bytes.Buffer
+	out.WriteByte('{')
+	fields := []struct {
+		key string
+		val string
+	}{
+		{"database", c.Database}, {"cache", c.Cache}, {"disk", c.Disk}, {"scheduler", c.Scheduler},
+	}
+	if c.Tor != "" {
+		fields = append(fields, struct{ key, val string }{"tor", c.Tor})
+	}
+	if c.I2P != "" {
+		fields = append(fields, struct{ key, val string }{"i2p", c.I2P})
+	}
+	for _, f := range fields {
+		key, _ := json.Marshal(f.key)
+		value, _ := json.Marshal(f.val)
+		if out.Len() > 1 {
+			out.WriteByte(',')
+		}
+		out.Write(key)
+		out.WriteByte(':')
+		out.Write(value)
+	}
+	for _, check := range c.Datasets {
+		if check.Key == "" || (check.Status != "ok" && check.Status != "degraded" && check.Status != "error") {
+			continue
+		}
+		key, _ := json.Marshal(check.Key)
+		value, _ := json.Marshal(check.Status)
+		if out.Len() > 1 {
+			out.WriteByte(',')
+		}
+		out.Write(key)
+		out.WriteByte(':')
+		out.Write(value)
+	}
+	out.WriteByte('}')
+	return out.Bytes(), nil
 }
 
 // StatsInfo contains aggregate request counters

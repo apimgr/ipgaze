@@ -40,28 +40,36 @@ func (b *bufferedResponseWriter) WriteHeader(status int) { b.status = status }
 // renderNegotiated renders a frontend page under the AI.md PART 14 "Smart
 // Content Negotiation" rules:
 //
-//  1. Our CLI client is INTERACTIVE — it receives JSON and renders its own
-//     TUI/GUI, so it is never sent HTML or pre-formatted text. apiData is the
-//     payload its matching /api/{api_version}/... route would return.
-//  2. Text browsers (lynx, w3m, links) are INTERACTIVE without JavaScript and
-//     receive the server-rendered HTML. This project's pages are already usable
-//     without JS (PART 16's JS Necessity Gate), so they share branch 4's output.
-//  3. HTTP tools (curl, wget, httpie) are NON-INTERACTIVE and receive the page
-//     converted to 80-column plain text via HTML2TextConverter.
-//  4. Regular browsers receive the full HTML page.
-//
-// An explicit Accept: text/plain selects branch 3 for any client except our own
-// CLI, matching AI.md's Accept-header table.
+// Explicit Accept preferences take priority: JSON, HTML, then plain text.
+// Without an explicit preference, our CLI receives API-shaped JSON, text
+// browsers receive server-rendered HTML, HTTP tools receive converted text,
+// and unknown clients are treated as browsers.
 func (h *PagesHandler) renderNegotiated(w http.ResponseWriter, r *http.Request, page string, data interface{}, apiData interface{}) {
 	ua := r.Header.Get("User-Agent")
+	accept := r.Header.Get("Accept")
 
-	if httputil.IsOurCliClient(ua) && apiData != nil {
-		SendAPIResponseOK(w, apiData, nil)
+	if strings.Contains(accept, "application/json") {
+		payload := apiData
+		if payload == nil {
+			payload = data
+		}
+		SendAPIResponseOK(w, payload, nil)
 		return
 	}
 
-	wantsText := httputil.IsNonInteractiveClient(ua) ||
-		strings.Contains(r.Header.Get("Accept"), "text/plain")
+	explicitHTML := strings.Contains(accept, "text/html")
+	wantsText := strings.Contains(accept, "text/plain") && !explicitHTML
+	if !wantsText && !explicitHTML && httputil.IsOurCliClient(ua) {
+		payload := apiData
+		if payload == nil {
+			payload = data
+		}
+		SendAPIResponseOK(w, payload, nil)
+		return
+	}
+	if !wantsText && !explicitHTML {
+		wantsText = httputil.IsNonInteractiveClient(ua)
+	}
 	if wantsText {
 		buf := newBufferedResponseWriter()
 		if err := h.Render(buf, r, page, data); err != nil {
@@ -97,7 +105,13 @@ func (h *PagesHandler) renderNegotiated(w http.ResponseWriter, r *http.Request, 
 // writeHandlerFallback guarantees a response when a page template cannot be
 // rendered, without relying on the template system that just failed.
 func writeHandlerFallback(w http.ResponseWriter, r *http.Request, status int, msg string, plain bool) {
-	if strings.Contains(r.Header.Get("Accept"), "application/json") || strings.HasPrefix(r.URL.Path, "/api/") {
+	accept := r.Header.Get("Accept")
+	isAPI := strings.HasPrefix(r.URL.Path, "/api/")
+	apiWantsText := strings.HasSuffix(r.URL.Path, ".txt") ||
+		strings.Contains(accept, "text/plain") ||
+		(strings.TrimSpace(accept) == "" && httputil.IsNonInteractiveClient(r.Header.Get("User-Agent")))
+	apiTxt := isAPI && strings.HasSuffix(r.URL.Path, ".txt")
+	if (strings.Contains(accept, "application/json") && !apiTxt) || (isAPI && !apiWantsText) {
 		body, err := json.Marshal(struct {
 			OK      bool   `json:"ok"`
 			Error   string `json:"error"`
@@ -110,7 +124,13 @@ func writeHandlerFallback(w http.ResponseWriter, r *http.Request, status int, ms
 			return
 		}
 	}
-	if plain || httputil.IsNonInteractiveClient(r.Header.Get("User-Agent")) || strings.Contains(r.Header.Get("Accept"), "text/plain") {
+	if !isAPI && strings.Contains(accept, "text/html") {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.WriteHeader(status)
+		_, _ = w.Write([]byte("<html><body><h1>" + html.EscapeString(msg) + "</h1></body></html>\n"))
+		return
+	}
+	if apiWantsText || plain || strings.Contains(accept, "text/plain") || (strings.TrimSpace(accept) == "" && httputil.IsNonInteractiveClient(r.Header.Get("User-Agent"))) {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		w.WriteHeader(status)
 		_, _ = w.Write([]byte(msg + "\n"))

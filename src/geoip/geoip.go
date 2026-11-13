@@ -66,7 +66,11 @@ type GeoIPManager struct {
 	// server.NewHTTPServer at startup) still sees the weekly-refreshed
 	// databases instead of the mmdb file handles that were open at
 	// startup.
-	liveReader *liveReader
+	liveReader    *liveReader
+	asnLoaded     atomic.Bool
+	countryLoaded atomic.Bool
+	cityV4Loaded  atomic.Bool
+	cityV6Loaded  atomic.Bool
 }
 
 // NewGeoIPManager creates a new GeoIP manager.
@@ -242,6 +246,10 @@ func (m *GeoIPManager) loadDatabases() error {
 	if newCityV6 != nil {
 		m.cityV6DB = newCityV6
 	}
+	m.asnLoaded.Store(m.asnDB != nil)
+	m.countryLoaded.Store(m.countryDB != nil)
+	m.cityV4Loaded.Store(m.cityV4DB != nil)
+	m.cityV6Loaded.Store(m.cityV6DB != nil)
 
 	if newASN != nil && oldASN != nil {
 		if err := oldASN.Close(); err != nil {
@@ -409,6 +417,36 @@ func (m *GeoIPManager) GetStatus() GeoIPStatus {
 		LastUpdate:     m.lastUpdate,
 		DatabasesExist: m.databasesExist(),
 	}
+}
+
+// HealthChecks reports public-safe GeoIP dataset state keyed by stable names.
+// It only inspects file metadata; database parsing happens during load/update,
+// never while a health request is being served.
+func (m *GeoIPManager) HealthChecks() map[string]string {
+	files := map[string]string{
+		"geoip_asn":       m.asnFile,
+		"geoip_country":   m.countryFile,
+		"geoip_city_ipv4": m.cityV4File,
+		"geoip_city_ipv6": m.cityV6File,
+	}
+	results := make(map[string]string, len(files))
+	loaded := map[string]bool{
+		"geoip_asn":       m.asnLoaded.Load(),
+		"geoip_country":   m.countryLoaded.Load(),
+		"geoip_city_ipv4": m.cityV4Loaded.Load(),
+		"geoip_city_ipv6": m.cityV6Loaded.Load(),
+	}
+	for key, file := range files {
+		info, err := os.Stat(file)
+		if !loaded[key] {
+			results[key] = "error"
+		} else if err != nil || info.Size() == 0 || time.Since(info.ModTime()) > 7*24*time.Hour {
+			results[key] = "degraded"
+		} else {
+			results[key] = "ok"
+		}
+	}
+	return results
 }
 
 // Update updates the databases if needed
