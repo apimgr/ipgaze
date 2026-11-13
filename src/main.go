@@ -203,7 +203,7 @@ func checkStalePID(pidPath string) {
 	_, _, _ = paths.CheckPIDFile(pidPath)
 }
 
-func main() {
+func runMain() {
 	// Get default directories
 	dirs := paths.GetDirectories()
 
@@ -226,6 +226,7 @@ func main() {
 	showStatus := flag.Bool("status", false, "Check server status (for health checks)")
 	showHelp := flag.Bool("help", false, "Show help")
 	debugMode := flag.Bool("debug", false, "Enable debug mode")
+	i2pEnabledFlag := flag.Bool("i2p", false, "Enable the optional I2P eepsite")
 	daemonMode := flag.Bool("daemon", false, "Run as daemon (detach from terminal)")
 	colorMode := flag.String("color", "auto", "Color output: auto, yes, no")
 	langFlag := flag.String("lang", "", "Language for output (default: auto-detect from LANG env)")
@@ -330,23 +331,25 @@ func main() {
 		}
 	}
 
-	// Handle directory overrides from flags per AI.md PART 8.
-	// Cache directory: --cache flag > CACHE_DIR env > OS default.
-	if *cacheDirFlag != "" {
-		dirs.Cache = *cacheDirFlag
-	} else if envCache := os.Getenv("CACHE_DIR"); envCache != "" {
-		dirs.Cache = envCache
+	// Validate operator-selected filesystem paths before using or creating them.
+	safeDirOverride := func(label, input string) string {
+		safe, err := paths.SafeDirPath(input)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Invalid %s directory: %v\n", label, err)
+			os.Exit(exUsage)
+		}
+		return safe
 	}
-	// Backup directory: --backup flag > BACKUP_DIR env > OS default (AI.md PART 8).
-	resolvedBackupDir := paths.GetBackupDir(*backupDirFlag, dirs.Data)
 
-	// Resolve log directory: --log flag > LOG_DIR env > OS default.
-	resolvedLogDir := dirs.Logs
-	if *logDirFlag != "" {
-		resolvedLogDir = *logDirFlag
-	} else if envLog := os.Getenv("LOG_DIR"); envLog != "" {
-		resolvedLogDir = envLog
+	// Data directory: --data flag > DATA_DIR env > OS default.
+	dataDirPath := *dataDir
+	if dataDirPath == "" {
+		dataDirPath = os.Getenv("DATA_DIR")
 	}
+	if dataDirPath == "" {
+		dataDirPath = dirs.Data
+	}
+	dataDirPath = safeDirOverride("data", dataDirPath)
 
 	// Config directory: --config flag > CONFIG_DIR env > OS default.
 	configDir := dirs.Config
@@ -355,23 +358,37 @@ func main() {
 	} else if envConfig := os.Getenv("CONFIG_DIR"); envConfig != "" {
 		configDir = envConfig
 	}
+	configDir = safeDirOverride("config", configDir)
 
-	// Data directory: --data flag > DATA_DIR env > OS default. Resolved through
-	// a local so the DATA_DIR branch is actually reachable — filling the flag
-	// value with the OS default first made the env var permanently dead.
-	dataDirPath := *dataDir
-	if dataDirPath == "" {
-		dataDirPath = os.Getenv("DATA_DIR")
+	// Cache directory: --cache flag > CACHE_DIR env > OS default.
+	cacheDir := dirs.Cache
+	if *cacheDirFlag != "" {
+		cacheDir = *cacheDirFlag
+	} else if envCache := os.Getenv("CACHE_DIR"); envCache != "" {
+		cacheDir = envCache
 	}
-	if dataDirPath == "" {
-		dataDirPath = dirs.Data
+	cacheDir = safeDirOverride("cache", cacheDir)
+
+	// Log directory: --log flag > LOG_DIR env > OS default.
+	resolvedLogDir := dirs.Logs
+	if *logDirFlag != "" {
+		resolvedLogDir = *logDirFlag
+	} else if envLog := os.Getenv("LOG_DIR"); envLog != "" {
+		resolvedLogDir = envLog
 	}
+	resolvedLogDir = safeDirOverride("log", resolvedLogDir)
+
+	// Backup directory: --backup flag > BACKUP_DIR env > OS default.
+	resolvedBackupDir := paths.GetBackupDir(*backupDirFlag, dataDirPath)
+	resolvedBackupDir = safeDirOverride("backup", resolvedBackupDir)
+
 	dataDir = &dataDirPath
 
 	// Fold every resolved override back into dirs so EnsureDirectories creates
 	// the directories the operator actually asked for, not only the OS defaults.
 	dirs.Config = configDir
 	dirs.Data = dataDirPath
+	dirs.Cache = cacheDir
 	dirs.Logs = resolvedLogDir
 	dirs.Backup = resolvedBackupDir
 
@@ -381,6 +398,15 @@ func main() {
 	if err != nil {
 		log.Printf("Warning: Failed to load config: %v, using defaults", err)
 		cfg = config.DefaultConfig()
+	}
+	i2pFlagSet := false
+	flag.Visit(func(f *flag.Flag) {
+		if f.Name == "i2p" {
+			i2pFlagSet = true
+		}
+	})
+	if err := applyI2PEnablement(cfg, *i2pEnabledFlag, i2pFlagSet, os.Getenv("I2P_ENABLED")); err != nil {
+		log.Printf("Warning: invalid I2P_ENABLED value, ignoring: %v", err)
 	}
 
 	// Config-file tier of the NO_COLOR priority table (AI.md PART 8): the
@@ -856,7 +882,7 @@ func main() {
 	}
 	var emailMgr *email.EmailManager
 	if smtpCfg.Host != "" {
-		if connErr := email.TestConnection(smtpCfg.Host, smtpCfg.Port); connErr == nil {
+		if connErr := email.TestConnection(smtpCfg); connErr == nil {
 			smtpCfg.Enabled = true
 			emailMgr = email.NewEmailManager(smtpCfg, configDir)
 			emailMgr.Start()
@@ -1036,7 +1062,7 @@ func main() {
 				if branch == "" {
 					branch = "stable"
 				}
-				release, err := updater.CheckForUpdate(context.Background(), Version, branch, buildEpoch())
+				release, err := updater.CheckForScheduledUpdate(context.Background(), Version, branch, buildEpoch(), cfg.Server.Update.DeferDays)
 				if err != nil {
 					return fmt.Errorf("update_check: %w", err)
 				}
@@ -1044,20 +1070,15 @@ func main() {
 					log.Println("scheduler: update_check — already up to date")
 					return nil
 				}
-				// Per AI.md PART 22: defer_days gates the scheduled task only.
-				// A release must have been public for at least defer_days before the task
-				// acts on it. Manual --update check / --update yes always ignores this window.
-				if !updater.IsEligible(*release, cfg.Server.Update.DeferDays) {
-					log.Printf("scheduler: update_check — release %s not yet eligible (defer_days=%d)", release.TagName, cfg.Server.Update.DeferDays)
-					return nil
-				}
 				latestVersion := strings.TrimPrefix(release.TagName, "v")
-				// AI.md PART 17 lists "Update available" at WARN, not INFO.
-				log.Printf("WARN scheduler: update_check — update available: %s -> %s", Version, latestVersion)
 				// update_available is a state-change event, not a per-run report.
 				// The last notified version is persisted so a pending update
 				// does not re-notify on every daily run until it is installed.
 				alreadyNotified := readUpdateNotifiedVersion(updateNotifiedPath) == latestVersion
+				if !alreadyNotified {
+					// AI.md PART 17 lists "Update available" at WARN, not INFO.
+					log.Printf("WARN scheduler: update_check — update available: %s -> %s", Version, latestVersion)
+				}
 				// Per AI.md PART 22 (29592/29597): auto_install:false fires the
 				// update_available event; the email is off by default and gated
 				// by server.notifications.email.events.update_available.
@@ -1069,6 +1090,8 @@ func main() {
 						"new_version":     latestVersion,
 						"channel":         branch,
 					})
+				}
+				if !alreadyNotified {
 					writeUpdateNotifiedVersion(updateNotifiedPath, latestVersion)
 				}
 				if cfg.Server.Update.AutoInstall {
@@ -1088,7 +1111,13 @@ func main() {
 							"timestamp":        time.Now().UTC().Format(time.RFC3339),
 						})
 					}
-					if err := updater.RestartSelf(); err != nil {
+					restart := updater.RestartSelf
+					if svc.IsRunningAsService() {
+						restart = func() error {
+							return updater.RestartServiceDeferred(svc.IsUserServiceManager())
+						}
+					}
+					if err := restart(); err != nil {
 						log.Printf("scheduler: update_check — restart failed: %v; restart manually", err)
 					}
 				}
@@ -1286,8 +1315,13 @@ func main() {
 			Schedule: scheduleFor("@every 10m", cfg.Server.Schedule.Tasks.TorHealth),
 			Enabled:  enabledFor(true, cfg.Server.Schedule.Tasks.TorHealth),
 			Fn: func() error {
-				if healthErr := torMgr.HealthCheck(); healthErr != nil {
-					log.Printf("scheduler: tor_health — control probe failed (%v), restarting Tor", healthErr)
+				healthErr := torMgr.HealthCheck()
+				if healthErr != nil || !torMgr.IsRunning() {
+					if healthErr != nil {
+						log.Printf("scheduler: tor_health — control probe failed (%v), restarting Tor", healthErr)
+					} else {
+						log.Printf("scheduler: tor_health — Tor is not running, retrying startup")
+					}
 					if err := torMgr.Restart(); err != nil {
 						return fmt.Errorf("tor_health: restart failed: %w", err)
 					}
@@ -1442,6 +1476,11 @@ func main() {
 	// ctx is declared below for graceful shutdown; use a local stop channel here.
 	metricsStop := make(chan struct{})
 	if cfg.Server.Metrics.Enabled {
+		if cfg.Server.Metrics.IncludeSystem {
+			smetrics.RegisterSystemMetrics()
+			systemCollector := smetrics.NewSystemCollector(*dataDir, 15*time.Second, metricsStop)
+			systemCollector.Start()
+		}
 		if cfg.Server.Metrics.IncludeRuntime {
 			smetrics.RegisterRuntimeMetrics()
 		}
@@ -1451,6 +1490,9 @@ func main() {
 			rc := smetrics.NewRuntimeCollector()
 			rc.Start()
 			defer rc.Stop()
+		}
+		if serverDB != nil {
+			smetrics.StartDBStatsUpdater(serverDB, metricsStop)
 		}
 		smetrics.StartUptimeUpdater(metricsStop)
 	}
@@ -2065,7 +2107,7 @@ func main() {
 			if logMgr != nil {
 				logMgr.WriteServer("info", "graceful shutdown complete")
 			}
-			os.Exit(0)
+			return
 		}
 	}
 }
@@ -2179,6 +2221,24 @@ Detailed help:
   %s --maintenance --help
   %s --update --help
 `, binaryName, Version, binaryName, len(locales), strings.Join(locales, ", "), binaryName, binaryName, binaryName, binaryName)
+}
+
+// applyI2PEnablement applies the I2P flag, environment, and configuration
+// precedence required by AI.md PART 31.2.
+func applyI2PEnablement(cfg *config.AppConfig, flagValue, flagSet bool, envValue string) error {
+	if flagSet {
+		cfg.Server.I2P.Enabled = flagValue
+		return nil
+	}
+	if strings.TrimSpace(envValue) == "" {
+		return nil
+	}
+	enabled, err := config.ParseBool(envValue, cfg.Server.I2P.Enabled)
+	if err != nil {
+		return err
+	}
+	cfg.Server.I2P.Enabled = enabled
+	return nil
 }
 
 // applyModeString parses a mode string (from the MODE env var or the --mode
@@ -3227,7 +3287,7 @@ func rotateEncryptionKey(conn *sql.DB, configDir string, cfg *config.AppConfig, 
 		os.Exit(exSoftware)
 	}
 	defer func() { _ = tx.Rollback() }()
-	if err := security.ReencryptSecurityReportsTx(tx, oldKey, newKey); err != nil {
+	if err := security.ReencryptSecurityReportsTx(txCtx, tx, oldKey, newKey); err != nil {
 		log.Printf("secret rotate encryption_key: re-encrypt security reports: %v", err)
 		os.Exit(exSoftware)
 	}
@@ -4116,7 +4176,10 @@ func prepareScheduledBackupSnapshot(cfg *config.AppConfig, configDir, dataDir, d
 			return nil, fmt.Errorf("open SQLite source for snapshot: %w", err)
 		}
 		snapshotDB := filepath.Join(dbSnapshotDir, "server.db")
-		if _, err := conn.Exec(`VACUUM INTO ?`, snapshotDB); err != nil {
+		snapshotCtx, cancelSnapshot := context.WithTimeout(context.Background(), 60*time.Second)
+		_, err = conn.ExecContext(snapshotCtx, `VACUUM INTO ?`, snapshotDB)
+		cancelSnapshot()
+		if err != nil {
 			_ = conn.Close()
 			return nil, fmt.Errorf("create SQLite online snapshot: %w", err)
 		}
@@ -4179,7 +4242,10 @@ func verifyBackup(backupFile, password string, layout backupArchiveLayout) error
 	if manifestErr != nil {
 		return fmt.Errorf("check 5 (manifest readable): %w", manifestErr)
 	}
-	manifestChecksum, _ := manifest["checksum"].(string)
+	manifestChecksum, checksumPresent := manifest["checksum"].(string)
+	if !checksumPresent || !strings.HasPrefix(manifestChecksum, "sha256:") || len(strings.TrimPrefix(manifestChecksum, "sha256:")) != 64 {
+		return fmt.Errorf("check 3 (checksum): manifest SHA-256 checksum is missing or invalid")
+	}
 	backupType, _ := manifest["type"].(string)
 	if backupType == "full" || backupType == "incremental" {
 		snapshotAt, ok := manifest["snapshot_at"].(string)
@@ -5210,7 +5276,11 @@ Examples:
 		}
 		fmt.Printf("Updated to %s successfully.\n", latestVersion)
 		fmt.Println("Restarting...")
-		if err := updater.RestartSelf(); err != nil {
+		restart := updater.RestartSelf
+		if svc.IsRunningAsService() {
+			restart = updater.RestartService
+		}
+		if err := restart(); err != nil {
 			fmt.Printf("Restart failed: %v\nPlease restart the server manually.\n", err)
 			os.Exit(0)
 		}

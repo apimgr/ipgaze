@@ -16,6 +16,7 @@ import (
 	applog "github.com/apimgr/ipgaze/src/log"
 	"github.com/apimgr/ipgaze/src/netutil"
 	"github.com/apimgr/ipgaze/src/paths"
+	smetrics "github.com/apimgr/ipgaze/src/server/metrics"
 	"github.com/google/uuid"
 )
 
@@ -102,6 +103,20 @@ func RequestIDMiddleware(next http.Handler) http.Handler {
 		ctx := context.WithValue(r.Context(), requestIDContextKey{}, requestID)
 		w.Header().Set("X-Request-ID", requestID)
 		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+// StripI2PHeadersMiddleware removes client-supplied I2P metadata before any
+// application middleware can inspect or log the request. I2P's SAM SILENT
+// forwarding mode provides no authenticated peer identity.
+func StripI2PHeadersMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		for name := range r.Header {
+			if strings.HasPrefix(strings.ToUpper(name), "X-I2P-") {
+				r.Header.Del(name)
+			}
+		}
+		next.ServeHTTP(w, r)
 	})
 }
 
@@ -831,12 +846,14 @@ func (s *Server) RequireOperatorToken(next http.Handler) http.Handler {
 			reason = "missing_token"
 		}
 		if !s.ValidateOperatorToken(rawToken) {
+			smetrics.RecordAuthAttempt("operator_token", "failure")
 			s.logManager.WriteAuthFailure(sanitizeLogValue(s.authClientIP(r)),
 				sanitizeLogValue(r.URL.Path), reason)
 			padFailedAuth(start)
 			writeUnauthorized(w, r)
 			return
 		}
+		smetrics.RecordAuthAttempt("operator_token", "success")
 		next.ServeHTTP(w, r)
 	})
 }

@@ -73,7 +73,9 @@
     "copy_i2p_aria": "Copier l'adresse I2P",
     "return_home": "Retour à l'accueil",
     "close_notification": "Fermer la notification",
-    "running": "En cours…"
+    "running": "En cours…",
+    "boot_recovery_title": "Échec de la récupération de la page",
+    "boot_recovery_message": "La page n'a pas fini de charger après l'effacement des caches du navigateur. Fermez les autres onglets de ce site, puis rechargez la page."
   },
 
   "theme": {
@@ -169,7 +171,6 @@
   "status_values": {
     "online": "En ligne",
     "offline": "Hors ligne",
-    "maintenance": "Maintenance",
     "starting": "Démarrage",
     "stopping": "Arrêt",
     "error": "Erreur",
@@ -577,7 +578,6 @@
     "metrics": "Métriques",
     "geoip": "GeoIP",
     "scheduler": "Planificateur",
-    "maintenance": "Maintenance",
     "backup": "Sauvegarde",
     "restore": "Restaurer",
     "update": "Mettre à jour",
@@ -756,6 +756,11 @@
   },
 
   "healthz": {
+    "page_title": "État de santé",
+    "degraded_performance": "Performances dégradées",
+    "restart_required": "Redémarrage requis",
+    "maintenance": "Maintenance en cours",
+    "shutting_down": "Arrêt en cours",
     "restart_pending": "Redémarrage en attente :",
     "commit_label": "Commit",
     "build_date_label": "Date de build",

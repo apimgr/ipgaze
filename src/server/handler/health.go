@@ -8,9 +8,11 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	htmltemplate "html/template"
 	"log"
 	"net/http"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -79,7 +81,18 @@ type I2PProviderNamer interface {
 // HealthzPageData combines base page data with the health response for healthz.tmpl.
 type HealthzPageData struct {
 	PageData
-	Health model.HealthResponse
+	Health                model.HealthResponse
+	StatusClass           string
+	StatusIcon            string
+	StatusMessageKey      string
+	TorStatusText         string
+	I2PStatusText         string
+	UptimeText            string
+	BuildDateText         string
+	TimestampText         string
+	RequestsTotalText     string
+	Requests24hText       string
+	ActiveConnectionsText string
 }
 
 // HealthHandler handles health check routes
@@ -294,7 +307,11 @@ func (h *HealthHandler) checkTor() string {
 // "ok" when the eepsite is running, "error" when enabled but not running,
 // and "" (empty) when I2P is disabled/unavailable so the field is omitted.
 func (h *HealthHandler) checkI2P() string {
-	if h.I2PStatus == nil || !h.I2PStatus.IsAvailable() {
+	if h.I2PStatus == nil {
+		return ""
+	}
+	state := h.I2PStatus.Status()
+	if state == "disabled" || state == "no_provider" {
 		return ""
 	}
 	if h.I2PStatus.IsRunning() {
@@ -368,12 +385,31 @@ func (h *HealthHandler) buildHealthResponse() model.HealthResponse {
 		}
 	}
 
-	i2pInfo := model.I2PInfo{Status: "disabled", Provider: i2pProviderNone}
-	if h.I2PStatus != nil && h.I2PStatus.IsAvailable() {
+	i2pInfo := model.I2PInfo{Status: "disabled", State: "disabled", Provider: i2pProviderNone}
+	if h.I2PStatus != nil {
+		state := h.I2PStatus.Status()
+		status := state
+		switch state {
+		case "disabled", "no_provider":
+			status = "disabled"
+		case "starting", "building":
+			status = "starting"
+		case "running", "healthy":
+			status = "healthy"
+		case "error":
+			status = "error"
+		default:
+			if strings.HasPrefix(state, "error:") {
+				status = state
+			} else if state == "" {
+				state, status = "disabled", "disabled"
+			}
+		}
 		i2pInfo = model.I2PInfo{
-			Enabled:  true,
+			Enabled:  state != "disabled",
 			Running:  h.I2PStatus.IsRunning(),
-			Status:   h.I2PStatus.Status(),
+			Status:   status,
+			State:    state,
 			Hostname: h.I2PStatus.GetHostname(),
 			Provider: h.i2pProvider(),
 		}
@@ -441,6 +477,97 @@ func (h *HealthHandler) buildHealthResponse() model.HealthResponse {
 }
 
 // HealthzHandler serves health check with content negotiation (JSON/text/HTML)
+// healthzPageData adds human-readable values and the PART 13 status banner to
+// the machine response without changing the JSON or API text representations.
+func healthzPageData(pd PageData, health model.HealthResponse) HealthzPageData {
+	class, icon, messageKey := "status-error", "❌", "health.unhealthy"
+	switch health.Status {
+	case statusHealthy:
+		class, icon, messageKey = "status-ok", "✅", "health.all_operational"
+	case statusDegraded:
+		class, icon, messageKey = "status-warning", "⚠️", "healthz.degraded_performance"
+	case statusRestartRequired:
+		class, icon, messageKey = "status-warning", "🔄", "healthz.restart_required"
+	case statusMaintenance:
+		class, icon, messageKey = "status-error", "🚧", "healthz.maintenance"
+	case statusShuttingDown:
+		class, icon, messageKey = "status-error", "🛑", "healthz.shutting_down"
+	}
+	buildDate := health.Build.Date
+	if parsed, err := time.Parse(time.RFC3339, buildDate); err == nil {
+		buildDate = frontendTimestamp(parsed)
+	}
+	return HealthzPageData{
+		PageData: pd, Health: health,
+		StatusClass: class, StatusIcon: icon, StatusMessageKey: messageKey,
+		TorStatusText: healthFeatureStatus(pd.Lang, health.Features.Tor.Status),
+		I2PStatusText: healthFeatureStatus(pd.Lang, health.Features.I2P.Status),
+		UptimeText:    frontendDuration(health.Uptime), BuildDateText: buildDate,
+		TimestampText:         frontendTimestamp(health.Timestamp),
+		RequestsTotalText:     formatHealthCount(health.Stats.RequestsTotal),
+		Requests24hText:       formatHealthCount(health.Stats.Requests24h),
+		ActiveConnectionsText: formatHealthCount(int64(health.Stats.ActiveConns)),
+	}
+}
+
+func healthFeatureStatus(lang, status string) string {
+	if strings.HasPrefix(status, "error:") {
+		return i18n.Translate(lang, "common.error") + strings.TrimPrefix(status, "error")
+	}
+	keys := map[string]string{
+		"healthy":  "health.healthy",
+		"starting": "status_values.starting",
+		"disabled": "common.disabled",
+		"error":    "common.error",
+	}
+	if key := keys[status]; key != "" {
+		return i18n.Translate(lang, key)
+	}
+	return status
+}
+
+func frontendTimestamp(t time.Time) string {
+	return t.UTC().Format("January 02, 2006 at 15:04:05 MST")
+}
+
+func frontendDuration(compact string) string {
+	var days, hours, minutes int
+	if _, err := fmt.Sscanf(compact, "%dd %dh %dm", &days, &hours, &minutes); err == nil {
+		if days > 0 {
+			return fmt.Sprintf("%d days %d hours", days, hours)
+		}
+		if hours > 0 {
+			return fmt.Sprintf("%d hours", hours)
+		}
+		return fmt.Sprintf("%d minutes", minutes)
+	}
+	if _, err := fmt.Sscanf(compact, "%dh %dm", &hours, &minutes); err == nil {
+		if hours > 0 {
+			return fmt.Sprintf("%d hours", hours)
+		}
+		return fmt.Sprintf("%d minutes", minutes)
+	}
+	if _, err := fmt.Sscanf(compact, "%dm", &minutes); err == nil {
+		return fmt.Sprintf("%d minutes", minutes)
+	}
+	return compact
+}
+
+func formatHealthCount(value int64) string {
+	negative := value < 0
+	if negative {
+		value = -value
+	}
+	digits := strconv.FormatInt(value, 10)
+	for i := len(digits) - 3; i > 0; i -= 3 {
+		digits = digits[:i] + "," + digits[i:]
+	}
+	if negative {
+		return "-" + digits
+	}
+	return digits
+}
+
 // Per PART 13: /healthz supports HTML, JSON, and text based on Accept header
 func (h *HealthHandler) HealthzHandler(w http.ResponseWriter, r *http.Request) {
 	accept := r.Header.Get("Accept")
@@ -463,7 +590,7 @@ func (h *HealthHandler) HealthzHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Plain text only for the clients that cannot use HTML (see healthWantsText).
 	if healthWantsText(r) {
-		writeHealthText(w, health, code)
+		writeFrontendHealthText(r, w, health, code)
 		return
 	}
 
@@ -473,7 +600,7 @@ func (h *HealthHandler) HealthzHandler(w http.ResponseWriter, r *http.Request) {
 		if h.PageDataFunc != nil {
 			pd = h.PageDataFunc(r)
 		}
-		data := HealthzPageData{PageData: pd, Health: health}
+		data := healthzPageData(pd, health)
 		// Buffer the render so a template failure cannot leave a half-written
 		// body behind, and so the PART 13 status code is applied to a page that
 		// actually rendered.
@@ -487,157 +614,138 @@ func (h *HealthHandler) HealthzHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// HTML response for browsers — PART 13 canonical field order with 30s auto-refresh
-	// and a visible countdown timer (JS progressive enhancement; meta-refresh as fallback).
-	// Fallback path when template renderer is not configured.
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	torRow := ""
-	if health.Checks.Tor != "" {
-		torRow = fmt.Sprintf("<li><strong>checks.tor:</strong> %s</li>", health.Checks.Tor)
-	}
-	i2pRow := ""
-	if health.Checks.I2P != "" {
-		i2pRow = fmt.Sprintf("<li><strong>checks.i2p:</strong> %s</li>", health.Checks.I2P)
-	}
-	// Resolve the request language so the fallback page carries the same
-	// lang/dir contract as the templated pages.
-	fallbackLang := i18n.DetectLocale(r)
-	fallbackDir := string(i18n.LocaleDirection(fallbackLang))
-	w.WriteHeader(code)
-	_, _ = fmt.Fprintf(w, `<!DOCTYPE html>
-<html lang="%s" dir="%s">
-  <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="refresh" content="30">
-    <title>%s - Health Status</title>
-  </head>
-  <body>
-    <header>
-      <h1>%s</h1>
-      <p class="tagline">%s</p>
-      <p>%s</p>
-    </header>
-    <main>
-      <p class="status-banner"><strong>status:</strong> %s</p>
-      <ul>
-        <li><strong>version:</strong> %s</li>
-        <li><strong>go_version:</strong> %s</li>
-        <li><strong>build.commit:</strong> %s</li>
-        <li><strong>build.date:</strong> %s</li>
-        <li><strong>uptime:</strong> %s</li>
-        <li><strong>mode:</strong> %s</li>
-        <li><strong>timestamp:</strong> <time datetime="%s">%s</time></li>
-        <li><strong>features.tor.enabled:</strong> %v</li>
-        <li><strong>features.tor.running:</strong> %v</li>
-        <li><strong>features.tor.status:</strong> %s</li>
-        <li><strong>features.tor.hostname:</strong> %s</li>
-        <li><strong>features.i2p.enabled:</strong> %v</li>
-        <li><strong>features.i2p.running:</strong> %v</li>
-        <li><strong>features.i2p.status:</strong> %s</li>
-        <li><strong>features.i2p.hostname:</strong> %s</li>
-        <li><strong>features.i2p.provider:</strong> %s</li>
-        <li><strong>features.geoip:</strong> %v</li>
-        <li><strong>checks.database:</strong> %s</li>
-        <li><strong>checks.cache:</strong> %s</li>
-        <li><strong>checks.disk:</strong> %s</li>
-        <li><strong>checks.scheduler:</strong> %s</li>
-        %s
-        %s
-        <li><strong>stats.requests_total:</strong> %d</li>
-        <li><strong>stats.requests_24h:</strong> %d</li>
-        <li><strong>stats.active_connections:</strong> %d</li>
-      </ul>
-      <p>Refreshing every 30s</p>
-    </main>
-  </body>
-</html>
-`,
-		fallbackLang,
-		fallbackDir,
-		health.Project.Name,
-		health.Project.Name,
-		health.Project.Tagline,
-		health.Project.Description,
-		health.Status,
-		health.Version,
-		health.GoVersion,
-		health.Build.Commit,
-		health.Build.Date,
-		health.Uptime,
-		health.Mode,
-		health.Timestamp.Format(time.RFC3339),
-		health.Timestamp.Format(time.RFC3339),
-		health.Features.Tor.Enabled,
-		health.Features.Tor.Running,
-		health.Features.Tor.Status,
-		health.Features.Tor.Hostname,
-		health.Features.I2P.Enabled,
-		health.Features.I2P.Running,
-		health.Features.I2P.Status,
-		health.Features.I2P.Hostname,
-		health.Features.I2P.Provider,
-		health.Features.GeoIP,
-		health.Checks.Database,
-		health.Checks.Cache,
-		health.Checks.Disk,
-		health.Checks.Scheduler,
-		torRow,
-		i2pRow,
-		health.Stats.RequestsTotal,
-		health.Stats.Requests24h,
-		health.Stats.ActiveConns,
-	)
+	writeHealthHTMLFallback(w, r, health, code)
 }
 
-// writeHealthText writes the flat dot-notation plain-text health representation
-// per AI.md PART 13 canonical field order. Shared by the frontend
-// /server/healthz text fallback and the /api/{api_version}/server/healthz
-// text negotiation path (PART 14 API response rules). code is the PART 13
-// status code for health.Status.
-func writeHealthText(w http.ResponseWriter, health model.HealthResponse, code int) {
+// writeHealthHTMLFallback renders the public health fields safely when a custom
+// page renderer is unavailable.
+func writeHealthHTMLFallback(w http.ResponseWriter, r *http.Request, health model.HealthResponse, code int) {
+	lang := i18n.DetectLocale(r)
+	page := healthzPageData(PageData{Lang: lang, Dir: string(i18n.LocaleDirection(lang))}, health)
+	const source = `<!doctype html>
+<!DOCTYPE html><html lang="{{.Lang}}" dir="{{.Dir}}" class="theme-dark"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="refresh" content="30"><title>{{.Health.Project.Name}} - {{t .Lang "healthz.page_title"}}</title></head>
+<body><header></header><main class="container"><header class="health-header"><h1>📦 {{.Health.Project.Name}}</h1><p class="tagline">{{.Health.Project.Tagline}}</p><p>{{.Health.Project.Description}}</p></header>
+<div class="status-banner {{.StatusClass}}" data-health-status="{{.Health.Status}}"><span class="status-icon">{{.StatusIcon}}</span><span class="status-text">{{t .Lang .StatusMessageKey}}</span></div>
+<section class="section-card"><h2>{{t .Lang "health.version"}} &amp; {{t .Lang "health.build"}}</h2><dl class="info-list"><dt>{{t .Lang "health.version"}}</dt><dd><code>{{.Health.Version}}</code></dd><dt>{{t .Lang "health.go_version"}}</dt><dd><code>{{.Health.GoVersion}}</code></dd><dt>{{t .Lang "healthz.commit_label"}}</dt><dd><code>{{.Health.Build.Commit}}</code></dd><dt>{{t .Lang "healthz.build_date_label"}}</dt><dd><time datetime="{{.Health.Build.Date}}">{{.BuildDateText}}</time></dd><dt>{{t .Lang "health.uptime"}}</dt><dd>{{.UptimeText}}</dd><dt>{{t .Lang "health.mode"}}</dt><dd><span class="badge badge-{{.Health.Mode}}">{{.Health.Mode}}</span></dd><dt>{{t .Lang "healthz.timestamp_label"}}</dt><dd><time datetime="{{.Health.Timestamp}}">{{.TimestampText}}</time></dd></dl></section>
+<section class="section-card"><h2>{{t .Lang "health.features"}}</h2><ul class="feature-list"><li class="{{if .Health.Features.Tor.Enabled}}feature-enabled{{else}}feature-disabled{{end}}">🧅 {{t .Lang "healthz.check_tor"}}: {{.TorStatusText}}{{if .Health.Features.Tor.Hostname}} - <code>{{.Health.Features.Tor.Hostname}}</code>{{end}}</li>{{if .Health.Features.I2P.Enabled}}<li class="feature-enabled">🔗 {{t .Lang "healthz.check_i2p"}}: {{.I2PStatusText}}{{if .Health.Features.I2P.Hostname}} - <code>{{.Health.Features.I2P.Hostname}}</code>{{end}} ({{.Health.Features.I2P.Provider}})</li>{{else}}<li class="feature-disabled">🔗 I2P: {{t .Lang "common.disabled"}}</li>{{end}}<li class="{{if .Health.Features.GeoIP}}feature-enabled{{else}}feature-disabled{{end}}">🌍 {{t .Lang "admin.geoip"}}</li></ul></section>
+<section class="section-card"><h2>{{t .Lang "health.component_status"}}</h2><div class="table-wrapper"><table class="data-table"><thead><tr><th>{{t .Lang "healthz.column_component"}}</th><th>{{t .Lang "health.status"}}</th></tr></thead><tbody><tr><td>{{t .Lang "healthz.check_database"}}</td><td>{{.Health.Checks.Database}}</td></tr><tr><td>{{t .Lang "healthz.check_cache"}}</td><td>{{.Health.Checks.Cache}}</td></tr><tr><td>{{t .Lang "healthz.check_disk"}}</td><td>{{.Health.Checks.Disk}}</td></tr><tr><td>{{t .Lang "healthz.check_scheduler"}}</td><td>{{.Health.Checks.Scheduler}}</td></tr>{{if .Health.Checks.Tor}}<tr><td>{{t .Lang "healthz.check_tor"}}</td><td>{{.Health.Checks.Tor}}</td></tr>{{end}}{{if .Health.Checks.I2P}}<tr><td>{{t .Lang "healthz.check_i2p"}}</td><td>{{.Health.Checks.I2P}}</td></tr>{{end}}</tbody></table></div></section>
+<section class="section-card"><h2>{{t .Lang "health.server_statistics"}}</h2><dl class="info-list stats-grid"><dt>{{t .Lang "health.total_requests"}}</dt><dd>{{.RequestsTotalText}}</dd><dt>{{t .Lang "health.requests_24h"}}</dt><dd>{{.Requests24hText}}</dd><dt>{{t .Lang "health.active_connections"}}</dt><dd>{{.ActiveConnectionsText}}</dd></dl></section>
+<footer class="health-footer"><p>{{t .Lang "health.last_checked"}} <time datetime="{{.Health.Timestamp}}">{{.TimestampText}}</time></p><p>{{t .Lang "healthz.refreshing_in_prefix"}} 30s</p></footer></main><footer></footer></body></html>`
+	tmpl, err := htmltemplate.New("healthz").Funcs(htmltemplate.FuncMap{"t": i18n.Translate}).Parse(source)
+	if err != nil {
+		writeHandlerFallback(w, r, http.StatusInternalServerError, i18n.Translate(lang, "errors.server_error"), false)
+		return
+	}
+	var body bytes.Buffer
+	if err := tmpl.Execute(&body, page); err != nil {
+		writeHandlerFallback(w, r, http.StatusInternalServerError, i18n.Translate(lang, "errors.server_error"), false)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(code)
+	_, _ = w.Write(body.Bytes())
+}
+
+func writeAPIHealthText(w http.ResponseWriter, health model.HealthResponse, code int) {
 	w.Header().Set("Content-Type", textMediaType)
 	w.WriteHeader(code)
-	_, _ = fmt.Fprintf(w,
-		"project.name: %s\nproject.tagline: %s\nproject.description: %s\nstatus: %s\nversion: %s\ngo_version: %s\nbuild.commit: %s\nbuild.date: %s\nuptime: %s\nmode: %s\ntimestamp: %s\nfeatures.tor.enabled: %v\nfeatures.tor.running: %v\nfeatures.tor.status: %s\nfeatures.tor.hostname: %s\nfeatures.i2p.enabled: %v\nfeatures.i2p.running: %v\nfeatures.i2p.status: %s\nfeatures.i2p.hostname: %s\nfeatures.i2p.provider: %s\nfeatures.geoip: %v\nchecks.database: %s\nchecks.cache: %s\nchecks.disk: %s\nchecks.scheduler: %s\n",
-		health.Project.Name,
-		health.Project.Tagline,
-		health.Project.Description,
-		health.Status,
-		health.Version,
-		health.GoVersion,
-		health.Build.Commit,
-		health.Build.Date,
-		health.Uptime,
-		health.Mode,
-		health.Timestamp.Format(time.RFC3339),
-		health.Features.Tor.Enabled,
-		health.Features.Tor.Running,
-		health.Features.Tor.Status,
-		health.Features.Tor.Hostname,
-		health.Features.I2P.Enabled,
-		health.Features.I2P.Running,
-		health.Features.I2P.Status,
-		health.Features.I2P.Hostname,
-		health.Features.I2P.Provider,
-		health.Features.GeoIP,
-		health.Checks.Database,
-		health.Checks.Cache,
-		health.Checks.Disk,
-		health.Checks.Scheduler,
-	)
+	_, _ = fmt.Fprintf(w, "project.name: %s\nproject.tagline: %s\nproject.description: %s\nstatus: %s\n", health.Project.Name, health.Project.Tagline, health.Project.Description, health.Status)
+	if health.PendingRestart {
+		_, _ = fmt.Fprintf(w, "pending_restart: true\nrestart_reason: %s\n", strings.Join(health.RestartReason, ","))
+	}
+	_, _ = fmt.Fprintf(w, "version: %s\ngo_version: %s\nbuild.commit: %s\nbuild.date: %s\nuptime: %s\nmode: %s\ntimestamp: %s\n", health.Version, health.GoVersion, health.Build.Commit, health.Build.Date, health.Uptime, health.Mode, health.Timestamp.Format(time.RFC3339))
+	_, _ = fmt.Fprintf(w, "features.tor: %s", health.Features.Tor.Status)
+	if health.Features.Tor.Hostname != "" {
+		_, _ = fmt.Fprintf(w, " %s", health.Features.Tor.Hostname)
+	}
+	_, _ = fmt.Fprintln(w)
+	_, _ = fmt.Fprintf(w, "features.i2p: %s", health.Features.I2P.Status)
+	if health.Features.I2P.Hostname != "" {
+		_, _ = fmt.Fprintf(w, " %s", health.Features.I2P.Hostname)
+	}
+	_, _ = fmt.Fprintf(w, " provider=%s state=%s\n", health.Features.I2P.Provider, health.Features.I2P.State)
+	geoip := "disabled"
+	if health.Features.GeoIP {
+		geoip = "enabled"
+	}
+	_, _ = fmt.Fprintf(w, "features.geoip: %s\nchecks.database: %s\nchecks.cache: %s\nchecks.disk: %s\nchecks.scheduler: %s\n", geoip, health.Checks.Database, health.Checks.Cache, health.Checks.Disk, health.Checks.Scheduler)
 	if health.Checks.Tor != "" {
 		_, _ = fmt.Fprintf(w, "checks.tor: %s\n", health.Checks.Tor)
 	}
 	if health.Checks.I2P != "" {
 		_, _ = fmt.Fprintf(w, "checks.i2p: %s\n", health.Checks.I2P)
 	}
-	_, _ = fmt.Fprintf(w,
-		"stats.requests_total: %d\nstats.requests_24h: %d\nstats.active_connections: %d\n",
-		health.Stats.RequestsTotal,
-		health.Stats.Requests24h,
-		health.Stats.ActiveConns,
-	)
+	_, _ = fmt.Fprintf(w, "stats.requests_total: %d\nstats.requests_24h: %d\nstats.active_connections: %d\n", health.Stats.RequestsTotal, health.Stats.Requests24h, health.Stats.ActiveConns)
+}
+
+// writeFrontendHealthText produces the human-readable frontend representation
+// required for /server/healthz and the optional /healthz alias.
+func writeFrontendHealthText(r *http.Request, w http.ResponseWriter, health model.HealthResponse, code int) {
+	lang := i18n.DetectLocale(r)
+	statusLabel := map[string]string{
+		statusHealthy:         i18n.Translate(lang, "health.healthy"),
+		statusDegraded:        i18n.Translate(lang, "healthz.degraded_performance"),
+		statusRestartRequired: i18n.Translate(lang, "healthz.restart_required"),
+		statusUnhealthy:       i18n.Translate(lang, "health.unhealthy"),
+		statusMaintenance:     i18n.Translate(lang, "healthz.maintenance"),
+		statusShuttingDown:    i18n.Translate(lang, "healthz.shutting_down"),
+	}[health.Status]
+	if statusLabel == "" {
+		statusLabel = health.Status
+	}
+	w.Header().Set("Content-Type", textMediaType)
+	w.WriteHeader(code)
+	_, _ = fmt.Fprintf(w, "%s - %s\n\n%s: %s\n%s: %s\n%s: %s (%s)\n%s: %s\n%s: %s\n%s: %s\n%s %s\n\n%s\n", health.Project.Name, health.Project.Tagline, i18n.Translate(lang, "health.status"), statusLabel, i18n.Translate(lang, "health.version"), health.Version, i18n.Translate(lang, "health.build"), health.Build.Commit, frontendTimestampString(health.Build.Date), i18n.Translate(lang, "health.go_version"), health.GoVersion, i18n.Translate(lang, "health.uptime"), frontendDuration(health.Uptime), i18n.Translate(lang, "health.mode"), health.Mode, i18n.Translate(lang, "health.last_checked"), frontendTimestamp(health.Timestamp), i18n.Translate(lang, "health.features"))
+	if health.PendingRestart {
+		_, _ = fmt.Fprintf(w, "  %s %s\n", i18n.Translate(lang, "healthz.restart_pending"), strings.Join(health.RestartReason, ", "))
+	}
+	if health.Features.Tor.Enabled {
+		_, _ = fmt.Fprintf(w, "  %s: %s", i18n.Translate(lang, "healthz.check_tor"), healthFeatureStatus(lang, health.Features.Tor.Status))
+		if health.Features.Tor.Hostname != "" {
+			_, _ = fmt.Fprintf(w, " - %s", health.Features.Tor.Hostname)
+		}
+		_, _ = fmt.Fprintln(w)
+	} else {
+		_, _ = fmt.Fprintf(w, "  %s: %s\n", i18n.Translate(lang, "healthz.check_tor"), i18n.Translate(lang, "common.disabled"))
+	}
+	if health.Features.I2P.Enabled {
+		_, _ = fmt.Fprintf(w, "  %s: %s", i18n.Translate(lang, "healthz.check_i2p"), healthFeatureStatus(lang, health.Features.I2P.Status))
+		if health.Features.I2P.Hostname != "" {
+			_, _ = fmt.Fprintf(w, " - %s", health.Features.I2P.Hostname)
+		}
+		_, _ = fmt.Fprintf(w, " (%s)\n", health.Features.I2P.Provider)
+	} else {
+		_, _ = fmt.Fprintf(w, "  %s: %s\n", i18n.Translate(lang, "healthz.check_i2p"), i18n.Translate(lang, "common.disabled"))
+	}
+	featureState := i18n.Translate(lang, "common.disabled")
+	if health.Features.GeoIP {
+		featureState = i18n.Translate(lang, "common.enabled")
+	}
+	_, _ = fmt.Fprintf(w, "  %s: %s\n\n%s\n", i18n.Translate(lang, "admin.geoip"), featureState, i18n.Translate(lang, "health.component_status"))
+	checks := []struct{ name, value string }{
+		{i18n.Translate(lang, "healthz.check_database"), health.Checks.Database},
+		{i18n.Translate(lang, "healthz.check_cache"), health.Checks.Cache},
+		{i18n.Translate(lang, "healthz.check_disk"), health.Checks.Disk},
+		{i18n.Translate(lang, "healthz.check_scheduler"), health.Checks.Scheduler},
+	}
+	if health.Checks.Tor != "" {
+		checks = append(checks, struct{ name, value string }{i18n.Translate(lang, "healthz.check_tor"), health.Checks.Tor})
+	}
+	if health.Checks.I2P != "" {
+		checks = append(checks, struct{ name, value string }{i18n.Translate(lang, "healthz.check_i2p"), health.Checks.I2P})
+	}
+	for _, check := range checks {
+		_, _ = fmt.Fprintf(w, "  %-22s %s\n", check.name+":", check.value)
+	}
+	_, _ = fmt.Fprintf(w, "\n%s\n  %-22s %s\n  %-22s %s\n  %-22s %s\n", i18n.Translate(lang, "health.server_statistics"), i18n.Translate(lang, "health.total_requests")+":", formatHealthCount(health.Stats.RequestsTotal), i18n.Translate(lang, "health.requests_24h")+":", formatHealthCount(health.Stats.Requests24h), i18n.Translate(lang, "health.active_connections")+":", formatHealthCount(int64(health.Stats.ActiveConns)))
+}
+
+func frontendTimestampString(value string) string {
+	parsed, err := time.Parse(time.RFC3339, value)
+	if err != nil {
+		return value
+	}
+	return frontendTimestamp(parsed)
 }
 
 // apiHealthWantsText reports whether an /api/{api_version}/server/healthz request
@@ -649,6 +757,9 @@ func writeHealthText(w http.ResponseWriter, health model.HealthResponse, code in
 //     python-requests, go-http-client, axios, node-fetch, empty UA) -> text
 //  4. Default (browsers, our CLI, `Accept: application/json`) -> JSON
 func apiHealthWantsText(r *http.Request) bool {
+	if r.URL.Path == "/api/healthz" {
+		return false
+	}
 	if strings.HasSuffix(r.URL.Path, ".txt") {
 		return true
 	}
@@ -688,7 +799,7 @@ func (h *HealthHandler) APIV1HealthzHandler(w http.ResponseWriter, r *http.Reque
 	// PART 14 API response rules: JSON by default, text for text/plain or
 	// non-interactive CLI clients (PART 13 references these rules for healthz).
 	if apiHealthWantsText(r) {
-		writeHealthText(w, health, code)
+		writeAPIHealthText(w, health, code)
 		return
 	}
 	writeHealthJSON(r.Context(), w, health, code)

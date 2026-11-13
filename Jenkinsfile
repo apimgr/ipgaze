@@ -2,7 +2,7 @@ pipeline {
     agent none
 
     triggers {
-        // Daily build at 3am UTC (matches GitHub Actions daily.yml) and
+        // Devel build at 3am UTC (matches GitHub Actions devel.yml) and
         // daily devel image rebuild at 4am UTC (matches docker.yml build-devel job)
         cron('0 3 * * *\n0 4 * * *')
     }
@@ -37,9 +37,9 @@ pipeline {
                         env.BUILD_TYPE = 'beta'
                         env.VERSION = sh(script: 'date -u +"%Y%m%d%H%M%S"', returnStdout: true).trim() + '-beta'
                     } else if (env.BRANCH_NAME == 'main' || env.BRANCH_NAME == 'master') {
-                        // Daily build - matches daily.yml
+                        // Devel build - matches devel.yml
                         // Daily identity is the commit being built, not a timestamp
-                        env.BUILD_TYPE = 'daily'
+                        env.BUILD_TYPE = 'devel'
                         env.VERSION = sh(script: 'git rev-parse --short=7 HEAD', returnStdout: true).trim()
                     } else {
                         // Other branches - dev build
@@ -592,11 +592,11 @@ pipeline {
             }
         }
 
-        // Daily Release - matches daily.yml (main/master + scheduled)
-        stage('Release: Daily') {
+        // Devel Release - matches devel.yml (main/master + scheduled)
+        stage('Release: Devel') {
             agent { label 'amd64' }
             when {
-                expression { env.BUILD_TYPE == 'daily' }
+                expression { env.BUILD_TYPE == 'devel' }
             }
             steps {
                 sh '''

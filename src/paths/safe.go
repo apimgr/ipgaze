@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"unicode"
 )
 
 // validPathSegment matches lowercase alphanumeric, hyphens, underscores
@@ -21,6 +22,25 @@ var (
 	// ErrPathOutsideBase indicates path escapes the allowed base directory
 	ErrPathOutsideBase = errors.New("path outside allowed directory")
 )
+
+// SafeDirPath validates a filesystem directory override without changing its
+// absolute or relative nature.
+func SafeDirPath(input string) (string, error) {
+	if input == "" {
+		return "", errors.New("empty path")
+	}
+	for _, char := range input {
+		if unicode.IsControl(char) {
+			return "", errors.New("invalid characters")
+		}
+	}
+	for _, segment := range strings.Split(filepath.ToSlash(input), "/") {
+		if segment == ".." {
+			return "", ErrPathTraversal
+		}
+	}
+	return filepath.Clean(input), nil
+}
 
 // SafePath validates and normalizes a path, preventing traversal attacks.
 // It returns the cleaned path relative to the base directory.

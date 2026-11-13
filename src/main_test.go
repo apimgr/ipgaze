@@ -72,6 +72,94 @@ func TestMultiValueFlagString(t *testing.T) {
 	}
 }
 
+func TestResolvePIDFilePathPrecedence(t *testing.T) {
+	t.Setenv("PID_FILE", "/env/ipgaze.pid")
+	if got := resolvePIDFilePath("/flag/ipgaze.pid", "/default/ipgaze.pid"); got != "/flag/ipgaze.pid" {
+		t.Errorf("flag PID path = %q", got)
+	}
+	if got := resolvePIDFilePath("", "/default/ipgaze.pid"); got != "/env/ipgaze.pid" {
+		t.Errorf("environment PID path = %q", got)
+	}
+	t.Setenv("PID_FILE", "")
+	if got := resolvePIDFilePath("", "/default/ipgaze.pid"); got != "/default/ipgaze.pid" {
+		t.Errorf("default PID path = %q", got)
+	}
+}
+
+func TestParsePortSpec(t *testing.T) {
+	tests := []struct {
+		input, httpPort, httpsPort string
+	}{
+		{"", "", ""},
+		{"  ", "", ""},
+		{"8080", "8080", ""},
+		{" 8090 , 8443 ", "8090", "8443"},
+		{",8443", "", "8443"},
+		{"8090,", "8090", ""},
+	}
+	for _, test := range tests {
+		httpPort, httpsPort := parsePortSpec(test.input)
+		if httpPort != test.httpPort || httpsPort != test.httpsPort {
+			t.Errorf("parsePortSpec(%q) = (%q, %q), want (%q, %q)", test.input, httpPort, httpsPort, test.httpPort, test.httpsPort)
+		}
+	}
+}
+
+func TestResolveServerPortPrecedence(t *testing.T) {
+	t.Setenv("PORT", " 9090 ")
+	if got := resolveServerPort(" 8080 ", &config.AppConfig{}); got != "8080" {
+		t.Errorf("flag port = %q, want 8080", got)
+	}
+	if got := resolveServerPort("", &config.AppConfig{Server: config.ServerConfig{Port: " 7000 "}}); got != "7000" {
+		t.Errorf("persisted port = %q, want 7000", got)
+	}
+	if got := resolveServerPort("", &config.AppConfig{}); got != "9090" {
+		t.Errorf("environment port = %q, want 9090", got)
+	}
+	if got := resolveServerPort("", nil); got != "9090" {
+		t.Errorf("nil config environment port = %q, want 9090", got)
+	}
+	t.Setenv("PORT", "")
+	if got := resolveServerPort("", nil); got != "" {
+		t.Errorf("empty port = %q, want empty", got)
+	}
+}
+
+func TestApplyModeString(t *testing.T) {
+	if err := applyModeString(&config.AppConfig{}, "invalid"); err == nil {
+		t.Fatal("invalid mode was accepted")
+	}
+	production := &config.AppConfig{}
+	if err := applyModeString(production, "production"); err != nil {
+		t.Fatalf("apply production mode: %v", err)
+	}
+	if production.Server.Mode != "production" {
+		t.Errorf("production mode = %q", production.Server.Mode)
+	}
+
+	previous, wasSet := os.LookupEnv("DEBUG")
+	if err := os.Unsetenv("DEBUG"); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if wasSet {
+			_ = os.Setenv("DEBUG", previous)
+		} else {
+			_ = os.Unsetenv("DEBUG")
+		}
+	})
+	debug := &config.AppConfig{}
+	if err := applyModeString(debug, "debug"); err != nil {
+		t.Fatalf("apply debug mode: %v", err)
+	}
+	if debug.Server.Mode != "debug" {
+		t.Errorf("debug alias mode = %q, want debug", debug.Server.Mode)
+	}
+	if os.Getenv("DEBUG") != "true" {
+		t.Errorf("DEBUG = %q, want true for debug alias", os.Getenv("DEBUG"))
+	}
+}
+
 // ---------------------------------------------------------------------------
 // multiValueFlag.Set
 // ---------------------------------------------------------------------------
@@ -631,5 +719,37 @@ func TestBannerPortSuffix(t *testing.T) {
 		if got := bannerPortSuffix(tt.proto, tt.port); got != tt.want {
 			t.Errorf("bannerPortSuffix(%q, %q) = %q, want %q", tt.proto, tt.port, got, tt.want)
 		}
+	}
+}
+
+func TestApplyI2PEnablementPrecedence(t *testing.T) {
+	tests := []struct {
+		name       string
+		configured bool
+		flagValue  bool
+		flagSet    bool
+		envValue   string
+		want       bool
+		wantErr    bool
+	}{
+		{name: "config fallback", configured: true, want: true},
+		{name: "environment enables", envValue: "yes", want: true},
+		{name: "environment disables", configured: true, envValue: "false", want: false},
+		{name: "flag enables over environment", flagValue: true, flagSet: true, envValue: "false", want: true},
+		{name: "flag disables over environment", configured: true, flagSet: true, envValue: "true", want: false},
+		{name: "invalid environment preserves config", configured: true, envValue: "sometimes", want: true, wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := config.DefaultConfig()
+			cfg.Server.I2P.Enabled = tt.configured
+			err := applyI2PEnablement(cfg, tt.flagValue, tt.flagSet, tt.envValue)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("applyI2PEnablement() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if got := cfg.Server.I2P.Enabled; got != tt.want {
+				t.Errorf("I2P enabled = %v, want %v", got, tt.want)
+			}
+		})
 	}
 }

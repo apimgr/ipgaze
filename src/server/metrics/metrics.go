@@ -1,12 +1,123 @@
 package metrics
 
 import (
+	"context"
+	"database/sql"
+	"errors"
 	"runtime"
+	"strings"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 )
+
+// RecordDBQuery updates the bounded-cardinality database metrics for one SQL
+// operation. Table names are taken only from the app's static SQL statements.
+func RecordDBQuery(query string, duration time.Duration, err error) {
+	operation, table := classifyDBStatement(query)
+	DBQueriesTotal.WithLabelValues(operation, table).Inc()
+	DBQueryDuration.WithLabelValues(operation, table).Observe(duration.Seconds())
+	if err != nil {
+		DBErrorsTotal.WithLabelValues(operation, classifyDBError(err)).Inc()
+	}
+}
+
+// RecordAuthAttempt records only the authentication mechanism and outcome;
+// credentials and caller identifiers are never metric labels.
+func RecordAuthAttempt(method, status string) {
+	AuthAttemptsTotal.WithLabelValues(method, status).Inc()
+}
+
+func classifyDBStatement(query string) (string, string) {
+	fields := strings.Fields(strings.TrimSpace(query))
+	if len(fields) == 0 {
+		return "other", "unknown"
+	}
+	op := strings.ToLower(strings.Trim(fields[0], "(\"`"))
+	if op == "with" {
+		for _, field := range fields[1:] {
+			candidate := strings.ToLower(strings.Trim(field, "(\"`"))
+			if candidate == "select" || candidate == "insert" || candidate == "update" || candidate == "delete" {
+				op = candidate
+				break
+			}
+		}
+	}
+	if op != "select" && op != "insert" && op != "update" && op != "delete" {
+		op = "other"
+	}
+	for i, field := range fields {
+		key := strings.ToLower(strings.Trim(field, "(\"`"))
+		if key != "from" && key != "into" && !(op == "update" && i == 0) {
+			continue
+		}
+		if key == "from" || key == "into" || i == 0 {
+			if i+1 >= len(fields) {
+				break
+			}
+			table := strings.Trim(fields[i+1], "(\"`[];,)")
+			table = strings.TrimSuffix(table, ";")
+			if isKnownDBTable(table) {
+				return op, strings.ToLower(table)
+			}
+		}
+	}
+	return op, "unknown"
+}
+
+func isKnownDBTable(table string) bool {
+	switch strings.ToLower(table) {
+	case "config", "config_meta", "rate_limits", "audit_log", "scheduler_tasks", "scheduler_history", "backups", "api_tokens", "app_secrets", "pgp_keypairs", "ip_blocks", "security_reports", "contact_captcha_challenges":
+		return true
+	default:
+		return false
+	}
+}
+
+func classifyDBError(err error) string {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return "timeout"
+	}
+	message := strings.ToLower(err.Error())
+	switch {
+	case strings.Contains(message, "timeout"):
+		return "timeout"
+	case strings.Contains(message, "unique"), strings.Contains(message, "duplicate"):
+		return "duplicate"
+	case strings.Contains(message, "constraint"):
+		return "constraint"
+	case strings.Contains(message, "connection"), strings.Contains(message, "database is closed"):
+		return "connection"
+	default:
+		return "other"
+	}
+}
+
+// StartDBStatsUpdater periodically exports database/sql pool statistics until stop closes.
+func StartDBStatsUpdater(db *sql.DB, stop <-chan struct{}) {
+	if db == nil {
+		return
+	}
+	update := func() {
+		stats := db.Stats()
+		DBConnectionsOpen.Set(float64(stats.OpenConnections))
+		DBConnectionsInUse.Set(float64(stats.InUse))
+	}
+	update()
+	go func() {
+		ticker := time.NewTicker(15 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-stop:
+				return
+			case <-ticker.C:
+				update()
+			}
+		}
+	}()
+}
 
 var (
 	// App info

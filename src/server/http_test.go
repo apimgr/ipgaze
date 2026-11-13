@@ -22,6 +22,43 @@ import (
 func lookupAddr(net.IP) (string, error) { return "localhost", nil }
 func lookupPort(net.IP, uint64) error   { return nil }
 
+func TestApplyVersionPurgeNavigationGate(t *testing.T) {
+	tests := []struct {
+		name       string
+		method     string
+		dest       string
+		mode       string
+		wantPurge  bool
+		wantCookie bool
+	}{
+		{name: "old browser navigation", method: http.MethodGet, wantPurge: true, wantCookie: true},
+		{name: "modern document navigation", method: http.MethodGet, dest: "document", mode: "navigate", wantPurge: true, wantCookie: true},
+		{name: "iframe", method: http.MethodGet, dest: "iframe", mode: "navigate"},
+		{name: "fetch", method: http.MethodGet, dest: "empty", mode: "cors"},
+		{name: "head", method: http.MethodHead, dest: "document", mode: "navigate"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(tt.method, "/", nil)
+			if tt.dest != "" {
+				req.Header.Set("Sec-Fetch-Dest", tt.dest)
+			}
+			if tt.mode != "" {
+				req.Header.Set("Sec-Fetch-Mode", tt.mode)
+			}
+			req.AddCookie(&http.Cookie{Name: versionCookieName, Value: "old-build"})
+			rec := httptest.NewRecorder()
+			applyVersionPurge(rec, req, "new-build")
+			if got := rec.Header().Get("Clear-Site-Data") != ""; got != tt.wantPurge {
+				t.Errorf("Clear-Site-Data present = %v, want %v", got, tt.wantPurge)
+			}
+			if got := len(rec.Result().Cookies()) > 0; got != tt.wantCookie {
+				t.Errorf("build cookie present = %v, want %v", got, tt.wantCookie)
+			}
+		})
+	}
+}
+
 type testDb struct{}
 
 func (t *testDb) Country(net.IP) (geo.Country, error) {

@@ -8,8 +8,8 @@
   <p>{{t .Lang "api_help.basic_intro"}}</p>
   <div class="code-block"><code>curl -q -LSsf {{.BaseURL}}/ip</code></div>
   <p>{{t .Lang "api_help.force_ip_version"}}</p>
-  <div class="code-block"><code>curl -4 {{.Host}}</code></div>
-  <div class="code-block"><code>curl -6 {{.Host}}</code></div>
+  <div class="code-block"><code>curl -q -LSsf -4 {{.Host}}</code></div>
+  <div class="code-block"><code>curl -q -LSsf -6 {{.Host}}</code></div>
 </section>
 
 <section id="features" class="section-card" aria-labelledby="help-features">

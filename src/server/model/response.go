@@ -93,6 +93,7 @@ type I2PInfo struct {
 	Enabled  bool   `json:"enabled"`
 	Running  bool   `json:"running"`
 	Status   string `json:"status"`
+	State    string `json:"state"`
 	Hostname string `json:"hostname"`
 	// Provider names the eepsite backend: "i2pd", "sam", or "none".
 	Provider string `json:"provider"`

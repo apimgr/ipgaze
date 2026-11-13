@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"embed"
 	"html/template"
 	"io"
@@ -173,6 +174,10 @@ func NewPageRenderer(assetStamp string) PageRenderer {
 		if err != nil {
 			return err
 		}
+		var body bytes.Buffer
+		if err := t.ExecuteTemplate(&body, "base", data); err != nil {
+			return err
+		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		// HTML documents are always fetched fresh (AI.md PART 9 "HTTP Cache
 		// Headers") — the versioned static assets they reference are what
@@ -184,7 +189,8 @@ func NewPageRenderer(assetStamp string) PageRenderer {
 		// (Clear-Site-Data)"): evict a stale browser cache/service worker in
 		// one shot when the client's build cookie disagrees with this build.
 		applyVersionPurge(w, r, assetStamp)
-		return t.ExecuteTemplate(w, "base", data)
+		_, err = w.Write(body.Bytes())
+		return err
 	}
 }
 

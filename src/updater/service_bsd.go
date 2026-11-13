@@ -9,3 +9,14 @@ import "os/exec"
 func restartService() error {
 	return exec.Command("service", "ipgaze", "restart").Run()
 }
+
+func restartServiceDeferred(bool) error {
+	return startDetachedServiceRestart(exec.Command("service", "ipgaze", "restart"))
+}
+
+func startDetachedServiceRestart(cmd *exec.Cmd) error {
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	return cmd.Process.Release()
+}

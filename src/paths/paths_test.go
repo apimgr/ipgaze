@@ -726,8 +726,8 @@ func TestRootDirs_Darwin(t *testing.T) {
 func TestRootDirs_Windows(t *testing.T) {
 	t.Setenv("ProgramData", "C:\\ProgramData")
 	cfg, data, logs, cache, pid, ssl, sec, db, backup := rootDirs("windows", "myapp")
-	if !strings.Contains(cfg, "myapp") {
-		t.Errorf("rootDirs(windows) config path missing project: %q", cfg)
+	if cfg != filepath.Join("C:\\ProgramData", "apimgr", "myapp", "config") {
+		t.Errorf("rootDirs(windows) config path = %q, want ProgramData project config directory", cfg)
 	}
 	if data == "" || logs == "" || cache == "" || pid == "" || ssl == "" || sec == "" || db == "" || backup == "" {
 		t.Error("rootDirs(windows) returned empty paths")
@@ -737,7 +737,7 @@ func TestRootDirs_Windows(t *testing.T) {
 func TestRootDirs_Windows_NoProgramData(t *testing.T) {
 	t.Setenv("ProgramData", "")
 	cfg, _, _, _, _, _, _, _, _ := rootDirs("windows", "myapp")
-	if !strings.Contains(cfg, "ProgramData") {
+	if !strings.Contains(cfg, filepath.Join("ProgramData", "apimgr", "myapp", "config")) {
 		t.Errorf("rootDirs(windows, no ProgramData) = %q, want default ProgramData path", cfg)
 	}
 }

@@ -109,6 +109,36 @@ func TestSafePath(t *testing.T) {
 	}
 }
 
+func TestSafeDirPath(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   string
+		want    string
+		wantErr bool
+	}{
+		{name: "absolute path preserved", input: "/var/lib/apimgr/ipgaze", want: "/var/lib/apimgr/ipgaze"},
+		{name: "relative path cleaned", input: "./data/cache", want: "data/cache"},
+		{name: "empty rejected", input: "", wantErr: true},
+		{name: "parent segment rejected", input: "/var/lib/../etc", wantErr: true},
+		{name: "embedded parent segment rejected", input: "data/../cache", wantErr: true},
+		{name: "parent-like filename accepted", input: "/var/lib/..cache", want: "/var/lib/..cache"},
+		{name: "NUL rejected", input: "data\x00/cache", wantErr: true},
+		{name: "tab rejected", input: "data\t/cache", wantErr: true},
+		{name: "DEL rejected", input: "data\x7f/cache", wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := SafeDirPath(tt.input)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("SafeDirPath() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if err == nil && got != tt.want {
+				t.Errorf("SafeDirPath() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestNormalizeURLPath(t *testing.T) {
 	tests := []struct {
 		name string

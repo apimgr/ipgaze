@@ -22,7 +22,7 @@ services:
   ipgaze:
     image: ghcr.io/apimgr/ipgaze:devel
     pull_policy: always
-    container_name: ipgaze-test
+    container_name: ipgaze-app
     hostname: ipgaze
     restart: "no"
     logging: *default-logging
@@ -32,7 +32,7 @@ services:
       DEBUG: true
       MODE: development
       TZ: ${TZ:-America/New_York}
-      CACHE_URL: valkey://ipgaze-cache-test:6379
+      CACHE_URL: valkey://ipgaze-cache:6379
     volumes:
       # CRITICAL: ./volumes/ must resolve to $TEMP_DIR/volumes/, NOT project directory
       # This file MUST be copied to a temp directory before running
@@ -48,15 +48,15 @@ services:
       retries: 3
       start_period: 90s
     depends_on:
-      ipgaze-cache-test:
+      ipgaze-cache:
         condition: service_healthy
     networks:
       - ipgaze-test
 
-  ipgaze-cache-test:
+  ipgaze-cache:
     image: valkey/valkey:alpine
     pull_policy: always
-    container_name: ipgaze-cache-test
+    container_name: ipgaze-cache
     restart: "no"
     logging: *default-logging
     tmpfs:

@@ -19,6 +19,11 @@ const securityIDWindow = int64(48 * time.Hour / time.Second)
 
 const securityCreditPrefix = "enc:v1:"
 
+const (
+	securityCreditMigrationTimeout = 5 * time.Minute
+	reportReencryptionTimeout      = 30 * time.Second
+)
+
 // SecurityID returns the rotating security.txt token for the current 48-hour
 // window. The output is deliberately short because it is published in a URL.
 func SecurityID(secret []byte, unixSeconds int64) string {
@@ -145,12 +150,14 @@ func EncryptLegacySecurityCredits(db *sql.DB, secret []byte) error {
 	if db == nil || len(secret) == 0 {
 		return errors.New("security: invalid researcher-credit migration input")
 	}
-	tx, err := db.BeginTx(context.Background(), nil)
+	ctx, cancel := context.WithTimeout(context.Background(), securityCreditMigrationTimeout)
+	defer cancel()
+	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("security: begin researcher-credit migration: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
-	rows, err := tx.Query(`SELECT tracking_id, credit_name FROM security_reports WHERE credit_name != ''`)
+	rows, err := tx.QueryContext(ctx, `SELECT tracking_id, credit_name FROM security_reports WHERE credit_name != ''`)
 	if err != nil {
 		return fmt.Errorf("security: read legacy researcher credits: %w", err)
 	}
@@ -182,7 +189,7 @@ func EncryptLegacySecurityCredits(db *sql.DB, secret []byte) error {
 		if err != nil {
 			return err
 		}
-		if _, err := tx.Exec(`UPDATE security_reports SET credit_name = ? WHERE tracking_id = ?`, encrypted, credit.trackingID); err != nil {
+		if _, err := tx.ExecContext(ctx, `UPDATE security_reports SET credit_name = ? WHERE tracking_id = ?`, encrypted, credit.trackingID); err != nil {
 			return fmt.Errorf("security: encrypt legacy researcher credit: %w", err)
 		}
 	}
@@ -226,12 +233,14 @@ func ReencryptSecurityReports(db *sql.DB, oldKey, newKey []byte) error {
 	if db == nil || len(oldKey) != 32 || len(newKey) != 32 {
 		return errors.New("security: invalid report encryption rotation input")
 	}
-	tx, err := db.BeginTx(context.Background(), nil)
+	ctx, cancel := context.WithTimeout(context.Background(), reportReencryptionTimeout)
+	defer cancel()
+	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("security: begin report key rotation: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
-	if err := ReencryptSecurityReportsTx(tx, oldKey, newKey); err != nil {
+	if err := ReencryptSecurityReportsTx(ctx, tx, oldKey, newKey); err != nil {
 		return err
 	}
 	if err := tx.Commit(); err != nil {
@@ -241,12 +250,14 @@ func ReencryptSecurityReports(db *sql.DB, oldKey, newKey []byte) error {
 }
 
 // ReencryptSecurityReportsTx performs report re-encryption inside a caller's
-// transaction so configuration and database changes can be coordinated.
-func ReencryptSecurityReportsTx(tx *sql.Tx, oldKey, newKey []byte) error {
+// transaction so configuration and database changes can be coordinated. ctx
+// must be the bounded context used to begin tx so every statement shares its
+// transaction deadline.
+func ReencryptSecurityReportsTx(ctx context.Context, tx *sql.Tx, oldKey, newKey []byte) error {
 	if tx == nil || len(oldKey) != 32 || len(newKey) != 32 {
 		return errors.New("security: invalid report encryption rotation input")
 	}
-	rows, err := tx.Query(`SELECT tracking_id, encrypted_body FROM security_reports WHERE encryption = 'aes-256-gcm'`)
+	rows, err := tx.QueryContext(ctx, `SELECT tracking_id, encrypted_body FROM security_reports WHERE encryption = 'aes-256-gcm'`)
 	if err != nil {
 		return fmt.Errorf("security: read reports for key rotation: %w", err)
 	}
@@ -279,11 +290,11 @@ func ReencryptSecurityReportsTx(tx *sql.Tx, oldKey, newKey []byte) error {
 		if err != nil {
 			return fmt.Errorf("security: encrypt report %s during key rotation: %w", report.trackingID, err)
 		}
-		if _, err := tx.Exec(`UPDATE security_reports SET encrypted_body = ? WHERE tracking_id = ?`, ciphertext, report.trackingID); err != nil {
+		if _, err := tx.ExecContext(ctx, `UPDATE security_reports SET encrypted_body = ? WHERE tracking_id = ?`, ciphertext, report.trackingID); err != nil {
 			return fmt.Errorf("security: update report %s during key rotation: %w", report.trackingID, err)
 		}
 	}
-	creditRows, err := tx.Query(`SELECT tracking_id, credit_name FROM security_reports
+	creditRows, err := tx.QueryContext(ctx, `SELECT tracking_id, credit_name FROM security_reports
 		WHERE credit_name != '' AND credit_name LIKE ?`, securityCreditPrefix+"%")
 	if err != nil {
 		return fmt.Errorf("security: read credits for key rotation: %w", err)
@@ -314,7 +325,7 @@ func ReencryptSecurityReportsTx(tx *sql.Tx, oldKey, newKey []byte) error {
 		if err != nil {
 			return err
 		}
-		if _, err := tx.Exec(`UPDATE security_reports SET credit_name = ? WHERE tracking_id = ?`, encrypted, credit.trackingID); err != nil {
+		if _, err := tx.ExecContext(ctx, `UPDATE security_reports SET credit_name = ? WHERE tracking_id = ?`, encrypted, credit.trackingID); err != nil {
 			return fmt.Errorf("security: rotate encrypted credit: %w", err)
 		}
 	}

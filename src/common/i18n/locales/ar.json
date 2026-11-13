@@ -73,7 +73,9 @@
     "copy_i2p_aria": "نسخ عنوان I2P",
     "return_home": "العودة إلى الصفحة الرئيسية",
     "close_notification": "إغلاق الإشعار",
-    "running": "قيد التشغيل…"
+    "running": "قيد التشغيل…",
+    "boot_recovery_title": "تعذر استرداد الصفحة",
+    "boot_recovery_message": "لم يكتمل تحميل الصفحة بعد مسح ذاكرة التخزين المؤقت للمتصفح. أغلق علامات التبويب الأخرى لهذا الموقع ثم أعد تحميل الصفحة."
   },
 
   "theme": {
@@ -169,7 +171,6 @@
   "status_values": {
     "online": "متصل",
     "offline": "غير متصل",
-    "maintenance": "صيانة",
     "starting": "جارٍ البدء",
     "stopping": "جارٍ الإيقاف",
     "error": "خطأ",
@@ -598,7 +599,6 @@
     "metrics": "المقاييس",
     "geoip": "GeoIP",
     "scheduler": "المُجدوِل",
-    "maintenance": "الصيانة",
     "backup": "النسخ الاحتياطي",
     "restore": "الاستعادة",
     "update": "تحديث",
@@ -777,6 +777,11 @@
   },
 
   "healthz": {
+    "page_title": "حالة الصحة",
+    "degraded_performance": "أداء متدهور",
+    "restart_required": "إعادة التشغيل مطلوبة",
+    "maintenance": "الصيانة جارية",
+    "shutting_down": "جارٍ إيقاف التشغيل",
     "restart_pending": "إعادة التشغيل معلقة:",
     "commit_label": "الالتزام",
     "build_date_label": "تاريخ البناء",

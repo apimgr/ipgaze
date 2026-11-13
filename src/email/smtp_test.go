@@ -1,11 +1,69 @@
 package email
 
 import (
+	"bufio"
 	"fmt"
 	"net"
 	"strconv"
+	"strings"
 	"testing"
 )
+
+func TestPrivateSMTPAddressClassification(t *testing.T) {
+	tests := []struct {
+		host    string
+		private bool
+	}{
+		{"10.1.2.3", true},
+		{"172.16.0.1", true},
+		{"172.31.255.254", true},
+		{"192.168.1.1", true},
+		{"100.64.0.1", true},
+		{"100.127.255.254", true},
+		{"127.0.0.1", true},
+		{"169.254.1.2", true},
+		{"::1", true},
+		{"fc00::1", true},
+		{"fe80::1", true},
+		{"8.8.8.8", false},
+		{"172.32.0.1", false},
+		{"100.128.0.1", false},
+		{"smtp.example.test", false},
+		{"private-relay.test", false},
+		{"localhost", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.host, func(t *testing.T) {
+			if got := isPrivateIPLiteral(tt.host); got != tt.private {
+				t.Errorf("isPrivateIPLiteral(%q) = %v, want %v", tt.host, got, tt.private)
+			}
+			tlsConfig := smtpTLSConfig(tt.host)
+			if tlsConfig.InsecureSkipVerify != tt.private {
+				t.Errorf("InsecureSkipVerify for %q = %v, want %v", tt.host, tlsConfig.InsecureSkipVerify, tt.private)
+			}
+			if tlsConfig.ServerName != tt.host {
+				t.Errorf("ServerName for %q = %q, want configured host", tt.host, tlsConfig.ServerName)
+			}
+		})
+	}
+}
+
+func TestSMTPImplicitTLSSelection(t *testing.T) {
+	for _, tt := range []struct {
+		cfg  SMTPConfig
+		want bool
+	}{
+		{SMTPConfig{TLS: "auto", Port: 465}, true},
+		{SMTPConfig{TLS: "auto", Port: 587}, false},
+		{SMTPConfig{TLS: "tls", Port: 587}, true},
+		{SMTPConfig{TLS: "starttls", Port: 465}, false},
+		{SMTPConfig{TLS: "none", Port: 465}, false},
+	} {
+		if got := usesImplicitTLS(tt.cfg); got != tt.want {
+			t.Errorf("usesImplicitTLS(%+v) = %v, want %v", tt.cfg, got, tt.want)
+		}
+	}
+}
 
 // --- smtpCandidates ---
 
@@ -190,6 +248,7 @@ func TestProbeSMTPPort_Reachable(t *testing.T) {
 		}
 	})
 
+	commands := make(chan string, 1)
 	go func() {
 		conn, err := ln.Accept()
 		if err != nil {
@@ -205,10 +264,19 @@ func TestProbeSMTPPort_Reachable(t *testing.T) {
 			t.Errorf("write SMTP greeting: %v", err)
 			return
 		}
-		buf := make([]byte, 256)
-		conn.Read(buf) //nolint:errcheck
+		reader := bufio.NewReader(conn)
+		command, err := reader.ReadString('\n')
+		if err != nil {
+			t.Errorf("read SMTP EHLO: %v", err)
+			return
+		}
+		commands <- strings.TrimSpace(command)
 		if _, err := fmt.Fprint(conn, "250-test.smtp.local\r\n250 OK\r\n"); err != nil {
 			t.Errorf("write EHLO response: %v", err)
+			return
+		}
+		if _, err := reader.ReadString('\n'); err == nil {
+			_, _ = fmt.Fprint(conn, "221 Bye\r\n")
 		}
 	}()
 
@@ -224,6 +292,9 @@ func TestProbeSMTPPort_Reachable(t *testing.T) {
 	if err := probeSMTPPort(host, port); err != nil {
 		t.Errorf("probeSMTPPort to local test server: %v", err)
 	}
+	if got := <-commands; !strings.HasPrefix(strings.ToUpper(got), "EHLO ") {
+		t.Errorf("probe command = %q, want EHLO", got)
+	}
 }
 
 func TestProbeSMTPPort_Unreachable(t *testing.T) {
@@ -237,7 +308,7 @@ func TestProbeSMTPPort_Unreachable(t *testing.T) {
 // --- TestConnection ---
 
 func TestTestConnection_Unreachable(t *testing.T) {
-	err := TestConnection("127.0.0.1", 1)
+	err := TestConnection(SMTPConfig{Host: "127.0.0.1", Port: 1, TLS: "none"})
 	if err == nil {
 		t.Error("expected error, got nil")
 	}

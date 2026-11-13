@@ -206,7 +206,7 @@ ON CONFLICT(id) DO UPDATE SET
     schedule = excluded.schedule,
     enabled  = excluded.enabled
 `
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	_, err := s.db.ExecContext(ctx, query, task.ID, task.Name, task.Schedule, task.Enabled)
 	return err
@@ -407,7 +407,7 @@ func (s *Scheduler) appendHistory(taskID string, startedAt time.Time, status Tas
 INSERT INTO scheduler_history (task_id, started_at, finished_at, status, error, duration_ms)
 VALUES (?, ?, strftime('%s', 'now'), ?, ?, ?)
 `
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if _, err := s.db.ExecContext(ctx, query, taskID, startedAt.Unix(), string(status), errArg, durationMs); err != nil {
 		log.Printf("Scheduler: failed to append history for task %s: %v", taskID, err)
@@ -441,7 +441,7 @@ WHERE id = ?
 		args = []interface{}{status, errMsg, taskID}
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if _, err := s.db.ExecContext(ctx, query, args...); err != nil {
 		log.Printf("Scheduler: failed to update task run state: %v", err)
@@ -471,7 +471,7 @@ func (s *Scheduler) EnableTask(taskID string) error {
 
 	// Update database (best-effort; in-memory task state is authoritative)
 	if s.db != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		s.db.ExecContext(ctx, "UPDATE scheduler_tasks SET enabled = 1 WHERE id = ?", taskID) //nolint:errcheck
 	}
@@ -501,7 +501,7 @@ func (s *Scheduler) DisableTask(taskID string) error {
 
 	// Update database (best-effort; in-memory task state is authoritative)
 	if s.db != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		s.db.ExecContext(ctx, "UPDATE scheduler_tasks SET enabled = 0 WHERE id = ?", taskID) //nolint:errcheck
 	}

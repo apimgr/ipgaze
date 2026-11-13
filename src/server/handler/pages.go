@@ -728,8 +728,8 @@ type HelpSection struct {
 func buildHelpResponse() HelpResponse {
 	return HelpResponse{
 		Sections: []HelpSection{
-			{ID: "getting-started", Title: "Getting Started", Content: "Get your public IP with: curl https://ifcfg.us"},
-			{ID: "features", Title: "Features", Content: "Look up the requesting IP at /ip or /json, choose IPv4 or IPv6 with curl -4 or curl -6, and look up a specific address with /8.8.8.8/json. GeoIP fields are included when the server has its optional GeoIP databases."},
+			{ID: "getting-started", Title: "Getting Started", Content: "Get your public IP with: curl -q -LSsf https://ifcfg.us"},
+			{ID: "features", Title: "Features", Content: "Look up the requesting IP at /ip or /json, choose IPv4 or IPv6 with curl -q -LSsf -4 or curl -q -LSsf -6, and look up a specific address with /8.8.8.8/json. GeoIP fields are included when the server has its optional GeoIP databases."},
 			{ID: "endpoints", Title: "Endpoints", Content: "Main: /, /json, /ip, /{ip}. GeoIP: /country, /city, /asn, /coordinates. API: /api/v1/*"},
 			{ID: "formats", Title: "Output Formats", Content: "Auto-detects CLI tools (curl, wget, HTTPie). Use Accept header to force format."},
 			{ID: "faq", Title: "FAQ", Content: "Do I need an API key? No. Public IP and GeoIP lookups are anonymous. How do I look up an address? Request /{ip}, for example /8.8.8.8/json. Why are GeoIP fields missing? The server may not have GeoIP databases configured or available; IP lookup still works."},
@@ -1130,7 +1130,7 @@ func (h *PagesHandler) logInvalidSecurityID(r *http.Request, supplied string) {
 	h.SecurityLogger(fmt.Sprintf("security.security_id_invalid user_agent=%q security_id_sha256_prefix=%s", userAgent, hex.EncodeToString(digest[:4])), clientIP(r))
 }
 
-func newSimpleCaptcha(db *sql.DB, now time.Time) (string, string, error) {
+func newSimpleCaptcha(parent context.Context, db *sql.DB, now time.Time) (string, string, error) {
 	if db == nil {
 		return "", "", fmt.Errorf("captcha secret database unavailable")
 	}
@@ -1154,17 +1154,22 @@ func newSimpleCaptcha(db *sql.DB, now time.Time) (string, string, error) {
 	answer := fmt.Sprint(first.Int64() + second.Int64())
 	answerHash := simpleCaptchaAnswerHash(secret, answer)
 	tokenHash := sha256.Sum256([]byte(token))
-	if _, err := db.Exec(`DELETE FROM contact_captcha_challenges WHERE expires_at <= ? OR used_at IS NOT NULL`, now.Unix()); err != nil {
+	cleanupCtx, cancelCleanup := context.WithTimeout(parent, 10*time.Second)
+	_, err = db.ExecContext(cleanupCtx, `DELETE FROM contact_captcha_challenges WHERE expires_at <= ? OR used_at IS NOT NULL`, now.Unix())
+	cancelCleanup()
+	if err != nil {
 		return "", "", err
 	}
-	if _, err := db.Exec(`INSERT INTO contact_captcha_challenges (token_hash, answer_hash, created_at, expires_at)
+	writeCtx, cancelWrite := context.WithTimeout(parent, 10*time.Second)
+	defer cancelWrite()
+	if _, err := db.ExecContext(writeCtx, `INSERT INTO contact_captcha_challenges (token_hash, answer_hash, created_at, expires_at)
 VALUES (?, ?, ?, ?)`, hex.EncodeToString(tokenHash[:]), hex.EncodeToString(answerHash), now.Unix(), now.Add(10*time.Minute).Unix()); err != nil {
 		return "", "", err
 	}
 	return fmt.Sprintf("What is %d + %d?", first.Int64(), second.Int64()), token, nil
 }
 
-func verifySimpleCaptcha(db *sql.DB, token, answer string, now time.Time) bool {
+func verifySimpleCaptcha(parent context.Context, db *sql.DB, token, answer string, now time.Time) bool {
 	if db == nil || token == "" || strings.TrimSpace(answer) == "" {
 		return false
 	}
@@ -1177,7 +1182,9 @@ func verifySimpleCaptcha(db *sql.DB, token, answer string, now time.Time) bool {
 	}
 	tokenHash := sha256.Sum256([]byte(token))
 	var storedHash string
-	err = db.QueryRow(`UPDATE contact_captcha_challenges SET used_at = ?
+	writeCtx, cancel := context.WithTimeout(parent, 10*time.Second)
+	defer cancel()
+	err = db.QueryRowContext(writeCtx, `UPDATE contact_captcha_challenges SET used_at = ?
 WHERE token_hash = ? AND used_at IS NULL AND expires_at > ?
 RETURNING answer_hash`, now.Unix(), hex.EncodeToString(tokenHash[:]), now.Unix()).Scan(&storedHash)
 	if err != nil {
@@ -1220,14 +1227,14 @@ func (h *PagesHandler) newContactCaptcha(r *http.Request, now time.Time) (string
 	if provider != "simple" {
 		return provider, "", ""
 	}
-	question, token, _ := newSimpleCaptcha(h.DB, now)
+	question, token, _ := newSimpleCaptcha(r.Context(), h.DB, now)
 	return provider, question, token
 }
 
 func (h *PagesHandler) verifyContactCaptcha(r *http.Request, token, answer string, now time.Time) (bool, error) {
 	provider := h.contactCaptchaProvider(r)
 	if provider == "simple" {
-		return verifySimpleCaptcha(h.DB, token, answer, now), nil
+		return verifySimpleCaptcha(r.Context(), h.DB, token, answer, now), nil
 	}
 	if h.Config == nil || strings.TrimSpace(answer) == "" {
 		return false, nil

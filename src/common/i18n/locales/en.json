@@ -73,7 +73,9 @@
     "copy_i2p_aria": "Copy I2P address",
     "return_home": "Return Home",
     "close_notification": "Close notification",
-    "running": "Running…"
+    "running": "Running…",
+    "boot_recovery_title": "Page recovery failed",
+    "boot_recovery_message": "The page did not finish loading after browser caches were cleared. Close other tabs for this site, then reload the page."
   },
 
   "theme": {
@@ -169,7 +171,6 @@
   "status_values": {
     "online": "Online",
     "offline": "Offline",
-    "maintenance": "Maintenance",
     "starting": "Starting",
     "stopping": "Stopping",
     "error": "Error",
@@ -577,7 +578,6 @@
     "metrics": "Metrics",
     "geoip": "GeoIP",
     "scheduler": "Scheduler",
-    "maintenance": "Maintenance",
     "backup": "Backup",
     "restore": "Restore",
     "update": "Update",
@@ -756,6 +756,11 @@
   },
 
   "healthz": {
+    "page_title": "Health Status",
+    "degraded_performance": "Degraded Performance",
+    "restart_required": "Restart Required",
+    "maintenance": "Maintenance in Progress",
+    "shutting_down": "Shutting Down",
     "restart_pending": "Restart pending:",
     "commit_label": "Commit",
     "build_date_label": "Build Date",

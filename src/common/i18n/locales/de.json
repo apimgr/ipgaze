@@ -73,7 +73,9 @@
     "copy_i2p_aria": "I2P-Adresse kopieren",
     "return_home": "Zurück zur Startseite",
     "close_notification": "Benachrichtigung schließen",
-    "running": "Läuft…"
+    "running": "Läuft…",
+    "boot_recovery_title": "Seitenwiederherstellung fehlgeschlagen",
+    "boot_recovery_message": "Die Seite wurde nach dem Leeren des Browser-Caches nicht vollständig geladen. Schließen Sie andere Tabs dieser Website und laden Sie die Seite erneut."
   },
 
   "theme": {
@@ -169,7 +171,6 @@
   "status_values": {
     "online": "Online",
     "offline": "Offline",
-    "maintenance": "Wartung",
     "starting": "Wird gestartet",
     "stopping": "Wird gestoppt",
     "error": "Fehler",
@@ -577,7 +578,6 @@
     "metrics": "Metriken",
     "geoip": "GeoIP",
     "scheduler": "Planer",
-    "maintenance": "Wartung",
     "backup": "Sicherung",
     "restore": "Wiederherstellen",
     "update": "Aktualisieren",
@@ -756,6 +756,11 @@
   },
 
   "healthz": {
+    "page_title": "Gesundheitsstatus",
+    "degraded_performance": "Beeinträchtigte Leistung",
+    "restart_required": "Neustart erforderlich",
+    "maintenance": "Wartungsarbeiten",
+    "shutting_down": "Wird heruntergefahren",
     "restart_pending": "Neustart ausstehend:",
     "commit_label": "Commit",
     "build_date_label": "Build-Datum",

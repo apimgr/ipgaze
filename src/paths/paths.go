@@ -45,7 +45,7 @@ var startedElevated = detectElevated()
 // domain is used as the administrative heuristic.
 func detectElevated() bool {
 	if runtime.GOOS == "windows" {
-		return os.Getenv("USERDOMAIN") == os.Getenv("COMPUTERNAME")
+		return isRunningAsWindowsService() || isWindowsAdministrator()
 	}
 	return os.Geteuid() == 0
 }
@@ -200,7 +200,7 @@ func rootDirs(goos, projectName string) (configDir, dataDir, logsDir, cacheDir, 
 			programData = "C:\\ProgramData"
 		}
 		base := filepath.Join(programData, OrgName, projectName)
-		configDir = base
+		configDir = filepath.Join(base, "config")
 		dataDir = filepath.Join(base, "data")
 		logsDir = filepath.Join(base, "logs")
 		cacheDir = filepath.Join(base, "cache")

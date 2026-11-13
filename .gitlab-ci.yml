@@ -271,7 +271,7 @@ docker:devel:
           exit 1
         fi
         for endpoint in "releases/devel" "repository/tags/devel"; do
-          DELETE_STATUS="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
+          DELETE_STATUS="$(curl -q -LSs --output /dev/null --write-out '%{http_code}' \
             --request DELETE --header "PRIVATE-TOKEN: ${GITLAB_TOKEN}" \
             "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/${endpoint}")"
           case "$DELETE_STATUS" in
@@ -281,7 +281,7 @@ docker:devel:
         done
       fi
       RELEASE_URL="${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/releases/${RELEASE_TAG}"
-      RELEASE_STATUS="$(curl --silent --show-error --output "$RELDIR/existing-release.json" --write-out '%{http_code}' --header "JOB-TOKEN: ${CI_JOB_TOKEN}" "$RELEASE_URL")"
+      RELEASE_STATUS="$(curl -q -LSs --output "$RELDIR/existing-release.json" --write-out '%{http_code}' --header "JOB-TOKEN: ${CI_JOB_TOKEN}" "$RELEASE_URL")"
       if [ "$RELEASE_STATUS" = 200 ]; then
         if python3 - "$RELDIR/existing-release.json" "$RELDIR/release.json" <<'PY'
       import json
@@ -312,20 +312,20 @@ docker:devel:
           release.json|existing-*) continue ;;
         esac
         PACKAGE_URL="${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/ipgaze/${PACKAGE_VERSION}/${name}"
-        PACKAGE_STATUS="$(curl --silent --show-error --output "$RELDIR/existing-${name}" --write-out '%{http_code}' --header "JOB-TOKEN: ${CI_JOB_TOKEN}" "$PACKAGE_URL")"
+        PACKAGE_STATUS="$(curl -q -LSs --output "$RELDIR/existing-${name}" --write-out '%{http_code}' --header "JOB-TOKEN: ${CI_JOB_TOKEN}" "$PACKAGE_URL")"
         if [ "$PACKAGE_STATUS" = 200 ]; then
           if ! cmp --silent "$file" "$RELDIR/existing-${name}"; then
             echo "ERROR: existing release package differs: ${name}"
             exit 1
           fi
         elif [ "$PACKAGE_STATUS" = 404 ]; then
-          curl --fail --silent --show-error --header "JOB-TOKEN: ${CI_JOB_TOKEN}" --upload-file "$file" "$PACKAGE_URL"
+          curl -q -LSsf --header "JOB-TOKEN: ${CI_JOB_TOKEN}" --upload-file "$file" "$PACKAGE_URL"
         else
           echo "ERROR: package lookup for ${name} returned HTTP ${PACKAGE_STATUS}"
           exit 1
         fi
       done
-      curl --fail --silent --show-error --request POST \
+      curl -q -LSsf --request POST \
         --header "JOB-TOKEN: ${CI_JOB_TOKEN}" \
         --header 'Content-Type: application/json' \
         --data-binary "@$RELDIR/release.json" \

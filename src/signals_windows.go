@@ -7,6 +7,8 @@ import (
 	"os/signal"
 )
 
+var windowsServiceStopSignal = make(chan os.Signal, 1)
+
 // notifyServerSignals registers the Windows signal set from AI.md PART 8's
 // Windows signal table (11132-11138): only os.Interrupt (Ctrl+C / Ctrl+Break)
 // is deliverable, and it means graceful shutdown. Service control stops arrive
@@ -16,6 +18,11 @@ import (
 // so there is nothing to ignore and no log-reopen/status-dump signal to watch.
 func notifyServerSignals(ch chan<- os.Signal) {
 	signal.Notify(ch, os.Interrupt)
+	go func() {
+		if sig := <-windowsServiceStopSignal; sig != nil {
+			ch <- sig
+		}
+	}()
 }
 
 // isLogReopenSignal always reports false on Windows — SIGUSR1 does not exist.

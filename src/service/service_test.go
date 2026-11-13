@@ -55,6 +55,30 @@ func TestLaunchAgentStatusParsing(t *testing.T) {
 	}
 }
 
+func TestParseWindowsServiceSID(t *testing.T) {
+	got, err := parseWindowsServiceSID("SERVICE_NAME: ipgaze\nSERVICE_SID: S-1-5-80-1-2-3-4-5\n")
+	if err != nil || got != "S-1-5-80-1-2-3-4-5" {
+		t.Fatalf("parseWindowsServiceSID() = %q, %v", got, err)
+	}
+	if _, err := parseWindowsServiceSID("SERVICE_SID: S-1-5-80-invalid"); err == nil {
+		t.Fatal("parseWindowsServiceSID accepted an invalid SID")
+	}
+}
+
+func TestAddWindowsServiceControlACE(t *testing.T) {
+	sid := "S-1-5-80-1-2-3-4-5"
+	sddl := "D:(A;;CCLCSWRPWPDTLOCRRC;;;SY)S:(AU;FA;WD;;;WD)"
+	want := "D:(A;;CCLCSWRPWPDTLOCRRC;;;SY)(A;;LCRPWP;;;" + sid + ")S:(AU;FA;WD;;;WD)"
+	got, err := addWindowsServiceControlACE(sddl, sid)
+	if err != nil || got != want {
+		t.Fatalf("addWindowsServiceControlACE() = %q, %v; want %q", got, err, want)
+	}
+	gotAgain, err := addWindowsServiceControlACE(got, sid)
+	if err != nil || gotAgain != got {
+		t.Fatalf("addWindowsServiceControlACE() duplicated ACE: %q, %v", gotAgain, err)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // launchdLabel — bundle ID must follow io.github.{org}.{name} convention
 // ---------------------------------------------------------------------------

@@ -199,8 +199,8 @@
             <h3>{{ t .Lang "index.faq_ipv4_ipv6_question" }}</h3>
             <p>
               {{ t .Lang "index.faq_ipv4_ipv6_intro" }}<br />
-              <code>curl -4 {{ if .HostIPv4 }}{{ .HostIPv4 }}{{ else }}{{ .Host }}{{ end }}</code> — {{ t .Lang "index.faq_ipv4_result" }}<br />
-              <code>curl -6 {{ if .HostIPv6 }}{{ .HostIPv6 }}{{ else }}{{ .Host }}{{ end }}</code> — {{ t .Lang "index.faq_ipv6_result" }}
+              <code>curl -q -LSsf -4 {{ if .HostIPv4 }}{{ .HostIPv4 }}{{ else }}{{ .Host }}{{ end }}</code> — {{ t .Lang "index.faq_ipv4_result" }}<br />
+              <code>curl -q -LSsf -6 {{ if .HostIPv6 }}{{ .HostIPv6 }}{{ else }}{{ .Host }}{{ end }}</code> — {{ t .Lang "index.faq_ipv6_result" }}
             </p>
             <h3>{{ t .Lang "index.faq_json_question" }}</h3>
             <p>

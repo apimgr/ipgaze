@@ -216,7 +216,7 @@ func TestBuildHealthResponse_WithTor(t *testing.T) {
 	h.TorStatus = &stubTorStatus{
 		available: true,
 		running:   true,
-		status:    "bootstrapped",
+		status:    "healthy",
 		hostname:  "abc.onion",
 	}
 
@@ -233,6 +233,22 @@ func TestBuildHealthResponse_WithTor(t *testing.T) {
 	}
 	if resp.Checks.Tor != "ok" {
 		t.Errorf("Checks.Tor = %q, want %q", resp.Checks.Tor, "ok")
+	}
+}
+
+func TestBuildHealthResponse_I2PNoProvider(t *testing.T) {
+	h := newTestHandler()
+	h.I2PStatus = &stubI2PStatus{status: "no_provider", provider: "none"}
+
+	resp := h.buildHealthResponse()
+	if !resp.Features.I2P.Enabled {
+		t.Error("I2P must retain its opt-in enabled state when no provider is available")
+	}
+	if resp.Features.I2P.Status != "disabled" || resp.Features.I2P.State != "no_provider" || resp.Features.I2P.Provider != "none" {
+		t.Errorf("I2P no-provider health = %+v", resp.Features.I2P)
+	}
+	if resp.Checks.I2P != "" || resp.Status != statusHealthy {
+		t.Errorf("no-provider I2P should not fail health: checks.i2p=%q status=%q", resp.Checks.I2P, resp.Status)
 	}
 }
 
@@ -321,8 +337,8 @@ func TestHealthzHandler_HTML(t *testing.T) {
 	if !strings.Contains(body, "<!DOCTYPE html>") {
 		t.Errorf("response body missing DOCTYPE: %q", body[:min(200, len(body))])
 	}
-	if !strings.Contains(body, "healthy") {
-		t.Errorf("response body missing status 'healthy'")
+	if !strings.Contains(body, `data-health-status="healthy"`) {
+		t.Errorf("response body missing machine health state")
 	}
 }
 
@@ -336,8 +352,8 @@ func TestHealthzHandler_HTMLWithTorRow(t *testing.T) {
 	h.HealthzHandler(w, req)
 
 	body := w.Body.String()
-	if !strings.Contains(body, "checks.tor") {
-		t.Errorf("response body missing tor check row")
+	if !strings.Contains(body, "Tor</td><td>ok") {
+		t.Errorf("response body missing Tor component row")
 	}
 }
 
@@ -358,11 +374,11 @@ func TestHealthzHandler_PlainText(t *testing.T) {
 		t.Errorf("Content-Type = %q, want %q", ct, "text/plain")
 	}
 	body := w.Body.String()
-	if !strings.Contains(body, "status: healthy") {
-		t.Errorf("body missing 'status: healthy': %q", body)
+	if !strings.Contains(body, "Status: Healthy") {
+		t.Errorf("body missing human-readable healthy status: %q", body)
 	}
-	if !strings.Contains(body, "version: 1.2.3") {
-		t.Errorf("body missing 'version: 1.2.3': %q", body)
+	if !strings.Contains(body, "Version: 1.2.3") {
+		t.Errorf("body missing human-readable version: %q", body)
 	}
 }
 
@@ -376,8 +392,8 @@ func TestHealthzHandler_PlainTextWithTor(t *testing.T) {
 	h.HealthzHandler(w, req)
 
 	body := w.Body.String()
-	if !strings.Contains(body, "checks.tor: ok") {
-		t.Errorf("body missing 'checks.tor: ok': %q", body)
+	if !strings.Contains(body, "Tor:                   ok") {
+		t.Errorf("body missing human-readable Tor check: %q", body)
 	}
 }
 
@@ -429,8 +445,8 @@ func TestHealthzHandler_FrontendNegotiation(t *testing.T) {
 	}
 }
 
-// TestHealthzHandler_TextIncludesI2P verifies the dot-notation text format
-// carries every features.i2p key plus checks.i2p (AI.md PART 13 text sample).
+// TestHealthzHandler_TextIncludesI2P verifies the human-readable frontend
+// text format renders I2P as one feature line (AI.md PART 13).
 func TestHealthzHandler_TextIncludesI2P(t *testing.T) {
 	h := newTestHandler()
 	h.I2PStatus = &stubI2PStatus{available: true, running: true, status: "healthy", hostname: "abc.b32.i2p", provider: "i2pd"}
@@ -442,12 +458,9 @@ func TestHealthzHandler_TextIncludesI2P(t *testing.T) {
 
 	body := w.Body.String()
 	for _, want := range []string{
-		"features.i2p.enabled: true",
-		"features.i2p.running: true",
-		"features.i2p.status: healthy",
-		"features.i2p.hostname: abc.b32.i2p",
-		"features.i2p.provider: i2pd",
-		"checks.i2p: ok",
+		"I2P: Healthy - abc.b32.i2p (i2pd)",
+		"I2P:",
+		"ok",
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("body missing %q:\n%s", want, body)
@@ -455,8 +468,8 @@ func TestHealthzHandler_TextIncludesI2P(t *testing.T) {
 	}
 }
 
-// TestHealthzHandler_TextI2PDisabled verifies the disabled defaults still
-// render every key, with provider "none" (AI.md PART 13 text sample).
+// TestHealthzHandler_TextI2PDisabled verifies disabled I2P is one readable
+// feature line and has no component check.
 func TestHealthzHandler_TextI2PDisabled(t *testing.T) {
 	h := newTestHandler()
 	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
@@ -466,22 +479,41 @@ func TestHealthzHandler_TextI2PDisabled(t *testing.T) {
 	h.HealthzHandler(w, req)
 
 	body := w.Body.String()
-	for _, want := range []string{
-		"features.i2p.enabled: false",
-		"features.i2p.status: disabled",
-		"features.i2p.provider: none",
-	} {
-		if !strings.Contains(body, want) {
-			t.Errorf("body missing %q:\n%s", want, body)
-		}
+	if !strings.Contains(body, "I2P: Disabled") {
+		t.Errorf("body must show disabled I2P in one feature line:\n%s", body)
 	}
-	if strings.Contains(body, "checks.i2p:") {
+	checksText := strings.SplitN(body, "Component Status\n", 2)
+	if len(checksText) != 2 || strings.Contains(checksText[1], "I2P") {
 		t.Errorf("checks.i2p must be omitted when I2P is disabled:\n%s", body)
 	}
 }
 
-// TestHealthzHandler_HTMLIncludesI2P verifies the inline HTML fallback carries
-// the same i2p keys as the text renderer.
+func TestHealthzFrontendFormatting(t *testing.T) {
+	if got := frontendDuration("2d 5h 30m"); got != "2 days 5 hours" {
+		t.Errorf("frontendDuration() = %q, want %q", got, "2 days 5 hours")
+	}
+	if got := frontendDuration("45m"); got != "45 minutes" {
+		t.Errorf("frontendDuration() = %q, want %q", got, "45 minutes")
+	}
+	if got := formatHealthCount(1234567); got != "1,234,567" {
+		t.Errorf("formatHealthCount() = %q, want %q", got, "1,234,567")
+	}
+	page := healthzPageData(PageData{}, model.HealthResponse{
+		Status: statusRestartRequired,
+		Uptime: "2d 5h 30m",
+		Build:  model.BuildInfo{Date: "2024-01-10T10:00:00Z"},
+		Stats:  model.StatsInfo{RequestsTotal: 1234567},
+	})
+	if page.StatusClass != "status-warning" || page.StatusIcon != "🔄" || page.StatusMessageKey != "healthz.restart_required" {
+		t.Errorf("restart-required display = (%q, %q, %q)", page.StatusClass, page.StatusIcon, page.StatusMessageKey)
+	}
+	if page.UptimeText != "2 days 5 hours" || page.BuildDateText != "January 10, 2024 at 10:00:00 UTC" || page.RequestsTotalText != "1,234,567" {
+		t.Errorf("human-readable health fields = (%q, %q, %q)", page.UptimeText, page.BuildDateText, page.RequestsTotalText)
+	}
+}
+
+// TestHealthzHandler_HTMLIncludesI2P verifies the inline HTML fallback renders
+// the I2P feature with a copyable address, not machine-only field names.
 func TestHealthzHandler_HTMLIncludesI2P(t *testing.T) {
 	h := newTestHandler()
 	h.I2PStatus = &stubI2PStatus{available: true, running: true, status: "healthy", hostname: "abc.b32.i2p", provider: "sam"}
@@ -493,12 +525,8 @@ func TestHealthzHandler_HTMLIncludesI2P(t *testing.T) {
 
 	body := w.Body.String()
 	for _, want := range []string{
-		"features.i2p.enabled",
-		"features.i2p.running",
-		"features.i2p.status",
-		"features.i2p.hostname",
-		"features.i2p.provider",
-		"checks.i2p",
+		"I2P: Healthy",
+		"abc.b32.i2p",
 		"sam",
 	} {
 		if !strings.Contains(body, want) {
@@ -560,8 +588,13 @@ func TestHealthStatusCodes(t *testing.T) {
 				if res.StatusCode != http.StatusServiceUnavailable {
 					t.Errorf("StatusCode = %d, want %d", res.StatusCode, http.StatusServiceUnavailable)
 				}
-				if !strings.Contains(w.Body.String(), status) {
-					t.Errorf("body does not report status %q:\n%s", status, w.Body.String())
+				body := w.Body.String()
+				if f.api || f.accept == "application/json" || f.accept == "text/html" {
+					if !strings.Contains(body, status) {
+						t.Errorf("body does not report status %q:\n%s", status, body)
+					}
+				} else if !strings.Contains(body, "Status:") {
+					t.Errorf("human-readable body has no status line:\n%s", body)
 				}
 			})
 		}
@@ -676,6 +709,27 @@ func TestAPIV1HealthzHandler_JSONDefault(t *testing.T) {
 				t.Errorf("version = %q, want %q", body.Version, "1.2.3")
 			}
 		})
+	}
+}
+
+func TestUnversionedAPIHealthzAlwaysJSON(t *testing.T) {
+	h := newTestHandler()
+	req := httptest.NewRequest(http.MethodGet, "/api/healthz", nil)
+	req.Header.Set("Accept", "text/plain")
+	req.Header.Set("User-Agent", "curl/8.5.0")
+	w := httptest.NewRecorder()
+
+	h.APIV1HealthzHandler(w, req)
+
+	if got := w.Result().Header.Get("Content-Type"); !strings.HasPrefix(got, "application/json") {
+		t.Errorf("unversioned health alias content type = %q, want application/json", got)
+	}
+	var body model.HealthResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unversioned health alias did not return JSON: %v", err)
+	}
+	if body.Status != statusHealthy {
+		t.Errorf("status = %q, want %q", body.Status, statusHealthy)
 	}
 }
 

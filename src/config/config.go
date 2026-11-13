@@ -2547,6 +2547,10 @@ func validateConfig(cfg *AppConfig) {
 		warnConfigReplaced("server.tor.startup_timeout", cfg.Server.Tor.StartupTimeout, def.Server.Tor.StartupTimeout)
 		cfg.Server.Tor.StartupTimeout = def.Server.Tor.StartupTimeout
 	}
+	if cfg.Server.I2P.BootstrapTimeout < 30 || cfg.Server.I2P.BootstrapTimeout > 600 {
+		warnConfigReplaced("server.i2p.bootstrap_timeout", cfg.Server.I2P.BootstrapTimeout, def.Server.I2P.BootstrapTimeout)
+		cfg.Server.I2P.BootstrapTimeout = def.Server.I2P.BootstrapTimeout
+	}
 	flood := &cfg.Server.Security.AbuseDetection.RequestFlood
 	defaultFlood := def.Server.Security.AbuseDetection.RequestFlood
 	if flood.Multiplier < 1 {

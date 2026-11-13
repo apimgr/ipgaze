@@ -73,7 +73,9 @@
     "copy_i2p_aria": "复制 I2P 地址",
     "return_home": "返回首页",
     "close_notification": "关闭通知",
-    "running": "运行中…"
+    "running": "运行中…",
+    "boot_recovery_title": "页面恢复失败",
+    "boot_recovery_message": "清除浏览器缓存后，页面仍未能完成加载。请关闭此网站的其他标签页，然后重新加载页面。"
   },
 
   "theme": {
@@ -169,7 +171,6 @@
   "status_values": {
     "online": "在线",
     "offline": "离线",
-    "maintenance": "维护中",
     "starting": "启动中",
     "stopping": "停止中",
     "error": "错误",
@@ -571,7 +572,6 @@
     "metrics": "指标",
     "geoip": "GeoIP",
     "scheduler": "调度器",
-    "maintenance": "维护",
     "backup": "备份",
     "restore": "恢复",
     "update": "更新",
@@ -750,6 +750,11 @@
   },
 
   "healthz": {
+    "page_title": "健康状态",
+    "degraded_performance": "性能下降",
+    "restart_required": "需要重启",
+    "maintenance": "正在维护",
+    "shutting_down": "正在关闭",
     "restart_pending": "重启待处理：",
     "commit_label": "提交",
     "build_date_label": "构建日期",

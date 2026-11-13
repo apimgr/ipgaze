@@ -3,10 +3,12 @@ package i2p
 import (
 	"bufio"
 	"context"
+	"fmt"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -56,29 +58,8 @@ func TestB32Address(t *testing.T) {
 }
 
 func TestGetI2PTunnelsConf(t *testing.T) {
-	cfg := I2PServiceConfig{
-		InboundLength:    3,
-		OutboundLength:   3,
-		InboundQuantity:  5,
-		OutboundQuantity: 5,
-		SignatureType:    7,
-	}
-	conf := getI2PTunnelsConf(cfg, "/data/i2p/site/site-keys.dat", 64123)
-	for _, want := range []string{
-		"[site]",
-		"type = server",
-		"host = 127.0.0.1",
-		"port = 64123",
-		"keys = /data/i2p/site/site-keys.dat",
-		"inbound.length = 3",
-		"outbound.length = 3",
-		"inbound.quantity = 5",
-		"outbound.quantity = 5",
-		"signaturetype = 7",
-	} {
-		if !strings.Contains(conf, want) {
-			t.Errorf("tunnels.conf missing %q; got:\n%s", want, conf)
-		}
+	if got := getI2PTunnelsConf(I2PServiceConfig{}, "ignored", 64123); got != "" {
+		t.Fatalf("tunnels.conf = %q, want empty so SAM owns the eepsite", got)
 	}
 }
 
@@ -270,8 +251,8 @@ func TestStart_EnabledNoProviderNeverFatal(t *testing.T) {
 	if m.IsRunning() {
 		t.Error("IsRunning() = true after failed Start()")
 	}
-	if got := m.Status(); got != "no provider" {
-		t.Errorf("Status() = %q, want %q", got, "no provider")
+	if got := m.Status(); got != "no_provider" {
+		t.Errorf("Status() = %q, want %q", got, "no_provider")
 	}
 }
 
@@ -386,8 +367,8 @@ func TestReadSAMReply(t *testing.T) {
 
 func TestStatusLocked_Transitions(t *testing.T) {
 	m := NewI2PManager(I2PServiceConfig{Enabled: true})
-	if got := m.Status(); got != "stopped" {
-		t.Errorf("Status() (enabled, not running) = %q, want %q", got, "stopped")
+	if got := m.Status(); got != "starting" {
+		t.Errorf("Status() (enabled, not running) = %q, want %q", got, "starting")
 	}
 
 	m.mu.Lock()
@@ -401,8 +382,44 @@ func TestStatusLocked_Transitions(t *testing.T) {
 	m.mu.Lock()
 	m.svc.eepsiteAddress = "abcd1234.b32.i2p"
 	m.mu.Unlock()
-	if got := m.Status(); got != "healthy" {
-		t.Errorf("Status() (running, address set) = %q, want %q", got, "healthy")
+	if got := m.Status(); got != "running" {
+		t.Errorf("Status() (running, address set) = %q, want %q", got, "running")
+	}
+	m.mu.Lock()
+	m.svc.status = "building"
+	m.mu.Unlock()
+	if got := m.Status(); got != "building" {
+		t.Errorf("Status() during tunnel build = %q, want building", got)
+	}
+	m.mu.Lock()
+	m.svc.status = "error"
+	m.mu.Unlock()
+	if got := m.Status(); got != "error" {
+		t.Errorf("Status() after session loss = %q, want error", got)
+	}
+	m.mu.Lock()
+	m.svc.status = ""
+	m.mu.Unlock()
+	m.mu.Lock()
+	m.running = false
+	m.svc = nil
+	m.startErr = ErrNoProvider
+	m.mu.Unlock()
+	if got := m.Status(); got != "no_provider" {
+		t.Errorf("Status() without provider = %q, want no_provider", got)
+	}
+	m.mu.Lock()
+	m.startErr = fmt.Errorf("startup failed")
+	m.mu.Unlock()
+	if got := m.Status(); got != "error" {
+		t.Errorf("Status() after startup error = %q, want error", got)
+	}
+	m.mu.Lock()
+	m.cfg.Enabled = false
+	m.startErr = nil
+	m.mu.Unlock()
+	if got := m.Status(); got != "disabled" {
+		t.Errorf("Status() disabled = %q, want disabled", got)
 	}
 }
 
@@ -491,363 +508,314 @@ func TestUpdateConfig_EnabledNoProviderNeverFatal(t *testing.T) {
 	}
 }
 
-func TestWaitForI2PDAddress_SucceedsOnceKeyfileAppears(t *testing.T) {
-	tmp := t.TempDir()
-	keysPath := filepath.Join(tmp, "site-keys.dat")
-
-	keys := fakeKeysFileBytes()
-
-	go func() {
-		time.Sleep(50 * time.Millisecond)
-		_ = os.WriteFile(keysPath, keys, 0o600)
-	}()
-
-	addr, err := waitForI2PDAddress(keysPath, 2*time.Second)
-	if err != nil {
-		t.Fatalf("waitForI2PDAddress() error = %v, want nil", err)
+func fakeSAMPrivateKey() string {
+	destination := make([]byte, 387)
+	for i := range destination[:384] {
+		destination[i] = byte(i % 251)
 	}
-	if !strings.HasSuffix(addr, ".b32.i2p") {
-		t.Errorf("waitForI2PDAddress() = %q, want .b32.i2p suffix", addr)
-	}
-	want := b32Address(keys[:387])
-	if addr != want {
-		t.Errorf("waitForI2PDAddress() = %q, want %q (hash of the Destination only, not the private key)", addr, want)
-	}
-}
-
-// fakeKeysFileBytes builds a keys file shaped like the one i2pd persists: a
-// 387-byte Destination (256-byte public key, 128-byte signing key, and an
-// empty certificate) followed by private key material that must never
-// contribute to the .b32.i2p address.
-func fakeKeysFileBytes() []byte {
-	data := make([]byte, 387+64)
-	for i := range data {
-		data[i] = byte(i % 251)
-	}
-	data[384] = 0
-	data[385] = 0
-	data[386] = 0
-	return data
-}
-
-func TestWaitForI2PDAddress_TimesOutWhenKeyfileNeverAppears(t *testing.T) {
-	tmp := t.TempDir()
-	keysPath := filepath.Join(tmp, "never-written.dat")
-
-	if _, err := waitForI2PDAddress(keysPath, 100*time.Millisecond); err == nil {
-		t.Fatal("waitForI2PDAddress() error = nil, want timeout error")
-	}
+	return i2pBase64.EncodeToString(destination)
 }
 
 func TestLoadOrCreateSAMDestination_LoadsPersistedKeyWithoutTouchingConn(t *testing.T) {
 	tmp := t.TempDir()
 	keysPath := filepath.Join(tmp, "site-keys.dat")
-	if err := os.WriteFile(keysPath, []byte("persisted-priv-key\n"), 0o600); err != nil {
+	priv := fakeSAMPrivateKey()
+	if err := os.WriteFile(keysPath, []byte(priv+"\n"), 0o600); err != nil {
 		t.Fatalf("seed keysPath: %v", err)
 	}
-
-	// nil conn/reader is safe here: the persisted-key branch returns before
-	// ever touching either argument.
 	dest, err := loadOrCreateSAMDestination(nil, nil, keysPath, 7)
 	if err != nil {
-		t.Fatalf("loadOrCreateSAMDestination() error = %v, want nil", err)
+		t.Fatalf("loadOrCreateSAMDestination() error = %v", err)
 	}
-	if dest.priv != "persisted-priv-key" {
-		t.Errorf("dest.priv = %q, want %q", dest.priv, "persisted-priv-key")
+	if dest.priv != priv {
+		t.Errorf("dest.priv = %q, want persisted key", dest.priv)
 	}
 }
 
-func TestLoadOrCreateSAMDestination_GeneratesAndPersistsWhenAbsent(t *testing.T) {
+func TestLoadOrCreateSAMDestination_GeneratesAndPersistsAtomically(t *testing.T) {
 	tmp := t.TempDir()
 	keysPath := filepath.Join(tmp, "site", "site-keys.dat")
-
 	server, client := net.Pipe()
-	defer func() {
-		if err := server.Close(); err != nil {
-			t.Errorf("close server pipe: %v", err)
-		}
-	}()
-	defer func() {
-		if err := client.Close(); err != nil {
-			t.Errorf("close client pipe: %v", err)
-		}
-	}()
-
+	defer server.Close()
+	defer client.Close()
+	priv := fakeSAMPrivateKey()
 	go func() {
 		r := bufio.NewReader(server)
 		line, _ := r.ReadString('\n')
-		if !strings.HasPrefix(line, "DEST GENERATE") {
-			t.Errorf("server received %q, want DEST GENERATE request", line)
+		if !strings.HasPrefix(line, "DEST GENERATE SIGNATURE_TYPE=7") {
+			t.Errorf("server received %q, want DEST GENERATE", line)
 		}
-		_, _ = server.Write([]byte("DEST REPLY PUB=abc123pub PRIV=xyz789priv\n"))
+		_, _ = server.Write([]byte("DEST REPLY RESULT=OK PRIV=" + priv + "\n"))
 	}()
-
-	r := bufio.NewReader(client)
-	dest, err := loadOrCreateSAMDestination(client, r, keysPath, 7)
+	dest, err := loadOrCreateSAMDestination(client, bufio.NewReader(client), keysPath, 7)
 	if err != nil {
-		t.Fatalf("loadOrCreateSAMDestination() error = %v, want nil", err)
+		t.Fatalf("loadOrCreateSAMDestination() error = %v", err)
 	}
-	if dest.priv != "xyz789priv" || string(dest.pub) != "abc123pub" {
-		t.Errorf("dest = %+v, want priv=xyz789priv pub=abc123pub", dest)
+	if dest.priv != priv {
+		t.Fatalf("generated key differs from SAM PRIV")
 	}
 	persisted, err := os.ReadFile(keysPath)
 	if err != nil {
 		t.Fatalf("read persisted key: %v", err)
 	}
-	if string(persisted) != "xyz789priv" {
-		t.Errorf("persisted key = %q, want %q", persisted, "xyz789priv")
+	if string(persisted) != priv+"\n" {
+		t.Errorf("persisted key does not contain the single PRIV line")
+	}
+	info, err := os.Stat(keysPath)
+	if err != nil || info.Mode().Perm() != 0o600 {
+		t.Errorf("key file permissions = %v, error=%v; want 0600", info, err)
 	}
 }
 
-func TestStartSAMEepsite_FullMockProtocol(t *testing.T) {
+func TestStartSAMEepsite_UsesSAM31AndSeparateSilentForwardSocket(t *testing.T) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("listen: %v", err)
 	}
-	defer func() {
-		if err := ln.Close(); err != nil {
-			t.Errorf("close SAM listener: %v", err)
-		}
-	}()
-
-	backendLn, err := net.Listen("tcp", "127.0.0.1:0")
+	defer ln.Close()
+	backend, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("listen backend: %v", err)
 	}
-	backendPort := backendLn.Addr().(*net.TCPAddr).Port
-	if err := backendLn.Close(); err != nil {
-		t.Fatalf("close backend listener: %v", err)
-	}
-
+	backendPort := backend.Addr().(*net.TCPAddr).Port
+	defer backend.Close()
+	priv := fakeSAMPrivateKey()
+	commands := make(chan []string, 2)
+	serverErr := make(chan error, 1)
+	release := make(chan struct{})
 	go func() {
-		conn, err := ln.Accept()
-		if err != nil {
+		readConn := func(wantPrefix string, reply string) ([]string, net.Conn, error) {
+			c, e := ln.Accept()
+			if e != nil {
+				return nil, nil, e
+			}
+			r := bufio.NewReader(c)
+			var got []string
+			for _, step := range []struct{ prefix, response string }{{"HELLO VERSION", "HELLO REPLY RESULT=OK VERSION=3.3\n"}, {wantPrefix, reply}} {
+				line, re := r.ReadString('\n')
+				if re != nil {
+					c.Close()
+					return nil, nil, re
+				}
+				got = append(got, strings.TrimSpace(line))
+				if !strings.HasPrefix(line, step.prefix) {
+					c.Close()
+					return nil, nil, fmt.Errorf("got %q, want %s", line, step.prefix)
+				}
+				if _, re = c.Write([]byte(step.response)); re != nil {
+					c.Close()
+					return nil, nil, re
+				}
+			}
+			return got, c, nil
+		}
+		control, controlConn, e := readConn("DEST GENERATE", "DEST REPLY RESULT=OK PRIV="+priv+"\n")
+		if e != nil {
+			serverErr <- e
 			return
 		}
-		defer func() { _ = conn.Close() }()
-		r := bufio.NewReader(conn)
-
-		if line, _ := r.ReadString('\n'); !strings.HasPrefix(line, "HELLO VERSION") {
-			t.Errorf("server: unexpected line %q, want HELLO VERSION", line)
+		line, e := bufio.NewReader(controlConn).ReadString('\n')
+		if e != nil || !strings.HasPrefix(line, "SESSION CREATE") {
+			controlConn.Close()
+			serverErr <- fmt.Errorf("SESSION CREATE missing: %q (%v)", line, e)
 			return
 		}
-		_, _ = conn.Write([]byte("HELLO REPLY RESULT=OK VERSION=3.3\n"))
-
-		if line, _ := r.ReadString('\n'); !strings.HasPrefix(line, "DEST GENERATE") {
-			t.Errorf("server: unexpected line %q, want DEST GENERATE", line)
+		control = append(control, strings.TrimSpace(line))
+		_, e = controlConn.Write([]byte("SESSION STATUS RESULT=OK\n"))
+		if e != nil {
+			controlConn.Close()
+			serverErr <- e
 			return
 		}
-		_, _ = conn.Write([]byte("DEST REPLY PUB=mockpubkey PRIV=mockprivkey\n"))
-
-		if line, _ := r.ReadString('\n'); !strings.HasPrefix(line, "SESSION CREATE") {
-			t.Errorf("server: unexpected line %q, want SESSION CREATE", line)
+		forward, forwardConn, e := readConn("STREAM FORWARD", "STREAM STATUS RESULT=OK\n")
+		if e != nil {
+			controlConn.Close()
+			serverErr <- e
 			return
 		}
-		_, _ = conn.Write([]byte("SESSION STATUS RESULT=OK\n"))
-
-		if line, _ := r.ReadString('\n'); !strings.HasPrefix(line, "STREAM FORWARD") {
-			t.Errorf("server: unexpected line %q, want STREAM FORWARD", line)
-			return
-		}
-		_, _ = conn.Write([]byte("STREAM STATUS RESULT=OK\n"))
+		commands <- control
+		commands <- forward
+		<-release
+		controlConn.Close()
+		forwardConn.Close()
 	}()
-
-	tmp := t.TempDir()
-	keysPath := filepath.Join(tmp, "site", "site-keys.dat")
-	m := NewI2PManager(I2PServiceConfig{
-		Enabled:          true,
-		DataDir:          tmp,
-		ConfigDir:        tmp,
-		SAMAddress:       ln.Addr().String(),
-		SignatureType:    7,
-		InboundLength:    3,
-		OutboundLength:   3,
-		InboundQuantity:  5,
-		OutboundQuantity: 5,
-	})
-
+	m := NewI2PManager(I2PServiceConfig{Enabled: true, ConfigDir: t.TempDir(), DataDir: t.TempDir(), SAMAddress: ln.Addr().String(), SignatureType: 7, InboundLength: 3, OutboundLength: 3, InboundQuantity: 5, OutboundQuantity: 5, BootstrapTimeout: 30})
 	svc := &service{}
-	addr, err := m.startSAMEepsite(ln.Addr().String(), keysPath, backendPort, svc)
+	addr, err := m.startSAMEepsite(ln.Addr().String(), filepath.Join(t.TempDir(), "site", "site-keys.dat"), backendPort, svc)
 	if err != nil {
-		t.Fatalf("startSAMEepsite() error = %v, want nil", err)
+		t.Fatalf("startSAMEepsite(): %v", err)
 	}
-	wantAddr, werr := b32AddressFromBase64("mockpubkey")
-	if werr != nil {
-		t.Fatalf("b32AddressFromBase64() error = %v", werr)
+	control, forward := <-commands, <-commands
+	if len(control) != 3 || !strings.HasPrefix(control[0], "HELLO VERSION MIN=3.1 MAX=3.3") {
+		t.Errorf("control socket did not negotiate SAM 3.1 and create session: %v", control)
 	}
-	if addr != wantAddr {
-		t.Errorf("startSAMEepsite() = %q, want %q", addr, wantAddr)
+	if len(forward) != 2 || !strings.HasPrefix(forward[0], "HELLO VERSION MIN=3.1 MAX=3.3") || !strings.Contains(forward[1], "SILENT=true") {
+		t.Errorf("forward socket did not negotiate SAM 3.1 and use SILENT=true: %v", forward)
 	}
-	if svc.samConn == nil {
-		t.Error("svc.samConn = nil, want the live SAM control connection retained")
+	if svc.samConn == nil || svc.forwardConn == nil || svc.samConn == svc.forwardConn {
+		t.Error("control and forward connections must be distinct and retained")
 	}
-	if err := svc.samConn.Close(); err != nil {
-		t.Errorf("close retained SAM connection: %v", err)
+	if want := b32Address(mustDestination(t, priv)); addr != want {
+		t.Errorf("address = %q, want %q", addr, want)
+	}
+	_ = svc.forwardConn.Close()
+	_ = svc.samConn.Close()
+	close(release)
+	select {
+	case e := <-serverErr:
+		t.Errorf("SAM mock: %v", e)
+	default:
 	}
 }
 
-// fakeI2PDScript writes a minimal shell script standing in for the real
-// i2pd binary: it ignores its flags and simply writes a destination file
-// at keysPath, so startI2PD's waitForI2PDAddress polling loop observes
-// the file and returns.
-func fakeI2PDScript(t *testing.T, keysPath string) string {
+func mustDestination(t *testing.T, priv string) []byte {
 	t.Helper()
-	dir := t.TempDir()
-	scriptPath := filepath.Join(dir, "fake-i2pd.sh")
-	sourcePath := filepath.Join(dir, "fake-keys.dat")
-	if err := os.WriteFile(sourcePath, fakeKeysFileBytes(), 0o600); err != nil {
-		t.Fatalf("write fake keys file: %v", err)
-	}
-	script := "#!/bin/sh\n" +
-		"sleep 0.05\n" +
-		"mkdir -p \"" + filepath.Dir(keysPath) + "\"\n" +
-		"cp \"" + sourcePath + "\" \"" + keysPath + "\"\n" +
-		"sleep 5\n"
-	if err := os.WriteFile(scriptPath, []byte(script), 0o700); err != nil {
-		t.Fatalf("write fake i2pd script: %v", err)
-	}
-	return scriptPath
-}
-
-func TestStartI2PD_SucceedsOnceProcessWritesKeyfile(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("fake i2pd script is a POSIX shell script")
-	}
-	tmp := t.TempDir()
-	keysPath := filepath.Join(tmp, "i2p", "site", "site-keys.dat")
-	binary := fakeI2PDScript(t, keysPath)
-
-	m := NewI2PManager(I2PServiceConfig{
-		Enabled:          true,
-		DataDir:          tmp,
-		ConfigDir:        tmp,
-		LogDir:           tmp,
-		Binary:           binary,
-		VirtualPort:      80,
-		InboundLength:    3,
-		OutboundLength:   3,
-		InboundQuantity:  5,
-		OutboundQuantity: 5,
-		BootstrapTimeout: 5,
-	})
-
-	svc := &service{}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	addr, err := m.startI2PD(ctx, binary, keysPath, 12345, svc)
+	dest, err := destinationBytes(priv)
 	if err != nil {
-		t.Fatalf("startI2PD() error = %v, want nil", err)
+		t.Fatal(err)
 	}
-	wantAddr := b32Address(fakeKeysFileBytes()[:387])
-	if addr != wantAddr {
-		t.Errorf("startI2PD() = %q, want %q", addr, wantAddr)
-	}
-	if svc.i2pd == nil || svc.i2pd.Process == nil {
-		t.Fatal("svc.i2pd process not recorded")
-	}
-	_ = svc.i2pd.Process.Signal(os.Interrupt)
-	_ = svc.i2pd.Wait()
+	return dest
 }
 
-func TestStartI2PD_ReturnsErrorWhenProcessNeverWritesKeyfile(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("fake i2pd script is a POSIX shell script")
-	}
-	tmp := t.TempDir()
-	keysPath := filepath.Join(tmp, "i2p", "site", "site-keys.dat")
-
-	dir := t.TempDir()
-	scriptPath := filepath.Join(dir, "fake-i2pd-slow.sh")
-	script := "#!/bin/sh\nsleep 5\n"
-	if err := os.WriteFile(scriptPath, []byte(script), 0o700); err != nil {
-		t.Fatalf("write fake i2pd script: %v", err)
-	}
-
-	m := NewI2PManager(I2PServiceConfig{
-		Enabled:          true,
-		DataDir:          tmp,
-		ConfigDir:        tmp,
-		LogDir:           tmp,
-		Binary:           scriptPath,
-		BootstrapTimeout: 1,
-	})
-
-	svc := &service{}
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-
-	addr, err := m.startI2PD(ctx, scriptPath, keysPath, 12346, svc)
-	if err == nil {
-		if svc.i2pd != nil && svc.i2pd.Process != nil {
-			_ = svc.i2pd.Process.Signal(os.Interrupt)
-			_ = svc.i2pd.Wait()
+func TestBootstrapTimeoutRangeAndRecoveryBackoff(t *testing.T) {
+	for _, tc := range []struct {
+		seconds int
+		want    time.Duration
+		valid   bool
+	}{{0, 300 * time.Second, true}, {30, 30 * time.Second, true}, {600, 600 * time.Second, true}, {29, 0, false}, {601, 0, false}} {
+		got, err := bootstrapTimeout(tc.seconds)
+		if (err == nil) != tc.valid || got != tc.want {
+			t.Errorf("bootstrapTimeout(%d) = %v, %v", tc.seconds, got, err)
 		}
-		t.Fatal("startI2PD() error = nil, want timeout error")
 	}
-	if addr != "" {
-		t.Errorf("startI2PD() address = %q, want empty on timeout", addr)
+	backoff := 0 * time.Second
+	for _, want := range []time.Duration{5 * time.Second, 10 * time.Second, 20 * time.Second, 40 * time.Second, 80 * time.Second, 160 * time.Second, 300 * time.Second, 300 * time.Second} {
+		backoff = recoveryBackoff(backoff)
+		if backoff != want {
+			t.Fatalf("recoveryBackoff = %v, want %v", backoff, want)
+		}
+	}
+	if i2pdSAMStartupTimeout != 60*time.Second {
+		t.Errorf("Model A SAM startup bound = %v, want 60s per Part 31.2", i2pdSAMStartupTimeout)
 	}
 }
 
-func TestResolveI2PDBinary_EmptyConfigScansCommonPathsAndPATH(t *testing.T) {
-	m := NewI2PManager(I2PServiceConfig{})
-	got := m.resolveI2PDBinary()
-	if got != "" {
-		if _, err := os.Stat(got); err != nil {
-			t.Errorf("resolveI2PDBinary() = %q, but Stat failed: %v", got, err)
+func TestI2PDConfigDisablesUnrelatedServicesAndUsesPrivateSAMPort(t *testing.T) {
+	conf := buildI2PDConfig("/var/log/ipgaze/i2pd.log", 54321)
+	for _, expected := range []string{
+		"daemon = false", "notransit = true", "floodfill = false", "loglevel = warn",
+		"logfile = /var/log/ipgaze/i2pd.log", "[sam]\nenabled = true\naddress = 127.0.0.1\nport = 54321",
+		"[http]\nenabled = false", "[httpproxy]\nenabled = false", "[socksproxy]\nenabled = false",
+		"[bob]\nenabled = false", "[i2cp]\nenabled = false", "[i2pcontrol]\nenabled = false", "[upnp]\nenabled = false",
+	} {
+		if !strings.Contains(conf, expected) {
+			t.Errorf("i2pd.conf missing %q", expected)
 		}
 	}
 }
 
-func TestStartDedicated_FullHappyPathWithI2PDProvider(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("fake i2pd script is a POSIX shell script")
-	}
-	tmp := t.TempDir()
-	keysPath := filepath.Join(tmp, "i2p", "site", "site-keys.dat")
-	binary := fakeI2PDScript(t, keysPath)
-
-	m := NewI2PManager(I2PServiceConfig{
-		Enabled:          true,
-		DataDir:          tmp,
-		ConfigDir:        tmp,
-		LogDir:           tmp,
-		Binary:           binary,
-		VirtualPort:      80,
-		InboundLength:    3,
-		OutboundLength:   3,
-		InboundQuantity:  5,
-		OutboundQuantity: 5,
-		BootstrapTimeout: 5,
-	})
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	svc, err := m.startDedicated(ctx)
+func TestSAMDialRequiresVersion31(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
-		t.Fatalf("startDedicated() error = %v, want nil", err)
+		t.Fatal(err)
 	}
-	defer func() {
-		if svc.i2pd != nil && svc.i2pd.Process != nil {
-			_ = svc.i2pd.Process.Signal(os.Interrupt)
-			_ = svc.i2pd.Wait()
+	defer ln.Close()
+	go func() {
+		conn, acceptErr := ln.Accept()
+		if acceptErr != nil {
+			return
 		}
-		if svc.backendLn != nil {
-			_ = svc.backendLn.Close()
+		defer conn.Close()
+		line, _ := bufio.NewReader(conn).ReadString('\n')
+		if !strings.Contains(line, "MIN=3.1 MAX=3.3") {
+			t.Errorf("HELLO = %q, want SAM 3.1 range", line)
 		}
+		_, _ = conn.Write([]byte("HELLO REPLY RESULT=NOVERSION MESSAGE=unsupported\n"))
 	}()
+	conn, _, err := samDial(context.Background(), ln.Addr().String())
+	if err == nil {
+		conn.Close()
+		t.Fatal("samDial accepted a router without SAM 3.1")
+	}
+}
 
-	if svc.provider != ProviderI2PD {
-		t.Errorf("provider = %v, want ProviderI2PD", svc.provider)
+func TestSAMCommandHasDeadline(t *testing.T) {
+	client, server := net.Pipe()
+	defer client.Close()
+	defer server.Close()
+	go func() { _, _ = bufio.NewReader(server).ReadString('\n') }()
+	if _, err := samCommand(client, bufio.NewReader(client), 20*time.Millisecond, "SESSION STATUS"); err == nil {
+		t.Fatal("samCommand without a reply succeeded; expected deadline error")
 	}
-	if svc.i2pBackendPort <= 0 {
-		t.Errorf("i2pBackendPort = %d, want > 0", svc.i2pBackendPort)
+}
+
+func TestWatchSAMConnectionReportsCloseWithoutPollingReads(t *testing.T) {
+	local, remote := net.Pipe()
+	defer local.Close()
+	reader := bufio.NewReader(local)
+	lost := watchSAMConnection(reader)
+	if err := remote.Close(); err != nil {
+		t.Fatalf("close SAM peer: %v", err)
 	}
-	wantAddr := b32Address(fakeKeysFileBytes()[:387])
-	if svc.eepsiteAddress != wantAddr {
-		t.Errorf("eepsiteAddress = %q, want %q", svc.eepsiteAddress, wantAddr)
+	select {
+	case err := <-lost:
+		if err == nil {
+			t.Fatal("watchSAMConnection returned nil after peer close")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("watchSAMConnection did not report peer close")
+	}
+}
+
+func TestWatchSAMConnectionRejectsUnexpectedIdleData(t *testing.T) {
+	local, remote := net.Pipe()
+	defer local.Close()
+	defer remote.Close()
+	lost := watchSAMConnection(bufio.NewReader(local))
+	writeDone := make(chan error, 1)
+	go func() {
+		_, err := remote.Write([]byte("unexpected"))
+		writeDone <- err
+	}()
+	select {
+	case err := <-lost:
+		if err == nil || !strings.Contains(err.Error(), "unexpected data") {
+			t.Fatalf("watchSAMConnection error = %v, want unexpected-data error", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("watchSAMConnection did not report unexpected data")
+	}
+	if err := <-writeDone; err != nil {
+		t.Fatalf("write SAM peer data: %v", err)
+	}
+}
+
+func TestStartDedicatedRejectsBootstrapTimeoutOutsideRange(t *testing.T) {
+	for _, seconds := range []int{29, 601} {
+		m := NewI2PManager(I2PServiceConfig{Enabled: true, BootstrapTimeout: seconds})
+		if _, err := m.startDedicated(context.Background()); err == nil || !strings.Contains(err.Error(), "30 and 600") {
+			t.Errorf("startDedicated timeout %d: error=%v, want range validation", seconds, err)
+		}
+	}
+}
+
+func TestStopI2PDWaitsForChildExit(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("uses the POSIX sleep command")
+	}
+	cmd := exec.Command("sleep", "30")
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("start child: %v", err)
+	}
+	exited := make(chan struct{})
+	go func() { _ = cmd.Wait(); close(exited) }()
+	if err := stopI2PD(cmd, exited); err != nil {
+		t.Fatalf("stopI2PD(): %v", err)
+	}
+	select {
+	case <-exited:
+	case <-time.After(2 * time.Second):
+		t.Fatal("child was not reaped")
 	}
 }
 

@@ -130,6 +130,57 @@ func CheckForUpdate(ctx context.Context, currentVersion, branch string, buildEpo
 	return nil, nil
 }
 
+// CheckForScheduledUpdate selects the newest eligible release newer than the
+// running version. Unlike the manual check, the scheduler must skip a recent
+// release and continue looking for an older release that has cleared the
+// configured defer window.
+func CheckForScheduledUpdate(ctx context.Context, currentVersion, branch string, buildEpoch int64, deferDays int) (*Release, error) {
+	if canonical, ok := updatechannel.Normalize(branch); ok {
+		branch = canonical
+	} else {
+		branch = "stable"
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, githubReleasesAll, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Accept", "application/vnd.github.v3+json")
+	resp, err := tor.NewHTTPClient(apiRequestTimeout).Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, nil
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("GitHub API error: %d", resp.StatusCode)
+	}
+	var releases []Release
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 4<<20)).Decode(&releases); err != nil {
+		return nil, err
+	}
+	for i := range releases {
+		release := &releases[i]
+		if !matchesBranch(*release, branch) {
+			continue
+		}
+		if release.TagName == "devel" {
+			if publishedAfter(release, buildEpoch) {
+				return release, nil
+			}
+			continue
+		}
+		if release.TagName == currentVersion || strings.TrimPrefix(release.TagName, "v") == currentVersion {
+			return nil, nil
+		}
+		if IsEligible(*release, deferDays) {
+			return release, nil
+		}
+	}
+	return nil, nil
+}
+
 // DoUpdate downloads the release binary, verifies its SHA-256 checksum, and
 // atomically replaces the running binary. The caller is responsible for
 // restarting the process (RestartSelf) afterwards.
@@ -286,11 +337,11 @@ func IsEligible(r Release, deferDays int) bool {
 		return true
 	}
 	if r.PublishedAt == "" {
-		return true
+		return false
 	}
 	published, err := time.Parse(time.RFC3339, r.PublishedAt)
 	if err != nil {
-		return true
+		return false
 	}
 	return time.Since(published) >= time.Duration(deferDays)*24*time.Hour
 }
@@ -345,4 +396,11 @@ func RestartSelf() error {
 // Call this instead of RestartSelf when ipgaze is running as a managed service.
 func RestartService() error {
 	return restartService()
+}
+
+// RestartServiceDeferred queues a service restart without waiting for the
+// current service process to stop. Scheduled tasks use this to let their
+// scheduler job return before the service manager begins shutdown.
+func RestartServiceDeferred(userService bool) error {
+	return restartServiceDeferred(userService)
 }

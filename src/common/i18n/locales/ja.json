@@ -73,7 +73,9 @@
     "copy_i2p_aria": "I2Pアドレスをコピー",
     "return_home": "ホームに戻る",
     "close_notification": "通知を閉じる",
-    "running": "実行中…"
+    "running": "実行中…",
+    "boot_recovery_title": "ページを復元できませんでした",
+    "boot_recovery_message": "ブラウザーのキャッシュを消去した後もページの読み込みが完了しませんでした。このサイトの他のタブを閉じてから、ページを再読み込みしてください。"
   },
 
   "theme": {
@@ -169,7 +171,6 @@
   "status_values": {
     "online": "オンライン",
     "offline": "オフライン",
-    "maintenance": "メンテナンス",
     "starting": "起動中",
     "stopping": "停止中",
     "error": "エラー",
@@ -571,7 +572,6 @@
     "metrics": "メトリクス",
     "geoip": "GeoIP",
     "scheduler": "スケジューラー",
-    "maintenance": "メンテナンス",
     "backup": "バックアップ",
     "restore": "復元",
     "update": "更新",
@@ -750,6 +750,11 @@
   },
 
   "healthz": {
+    "page_title": "ヘルスステータス",
+    "degraded_performance": "パフォーマンス低下",
+    "restart_required": "再起動が必要です",
+    "maintenance": "メンテナンス中",
+    "shutting_down": "シャットダウン中",
     "restart_pending": "再起動保留中：",
     "commit_label": "コミット",
     "build_date_label": "ビルド日",

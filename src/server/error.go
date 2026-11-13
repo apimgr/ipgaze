@@ -31,8 +31,8 @@ var errorPageExecute func(w io.Writer, page string, data interface{}) error
 var errorPageData func(r *http.Request) handler.PageData
 
 // errorPageAssetStamp is the running build's AssetStamp, injected alongside
-// errorPageExecute so the themed error-page path can apply the same
-// version-change purge (AI.md PART 9) as the other HTML response paths.
+// errorPageExecute for the themed error page's ETag. Error responses never
+// apply the version-change purge (AI.md PART 9).
 var errorPageAssetStamp string
 
 // errorLogManager receives every 5xx so it lands in error.log, which AI.md
@@ -164,11 +164,6 @@ func (fn appHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			if errorPageAssetStamp != "" {
 				w.Header().Set("ETag", `"`+errorPageAssetStamp+`"`)
 			}
-			// Version-change purge (AI.md PART 9 "Version-Change Purge
-			// (Clear-Site-Data)"): evict a stale browser cache/service worker
-			// in one shot when the client's build cookie disagrees with this
-			// build. errorPageAssetStamp is injected alongside errorPageExecute.
-			applyVersionPurge(w, r, errorPageAssetStamp)
 			w.WriteHeader(e.Code)
 			buf.WriteTo(w) //nolint:errcheck
 			return

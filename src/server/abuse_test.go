@@ -52,7 +52,7 @@ func TestAbuseMiddlewarePermanentBlockAndAllowlistPrecedence(t *testing.T) {
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("allowlisted request status = %d, want %d", rec.Code, http.StatusNoContent)
 	}
-	if err := persistTemporaryIPBlock(conn, "198.51.100.12", time.Now().Add(time.Hour), 1); err != nil {
+	if err := persistTemporaryIPBlock(context.Background(), conn, "198.51.100.12", time.Now().Add(time.Hour), 1); err != nil {
 		t.Fatalf("insert temporary block: %v", err)
 	}
 	rec = httptest.NewRecorder()

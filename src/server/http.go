@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"crypto/subtle"
@@ -206,6 +207,16 @@ const versionCookieName = "ipgaze_build"
 // cookie) never purges. Call only from HTML response paths — never for
 // static, API, or /sw.js/manifest.json responses.
 func applyVersionPurge(w http.ResponseWriter, r *http.Request, stamp string) {
+	if r.Method != http.MethodGet {
+		return
+	}
+	destPresent := r.Header.Get("Sec-Fetch-Dest") != ""
+	modePresent := r.Header.Get("Sec-Fetch-Mode") != ""
+	if destPresent || modePresent {
+		if r.Header.Get("Sec-Fetch-Dest") != "document" || r.Header.Get("Sec-Fetch-Mode") != "navigate" {
+			return
+		}
+	}
 	if c, err := r.Cookie(versionCookieName); err == nil && c.Value != "" && c.Value != stamp {
 		w.Header().Set("Clear-Site-Data", `"cache", "storage"`)
 	}
@@ -699,6 +710,10 @@ func (s *Server) DefaultHandler(w http.ResponseWriter, r *http.Request) *appErro
 		true,
 		logoURL,
 	}
+	var body bytes.Buffer
+	if err := t.ExecuteTemplate(&body, "base", &data); err != nil {
+		return internalServerError(err)
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	// HTML documents are always fetched fresh (AI.md PART 9 "HTTP Cache
 	// Headers") — the versioned static assets the page references are what
@@ -709,9 +724,7 @@ func (s *Server) DefaultHandler(w http.ResponseWriter, r *http.Request) *appErro
 	// Version-change purge (AI.md PART 9): evict a stale browser cache/service
 	// worker in one shot when the client's build cookie disagrees with this build.
 	applyVersionPurge(w, r, s.AssetStamp())
-	if err := t.ExecuteTemplate(w, "base", &data); err != nil {
-		return internalServerError(err)
-	}
+	_, _ = w.Write(body.Bytes())
 	return nil
 }
 
@@ -938,6 +951,7 @@ func (s *Server) buildHandler() http.Handler {
 	// Recover is outermost so it catches a panic anywhere downstream (AI.md
 	// PART 9 backend guaranteed-response rule — the mirror of the service
 	// worker's guaranteed-Response rule).
+	r.Use(StripI2PHeadersMiddleware)
 	r.Use(RecoverMiddleware(s.logManager))
 	// AI.md PART 11 classifies GET and HEAD together as the read endpoint class,
 	// and RFC 9110 requires every general-purpose server to answer HEAD wherever

@@ -204,8 +204,8 @@ func TestIsEligible(t *testing.T) {
 		{"negative defer always eligible", Release{PublishedAt: newTime}, -1, true},
 		{"old release passes defer window", Release{PublishedAt: oldTime}, 30, true},
 		{"new release fails defer window", Release{PublishedAt: newTime}, 30, false},
-		{"empty published_at eligible", Release{PublishedAt: ""}, 30, true},
-		{"invalid published_at eligible", Release{PublishedAt: "not-a-date"}, 30, true},
+		{"empty published_at is not eligible", Release{PublishedAt: ""}, 30, false},
+		{"invalid published_at is not eligible", Release{PublishedAt: "not-a-date"}, 30, false},
 	}
 
 	for _, tc := range tests {

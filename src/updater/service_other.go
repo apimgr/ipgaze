@@ -12,3 +12,7 @@ import (
 func restartService() error {
 	return fmt.Errorf("service restart not supported on %s", runtime.GOOS)
 }
+
+func restartServiceDeferred(bool) error {
+	return restartService()
+}

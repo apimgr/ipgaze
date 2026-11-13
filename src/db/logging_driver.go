@@ -14,6 +14,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	smetrics "github.com/apimgr/ipgaze/src/server/metrics"
 	"github.com/tursodatabase/libsql-client-go/libsql"
 	"modernc.org/sqlite"
 )
@@ -74,6 +75,7 @@ func OpenLibSQLDriver(url string) (*sql.DB, error) {
 // unconditionally in production and args may carry secrets/PII.
 func logQuery(query string, args []driver.NamedValue, start time.Time, err error) {
 	duration := time.Since(start)
+	smetrics.RecordDBQuery(query, duration, err)
 	logSlowQuery(query, duration, err)
 
 	if !queryLogEnabled.Load() {

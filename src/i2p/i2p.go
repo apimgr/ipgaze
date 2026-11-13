@@ -92,8 +92,13 @@ type service struct {
 	// i2pd is the managed i2pd process (Model A only).
 	i2pd *exec.Cmd
 	// samConn is the live SAM control connection (Model B only), kept open
-	// for the session lifetime (STREAM FORWARD requires it to stay up).
-	samConn net.Conn
+	// for the session lifetime.
+	samConn       net.Conn
+	forwardConn   net.Conn
+	samLost       chan error
+	i2pdExited    chan struct{}
+	monitorCancel context.CancelFunc
+	status        string
 }
 
 // I2PManager manages the I2P eepsite lifecycle. It stores no backend port
@@ -105,13 +110,38 @@ type service struct {
 // ("No Provider") rather than a plain failure.
 var ErrNoProvider = errors.New("i2p enabled but no provider available")
 
+const i2pdSAMStartupTimeout = 60 * time.Second
+
+func bootstrapTimeout(seconds int) (time.Duration, error) {
+	if seconds == 0 {
+		seconds = 300
+	}
+	if seconds < 30 || seconds > 600 {
+		return 0, fmt.Errorf("bootstrap timeout outside 30-600 seconds")
+	}
+	return time.Duration(seconds) * time.Second, nil
+}
+
+func recoveryBackoff(previous time.Duration) time.Duration {
+	if previous <= 0 {
+		return 5 * time.Second
+	}
+	next := previous * 2
+	if next > 300*time.Second {
+		return 300 * time.Second
+	}
+	return next
+}
+
 // I2PManager owns the lifecycle of the I2P eepsite backend — provider
 // detection, start/stop, and the status reported to operators.
 type I2PManager struct {
-	cfg     I2PServiceConfig
-	mu      sync.RWMutex
-	svc     *service
-	running bool
+	cfg      I2PServiceConfig
+	mu       sync.RWMutex
+	svc      *service
+	running  bool
+	starting bool
+	phase    string
 	// startErr holds the last start failure so Status()/GetInfo() can report
 	// the "error:{short message}" and "no provider" states.
 	startErr error
@@ -183,34 +213,153 @@ func (m *I2PManager) IsAvailable() bool {
 // available. I2P is opt-in and optional — disabled, or no provider found,
 // is logged at WARN/INFO, never an error, and the server continues.
 func (m *I2PManager) Start() error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+	return m.start(true)
+}
 
-	if m.running {
+func (m *I2PManager) start(scheduleRecovery bool) error {
+	m.mu.Lock()
+	if m.running || m.starting {
+		m.mu.Unlock()
 		return nil
 	}
 	if !m.cfg.Enabled {
+		m.phase = "disabled"
+		m.mu.Unlock()
 		return nil
 	}
+	m.starting = true
+	m.phase = "starting"
+	m.mu.Unlock()
 
 	svc, err := m.startDedicated(context.Background())
+	m.mu.Lock()
+	m.starting = false
 	if err != nil {
 		// I2P is opt-in and optional: a missing provider or a failed start
 		// is recorded and reported by Status()/GetInfo(), never fatal.
 		m.startErr = err
+		if errors.Is(err, ErrNoProvider) {
+			m.phase = "no_provider"
+		} else {
+			m.phase = "error"
+		}
+		retry := scheduleRecovery && m.cfg.Enabled && !errors.Is(err, ErrNoProvider) && !strings.Contains(err.Error(), "INVALID_KEY") && !strings.Contains(err.Error(), "corrupt destination key file") && !strings.Contains(err.Error(), "invalid persisted destination key")
+		retryDelay := 5 * time.Second
+		if strings.Contains(err.Error(), "DUPLICATED_DEST") {
+			retryDelay = 60 * time.Second
+		}
+		m.mu.Unlock()
 		log.Printf("I2P not started: %v", err)
+		if retry {
+			go m.retryRecovery(retryDelay)
+		}
 		return nil
 	}
 	m.startErr = nil
 	m.svc = svc
 	m.running = true
+	m.phase = "running"
 
 	if m.pendingHandler != nil {
 		m.attachBackendHandlerLocked(m.pendingHandler)
 	}
+	monitorCtx, monitorCancel := context.WithCancel(context.Background())
+	svc.monitorCancel = monitorCancel
+	m.mu.Unlock()
+	go m.monitorService(monitorCtx, svc)
 
 	log.Printf("I2P eepsite started (%s): %s", svc.provider, svc.eepsiteAddress)
 	return nil
+}
+
+func (m *I2PManager) monitorService(ctx context.Context, svc *service) {
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+	failures := 0
+	for {
+		failed := false
+		select {
+		case <-ctx.Done():
+			return
+		case err := <-svc.samLost:
+			failed = true
+			log.Printf("I2P: SAM session connection lost: %v", err)
+		case <-ticker.C:
+		}
+		if svc.provider == ProviderI2PD {
+			select {
+			case <-svc.i2pdExited:
+				failed = true
+			default:
+			}
+		} else if !failed {
+			probeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+			samAddr := m.cfg.SAMAddress
+			if samAddr == "" {
+				samAddr = "127.0.0.1:7656"
+			}
+			conn, _, err := samDial(probeCtx, samAddr)
+			cancel()
+			if err == nil {
+				_, _ = fmt.Fprintln(conn, "QUIT")
+				_ = conn.Close()
+				failures = 0
+			} else {
+				failures++
+				failed = failures >= 3
+			}
+		}
+		if !failed {
+			continue
+		}
+		m.mu.Lock()
+		if m.svc == svc {
+			m.startErr = fmt.Errorf("I2P provider session lost")
+		}
+		m.mu.Unlock()
+		if ctx.Err() != nil {
+			return
+		}
+		m.mu.Lock()
+		if m.svc == svc {
+			svc.status = "error"
+			m.phase = "error"
+		}
+		m.mu.Unlock()
+		if err := m.Restart(); err == nil && m.IsRunning() {
+			return
+		}
+		return
+	}
+}
+
+func (m *I2PManager) retryRecovery(backoff time.Duration) {
+	for {
+		time.Sleep(backoff)
+		m.mu.RLock()
+		enabled, phase := m.cfg.Enabled, m.phase
+		m.mu.RUnlock()
+		if !enabled || phase == "disabled" || phase == "no_provider" {
+			return
+		}
+		_ = m.start(false)
+		if m.IsRunning() {
+			return
+		}
+		backoff = recoveryBackoff(backoff)
+	}
+}
+
+func watchSAMConnection(reader *bufio.Reader) <-chan error {
+	lost := make(chan error, 1)
+	go func() {
+		_, err := reader.ReadByte()
+		if err == nil {
+			err = errors.New("unexpected data on idle SAM session socket")
+		}
+		lost <- err
+	}()
+	return lost
 }
 
 // ServeBackend attaches the app's HTTP handler to the dedicated plain
@@ -247,15 +396,23 @@ func closeServiceLocked(svc *service) error {
 		return nil
 	}
 	var closeErr error
+	if svc.monitorCancel != nil {
+		svc.monitorCancel()
+		svc.monitorCancel = nil
+	}
 	if svc.backendSrv != nil {
 		closeErr = errors.Join(closeErr, svc.backendSrv.Close())
+	}
+	if svc.forwardConn != nil {
+		closeErr = errors.Join(closeErr, svc.forwardConn.Close())
+		svc.forwardConn = nil
 	}
 	if svc.samConn != nil {
 		closeErr = errors.Join(closeErr, svc.samConn.Close())
 		svc.samConn = nil
 	}
 	if svc.i2pd != nil && svc.i2pd.Process != nil {
-		closeErr = errors.Join(closeErr, svc.i2pd.Process.Signal(os.Interrupt))
+		closeErr = errors.Join(closeErr, stopI2PD(svc.i2pd, svc.i2pdExited))
 		svc.i2pd = nil
 	}
 	return closeErr
@@ -266,11 +423,14 @@ func (m *I2PManager) Stop() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if !m.running || m.svc == nil {
+		m.phase = "disabled"
+		m.startErr = nil
 		return nil
 	}
 	err := closeServiceLocked(m.svc)
 	m.svc = nil
 	m.running = false
+	m.phase = "disabled"
 	log.Println("I2P: eepsite stopped")
 	return err
 }
@@ -344,33 +504,28 @@ func (m *I2PManager) Status() string {
 }
 
 func (m *I2PManager) statusLocked() string {
+	if m.svc != nil && m.svc.status != "" {
+		return m.svc.status
+	}
 	if !m.running {
 		if !m.cfg.Enabled {
 			return "disabled"
 		}
 		if errors.Is(m.startErr, ErrNoProvider) {
-			return "no provider"
+			return "no_provider"
 		}
 		if m.startErr != nil {
-			return "error:" + shortErrorMessage(m.startErr)
+			return "error"
 		}
-		return "stopped"
+		if m.phase != "" {
+			return m.phase
+		}
+		return "starting"
 	}
 	if m.svc == nil || m.svc.eepsiteAddress == "" {
 		return "starting"
 	}
-	return "healthy"
-}
-
-// shortErrorMessage renders err as the single-line, bounded summary the
-// health payload's "error:{short message}" form expects.
-func shortErrorMessage(err error) string {
-	const maxLen = 120
-	msg := strings.TrimSpace(strings.ReplaceAll(err.Error(), "\n", " "))
-	if len(msg) > maxLen {
-		msg = msg[:maxLen]
-	}
-	return msg
+	return "running"
 }
 
 // Info holds status fields returned by the API/CLI.
@@ -417,25 +572,10 @@ func (m *I2PManager) Close() error {
 	return m.Stop()
 }
 
-// getI2PTunnelsConf generates the i2pd server-tunnel definition (Model A).
-// tunnels.conf is derived state, regenerated on every startup from
-// I2PServiceConfig + the current backend port. The destination identity
-// persists via keysPath (site-keys.dat), NOT via tunnels.conf, so
-// overwriting it is always safe.
+// getI2PTunnelsConf returns an empty tunnel file: the eepsite is driven only
+// through SAM, and loading any tunnel definition would violate provider isolation.
 func getI2PTunnelsConf(cfg I2PServiceConfig, keysPath string, i2pBackendPort int) string {
-	return fmt.Sprintf(`[site]
-type = server
-host = 127.0.0.1
-port = %d
-keys = %s
-inbound.length = %d
-outbound.length = %d
-inbound.quantity = %d
-outbound.quantity = %d
-signaturetype = %d
-`, i2pBackendPort, keysPath,
-		cfg.InboundLength, cfg.OutboundLength,
-		cfg.InboundQuantity, cfg.OutboundQuantity, cfg.SignatureType)
+	return ""
 }
 
 // ensureI2PDirs creates all I2P directories with correct permissions
@@ -522,62 +662,18 @@ func b32Address(destBinary []byte) string {
 // '/' replaced by '-' and '~'. SAM returns destinations in this encoding.
 var i2pBase64 = base64.NewEncoding("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-~")
 
-// decodeDestination decodes an I2P base64 destination string into its binary
-// form. Padding is optional in SAM replies, so it is accepted either way.
-func decodeDestination(value string) ([]byte, error) {
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return nil, fmt.Errorf("empty destination")
+// destinationBytes decodes a SAM PRIV value and returns its destination.
+// The certificate length is encoded as a big-endian uint16 at offsets 385–386.
+func destinationBytes(priv string) ([]byte, error) {
+	raw, err := i2pBase64.DecodeString(priv)
+	if err != nil || len(raw) < 387 {
+		return nil, fmt.Errorf("invalid destination key")
 	}
-	if raw, err := i2pBase64.DecodeString(value); err == nil {
-		return raw, nil
+	destinationLength := 387 + int(binary.BigEndian.Uint16(raw[385:387]))
+	if len(raw) < destinationLength {
+		return nil, fmt.Errorf("truncated destination key")
 	}
-	raw, err := i2pBase64.WithPadding(base64.NoPadding).DecodeString(value)
-	if err != nil {
-		return nil, fmt.Errorf("decode i2p destination: %w", err)
-	}
-	return raw, nil
-}
-
-// b32AddressFromBase64 derives the .b32.i2p address from an I2P base64
-// destination string as returned by SAM (DEST GENERATE PUB= / NAMING LOOKUP
-// VALUE=). The hash is taken over the decoded binary destination, never over
-// the base64 text.
-func b32AddressFromBase64(value string) (string, error) {
-	raw, err := decodeDestination(value)
-	if err != nil {
-		return "", err
-	}
-	return b32Address(raw), nil
-}
-
-// destinationPrefixLen returns the length of the Destination structure at the
-// start of an i2pd keys file: 256-byte public key + 128-byte signing key +
-// a 3-byte certificate header (type byte plus a big-endian uint16 length)
-// plus the certificate payload itself.
-func destinationPrefixLen(data []byte) (int, error) {
-	const headerLen = 384
-	if len(data) < headerLen+3 {
-		return 0, fmt.Errorf("i2p keys file too short (%d bytes)", len(data))
-	}
-	certLen := int(binary.BigEndian.Uint16(data[headerLen+1 : headerLen+3]))
-	total := headerLen + 3 + certLen
-	if len(data) < total {
-		return 0, fmt.Errorf("i2p keys file truncated: need %d bytes, have %d", total, len(data))
-	}
-	return total, nil
-}
-
-// destinationFromKeysFile extracts the public Destination from the private key
-// file i2pd persists. The file begins with the Destination structure, which is
-// what the .b32.i2p address hashes — hashing the whole file (private key
-// material included) yields an address the router never publishes.
-func destinationFromKeysFile(data []byte) ([]byte, error) {
-	n, err := destinationPrefixLen(data)
-	if err != nil {
-		return nil, err
-	}
-	return data[:n], nil
+	return raw[:destinationLength], nil
 }
 
 // startDedicated resolves the I2P provider (i2pd binary preferred, else
@@ -588,6 +684,9 @@ func destinationFromKeysFile(data []byte) ([]byte, error) {
 func (m *I2PManager) startDedicated(ctx context.Context) (*service, error) {
 	if !m.cfg.Enabled {
 		return nil, fmt.Errorf("i2p disabled (opt-in) - eepsite not started")
+	}
+	if _, err := bootstrapTimeout(m.cfg.BootstrapTimeout); err != nil {
+		return nil, fmt.Errorf("I2P bootstrap_timeout must be between 30 and 600 seconds")
 	}
 
 	samAddr := m.cfg.SAMAddress
@@ -616,11 +715,32 @@ func (m *I2PManager) startDedicated(ctx context.Context) (*service, error) {
 
 	keysPath := filepath.Join(dataDir, "i2p", "site", "site-keys.dat")
 	svc := &service{provider: provider, i2pBackendPort: i2pBackendPort, backendLn: rawLn}
+	svc.backendSrv = &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		m.mu.RLock()
+		handler := m.pendingHandler
+		m.mu.RUnlock()
+		if handler == nil {
+			http.Error(w, "I2P backend is starting", http.StatusServiceUnavailable)
+			return
+		}
+		handler.ServeHTTP(w, r)
+	})}
+	go func() {
+		if err := svc.backendSrv.Serve(rawLn); err != nil && err != http.ErrServerClosed {
+			log.Printf("I2P: backend listener error: %v", err)
+		}
+	}()
 
 	switch provider {
 	case ProviderI2PD:
-		addr, err := m.startI2PD(ctx, i2pdBinary, keysPath, i2pBackendPort, svc)
+		samAddr, err := m.startI2PD(ctx, i2pdBinary, keysPath, i2pBackendPort, svc)
 		if err != nil {
+			_ = closeServiceLocked(svc)
+			return nil, err
+		}
+		addr, err := m.startSAMEepsite(samAddr, keysPath, i2pBackendPort, svc)
+		if err != nil {
+			_ = closeServiceLocked(svc)
 			_ = rawLn.Close()
 			return nil, err
 		}
@@ -628,7 +748,7 @@ func (m *I2PManager) startDedicated(ctx context.Context) (*service, error) {
 	case ProviderSAM:
 		addr, err := m.startSAMEepsite(samAddr, keysPath, i2pBackendPort, svc)
 		if err != nil {
-			_ = rawLn.Close()
+			_ = closeServiceLocked(svc)
 			return nil, err
 		}
 		svc.eepsiteAddress = addr
@@ -637,89 +757,178 @@ func (m *I2PManager) startDedicated(ctx context.Context) (*service, error) {
 	return svc, nil
 }
 
-// startI2PD writes tunnels.conf (regenerated each run) and starts a
-// dedicated i2pd child process, then waits for the destination key file
-// to appear so the .b32.i2p address can be derived from it. i2pd
-// creates/persists site-keys.dat at keysPath.
+// startI2PD creates an isolated router configuration, starts the managed
+// process, and returns its private random SAM endpoint for the common SAM path.
 func (m *I2PManager) startI2PD(ctx context.Context, binary, keysPath string, i2pBackendPort int, svc *service) (string, error) {
-	tunnelsPath := filepath.Join(m.cfg.ConfigDir, "i2p", "tunnels.conf")
+	_ = keysPath
+	_ = i2pBackendPort
+	confDir := filepath.Join(m.cfg.ConfigDir, "i2p")
+	dataDir := filepath.Join(m.cfg.DataDir, "i2p")
 	logDir := m.cfg.LogDir
 	if logDir == "" {
 		logDir = m.cfg.DataDir
 	}
-
-	conf := getI2PTunnelsConf(m.cfg, keysPath, i2pBackendPort)
-	if err := updateI2PTunnels(tunnelsPath, []byte(conf)); err != nil {
-		return "", fmt.Errorf("failed to write tunnels.conf: %w", err)
+	if err := os.MkdirAll(logDir, 0o700); err != nil {
+		return "", fmt.Errorf("create i2pd log directory: %w", err)
 	}
-	log.Printf("Regenerated i2p tunnels.conf at %s (backend port %d)", tunnelsPath, i2pBackendPort)
-
-	cmd := exec.CommandContext(ctx, binary,
-		"--datadir", filepath.Join(m.cfg.DataDir, "i2p"),
-		"--tunconf", tunnelsPath,
-		"--log", "file",
-		"--logfile", filepath.Join(logDir, "i2pd.log"),
-	)
+	tunnelsDir := filepath.Join(confDir, "tunnels.d")
+	if err := os.RemoveAll(tunnelsDir); err != nil {
+		return "", fmt.Errorf("clear isolated i2pd tunnels directory: %w", err)
+	}
+	if err := os.MkdirAll(tunnelsDir, 0o700); err != nil {
+		return "", fmt.Errorf("create empty i2pd tunnels directory: %w", err)
+	}
+	_ = os.Chmod(tunnelsDir, 0o700)
+	tunnelsPath := filepath.Join(confDir, "tunnels.conf")
+	if err := updateI2PTunnels(tunnelsPath, nil); err != nil {
+		return "", err
+	}
+	samPort, err := randomUnusedPort()
+	if err != nil {
+		return "", err
+	}
+	confPath := filepath.Join(confDir, "i2pd.conf")
+	conf := buildI2PDConfig(filepath.Join(logDir, "i2pd.log"), samPort)
+	if err := writePrivateFile(confPath, []byte(conf)); err != nil {
+		return "", fmt.Errorf("write i2pd.conf: %w", err)
+	}
+	pidPath := filepath.Join(dataDir, "i2pd.pid")
+	if err := reapStaleI2PD(pidPath, binary); err != nil {
+		return "", err
+	}
+	cmd := exec.Command(binary, "--conf", confPath, "--tunconf", tunnelsPath,
+		"--tunnelsdir", tunnelsDir, "--datadir", dataDir,
+		"--pidfile", pidPath)
+	setParentDeathSignal(cmd)
 	if err := cmd.Start(); err != nil {
 		return "", fmt.Errorf("failed to start i2pd: %w", err)
 	}
 	svc.i2pd = cmd
-
-	bootstrapTimeout := m.cfg.BootstrapTimeout
-	if bootstrapTimeout <= 0 {
-		bootstrapTimeout = 300
+	svc.i2pdExited = make(chan struct{})
+	go func() {
+		if err := cmd.Wait(); err != nil {
+			log.Printf("I2P: i2pd exited: %v", err)
+		}
+		close(svc.i2pdExited)
+	}()
+	samAddr := fmt.Sprintf("127.0.0.1:%d", samPort)
+	deadline := time.Now().Add(i2pdSAMStartupTimeout)
+	for time.Now().Before(deadline) {
+		probeTimeout := 10 * time.Second
+		if remaining := time.Until(deadline); remaining < probeTimeout {
+			probeTimeout = remaining
+		}
+		probeCtx, cancel := context.WithTimeout(ctx, probeTimeout)
+		conn, _, dialErr := samDial(probeCtx, samAddr)
+		cancel()
+		if dialErr == nil {
+			_ = conn.Close()
+			return samAddr, nil
+		}
+		select {
+		case <-svc.i2pdExited:
+			return "", fmt.Errorf("i2pd exited before its SAM port opened: %v", cmd.ProcessState)
+		case <-ctx.Done():
+			_ = stopI2PD(cmd, svc.i2pdExited)
+			return "", ctx.Err()
+		case <-time.After(500 * time.Millisecond):
+		}
 	}
-	deadline := time.Duration(bootstrapTimeout) * time.Second
+	_ = stopI2PD(cmd, svc.i2pdExited)
+	return "", fmt.Errorf("i2pd SAM port not ready after %s; see %s", i2pdSAMStartupTimeout, filepath.Join(logDir, "i2pd.log"))
+}
 
-	addr, err := waitForI2PDAddress(keysPath, deadline)
+func buildI2PDConfig(logPath string, samPort int) string {
+	return fmt.Sprintf(`daemon = false
+ipv4 = true
+ipv6 = false
+notransit = true
+floodfill = false
+log = file
+logfile = %s
+loglevel = warn
+
+[http]
+enabled = false
+[httpproxy]
+enabled = false
+[socksproxy]
+enabled = false
+[sam]
+enabled = true
+address = 127.0.0.1
+port = %d
+[bob]
+enabled = false
+[i2cp]
+enabled = false
+[i2pcontrol]
+enabled = false
+[upnp]
+enabled = false
+`, logPath, samPort)
+}
+
+func randomUnusedPort() (int, error) {
+	ln, _, err := getRandomAvailablePort()
 	if err != nil {
-		if cmd.Process != nil {
-			_ = cmd.Process.Signal(os.Interrupt)
-		}
-		return "", err
+		return 0, err
 	}
-	return addr, nil
+	defer ln.Close()
+	return ln.Addr().(*net.TCPAddr).Port, nil
 }
 
-// waitForI2PDAddress polls for the destination key file i2pd persists at
-// keysPath and derives the .b32.i2p address from the public Destination stored
-// at the head of that file once it is complete.
-func waitForI2PDAddress(keysPath string, timeout time.Duration) (string, error) {
-	deadlineAt := time.Now().Add(timeout)
-	var lastErr error
-	for time.Now().Before(deadlineAt) {
-		if data, err := os.ReadFile(keysPath); err == nil && len(data) > 0 {
-			dest, derr := destinationFromKeysFile(data)
-			if derr == nil {
-				return b32Address(dest), nil
-			}
-			// i2pd writes the file incrementally, so a short read is
-			// expected until the key material is fully flushed.
-			lastErr = derr
+func writePrivateFile(path string, data []byte) error {
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		return err
+	}
+	if err := os.Chmod(path, 0o600); err != nil {
+		return err
+	}
+	if runtime.GOOS != "windows" {
+		if err := os.Chown(path, os.Getuid(), os.Getgid()); err != nil {
+			return err
 		}
-		time.Sleep(500 * time.Millisecond)
 	}
-	if lastErr != nil {
-		return "", fmt.Errorf("timed out reading i2pd destination at %s: %w", keysPath, lastErr)
-	}
-	return "", fmt.Errorf("timed out waiting for i2pd destination at %s", keysPath)
+	return nil
 }
 
-// samDestination holds the private and public halves of a persisted SAM
-// destination.
+func reapStaleI2PD(pidPath, binary string) error {
+	data, err := os.ReadFile(pidPath)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("read i2pd pid file: %w", err)
+	}
+	pid := 0
+	if _, err := fmt.Sscanf(strings.TrimSpace(string(data)), "%d", &pid); err != nil || pid <= 1 {
+		return fmt.Errorf("invalid i2pd pid file %s", pidPath)
+	}
+	return terminateStaleI2PD(pid, filepath.Base(binary), pidPath)
+}
+
+func stopI2PD(cmd *exec.Cmd, exited <-chan struct{}) error {
+	if cmd == nil || cmd.Process == nil {
+		return nil
+	}
+	signalErr := signalI2PD(cmd.Process)
+	if exited != nil {
+		select {
+		case <-exited:
+			return nil
+		case <-time.After(10 * time.Second):
+		}
+	}
+	if err := cmd.Process.Kill(); err != nil {
+		return errors.Join(signalErr, err)
+	}
+	return nil
+}
+
+// samDestination holds the persisted private destination used to create a SAM session.
 type samDestination struct {
-	// priv is the I2P base64 private destination handed back to SESSION CREATE.
 	priv string
-	// pub is the I2P base64 public destination the .b32.i2p address hashes.
-	pub string
-}
-
-// samPublicKeysPath returns the companion file holding the public half of the
-// destination stored at keysPath. SAM only ever returns PUB= once, at DEST
-// GENERATE time, so it must be persisted alongside the private key or the
-// advertised address cannot be recomputed on a later start.
-func samPublicKeysPath(keysPath string) string {
-	return keysPath + ".pub"
 }
 
 // readSAMReply reads one line from the SAM control connection and
@@ -739,57 +948,113 @@ func readSAMReply(r *bufio.Reader, expectPrefix string) (string, error) {
 	return line, nil
 }
 
+func samCommand(conn net.Conn, reader *bufio.Reader, timeout time.Duration, command string) (string, error) {
+	if timeout <= 0 {
+		return "", fmt.Errorf("invalid SAM command timeout")
+	}
+	if err := conn.SetDeadline(time.Now().Add(timeout)); err != nil {
+		return "", fmt.Errorf("set SAM deadline: %w", err)
+	}
+	defer conn.SetDeadline(time.Time{})
+	if _, err := fmt.Fprintln(conn, command); err != nil {
+		return "", fmt.Errorf("SAM command write failed")
+	}
+	line, err := reader.ReadString('\n')
+	if err != nil {
+		return "", fmt.Errorf("SAM command reply failed: %w", err)
+	}
+	return strings.TrimSpace(line), nil
+}
+
+func samDial(ctx context.Context, address string) (net.Conn, *bufio.Reader, error) {
+	dialCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	conn, err := (&net.Dialer{}).DialContext(dialCtx, "tcp", address)
+	if err != nil {
+		return nil, nil, err
+	}
+	reader := bufio.NewReader(conn)
+	helloTimeout := 10 * time.Second
+	if deadline, ok := ctx.Deadline(); ok {
+		if remaining := time.Until(deadline); remaining < helloTimeout {
+			helloTimeout = remaining
+		}
+	}
+	line, err := samCommand(conn, reader, helloTimeout, "HELLO VERSION MIN=3.1 MAX=3.3")
+	if err != nil || !strings.HasPrefix(line, "HELLO REPLY") || !strings.Contains(line, "RESULT=OK") {
+		_ = conn.Close()
+		if err == nil {
+			err = fmt.Errorf("SAM HELLO rejected; SAM 3.1 or newer is required")
+		}
+		return nil, nil, err
+	}
+	return conn, reader, nil
+}
+
 // loadOrCreateSAMDestination loads the persisted destination from
 // keysPath, or generates a new one via SAM DEST GENERATE and persists it,
 // when none exists yet.
 func loadOrCreateSAMDestination(conn net.Conn, r *bufio.Reader, keysPath string, sigType int) (samDestination, error) {
 	if data, err := os.ReadFile(keysPath); err == nil && len(data) > 0 {
 		priv := strings.TrimSpace(string(data))
-		var pub string
-		if pubData, perr := os.ReadFile(samPublicKeysPath(keysPath)); perr == nil {
-			pub = strings.TrimSpace(string(pubData))
+		if _, err := destinationBytes(priv); err != nil {
+			return samDestination{}, fmt.Errorf("corrupt destination key file %s: %w", keysPath, err)
 		}
-		return samDestination{priv: priv, pub: pub}, nil
+		return samDestination{priv: priv}, nil
+	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return samDestination{}, fmt.Errorf("read destination key file: %w", err)
 	}
-
-	if _, err := fmt.Fprintf(conn, "DEST GENERATE SIGNATURE_TYPE=%d\n", sigType); err != nil {
-		return samDestination{}, err
-	}
-	line, err := r.ReadString('\n')
+	line, err := samCommand(conn, r, 10*time.Second, fmt.Sprintf("DEST GENERATE SIGNATURE_TYPE=%d", sigType))
 	if err != nil {
-		return samDestination{}, fmt.Errorf("read DEST GENERATE reply: %w", err)
+		return samDestination{}, fmt.Errorf("DEST GENERATE: %w", err)
 	}
-	line = strings.TrimSpace(line)
-
-	var pub, priv string
+	if !strings.HasPrefix(line, "DEST REPLY") || !strings.Contains(line, "RESULT=OK") {
+		return samDestination{}, fmt.Errorf("DEST GENERATE rejected: %s", samResult(line))
+	}
+	var priv string
 	for _, field := range strings.Fields(line) {
 		switch {
-		case strings.HasPrefix(field, "PUB="):
-			pub = strings.TrimPrefix(field, "PUB=")
 		case strings.HasPrefix(field, "PRIV="):
 			priv = strings.TrimPrefix(field, "PRIV=")
 		}
 	}
-	if priv == "" || pub == "" {
-		return samDestination{}, fmt.Errorf("malformed DEST GENERATE reply: %q", line)
+	if _, err := destinationBytes(priv); err != nil {
+		return samDestination{}, fmt.Errorf("DEST GENERATE returned an invalid private destination")
 	}
 
 	if err := os.MkdirAll(filepath.Dir(keysPath), 0o700); err != nil {
 		return samDestination{}, fmt.Errorf("create keys dir: %w", err)
 	}
-	if err := os.WriteFile(keysPath, []byte(priv), 0o600); err != nil {
+	tmp, err := os.CreateTemp(filepath.Dir(keysPath), ".site-keys-*.tmp")
+	if err != nil {
+		return samDestination{}, fmt.Errorf("create destination temp file: %w", err)
+	}
+	tmpName := tmp.Name()
+	defer os.Remove(tmpName)
+	if err := tmp.Chmod(0o600); err != nil {
+		tmp.Close()
+		return samDestination{}, err
+	}
+	if _, err := tmp.WriteString(priv + "\n"); err != nil {
+		tmp.Close()
+		return samDestination{}, fmt.Errorf("write destination key: %w", err)
+	}
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		return samDestination{}, fmt.Errorf("sync destination key: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return samDestination{}, fmt.Errorf("close destination key: %w", err)
+	}
+	if err := os.Rename(tmpName, keysPath); err != nil {
 		return samDestination{}, fmt.Errorf("persist destination key: %w", err)
 	}
-	pubPath := samPublicKeysPath(keysPath)
-	if err := os.WriteFile(pubPath, []byte(pub), 0o600); err != nil {
-		return samDestination{}, fmt.Errorf("persist public destination: %w", err)
-	}
 	if runtime.GOOS != "windows" {
-		_ = os.Chown(keysPath, os.Getuid(), os.Getgid())
-		_ = os.Chown(pubPath, os.Getuid(), os.Getgid())
+		if err := os.Chown(keysPath, os.Getuid(), os.Getgid()); err != nil {
+			return samDestination{}, fmt.Errorf("set destination key owner: %w", err)
+		}
 	}
-
-	return samDestination{priv: priv, pub: pub}, nil
+	return samDestination{priv: priv}, nil
 }
 
 // startSAMEepsite opens a SAMv3 control connection, loads (or generates
@@ -798,81 +1063,96 @@ func loadOrCreateSAMDestination(conn net.Conn, r *bufio.Reader, keysPath string,
 // address. Model B: no PROXY-protocol header is ever sent by SAM/i2pd, so
 // svc.backendLn (allocated by the caller) is served plain.
 func (m *I2PManager) startSAMEepsite(samAddr, keysPath string, i2pBackendPort int, svc *service) (string, error) {
-	conn, err := net.DialTimeout("tcp", samAddr, 5*time.Second)
+	ctx := context.Background()
+	conn, r, err := samDial(ctx, samAddr)
 	if err != nil {
 		return "", fmt.Errorf("failed to dial SAM %s: %w", samAddr, err)
 	}
-	r := bufio.NewReader(conn)
-
-	if _, err := fmt.Fprintf(conn, "HELLO VERSION MIN=3.0 MAX=3.3\n"); err != nil {
-		_ = conn.Close()
-		return "", err
+	watchDone := make(chan struct{})
+	defer close(watchDone)
+	if svc.i2pdExited != nil {
+		go func() {
+			select {
+			case <-svc.i2pdExited:
+				_ = conn.Close()
+			case <-watchDone:
+			}
+		}()
 	}
-	if _, err := readSAMReply(r, "HELLO REPLY"); err != nil {
-		_ = conn.Close()
-		return "", err
-	}
-
 	dest, err := loadOrCreateSAMDestination(conn, r, keysPath, m.cfg.SignatureType)
 	if err != nil {
 		_ = conn.Close()
 		return "", err
 	}
-
-	if _, err := fmt.Fprintf(conn, "SESSION CREATE STYLE=STREAM ID=site DESTINATION=%s "+
-		"inbound.length=%d outbound.length=%d inbound.quantity=%d outbound.quantity=%d\n",
-		dest.priv, m.cfg.InboundLength, m.cfg.OutboundLength, m.cfg.InboundQuantity, m.cfg.OutboundQuantity); err != nil {
-		_ = conn.Close()
-		return "", err
-	}
-	if _, err := readSAMReply(r, "SESSION STATUS"); err != nil {
-		_ = conn.Close()
-		return "", err
-	}
-
-	if _, err := fmt.Fprintf(conn, "STREAM FORWARD ID=site PORT=%d HOST=127.0.0.1\n", i2pBackendPort); err != nil {
-		_ = conn.Close()
-		return "", err
-	}
-	if _, err := readSAMReply(r, "STREAM STATUS"); err != nil {
-		_ = conn.Close()
-		return "", err
-	}
-
-	svc.samConn = conn
-
-	if dest.pub == "" {
-		// The destination came from a key file persisted before the public
-		// half was recorded, so ask the router for this session's own
-		// destination and persist it for the next start.
-		if _, err := fmt.Fprintf(conn, "NAMING LOOKUP NAME=ME\n"); err != nil {
-			return "", fmt.Errorf("naming lookup: %w", err)
-		}
-		line, err := r.ReadString('\n')
-		if err != nil {
-			return "", fmt.Errorf("read NAMING REPLY: %w", err)
-		}
-		line = strings.TrimSpace(line)
-		for _, field := range strings.Fields(line) {
-			if !strings.HasPrefix(field, "VALUE=") {
-				continue
-			}
-			value := strings.TrimPrefix(field, "VALUE=")
-			addr, aerr := b32AddressFromBase64(value)
-			if aerr != nil {
-				return "", fmt.Errorf("naming lookup returned an undecodable destination: %w", aerr)
-			}
-			if werr := os.WriteFile(samPublicKeysPath(keysPath), []byte(value), 0o600); werr != nil {
-				return "", fmt.Errorf("persist public destination: %w", werr)
-			}
-			return addr, nil
-		}
-		return "", fmt.Errorf("unable to derive .b32.i2p address for persisted destination")
-	}
-
-	addr, err := b32AddressFromBase64(dest.pub)
+	privateDestination, err := destinationBytes(dest.priv)
 	if err != nil {
-		return "", fmt.Errorf("derive .b32.i2p address: %w", err)
+		_ = conn.Close()
+		return "", fmt.Errorf("invalid persisted destination key: %w", err)
 	}
+	addr := b32Address(privateDestination)
+	id := fmt.Sprintf("site-%d", os.Getpid())
+	bootstrap, err := bootstrapTimeout(m.cfg.BootstrapTimeout)
+	if err != nil {
+		_ = conn.Close()
+		return "", fmt.Errorf("I2P bootstrap_timeout must be between 30 and 600 seconds")
+	}
+	var reply string
+	for attempt := 0; attempt < 2; attempt++ {
+		if attempt > 0 {
+			id = fmt.Sprintf("%s-%d", id, time.Now().UnixNano())
+		}
+		cmd := fmt.Sprintf("SESSION CREATE STYLE=STREAM ID=%s DESTINATION=%s i2cp.leaseSetEncType=4 inbound.length=%d outbound.length=%d inbound.quantity=%d outbound.quantity=%d", id, dest.priv, m.cfg.InboundLength, m.cfg.OutboundLength, m.cfg.InboundQuantity, m.cfg.OutboundQuantity)
+		m.setServiceStatus(svc, "building")
+		reply, err = samCommand(conn, r, bootstrap, cmd)
+		if err != nil {
+			_ = conn.Close()
+			return "", fmt.Errorf("SESSION CREATE: %w", err)
+		}
+		if strings.Contains(reply, "RESULT=DUPLICATED_ID") && attempt == 0 {
+			continue
+		}
+		if !strings.Contains(reply, "RESULT=OK") {
+			_ = conn.Close()
+			return "", fmt.Errorf("SESSION CREATE rejected: %s", samResult(reply))
+		}
+		break
+	}
+	// The plain backend listener was bound before reaching this function.
+	forward, fr, err := samDial(ctx, samAddr)
+	if err != nil {
+		_ = conn.Close()
+		return "", fmt.Errorf("open SAM forward socket: %w", err)
+	}
+	reply, err = samCommand(forward, fr, 10*time.Second, fmt.Sprintf("STREAM FORWARD ID=%s PORT=%d HOST=127.0.0.1 SILENT=true", id, i2pBackendPort))
+	if err != nil || !strings.Contains(reply, "RESULT=OK") {
+		_ = forward.Close()
+		_ = conn.Close()
+		return "", fmt.Errorf("STREAM FORWARD rejected: %s", samResult(reply))
+	}
+	svc.samConn, svc.forwardConn = conn, forward
+	svc.samLost = make(chan error, 2)
+	for _, reader := range []*bufio.Reader{r, fr} {
+		watch := watchSAMConnection(reader)
+		go func() { svc.samLost <- <-watch }()
+	}
+	m.setServiceStatus(svc, "running")
 	return addr, nil
+}
+
+func samResult(reply string) string {
+	for _, field := range strings.Fields(reply) {
+		if strings.HasPrefix(field, "RESULT=") {
+			return strings.TrimPrefix(field, "RESULT=")
+		}
+	}
+	return "invalid SAM reply"
+}
+
+func (m *I2PManager) setServiceStatus(svc *service, status string) {
+	m.mu.Lock()
+	svc.status = status
+	if m.svc == svc || m.starting {
+		m.phase = status
+	}
+	m.mu.Unlock()
 }

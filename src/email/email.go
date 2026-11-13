@@ -2,17 +2,13 @@ package email
 
 import (
 	"bytes"
-	"crypto/tls"
-	"embed"
 	"encoding/base64"
-	"errors"
 	"fmt"
 	"html"
 	"io/fs"
 	"mime"
 	"mime/multipart"
 	"mime/quotedprintable"
-	"net"
 	"net/smtp"
 	"net/textproto"
 	"os"
@@ -22,12 +18,10 @@ import (
 	"time"
 
 	"github.com/apimgr/ipgaze/src/common/i18n"
+	emailtemplates "github.com/apimgr/ipgaze/src/server/template/email"
 )
 
-// defaultTemplateFS holds the embedded default email templates.
-//
-//go:embed templates/*.txt
-var defaultTemplateFS embed.FS
+var defaultTemplateFS fs.FS = emailtemplates.FS
 
 // SMTPConfig holds SMTP configuration per AI.md PART 17.
 type SMTPConfig struct {
@@ -111,12 +105,9 @@ func (m *EmailManager) Send(msg *Message) error {
 }
 
 // SendDirect sends an email immediately as a multipart MIME message (HTML + plain text).
-// TLS handling follows the four modes defined in AI.md PART 17 (smtp.tls / SMTP_TLS):
-//   - "none": plaintext, no TLS at all
-//   - "starttls": connect plaintext, then explicit STARTTLS upgrade (fails if unsupported)
-//   - "tls": implicit TLS from the start of the connection (typically port 465)
-//   - "auto" (default): implicit TLS when port is 465, otherwise STARTTLS if the
-//     server advertises it, else falls back to plaintext
+// TLS handling follows the four modes defined in AI.md PART 17. SMTP transport
+// setup is shared with the startup connection probe so both use the same TLS
+// verification and EHLO policy.
 func (m *EmailManager) SendDirect(msg *Message) error {
 	if !m.IsEnabled() {
 		return fmt.Errorf("email not configured")
@@ -138,56 +129,23 @@ func (m *EmailManager) SendDirect(msg *Message) error {
 
 // sendWithTLSMode connects to the configured SMTP server and sends msg,
 // branching on cfg.TLS per AI.md PART 17.
-func sendWithTLSMode(cfg SMTPConfig, to []string, body []byte) (returnErr error) {
-	addr := net.JoinHostPort(cfg.Host, fmt.Sprintf("%d", cfg.Port))
-
-	tlsMode := strings.ToLower(strings.TrimSpace(cfg.TLS))
-	if tlsMode == "" {
-		tlsMode = "auto"
-	}
-
-	dialer := &net.Dialer{Timeout: 30 * time.Second}
-
-	var conn net.Conn
-	var err error
-	// "tls" (or "auto" on the implicit-TLS port 465) dials straight into TLS.
-	if tlsMode == "tls" || (tlsMode == "auto" && cfg.Port == 465) {
-		tlsConfig := &tls.Config{ServerName: cfg.Host, MinVersion: tls.VersionTLS12}
-		conn, err = tls.DialWithDialer(dialer, "tcp", addr, tlsConfig)
-	} else {
-		conn, err = dialer.Dial("tcp", addr)
-	}
+func sendWithTLSMode(cfg SMTPConfig, to []string, body []byte) error {
+	client, err := openSMTPClient(cfg, 30*time.Second)
 	if err != nil {
-		return fmt.Errorf("email: dial: %w", err)
-	}
-	client, err := smtp.NewClient(conn, cfg.Host)
-	if err != nil {
-		return errors.Join(fmt.Errorf("email: new client: %w", err), conn.Close())
+		return err
 	}
 	// smtp.Client.Close also closes conn. Its QUIT/close errors are cleanup
 	// failures after message delivery and must not turn a successful send into
 	// a retryable delivery failure.
 	defer func() { _ = client.Close() }()
 
-	// "starttls" (or "auto" on a non-implicit-TLS port) upgrades in place.
-	if tlsMode == "starttls" || (tlsMode == "auto" && cfg.Port != 465) {
-		if ok, _ := client.Extension("STARTTLS"); ok {
-			tlsConfig := &tls.Config{ServerName: cfg.Host, MinVersion: tls.VersionTLS12}
-			if err := client.StartTLS(tlsConfig); err != nil {
-				return fmt.Errorf("email: starttls: %w", err)
-			}
-		} else if tlsMode == "starttls" {
-			return fmt.Errorf("email: server does not support STARTTLS")
-		} else if cfg.Username != "" && cfg.Password != "" {
-			// auto mode: refuse to send credentials/body in cleartext when the
-			// server does not advertise STARTTLS. Use TLS mode "none" to opt in.
-			return fmt.Errorf("email: server does not support STARTTLS; refusing cleartext with credentials (set tls: none to override)")
+	if cfg.Username != "" || cfg.Password != "" {
+		if _, ok := client.TLSConnectionState(); !ok {
+			return fmt.Errorf("email: refusing SMTP authentication without TLS")
 		}
-		// tlsMode == "auto" with no STARTTLS and no credentials: plaintext.
-	}
-	// tlsMode == "none": always plaintext, even if STARTTLS is advertised.
-
-	if cfg.Username != "" {
+		if cfg.Username == "" {
+			return fmt.Errorf("email: SMTP username is required when a password is configured")
+		}
 		auth := smtp.PlainAuth("", cfg.Username, cfg.Password, cfg.Host)
 		if err := client.Auth(auth); err != nil {
 			return fmt.Errorf("email: auth: %w", err)
@@ -425,7 +383,7 @@ func (m *EmailManager) LoadTemplate(name string) (*Template, error) {
 	}
 
 	// Fall back to embedded templates
-	data, err := defaultTemplateFS.ReadFile(filepath.Join("templates", filename))
+	data, err := fs.ReadFile(defaultTemplateFS, filename)
 	if err != nil {
 		return nil, fmt.Errorf("template %q not found: %w", name, err)
 	}
@@ -576,7 +534,7 @@ func (m *EmailManager) SendLocalizedTemplate(templateName, lang string, to []str
 
 // DefaultTemplateNames returns the names of all embedded templates.
 func DefaultTemplateNames() ([]string, error) {
-	entries, err := fs.ReadDir(defaultTemplateFS, "templates")
+	entries, err := fs.ReadDir(defaultTemplateFS, ".")
 	if err != nil {
 		return nil, err
 	}

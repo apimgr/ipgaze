@@ -4,6 +4,82 @@
  * All handlers bound via data-action delegation — inline onclick is blocked by CSP.
  */
 
+// The server renders the page; this watchdog recovers only when the initial
+// document never reaches its first paint.
+const BOOT_RECOVERY_KEY = 'ipgaze_recovered';
+const BOOT_WATCHDOG = window.setTimeout(recoverBoot, 10000);
+
+function markFirstRenderComplete() {
+  window.clearTimeout(BOOT_WATCHDOG);
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', function() {
+    window.requestAnimationFrame(function() {
+      window.requestAnimationFrame(markFirstRenderComplete);
+    });
+  }, { once: true });
+} else {
+  window.requestAnimationFrame(function() {
+    window.requestAnimationFrame(markFirstRenderComplete);
+  });
+}
+
+async function recoverBoot() {
+  try {
+    if (window.sessionStorage.getItem(BOOT_RECOVERY_KEY)) {
+      showBootRecoveryError();
+      return;
+    }
+    window.sessionStorage.setItem(BOOT_RECOVERY_KEY, '1');
+
+    const cleanup = [];
+    if (navigator.serviceWorker && navigator.serviceWorker.getRegistrations) {
+      cleanup.push(navigator.serviceWorker.getRegistrations().then(function(registrations) {
+        return Promise.allSettled(registrations.map(function(registration) {
+          return registration.unregister();
+        }));
+      }));
+    }
+    if (window.caches && window.caches.keys) {
+      cleanup.push(window.caches.keys().then(function(names) {
+        return Promise.allSettled(names.map(function(name) {
+          return window.caches.delete(name);
+        }));
+      }));
+    }
+    const reloadTimeout = window.setTimeout(function() {
+      window.location.reload();
+    }, 3000);
+    await Promise.allSettled(cleanup);
+    window.clearTimeout(reloadTimeout);
+    window.location.reload();
+  } catch (err) {
+    showBootRecoveryError();
+  }
+}
+
+function showBootRecoveryError() {
+  const titleText = i18nStr('i18nBootRecoveryTitle', 'Page recovery failed');
+  const messageText = i18nStr('i18nBootRecoveryMessage', 'The page did not finish loading after browser caches were cleared. Close other tabs for this site, then reload the page.');
+  document.title = titleText;
+  const body = document.createElement('body');
+  const main = document.createElement('main');
+  main.className = 'container';
+  const heading = document.createElement('h1');
+  const message = document.createElement('p');
+  heading.textContent = titleText;
+  message.textContent = messageText;
+  main.appendChild(heading);
+  main.appendChild(message);
+  body.appendChild(main);
+  if (document.body) {
+    document.body.replaceWith(body);
+  } else {
+    document.documentElement.appendChild(body);
+  }
+}
+
 // ============================================================================
 // Cookie helpers — server-readable; localStorage is never load-bearing
 // ============================================================================

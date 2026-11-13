@@ -72,7 +72,9 @@
     "copy_i2p_aria": "Copia l’indirizzo I2P",
     "return_home": "Torna alla home",
     "close_notification": "Chiudi notifica",
-    "running": "In esecuzione…"
+    "running": "In esecuzione…",
+    "boot_recovery_title": "Ripristino della pagina non riuscito",
+    "boot_recovery_message": "La pagina non ha terminato il caricamento dopo la cancellazione della cache del browser. Chiudi le altre schede di questo sito e ricarica la pagina."
   },
   "theme": {
     "light": "Chiaro",
@@ -163,7 +165,6 @@
   "status_values": {
     "online": "In linea",
     "offline": "Non in linea",
-    "maintenance": "Manutenzione",
     "starting": "Inizio",
     "stopping": "Fermarsi",
     "error": "Errore",
@@ -560,7 +561,6 @@
     "metrics": "Metriche",
     "geoip": "GeoIP",
     "scheduler": "Pianificatore",
-    "maintenance": "Manutenzione",
     "backup": "Backup",
     "restore": "Ripristina",
     "update": "Aggiorna",
@@ -734,6 +734,11 @@
     "faq_rate_limit_consequence": "Le richieste possono essere limitate, ricevere una risposta con codice 429 o essere eliminate."
   },
   "healthz": {
+    "page_title": "Stato di salute",
+    "degraded_performance": "Prestazioni ridotte",
+    "restart_required": "Riavvio richiesto",
+    "maintenance": "Manutenzione in corso",
+    "shutting_down": "Arresto in corso",
     "restart_pending": "Riavvio in sospeso:",
     "commit_label": "Impegnarsi",
     "build_date_label": "Data di costruzione",

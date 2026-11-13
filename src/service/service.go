@@ -121,6 +121,12 @@ func DetectServiceManager() ServiceType {
 	}
 }
 
+// IsUserServiceManager reports whether this process is running under a
+// per-user systemd unit or LaunchAgent rather than a system-wide service.
+func IsUserServiceManager() bool {
+	return shouldUseUserSystemd() || shouldUseUserLaunchAgent()
+}
+
 // isStatOK returns true if the path exists.
 func isStatOK(path string) bool {
 	_, err := os.Stat(path)
@@ -1352,7 +1358,6 @@ func installWindows() error {
 			return fmt.Errorf("failed to copy binary: %w", err)
 		}
 	}
-
 	// Use Virtual Service Account (NT SERVICE\{internal_name}) — no explicit user needed.
 	cmd := exec.Command("sc.exe", "create", appName,
 		"binPath=", binaryPath,
@@ -1362,6 +1367,14 @@ func installWindows() error {
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("failed to create Windows service: %w", err)
 	}
+	if err := grantWindowsServiceControl(); err != nil {
+		_ = exec.Command("sc.exe", "delete", appName).Run()
+		return fmt.Errorf("grant Windows service restart rights: %w", err)
+	}
+	if err := prepareServiceDirectories(paths.GetDirectories(), binDir); err != nil {
+		_ = exec.Command("sc.exe", "delete", appName).Run()
+		return fmt.Errorf("prepare Windows service directories: %w", err)
+	}
 
 	// Per spec: --install installs, enables, AND starts the service.
 	if err := exec.Command("sc.exe", "start", appName).Run(); err != nil {
@@ -1370,6 +1383,83 @@ func installWindows() error {
 
 	fmt.Printf("Windows service '%s' installed and started\n", appName)
 	return nil
+}
+
+func grantWindowsServiceControl() error {
+	sidOutput, err := exec.Command("sc.exe", "showsid", appName).CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("read service SID: %w: %s", err, strings.TrimSpace(string(sidOutput)))
+	}
+	serviceSID, err := parseWindowsServiceSID(string(sidOutput))
+	if err != nil {
+		return err
+	}
+	sddlOutput, err := exec.Command("sc.exe", "sdshow", appName).CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("read service security descriptor: %w: %s", err, strings.TrimSpace(string(sddlOutput)))
+	}
+	sddl := strings.TrimSpace(string(sddlOutput))
+	for _, line := range strings.Split(sddl, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "D:") {
+			sddl = line
+			break
+		}
+	}
+	updated, err := addWindowsServiceControlACE(sddl, serviceSID)
+	if err != nil {
+		return err
+	}
+	if updated == sddl {
+		return nil
+	}
+	if output, err := exec.Command("sc.exe", "sdset", appName, updated).CombinedOutput(); err != nil {
+		return fmt.Errorf("grant service start/stop/query rights: %w: %s", err, strings.TrimSpace(string(output)))
+	}
+	return nil
+}
+
+func parseWindowsServiceSID(output string) (string, error) {
+	for _, field := range strings.Fields(output) {
+		if !strings.HasPrefix(field, "S-1-5-80-") {
+			continue
+		}
+		parts := strings.Split(field, "-")
+		if len(parts) != 9 {
+			return "", fmt.Errorf("invalid service SID returned by sc.exe")
+		}
+		for _, part := range parts[1:] {
+			if part == "" {
+				return "", fmt.Errorf("invalid service SID returned by sc.exe")
+			}
+			for _, r := range part {
+				if r < '0' || r > '9' {
+					return "", fmt.Errorf("invalid service SID returned by sc.exe")
+				}
+			}
+		}
+		return field, nil
+	}
+	return "", fmt.Errorf("sc.exe did not return a service SID for %s", appName)
+}
+
+func addWindowsServiceControlACE(sddl, serviceSID string) (string, error) {
+	if !strings.HasPrefix(sddl, "D:") {
+		return "", fmt.Errorf("invalid service security descriptor")
+	}
+	if _, err := parseWindowsServiceSID(serviceSID); err != nil {
+		return "", err
+	}
+	daclEnd := len(sddl)
+	if sacl := strings.Index(sddl, "S:"); sacl >= 0 {
+		daclEnd = sacl
+	}
+	dacl := sddl[:daclEnd]
+	if strings.Contains(dacl, ";;LCRPWP;;;"+serviceSID+")") {
+		return sddl, nil
+	}
+	ace := "(A;;LCRPWP;;;" + serviceSID + ")"
+	return sddl[:daclEnd] + ace + sddl[daclEnd:], nil
 }
 
 // uninstallWindows removes a Windows service and all its data.

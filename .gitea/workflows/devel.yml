@@ -1,4 +1,4 @@
-name: Daily Build
+name: Devel Build
 
 on:
   schedule:
@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: daily-${{ gitea.ref }}
+  group: devel-${{ gitea.ref }}
   cancel-in-progress: ${{ gitea.ref == 'refs/heads/main' || gitea.ref == 'refs/heads/master' || gitea.ref == 'refs/heads/devel' || gitea.ref == 'refs/heads/dev' || gitea.ref == 'refs/heads/beta' }}
 
 permissions:
@@ -113,7 +113,7 @@ jobs:
           path: ${{ env.PROJECT_NAME }}-cli-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.ext }}
 
   release:
-    name: Publish Daily Release
+    name: Publish Devel Release
     needs: [version, build]
     runs-on: ubuntu-latest
     permissions:
@@ -122,11 +122,11 @@ jobs:
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
-      - name: Delete previous daily release
+      - name: Delete previous devel release
         run: |
           curl -q -LSsf -X DELETE \
             -H "Authorization: token ${{ secrets.GITEA_TOKEN }}" \
-            "${{ gitea.server_url }}/api/v1/repos/${{ gitea.repository }}/releases/tags/daily" \
+            "${{ gitea.server_url }}/api/v1/repos/${{ gitea.repository }}/releases/tags/devel" \
             2>/dev/null || true
 
       - name: Download all artifacts
@@ -159,13 +159,13 @@ jobs:
       - name: Create Release
         uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
         with:
-          tag_name: daily
-          name: Daily Build (${{ env.VERSION }})
+          tag_name: devel
+          name: Devel Build (${{ env.VERSION }})
           files: binaries/*
           prerelease: true
           generate_release_notes: false
           body: |
-            Automated daily build from the latest commit on main/master branch.
+            Automated devel build from the latest commit on main/master branch.
 
             **Version:** ${{ env.VERSION }}
             **Commit:** ${{ gitea.sha }}

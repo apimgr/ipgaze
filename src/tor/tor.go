@@ -21,6 +21,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/apimgr/ipgaze/src/server/metrics"
 	"github.com/cretz/bine/control"
 	binetorcmd "github.com/cretz/bine/tor"
 	"github.com/pires/go-proxyproto"
@@ -295,18 +296,26 @@ func (m *TorManager) Start() error {
 	}
 
 	if !m.IsAvailable() {
+		metrics.TorEnabled.Set(0)
+		metrics.TorRunning.Set(0)
+		metrics.TorCircuitEstablished.Set(0)
 		log.Println("Tor binary not found, hidden service disabled")
 		return nil
 	}
+	metrics.TorEnabled.Set(1)
 
 	svc, err := m.startDedicated(context.Background())
 	if err != nil {
+		metrics.TorRunning.Set(0)
+		metrics.TorCircuitEstablished.Set(0)
 		m.lastErr = err
 		return err
 	}
 	m.svc = svc
 	m.running = true
 	m.lastErr = nil
+	metrics.TorRunning.Set(1)
+	metrics.TorCircuitEstablished.Set(1)
 
 	if m.pendingHandler != nil {
 		m.attachBackendHandlerLocked(m.pendingHandler)
@@ -339,7 +348,11 @@ func (m *TorManager) attachBackendHandlerLocked(handler http.Handler) {
 	if m.svc == nil || m.svc.backendLn == nil || m.svc.backendSrv != nil {
 		return
 	}
-	srv := &http.Server{Handler: handler}
+	countedHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		metrics.TorRequestsTotal.Inc()
+		handler.ServeHTTP(w, r)
+	})
+	srv := &http.Server{Handler: countedHandler}
 	m.svc.backendSrv = srv
 	go func() {
 		if err := srv.Serve(m.svc.backendLn); err != nil && err != http.ErrServerClosed {
@@ -373,6 +386,8 @@ func (m *TorManager) Stop() error {
 	err := stopTor(m.svc.cmd, m.svc.ctrl)
 	m.svc = nil
 	m.running = false
+	metrics.TorRunning.Set(0)
+	metrics.TorCircuitEstablished.Set(0)
 	log.Println("Tor: hidden service stopped")
 	return err
 }
@@ -400,8 +415,11 @@ func (m *TorManager) HealthCheck() error {
 		return nil
 	}
 	if _, err := svc.ctrl.GetInfo("version"); err != nil {
+		metrics.TorRunning.Set(0)
+		metrics.TorCircuitEstablished.Set(0)
 		return fmt.Errorf("tor control probe failed: %w", err)
 	}
+	metrics.TorRunning.Set(1)
 	return nil
 }
 
@@ -832,7 +850,7 @@ func (m *TorManager) startDedicated(ctx context.Context) (*service, error) {
 	if err != nil {
 		_ = stopTor(child, nil)
 		_ = backendLn.Close()
-		return nil, fmt.Errorf("tor control port: %w", err)
+		return nil, fmt.Errorf("tor control port (torrc %s): %w", torrcPath, err)
 	}
 	ctrl, controlConn, err := dialControl(ctx, controlAddr)
 	if err != nil {

@@ -369,6 +369,15 @@ Environment variables (`DOMAIN`, `MODE`, `DEBUG`, `DATABASE_DRIVER`, `SMTP_*`, a
 
 ## API
 
+### Health Check
+
+`GET /server/healthz` returns the public server status. Browsers receive the
+health page, while command-line tools receive readable text. Request
+`Accept: application/json` for the machine-readable JSON response. The
+versioned API route is `GET /api/v1/server/healthz`; `/api/healthz` is its
+direct versionless JSON alias. The root `/healthz` alias is disabled by
+default and can be enabled in `server.yml`.
+
 ### Quick Examples
 
 #### Get Your IP

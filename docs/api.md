@@ -102,14 +102,22 @@ inventory and request schemas.
 
 ## Health Checks
 
-- `GET /server/healthz` serves the health page using normal content negotiation.
-- `GET /api/v1/server/healthz` returns the API health response.
-- `GET /api/healthz` is the direct versionless JSON health alias.
-- `GET /healthz` is available only when `server.healthz.root.enabled` is true.
+- `GET /server/healthz` is the canonical public route. Browsers receive the
+  health page; command-line tools receive localized, human-readable text;
+  `Accept: application/json` returns the bare machine-readable health object.
+- `GET /api/v1/server/healthz` returns the same health state as JSON by
+  default, with machine-readable dot-notation text for `.txt`,
+  `Accept: text/plain`, or non-interactive HTTP tools.
+- `GET /api/healthz` is a direct, versionless JSON alias using the same handler.
+- `GET /healthz` is available only when `server.healthz.root.enabled` is true;
+  it directly uses the canonical frontend handler and never redirects.
 
-The health response reports status, version/build/runtime information, enabled
-features, subsystem checks, and public-safe statistics. It does not expose
-private configuration or credentials.
+Every health route reports the status code from the health state: healthy,
+degraded, and restart-required return `200`; unhealthy, maintenance, and
+shutting-down return `503`. The public response reports version/build/runtime
+information, enabled features, subsystem checks, and aggregate statistics. It
+does not expose private configuration, credentials, internal addresses, or
+filesystem paths.
 
 ## API Documentation and Discovery
 

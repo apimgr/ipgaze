@@ -163,6 +163,28 @@ func TestBrowserLandingPageRendersEnhancedContent(t *testing.T) {
 	}
 }
 
+// A specific-address lookup is the primary domain feature and must work in
+// the interactive browser tier as well as the server-rendered and no-JS tiers.
+func TestBrowserSpecificIPLookupRendersAddress(t *testing.T) {
+	ctx := newBrowserContext(t)
+
+	var heading, ipText string
+	if err := chromedp.Run(ctx,
+		chromedp.Navigate(baseURL+"/8.8.8.8"),
+		chromedp.WaitVisible("#ip-address", chromedp.ByQuery),
+		chromedp.Text("h1", &heading, chromedp.ByQuery),
+		chromedp.Text("#ip-address", &ipText, chromedp.ByQuery),
+	); err != nil {
+		t.Fatalf("loading the specific IP lookup: %v", err)
+	}
+	if strings.TrimSpace(heading) == "" {
+		t.Error("specific IP lookup rendered no heading")
+	}
+	if strings.TrimSpace(ipText) != "8.8.8.8" {
+		t.Errorf("specific IP lookup rendered %q, want 8.8.8.8", ipText)
+	}
+}
+
 func TestBrowserCopyButtonGivesFeedback(t *testing.T) {
 	ctx := newBrowserContext(t)
 

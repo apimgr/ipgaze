@@ -59,6 +59,7 @@ func MetricsAuth(cfg config.MetricsConfig, token string, h http.Handler) http.Ha
 		want := "Bearer " + token
 		// Constant-time comparison; never an early exit on the first mismatch.
 		if len(auth) != len(want) || subtle.ConstantTimeCompare([]byte(auth), []byte(want)) != 1 {
+			metrics.RecordAuthAttempt("metrics", "failure")
 			padMetricsAuth(start)
 			lang := i18n.DetectLocale(r)
 			// Metrics clients are scrapers, never browsers, so the rejection is
@@ -67,6 +68,7 @@ func MetricsAuth(cfg config.MetricsConfig, token string, h http.Handler) http.Ha
 			WriteAPIError(w, http.StatusUnauthorized, "", i18n.T(i18n.WithLang(r.Context(), lang), "errors.unauthorized"))
 			return
 		}
+		metrics.RecordAuthAttempt("metrics", "success")
 		h.ServeHTTP(w, r)
 	})
 }

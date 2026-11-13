@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"log"
@@ -77,7 +78,10 @@ func AbuseMiddleware(db *sql.DB, policy AbusePolicy, trust *netutil.TrustResolve
 		policy.BlockDuration = time.Hour
 	}
 	if db != nil {
-		if _, err := db.Exec(`DELETE FROM ip_blocks WHERE expires_at <= ?`, time.Now().Unix()); err != nil {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		_, err := db.ExecContext(cleanupCtx, `DELETE FROM ip_blocks WHERE expires_at <= ?`, time.Now().Unix())
+		cancel()
+		if err != nil {
 			log.Printf("abuse block cleanup: failed to remove expired IP blocks: %v", err)
 		}
 	}
@@ -92,7 +96,10 @@ func AbuseMiddleware(db *sql.DB, policy AbusePolicy, trust *netutil.TrustResolve
 			}
 			if IsAllowlisted(r.Context()) || allowlist != nil && allowlist.Contains(ip) {
 				if db != nil {
-					if _, err := db.Exec(`DELETE FROM ip_blocks WHERE ip = ?`, ip.String()); err != nil {
+					writeCtx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+					_, err := db.ExecContext(writeCtx, `DELETE FROM ip_blocks WHERE ip = ?`, ip.String())
+					cancel()
+					if err != nil {
 						writeAbuseStorageError(w, r, logs, err)
 						return
 					}
@@ -100,7 +107,7 @@ func AbuseMiddleware(db *sql.DB, policy AbusePolicy, trust *netutil.TrustResolve
 				next.ServeHTTP(w, r)
 				return
 			}
-			blocked, err := isIPBlocked(db, ip, permanent, time.Now())
+			blocked, err := isIPBlocked(r.Context(), db, ip, permanent, time.Now())
 			if err != nil {
 				writeAbuseStorageError(w, r, logs, err)
 				return
@@ -128,7 +135,7 @@ func AbuseMiddleware(db *sql.DB, policy AbusePolicy, trust *netutil.TrustResolve
 				}
 				if flood && policy.AutoBlockIP {
 					expires := time.Now().Add(policy.BlockDuration)
-					if err := persistTemporaryIPBlock(db, ip.String(), expires, count); err != nil {
+					if err := persistTemporaryIPBlock(r.Context(), db, ip.String(), expires, count); err != nil {
 						writeAbuseStorageError(w, r, logs, err)
 						return
 					}
@@ -229,7 +236,7 @@ func compileIPBlocks(entries []config.BlockedIPEntry) []*net.IPNet {
 	return result
 }
 
-func isIPBlocked(db *sql.DB, ip net.IP, permanent []*net.IPNet, now time.Time) (bool, error) {
+func isIPBlocked(ctx context.Context, db *sql.DB, ip net.IP, permanent []*net.IPNet, now time.Time) (bool, error) {
 	for _, network := range permanent {
 		if network.Contains(ip) {
 			return true, nil
@@ -239,7 +246,9 @@ func isIPBlocked(db *sql.DB, ip net.IP, permanent []*net.IPNet, now time.Time) (
 		return false, nil
 	}
 	var expires int64
-	err := db.QueryRow(`SELECT expires_at FROM ip_blocks WHERE ip = ?`, ip.String()).Scan(&expires)
+	readCtx, cancelRead := context.WithTimeout(ctx, 5*time.Second)
+	err := db.QueryRowContext(readCtx, `SELECT expires_at FROM ip_blocks WHERE ip = ?`, ip.String()).Scan(&expires)
+	cancelRead()
 	if err == sql.ErrNoRows {
 		return false, nil
 	}
@@ -247,7 +256,10 @@ func isIPBlocked(db *sql.DB, ip net.IP, permanent []*net.IPNet, now time.Time) (
 		return false, fmt.Errorf("lookup temporary IP block: %w", err)
 	}
 	if expires <= now.Unix() {
-		if _, err := db.Exec(`DELETE FROM ip_blocks WHERE ip = ? AND expires_at <= ?`, ip.String(), now.Unix()); err != nil {
+		writeCtx, cancelWrite := context.WithTimeout(ctx, 10*time.Second)
+		_, err := db.ExecContext(writeCtx, `DELETE FROM ip_blocks WHERE ip = ? AND expires_at <= ?`, ip.String(), now.Unix())
+		cancelWrite()
+		if err != nil {
 			return false, fmt.Errorf("expire temporary IP block: %w", err)
 		}
 		return false, nil
@@ -255,11 +267,13 @@ func isIPBlocked(db *sql.DB, ip net.IP, permanent []*net.IPNet, now time.Time) (
 	return true, nil
 }
 
-func persistTemporaryIPBlock(db *sql.DB, ip string, expires time.Time, offenseCount int) error {
+func persistTemporaryIPBlock(ctx context.Context, db *sql.DB, ip string, expires time.Time, offenseCount int) error {
 	if db == nil {
 		return fmt.Errorf("temporary IP block database unavailable")
 	}
-	_, err := db.Exec(`INSERT INTO ip_blocks (ip, reason, blocked_at, expires_at, offense_count, auto_blocked)
+	writeCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	_, err := db.ExecContext(writeCtx, `INSERT INTO ip_blocks (ip, reason, blocked_at, expires_at, offense_count, auto_blocked)
 VALUES (?, 'request flood', ?, ?, ?, 1)
 ON CONFLICT(ip) DO UPDATE SET reason=excluded.reason, blocked_at=excluded.blocked_at,
 expires_at=MAX(ip_blocks.expires_at, excluded.expires_at), offense_count=ip_blocks.offense_count+1, auto_blocked=1`,

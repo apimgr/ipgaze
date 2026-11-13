@@ -2,6 +2,7 @@ package handler
 
 import (
 	"bufio"
+	"context"
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
@@ -537,7 +538,7 @@ func TestAPIV1ServerContactHandler_POST(t *testing.T) {
 		t.Fatal(err)
 	}
 	h.DB = db
-	question, token, err := newSimpleCaptcha(db, time.Now())
+	question, token, err := newSimpleCaptcha(context.Background(), db, time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -591,7 +592,7 @@ func TestSimpleCaptcha_ValidWrongExpiredAndTampered(t *testing.T) {
 		t.Fatal(err)
 	}
 	now := time.Date(2026, time.November, 6, 12, 0, 0, 0, time.UTC)
-	question, token, err := newSimpleCaptcha(db, now)
+	question, token, err := newSimpleCaptcha(context.Background(), db, now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -607,13 +608,13 @@ func TestSimpleCaptcha_ValidWrongExpiredAndTampered(t *testing.T) {
 		}
 		answer += value
 	}
-	if !verifySimpleCaptcha(db, token, strconv.Itoa(answer), now) {
+	if !verifySimpleCaptcha(context.Background(), db, token, strconv.Itoa(answer), now) {
 		t.Fatal("valid captcha answer was rejected")
 	}
-	if verifySimpleCaptcha(db, token, strconv.Itoa(answer+1), now) {
+	if verifySimpleCaptcha(context.Background(), db, token, strconv.Itoa(answer+1), now) {
 		t.Fatal("single-use captcha was accepted more than once")
 	}
-	wrongQuestion, wrongToken, err := newSimpleCaptcha(db, now)
+	wrongQuestion, wrongToken, err := newSimpleCaptcha(context.Background(), db, now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -629,13 +630,13 @@ func TestSimpleCaptcha_ValidWrongExpiredAndTampered(t *testing.T) {
 		}
 		wrongAnswer += value
 	}
-	if verifySimpleCaptcha(db, wrongToken, strconv.Itoa(wrongAnswer+1), now) {
+	if verifySimpleCaptcha(context.Background(), db, wrongToken, strconv.Itoa(wrongAnswer+1), now) {
 		t.Fatal("incorrect captcha answer was accepted")
 	}
-	if verifySimpleCaptcha(db, wrongToken, strconv.Itoa(wrongAnswer), now) {
+	if verifySimpleCaptcha(context.Background(), db, wrongToken, strconv.Itoa(wrongAnswer), now) {
 		t.Fatal("captcha challenge was reusable after an incorrect answer")
 	}
-	expiredQuestion, expiredToken, err := newSimpleCaptcha(db, now)
+	expiredQuestion, expiredToken, err := newSimpleCaptcha(context.Background(), db, now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -651,10 +652,10 @@ func TestSimpleCaptcha_ValidWrongExpiredAndTampered(t *testing.T) {
 		}
 		expiredAnswer += value
 	}
-	if verifySimpleCaptcha(db, expiredToken, strconv.Itoa(expiredAnswer), now.Add(11*time.Minute)) {
+	if verifySimpleCaptcha(context.Background(), db, expiredToken, strconv.Itoa(expiredAnswer), now.Add(11*time.Minute)) {
 		t.Fatal("expired captcha token was accepted")
 	}
-	if verifySimpleCaptcha(db, token+"tampered", strconv.Itoa(answer), now) {
+	if verifySimpleCaptcha(context.Background(), db, token+"tampered", strconv.Itoa(answer), now) {
 		t.Fatal("tampered captcha token was accepted")
 	}
 }
@@ -673,7 +674,7 @@ func TestSubmitSecurityReportEncryptedAndNotifies(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	question, captchaToken, err := newSimpleCaptcha(conn, now)
+	question, captchaToken, err := newSimpleCaptcha(context.Background(), conn, now)
 	if err != nil {
 		t.Fatal(err)
 	}
