@@ -52,11 +52,8 @@ server:
 
   seo:
     feed:
-      enabled: true
       max_items: 50
       title: ""
-      search:
-        enabled: true
 
   database:
     driver: sqlite

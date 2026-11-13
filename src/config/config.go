@@ -1138,15 +1138,8 @@ type SitemapConfig struct {
 
 // FeedConfig controls the generated public Atom and RSS feeds.
 type FeedConfig struct {
-	Enabled  bool             `yaml:"enabled"`
-	MaxItems int              `yaml:"max_items"`
-	Title    string           `yaml:"title"`
-	Search   SearchFeedConfig `yaml:"search"`
-}
-
-// SearchFeedConfig controls recent-search feeds for projects that publish searches.
-type SearchFeedConfig struct {
-	Enabled bool `yaml:"enabled"`
+	MaxItems int    `yaml:"max_items"`
+	Title    string `yaml:"title"`
 }
 
 // DefaultSEOConfig returns the AI.md PART 24 defaults: no operator metadata,
@@ -1158,9 +1151,7 @@ func DefaultSEOConfig() SEOConfig {
 			MaxURLs: 50000,
 		},
 		Feed: FeedConfig{
-			Enabled:  true,
 			MaxItems: 50,
-			Search:   SearchFeedConfig{Enabled: true},
 		},
 	}
 }
@@ -3395,11 +3386,8 @@ server:
       # Include image URLs in each entry
       include_images: %t
     feed:
-      enabled: %t
       max_items: %d
       title: "%s"
-      search:
-        enabled: %t
 
   notifications:
     email:
@@ -3802,10 +3790,8 @@ pages:
 		cfg.Server.SEO.Sitemap.Enabled,
 		cfg.Server.SEO.Sitemap.MaxURLs,
 		cfg.Server.SEO.Sitemap.IncludeImages,
-		cfg.Server.SEO.Feed.Enabled,
 		cfg.Server.SEO.Feed.MaxItems,
 		cfg.Server.SEO.Feed.Title,
-		cfg.Server.SEO.Feed.Search.Enabled,
 		cfg.Server.Notifications.Email.Events.Startup,
 		cfg.Server.Notifications.Email.Events.Shutdown,
 		cfg.Server.Notifications.Email.Events.BackupComplete,

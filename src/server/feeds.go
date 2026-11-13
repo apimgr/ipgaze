@@ -55,10 +55,6 @@ type rssEntry struct {
 func (s *Server) feedHandler(atom bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		cfg := configFeed(s)
-		if !cfg.Enabled {
-			http.NotFound(w, r)
-			return
-		}
 		title := strings.TrimSpace(cfg.Title)
 		if title == "" {
 			title = "IPGaze"

@@ -55,21 +55,19 @@ func TestFeedHandlerServesEmptyFeedsAndConditionalRequests(t *testing.T) {
 	}
 }
 
-func TestFeedHandlerHeadAndDisabled(t *testing.T) {
+func TestFeedHandlerHead(t *testing.T) {
 	s := testServer()
 	s.BuildDate = time.Now().UTC().Format(time.RFC3339)
 	for _, tc := range []struct {
 		name   string
 		method string
-		config config.FeedConfig
 		status int
 	}{
-		{name: "head", method: http.MethodHead, config: config.DefaultSEOConfig().Feed, status: http.StatusOK},
-		{name: "disabled", method: http.MethodGet, config: config.FeedConfig{Enabled: false}, status: http.StatusNotFound},
+		{name: "head", method: http.MethodHead, status: http.StatusOK},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			s.config = &config.AppConfig{}
-			s.config.Server.SEO.Feed = tc.config
+			s.config.Server.SEO.Feed = config.DefaultSEOConfig().Feed
 			req := httptest.NewRequest(tc.method, "https://example.test/feed.xml", nil)
 			rec := httptest.NewRecorder()
 			s.feedHandler(true)(rec, req)

@@ -155,20 +155,17 @@ Scrape interval recommendation: `15s` or `30s`.
 
 The server provides `/feed.xml` (Atom 1.0) and `/rss.xml` (RSS 2.0), including valid empty feeds when there are no public items. IPGaze currently has no public item stream, so these feeds contain no entries. Both routes accept `GET` and `HEAD`, use request-derived absolute URLs, and support conditional caching. They are available by convention and are not advertised in page markup.
 
-Feed behavior can be configured in `server.yml`:
+The feed title and entry limit can be configured in `server.yml`:
 
 ```yaml
 server:
   seo:
     feed:
-      enabled: true
       max_items: 50
       title: ""
-      search:
-        enabled: true
 ```
 
-Set `enabled: false` to make both routes return `404`. `max_items` is reserved for projects with a public item stream; IPGaze currently serves empty feeds.
+`max_items` is reserved for projects with a public item stream; IPGaze currently serves empty feeds. The endpoints are always available.
 
 ## Tor Hidden Service
 
