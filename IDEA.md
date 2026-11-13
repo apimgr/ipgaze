@@ -155,6 +155,7 @@ ipgaze enhancements on top of the echoip-compatible surface:
 - VPN/proxy detection (`is_vpn`, `is_proxy` fields) via X4BNet + firehol lists, updated daily
 - Tor exit-node detection (`is_tor` field) via Tor Project bulk exit list, updated daily
 - PWA support (web app manifest, service worker, offline caching)
+- Empty Atom and RSS syndication feeds, ready for a future public item stream
 - GraphQL endpoint for flexible queries
 - OpenAPI/Swagger interactive documentation
 - Prometheus metrics (internal only)

@@ -32,6 +32,7 @@ https://ifcfg.us
 - **OpenAPI/Swagger UI** - Interactive API documentation
 - **Model Context Protocol (MCP)** - Anonymous Streamable HTTP tools for public API operations
 - **Prometheus Metrics** - Optional authenticated metrics endpoints for operators
+- **Atom and RSS Feeds** - Empty `/feed.xml` and `/rss.xml` endpoints, ready for syndication clients
 - **PWA Support** - Web app manifest and service worker for offline use
 - **Tor Hidden Service** - Auto-enabled when the `tor` binary is present; optional outbound Tor routing via `server.tor.use_network`
 - **I2P Eepsite** - Opt-in via `server.i2p.enabled`
