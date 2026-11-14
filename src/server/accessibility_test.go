@@ -260,5 +260,31 @@ func TestAccessibility(t *testing.T) {
 			assertAccessibleDocument(t, page, rec.Body.String())
 			assertLayoutStructure(t, page, rec.Body.String())
 		}
+
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/server/preferences", nil)
+		prefs := handler.PreferencesPageData{
+			PageData:              testPageData(),
+			PreferencesExportURL:  "https://example.com/server/preferences/import?lang=en&theme=dark",
+			PreferencesExportCode: "bGFuZz1lbiZ0aGVtZT1kYXJr",
+			CancelURL:             "/",
+		}
+		prefs.RequestPath = "/server/preferences"
+		if err := render(rec, req, "preferences.tmpl", prefs); err != nil {
+			t.Fatalf("render preferences.tmpl: %v", err)
+		}
+		body := rec.Body.String()
+		assertAccessibleDocument(t, "preferences.tmpl", body)
+		if got := strings.Count(body, `method="POST"`); got != 1 {
+			t.Errorf("preferences page POST forms = %d, want 1", got)
+		}
+		for _, required := range []string{`name="consent_form"`, `name="consent_preferences"`, `name="consent_analytics"`, `name="code"`, `name="action" value="reset"`, `preferences-reset-popover`, `preferences-export-url`, `preferences-export-code`} {
+			if !strings.Contains(body, required) {
+				t.Errorf("preferences page missing %q", required)
+			}
+		}
+		if strings.Contains(body, `class="theme-toggle-form"`) || strings.Contains(body, `id="cookie-preferences-modal"`) {
+			t.Error("preferences page contains global theme or consent forms")
+		}
 	})
 }

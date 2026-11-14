@@ -377,6 +377,8 @@
     "policy_out_scope_disruption": "Denial-of-Service-Tests, Spam, Social Engineering, physische Angriffe sowie Tests, die den Dienst stören oder auf Daten anderer Personen zugreifen.",
     "policy_out_scope_third_party": "Schwachstellen in Diensten oder Abhängigkeiten Dritter ohne nachgewiesene Auswirkungen auf den offiziellen IPGaze-Dienst.",
     "policy_safe_harbor_text": "Wir werden keine rechtlichen Schritte wegen Sicherheitsforschung am erfassten Dienst einleiten oder unterstützen, sofern sie diese Richtlinie befolgt, in gutem Glauben erfolgt und Daten oder Dienste weder abruft noch verändert oder stört. Beenden Sie die Tests und melden Sie es umgehend, wenn Sie auf Daten anderer Personen stoßen. Diese Erklärung erlaubt keine Aktivitäten gegen Systeme außerhalb des genannten Umfangs.",
+    "report_status_email_subject": "Status des Sicherheitsberichts {tracking_id} aktualisiert",
+    "report_status_email_body": "Der Status Ihres Sicherheitsberichts {tracking_id} wurde in {status} geändert.",
     "report_email_subject": "Sicherheitsbericht erhalten {tracking_id}",
     "report_email_body": "Wir haben Ihren Sicherheitsbericht erhalten. Kennung: {tracking_id}\nStatus: {status_url}",
     "report_notification_subject": "Verschlüsselter Sicherheitsbericht {tracking_id}",
@@ -445,7 +447,11 @@
     "import_heading": "Import",
     "import_intro": "Paste a short code (or a full import link) from another device below.",
     "import_paste_label": "Code or link",
-    "import_submit": "Apply"
+    "import_submit": "Anwenden",
+    "reset": "Zurücksetzen",
+    "reset_title": "Diesen Browser vergessen?",
+    "reset_warning": "Dadurch werden Cookies und Browserdaten dieser Website einschließlich Ihrer Einstellungen und Einwilligungen gelöscht. Dies kann nicht rückgängig gemacht werden.",
+    "erase_everything": "Alles löschen"
   },
 
   "announcements": {

@@ -377,6 +377,8 @@
     "policy_out_scope_disruption": "Denial-of-service testing, spam, social engineering, physical attacks, and testing that disrupts service or accesses another person's data.",
     "policy_out_scope_third_party": "Vulnerabilities in third-party services or dependencies without a demonstrated impact on the official IPGaze service.",
     "policy_safe_harbor_text": "We will not initiate or support legal action for security research on the in-scope service that follows this policy, is conducted in good faith, and avoids accessing, changing, or disrupting data or services. Stop testing and report promptly if you encounter another person's data. This statement does not authorize activity against systems outside the stated scope.",
+    "report_status_email_subject": "Security report status updated {tracking_id}",
+    "report_status_email_body": "The status of your security report {tracking_id} changed to {status}.",
     "report_email_subject": "Security report received {tracking_id}",
     "report_email_body": "We received your security report. Tracking ID: {tracking_id}\nStatus: {status_url}",
     "report_notification_subject": "Encrypted security report {tracking_id}",
@@ -445,7 +447,11 @@
     "import_heading": "Import",
     "import_intro": "Paste a short code (or a full import link) from another device below.",
     "import_paste_label": "Code or link",
-    "import_submit": "Apply"
+    "import_submit": "Apply",
+    "reset": "Reset",
+    "reset_title": "Forget this browser?",
+    "reset_warning": "This erases this site's cookies and browser storage, including your preferences and consent choices. It cannot be undone.",
+    "erase_everything": "Erase everything"
   },
 
   "announcements": {

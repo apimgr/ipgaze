@@ -877,6 +877,28 @@ dialog.modal::backdrop {
   overflow-wrap: anywhere;
 }
 
+.preferences-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  margin-block: var(--space-4);
+}
+
+#preferences-reset-popover {
+  max-width: min(32rem, calc(100% - 2rem));
+  padding: var(--space-4);
+  color: var(--color-text);
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+}
+
+#preferences-reset-popover::backdrop {
+  background: rgb(0 0 0 / 0.55);
+}
+
 /* ============================================================================
    Data Table
    ============================================================================ */

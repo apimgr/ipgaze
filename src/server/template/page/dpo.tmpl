@@ -8,8 +8,9 @@
   {{if .Email}}
   <p><strong>{{t .Lang "privacy.dpo_email"}}:</strong> <a href="mailto:{{.Email}}">{{.Email}}</a></p>
   {{else}}
-  <p>{{t .Lang "privacy.dpo_contact_unavailable"}} <a href="/server/contact">{{t .Lang "privacy.dpo_contact_form"}}</a></p>
+  <p>{{t .Lang "privacy.dpo_contact_unavailable"}}</p>
   {{end}}
-  <p><a href="{{.PrivacyURL}}">{{t .Lang "privacy.title"}}</a></p>
+  <p><a href="/server/privacy">{{t .Lang "privacy.title"}}</a></p>
+  <p><a href="/server/contact">{{t .Lang "privacy.dpo_contact_form"}}</a></p>
 </section>
 {{end}}

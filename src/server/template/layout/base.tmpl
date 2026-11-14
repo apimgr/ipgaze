@@ -6,7 +6,7 @@
   {{if .AnalyticsNoScript}}<noscript><img src="https://queue.simpleanalyticscdn.com/noscript.gif" alt="" referrerpolicy="no-referrer-when-downgrade"></noscript>{{end}}
   <a href="#main-content" class="skip-link">{{t .Lang "accessibility.skip_to_content"}}</a>
   <a href="#navigation" class="skip-link">{{t .Lang "nav.skip_to_navigation"}}</a>
-  {{template "consent_banner" .}}
+  {{if ne .RequestPath "/server/preferences"}}{{template "consent_banner" .}}{{end}}
   {{template "announcement_banner" .}}
   {{template "header" .}}
   <div id="offline-indicator" aria-live="polite" class="offline-indicator hidden"></div>

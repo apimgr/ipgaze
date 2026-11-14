@@ -377,6 +377,8 @@
     "policy_out_scope_disruption": "拒绝服务测试、垃圾信息、社会工程、物理攻击，以及会中断服务或访问他人数据的测试。",
     "policy_out_scope_third_party": "第三方服务或依赖项中的漏洞，若未证明会影响 IPGaze 官方服务，则不在范围内。",
     "policy_safe_harbor_text": "对于遵循本政策、出于善意且避免访问、修改或干扰数据或服务的官方服务安全研究，我们不会发起或支持法律行动。如果发现他人数据，请立即停止测试并及时报告。本声明不授权对所述范围之外的系统进行任何活动。",
+    "report_status_email_subject": "安全报告 {tracking_id} 的状态已更新",
+    "report_status_email_body": "您的安全报告 {tracking_id} 的状态已更改为 {status}。",
     "report_email_subject": "已收到安全报告 {tracking_id}",
     "report_email_body": "我们已收到您的安全报告。跟踪编号：{tracking_id}\n状态：{status_url}",
     "report_notification_subject": "已加密的安全报告 {tracking_id}",
@@ -445,7 +447,11 @@
     "import_heading": "Import",
     "import_intro": "Paste a short code (or a full import link) from another device below.",
     "import_paste_label": "Code or link",
-    "import_submit": "Apply"
+    "import_submit": "应用",
+    "reset": "重置",
+    "reset_title": "清除此浏览器的数据？",
+    "reset_warning": "这会清除此网站的 Cookie 和浏览器存储，包括偏好设置和同意选项。此操作无法撤销。",
+    "erase_everything": "全部清除"
   },
 
   "announcements": {

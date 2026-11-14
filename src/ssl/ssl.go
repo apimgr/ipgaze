@@ -40,8 +40,13 @@ const dnsCredentialsInfo = "dns_credentials"
 
 // Config holds SSL/TLS configuration
 type SSLManagerConfig struct {
-	Enabled     bool
-	CertPath    string
+	Enabled  bool
+	CertPath string
+	// CertFile and KeyFile are an explicit certificate override when both are set.
+	CertFile string
+	KeyFile  string
+	// MinVersion selects TLS1.2 or TLS1.3; empty retains TLS1.2.
+	MinVersion  string
 	LetsEncrypt LetsEncryptConfig
 	// EncryptionKey is the base64-encoded 32-byte AES-256-GCM key (server.security.encryption_key)
 	// used to decrypt DNSCredentialsEncrypted at the point of use, per AI.md PART 11/PART 15.
@@ -99,6 +104,27 @@ func (m *SSLManager) GetTLSConfig(domains []string) (*tls.Config, error) {
 	if !m.config.Enabled {
 		return nil, nil
 	}
+	if (m.config.CertFile == "") != (m.config.KeyFile == "") {
+		return nil, fmt.Errorf("both explicit TLS certificate and key paths must be configured")
+	}
+	if m.config.CertFile != "" {
+		tlsCert, err := tls.LoadX509KeyPair(m.config.CertFile, m.config.KeyFile)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load configured TLS certificate: %w", err)
+		}
+		leaf, err := x509.ParseCertificate(tlsCert.Certificate[0])
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse configured TLS certificate: %w", err)
+		}
+		fqdn := ""
+		if len(domains) > 0 {
+			fqdn = domains[0]
+		}
+		if err := validateCertForFQDN(leaf, fqdn); err != nil {
+			return nil, fmt.Errorf("configured TLS certificate is not valid for %q: %w", fqdn, err)
+		}
+		return &tls.Config{Certificates: []tls.Certificate{tlsCert}, MinVersion: m.minTLSVersion()}, nil
+	}
 
 	// Walk the 4-step priority lookup before requesting a new cert.
 	if cert, key := m.findCertByPriority(domains); cert != "" && key != "" {
@@ -125,7 +151,7 @@ func (m *SSLManager) GetTLSConfig(domains []string) (*tls.Config, error) {
 			log.Printf("Using existing certificate: %s", cert)
 			return &tls.Config{
 				Certificates: []tls.Certificate{tlsCert},
-				MinVersion:   tls.VersionTLS12,
+				MinVersion:   m.minTLSVersion(),
 			}, nil
 		}
 	}
@@ -152,8 +178,15 @@ func (m *SSLManager) getLetsEncryptTLSConfig(domains []string) (*tls.Config, err
 	}
 	return &tls.Config{
 		Certificates: []tls.Certificate{tlsCert},
-		MinVersion:   tls.VersionTLS12,
+		MinVersion:   m.minTLSVersion(),
 	}, nil
+}
+
+func (m *SSLManager) minTLSVersion() uint16 {
+	if m.config.MinVersion == "TLS1.3" {
+		return tls.VersionTLS13
+	}
+	return tls.VersionTLS12
 }
 
 // obtainLetsEncryptCert runs the ACME issuance flow via go-acme/lego, using the

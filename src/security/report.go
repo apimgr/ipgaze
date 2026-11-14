@@ -8,6 +8,7 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -101,10 +102,14 @@ func NewSecurityAccessToken() (string, string, error) {
 // SecurityReportMetadata is the unencrypted, non-identifying report state.
 type SecurityReportMetadata struct {
 	TrackingID        string
+	SecurityID        string
 	Ciphertext        []byte
 	Encryption        string
+	ContactCiphertext []byte
 	Severity          string
+	Component         string
 	AffectedComponent string
+	CVERequested      bool
 	CreditPreference  string
 	// CreditName is encrypted with the server data key.
 	CreditName      string
@@ -212,19 +217,68 @@ func StoreSecurityReport(db *sql.DB, report SecurityReportMetadata) error {
 	if report.CreditName != "" && !strings.HasPrefix(report.CreditName, securityCreditPrefix) {
 		return errors.New("security: researcher credit must be encrypted")
 	}
-	component := SanitizeReportComponent(report.AffectedComponent)
+	component := SanitizeReportComponent(report.Component)
+	if component == "" {
+		component = SanitizeReportComponent(report.AffectedComponent)
+	}
+	status := "received"
+	cveRequested := 0
+	if report.CVERequested {
+		cveRequested = 1
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	_, err := db.ExecContext(ctx, `INSERT INTO security_reports
-		(tracking_id, encrypted_body, encryption, severity, affected_component,
-		 credit_preference, credit_name, short_credit, access_token_hash)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, report.TrackingID, report.Ciphertext, report.Encryption,
-		report.Severity, component, report.CreditPreference, report.CreditName,
-		report.ShortCredit, report.AccessTokenHash)
+		(tracking_id, security_id, severity, component, status, body_enc, body_alg, contact_enc, cve_requested,
+		 credit_preference, credit_name, short_credit, token_hash)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, report.TrackingID, report.SecurityID,
+		report.Severity, component, status, report.Ciphertext, report.Encryption, nullableBytes(report.ContactCiphertext),
+		cveRequested, report.CreditPreference, report.CreditName, report.ShortCredit, report.AccessTokenHash)
 	if err != nil {
 		return fmt.Errorf("security: store report: %w", err)
 	}
 	return nil
+}
+
+func nullableBytes(value []byte) any {
+	if len(value) == 0 {
+		return nil
+	}
+	return value
+}
+
+// SecurityReportContact contains the encrypted contact fields needed only for
+// researcher status notifications. Report content remains separately encrypted.
+type SecurityReportContact struct {
+	Email         string `json:"email"`
+	ResearcherGPG string `json:"researcher_gpg"`
+	Language      string `json:"language"`
+}
+
+// LoadSecurityReportContact decrypts the report's separately encrypted contact
+// fields for an operator-authorized status notification.
+func LoadSecurityReportContact(db *sql.DB, trackingID string, key []byte) (SecurityReportContact, error) {
+	if db == nil || len(key) != 32 {
+		return SecurityReportContact{}, errors.New("security: invalid report contact lookup")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	var ciphertext []byte
+	if err := db.QueryRowContext(ctx, `SELECT contact_enc FROM security_reports WHERE tracking_id = ?`, trackingID).Scan(&ciphertext); err != nil {
+		return SecurityReportContact{}, fmt.Errorf("security: load report contact: %w", err)
+	}
+	if len(ciphertext) == 0 {
+		return SecurityReportContact{}, sql.ErrNoRows
+	}
+	plain, err := DecryptWithSecret(key, ciphertext, "security-report-contact")
+	if err != nil {
+		return SecurityReportContact{}, fmt.Errorf("security: decrypt report contact: %w", err)
+	}
+	var contact SecurityReportContact
+	if err := json.Unmarshal(plain, &contact); err != nil {
+		return SecurityReportContact{}, fmt.Errorf("security: parse report contact: %w", err)
+	}
+	return contact, nil
 }
 
 // ReencryptSecurityReports rotates AES-encrypted report bodies in one
@@ -257,7 +311,7 @@ func ReencryptSecurityReportsTx(ctx context.Context, tx *sql.Tx, oldKey, newKey 
 	if tx == nil || len(oldKey) != 32 || len(newKey) != 32 {
 		return errors.New("security: invalid report encryption rotation input")
 	}
-	rows, err := tx.QueryContext(ctx, `SELECT tracking_id, encrypted_body FROM security_reports WHERE encryption = 'aes-256-gcm'`)
+	rows, err := tx.QueryContext(ctx, `SELECT tracking_id, body_enc FROM security_reports WHERE body_alg = 'aes-256-gcm'`)
 	if err != nil {
 		return fmt.Errorf("security: read reports for key rotation: %w", err)
 	}
@@ -290,8 +344,45 @@ func ReencryptSecurityReportsTx(ctx context.Context, tx *sql.Tx, oldKey, newKey 
 		if err != nil {
 			return fmt.Errorf("security: encrypt report %s during key rotation: %w", report.trackingID, err)
 		}
-		if _, err := tx.ExecContext(ctx, `UPDATE security_reports SET encrypted_body = ? WHERE tracking_id = ?`, ciphertext, report.trackingID); err != nil {
+		if _, err := tx.ExecContext(ctx, `UPDATE security_reports SET body_enc = ? WHERE tracking_id = ?`, ciphertext, report.trackingID); err != nil {
 			return fmt.Errorf("security: update report %s during key rotation: %w", report.trackingID, err)
+		}
+	}
+	contactRows, err := tx.QueryContext(ctx, `SELECT tracking_id, contact_enc FROM security_reports WHERE contact_enc IS NOT NULL`)
+	if err != nil {
+		return fmt.Errorf("security: read contacts for key rotation: %w", err)
+	}
+	type encryptedContact struct {
+		trackingID string
+		ciphertext []byte
+	}
+	var contacts []encryptedContact
+	for contactRows.Next() {
+		var contact encryptedContact
+		if err := contactRows.Scan(&contact.trackingID, &contact.ciphertext); err != nil {
+			_ = contactRows.Close()
+			return fmt.Errorf("security: scan contact for key rotation: %w", err)
+		}
+		contacts = append(contacts, contact)
+	}
+	if err := contactRows.Err(); err != nil {
+		_ = contactRows.Close()
+		return fmt.Errorf("security: iterate contacts for key rotation: %w", err)
+	}
+	if err := contactRows.Close(); err != nil {
+		return fmt.Errorf("security: close contacts for key rotation: %w", err)
+	}
+	for _, contact := range contacts {
+		plain, err := DecryptWithSecret(oldKey, contact.ciphertext, "security-report-contact")
+		if err != nil {
+			return fmt.Errorf("security: decrypt contact for report %s during key rotation: %w", contact.trackingID, err)
+		}
+		ciphertext, err := EncryptWithSecret(newKey, plain, "security-report-contact")
+		if err != nil {
+			return fmt.Errorf("security: encrypt contact for report %s during key rotation: %w", contact.trackingID, err)
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE security_reports SET contact_enc = ? WHERE tracking_id = ?`, ciphertext, contact.trackingID); err != nil {
+			return fmt.Errorf("security: update contact for report %s during key rotation: %w", contact.trackingID, err)
 		}
 	}
 	creditRows, err := tx.QueryContext(ctx, `SELECT tracking_id, credit_name FROM security_reports
@@ -332,12 +423,9 @@ func ReencryptSecurityReportsTx(ctx context.Context, tx *sql.Tx, oldKey, newKey 
 	return nil
 }
 
-// UpdateSecurityReportTriage changes only the public triage fields; encrypted
+// UpdateSecurityReportTriage changes only canonical triage fields; encrypted
 // report content is never exposed through this maintenance operation.
 func UpdateSecurityReportTriage(db *sql.DB, trackingID, status, comment string, disclosureDate *time.Time, now time.Time) error {
-	if db == nil || strings.TrimSpace(trackingID) == "" || !validSecurityReportStatus(status) {
-		return errors.New("security: invalid report triage update")
-	}
 	comment = strings.Map(func(r rune) rune {
 		if r < 0x20 && r != '\n' && r != '\t' || r == 0x7f {
 			return -1
@@ -347,40 +435,120 @@ func UpdateSecurityReportTriage(db *sql.DB, trackingID, status, comment string, 
 	if len([]rune(comment)) > 2000 {
 		return errors.New("security: maintainer comment exceeds 2000 characters")
 	}
-	var disclosure any
-	var disclosedYear any
-	if disclosureDate != nil {
-		date := disclosureDate.UTC()
-		disclosure = date.Unix()
-		if status == "Disclosed" {
-			disclosedYear = date.Year()
-		}
-	}
-	var closed any
-	if status == "Disclosed" || status == "Won't Fix" {
-		closed = now.UTC().Unix()
+	_, _, err := UpdateSecurityReport(db, trackingID, &status, &comment, disclosureDate, now)
+	return err
+}
+
+// UpdateSecurityReport applies only the provided researcher-visible fields and
+// returns the old and resulting status for audit logging. Status changes may
+// advance through the workflow or close a report as Won't Fix, never regress.
+func UpdateSecurityReport(db *sql.DB, trackingID string, status, comment *string, disclosureDate *time.Time, now time.Time) (string, string, error) {
+	if db == nil || strings.TrimSpace(trackingID) == "" || status == nil && comment == nil && disclosureDate == nil {
+		return "", "", errors.New("security: invalid report update")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	result, err := db.ExecContext(ctx, `UPDATE security_reports SET status = ?, maintainer_comment = ?,
-		disclosure_date = ?, closed_at = ?, disclosed_year = ? WHERE tracking_id = ?`,
-		status, comment, disclosure, closed, disclosedYear, trackingID)
+	var oldStatus, oldComment string
+	var oldDisclosure sql.NullString
+	var oldDisclosedYear sql.NullInt64
+	var closed sql.NullInt64
+	if err := db.QueryRowContext(ctx, `SELECT status, COALESCE(researcher_comment, ''), strftime('%Y-%m-%d', disclosure_date), disclosed_year, closed_at FROM security_reports WHERE tracking_id = ?`, trackingID).Scan(&oldStatus, &oldComment, &oldDisclosure, &oldDisclosedYear, &closed); err != nil {
+		return "", "", fmt.Errorf("security: load report for update: %w", err)
+	}
+	newStatus := oldStatus
+	if status != nil {
+		newStatus = strings.TrimSpace(*status)
+		if !validCanonicalSecurityReportStatus(newStatus) || !securityStatusCanAdvance(oldStatus, newStatus) {
+			return oldStatus, oldStatus, errors.New("security: invalid or backward report status transition")
+		}
+	}
+	newComment := oldComment
+	if comment != nil {
+		newComment = *comment
+	}
+	var disclosure any
+	if disclosureDate != nil {
+		disclosure = disclosureDate.UTC().Format("2006-01-02")
+	} else if oldDisclosure.Valid {
+		disclosure = oldDisclosure.String
+	}
+	var closedAt any
+	if closed.Valid {
+		closedAt = closed.Int64
+	}
+	var disclosedYear any
+	if newStatus == "disclosed" || newStatus == "wont_fix" {
+		if closedAt == nil {
+			closedAt = now.UTC().Unix()
+		}
+	}
+	if newStatus == "disclosed" {
+		if value, ok := disclosure.(string); ok {
+			if parsed, err := time.Parse("2006-01-02", value); err == nil {
+				disclosedYear = parsed.Year()
+			}
+		}
+		if disclosedYear == nil && oldDisclosedYear.Valid {
+			disclosedYear = oldDisclosedYear.Int64
+		}
+	}
+	result, err := db.ExecContext(ctx, `UPDATE security_reports SET status = ?, researcher_comment = ?, disclosure_date = ?, closed_at = ?, disclosed_year = ?, updated_at = ?
+		WHERE tracking_id = ? AND status = ? AND COALESCE(researcher_comment, '') = ?
+		AND COALESCE(strftime('%Y-%m-%d', disclosure_date), '') = ?
+		AND COALESCE(disclosed_year, 0) = ? AND COALESCE(closed_at, 0) = ?`,
+		newStatus, newComment, disclosure, closedAt, disclosedYear, now.UTC().Unix(), trackingID,
+		oldStatus, oldComment, oldDisclosure.String, oldDisclosedYear.Int64, closed.Int64)
 	if err != nil {
-		return fmt.Errorf("security: update report triage: %w", err)
+		return oldStatus, oldStatus, fmt.Errorf("security: update report: %w", err)
 	}
 	updated, err := result.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("security: confirm report triage update: %w", err)
+	if err != nil || updated != 1 {
+		if err != nil {
+			return oldStatus, oldStatus, fmt.Errorf("security: confirm report update: %w", err)
+		}
+		return oldStatus, oldStatus, errors.New("security: report changed during update; reload and retry")
 	}
-	if updated != 1 {
-		return sql.ErrNoRows
-	}
-	return nil
+	return oldStatus, newStatus, nil
 }
 
-func validSecurityReportStatus(status string) bool {
+func securityStatusCanAdvance(current, next string) bool {
+	if current == next {
+		return true
+	}
+	if current == "disclosed" || current == "wont_fix" {
+		return false
+	}
+	if next == "wont_fix" {
+		return true
+	}
+	rank := map[string]int{"received": 0, "triaged": 1, "confirmed": 2, "patching": 3, "disclosed": 4}
+	currentRank, currentOK := rank[current]
+	nextRank, nextOK := rank[next]
+	return currentOK && nextOK && nextRank > currentRank
+}
+
+func securityReportStatusTitle(status string) string {
 	switch status {
-	case "Received", "Triaged", "Confirmed", "Patching", "Disclosed", "Won't Fix":
+	case "received":
+		return "Received"
+	case "triaged":
+		return "Triaged"
+	case "confirmed":
+		return "Confirmed"
+	case "patching":
+		return "Patching"
+	case "disclosed":
+		return "Disclosed"
+	case "wont_fix":
+		return "Won't Fix"
+	default:
+		return status
+	}
+}
+
+func validCanonicalSecurityReportStatus(status string) bool {
+	switch status {
+	case "received", "triaged", "confirmed", "patching", "disclosed", "wont_fix":
 		return true
 	default:
 		return false
@@ -391,7 +559,7 @@ func validSecurityReportStatus(status string) bool {
 type SecurityReportStatus struct {
 	TrackingID        string
 	Status            string
-	MaintainerComment string
+	ResearcherComment string
 	DisclosureDate    *time.Time
 	ClosedAt          *time.Time
 }
@@ -401,14 +569,16 @@ type SecurityReportStatus struct {
 func ConsumeSecurityAccessToken(db *sql.DB, trackingID, token string, now time.Time) (SecurityReportStatus, error) {
 	var status SecurityReportStatus
 	var hash string
-	var lastAccessDay sql.NullInt64
-	var disclosure, closed sql.NullInt64
+	var lastAccessDay sql.NullString
+	var disclosure sql.NullString
+	var closed sql.NullInt64
 	var comment sql.NullString
 	readCtx, cancelRead := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancelRead()
-	err := db.QueryRowContext(readCtx, `SELECT tracking_id, status, maintainer_comment, disclosure_date,
-		closed_at, access_token_hash, last_access_day FROM security_reports WHERE tracking_id = ?`, trackingID).
-		Scan(&status.TrackingID, &status.Status, &comment, &disclosure, &closed, &hash, &lastAccessDay)
+	var rawStatus string
+	err := db.QueryRowContext(readCtx, `SELECT tracking_id, status, researcher_comment, strftime('%Y-%m-%d', disclosure_date),
+		closed_at, token_hash, strftime('%Y-%m-%d', token_last_used) FROM security_reports WHERE tracking_id = ?`, trackingID).
+		Scan(&status.TrackingID, &rawStatus, &comment, &disclosure, &closed, &hash, &lastAccessDay)
 	if err != nil {
 		return SecurityReportStatus{}, err
 	}
@@ -417,16 +587,23 @@ func ConsumeSecurityAccessToken(db *sql.DB, trackingID, token string, now time.T
 		return SecurityReportStatus{}, errors.New("security: invalid report access token")
 	}
 	day := now.UTC().Unix() / 86400
-	if lastAccessDay.Valid && lastAccessDay.Int64 >= day {
-		return SecurityReportStatus{}, errors.New("security: report token already used today")
+	if lastAccessDay.Valid {
+		last, parseErr := time.Parse("2006-01-02", lastAccessDay.String)
+		if parseErr != nil {
+			return SecurityReportStatus{}, errors.New("security: invalid report access date")
+		}
+		if last.Unix()/86400 >= day {
+			return SecurityReportStatus{}, errors.New("security: report token already used today")
+		}
 	}
 	if closed.Valid && now.Unix() > closed.Int64+int64(30*24*time.Hour/time.Second) {
 		return SecurityReportStatus{}, errors.New("security: report access expired")
 	}
 	writeCtx, cancelWrite := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancelWrite()
-	result, err := db.ExecContext(writeCtx, `UPDATE security_reports SET last_access_day = ?
-		WHERE tracking_id = ? AND (last_access_day IS NULL OR last_access_day < ?)`, day, trackingID, day)
+	dayText := time.Unix(day*86400, 0).UTC().Format("2006-01-02")
+	result, err := db.ExecContext(writeCtx, `UPDATE security_reports SET token_last_used = ?
+		WHERE tracking_id = ? AND (token_last_used IS NULL OR token_last_used < ?)`, dayText, trackingID, dayText)
 	if err != nil {
 		return SecurityReportStatus{}, fmt.Errorf("security: consume report token: %w", err)
 	}
@@ -437,11 +614,15 @@ func ConsumeSecurityAccessToken(db *sql.DB, trackingID, token string, now time.T
 	if n != 1 {
 		return SecurityReportStatus{}, errors.New("security: report token already used today")
 	}
+	status.Status = securityReportStatusTitle(rawStatus)
 	if comment.Valid {
-		status.MaintainerComment = comment.String
+		status.ResearcherComment = comment.String
 	}
 	if disclosure.Valid {
-		t := time.Unix(disclosure.Int64, 0).UTC()
+		t, parseErr := time.Parse("2006-01-02", disclosure.String)
+		if parseErr != nil {
+			return SecurityReportStatus{}, fmt.Errorf("security: parse disclosure date: %w", parseErr)
+		}
 		status.DisclosureDate = &t
 	}
 	if closed.Valid {

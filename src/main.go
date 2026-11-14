@@ -8,6 +8,7 @@ import (
 	"context"
 	cryptorand "crypto/rand"
 	"crypto/subtle"
+	"crypto/tls"
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
@@ -213,7 +214,7 @@ func runMain() {
 	serviceCmd := flag.String("service", "", "Service commands: start, stop, restart, reload, status, --install, --uninstall, --disable, --help")
 
 	// Maintenance commands
-	maintenanceCmd := flag.String("maintenance", "", "Maintenance commands: backup, restore, update, mode, setup, pgp, secret, security-report, token, data, compliance")
+	maintenanceCmd := flag.String("maintenance", "", "Maintenance commands: backup, restore, update, mode, setup, pgp, secret, security, token, data, compliance")
 
 	// Backup content opt-ins (AI.md PART 21) — backups exclude SSL private
 	// keys and the full data directory by default (non-credential by default).
@@ -813,6 +814,9 @@ func runMain() {
 	sslMgr := ssl.NewSSLManager(ssl.SSLManagerConfig{
 		Enabled:       sslEnabled,
 		CertPath:      filepath.Join(configDir, "ssl"),
+		CertFile:      cfg.Server.SSL.Cert,
+		KeyFile:       cfg.Server.SSL.Key,
+		MinVersion:    cfg.Server.SSL.MinVersion,
 		EncryptionKey: cfg.Server.Security.EncryptionKey,
 		LetsEncrypt: ssl.LetsEncryptConfig{
 			Enabled:                 sslEnabled && cfg.Server.SSL.LetsEncrypt.Enabled,
@@ -1890,6 +1894,9 @@ func runMain() {
 			if cfg.Server.Mode == "development" || cfg.Server.Mode == "debug" {
 				log.Printf("SSL: no cert available (%v), using self-signed for development", tlsErr)
 				tlsCfg, tlsErr = ssl.GenerateSelfSignedTLSConfig(sslDomains)
+				if tlsCfg != nil && cfg.Server.SSL.MinVersion == "TLS1.3" {
+					tlsCfg.MinVersion = tls.VersionTLS13
+				}
 			}
 			if tlsErr != nil {
 				log.Printf("SSL: failed to obtain TLS config: %v", tlsErr)
@@ -2371,7 +2378,7 @@ _arguments \
     '--daemon[Run as daemon]' \
     '--color[Color output]:(auto yes no)' \
     '--service[Service command]:(start stop restart reload status --install --uninstall --disable --help)' \
-    '--maintenance[Maintenance command]:(backup restore update mode setup pgp secret security-report token data compliance)' \
+    '--maintenance[Maintenance command]:(backup restore update mode setup pgp secret security token data compliance)' \
     '--update[Update command]:(check yes branch --help)' \
     '--shell[Shell command]:(completions init --help)'
 `, binaryName)
@@ -3345,98 +3352,264 @@ func rotateEncryptionKey(conn *sql.DB, configDir string, cfg *config.AppConfig, 
 	fmt.Println("Previous value remains valid for 30 days (grace period).")
 }
 
-func handleSecurityReportMaintenance(args []string, logsDir string, cfg *config.AppConfig) {
+func handleSecurityMaintenance(args []string, logsDir string, cfg *config.AppConfig) {
 	if len(args) == 0 || args[0] == "--help" || args[0] == "help" {
-		fmt.Println("Usage: ipgaze --maintenance security-report <list|set>")
-		fmt.Println("  list: show report IDs and non-identifying triage metadata")
-		fmt.Println("  set <tracking_id> <status> [YYYY-MM-DD] [comment...]")
-		fmt.Println("       statuses: Received, Triaged, Confirmed, Patching, Disclosed, \"Won't Fix\"")
+		fmt.Println("Usage: ipgaze --maintenance security <list|show|update>")
+		fmt.Println("  list [--status STATUS]: list report metadata without report content")
+		fmt.Println("  show <tracking_id>: show metadata, researcher comment, and disclosure date")
+		fmt.Println("  update <tracking_id> [--status STATUS] [--comment TEXT] [--disclosure-date YYYY-MM-DD]")
 		return
 	}
-	if !requireOperatorAuth(cfg, "This is a sensitive security-report operation. Enter operator token to confirm: ") {
+	if !requireOperatorAuth(cfg, "This is a sensitive security operation. Enter operator token to confirm: ") {
 		fmt.Println("Authorization required: run as root/administrator, or provide a valid operator token.")
 		os.Exit(exNoPerm)
 	}
 	conn, err := openMaintenanceDB(cfg, paths.GetDirectories())
 	if err != nil {
-		log.Printf("security-report: failed to open database: %v", err)
+		log.Printf("security: failed to open database: %v", err)
 		os.Exit(exIoErr)
 	}
 	defer func() { _ = conn.Close() }()
-	if args[0] == "list" {
-		if err := listSecurityReports(conn, os.Stdout); err != nil {
-			log.Printf("security-report: list reports: %v", err)
+	switch args[0] {
+	case "list":
+		statusFilter, err := parseSecurityListArgs(args[1:])
+		if err != nil {
+			fmt.Println(err)
+			os.Exit(exUsage)
+		}
+		if err := listSecurityReports(conn, os.Stdout, statusFilter); err != nil {
+			log.Printf("security: list reports: %v", err)
 			os.Exit(exIoErr)
 		}
 		return
-	}
-	if args[0] != "set" || len(args) < 3 {
-		fmt.Println("Usage: ipgaze --maintenance security-report set <tracking_id> <status> [YYYY-MM-DD] [comment...]")
+	case "show":
+		if len(args) != 2 {
+			fmt.Println("Usage: ipgaze --maintenance security show <tracking_id>")
+			os.Exit(exUsage)
+		}
+		if err := showSecurityReport(conn, os.Stdout, args[1]); err != nil {
+			log.Printf("security: show report: %v", err)
+			os.Exit(exIoErr)
+		}
+		return
+	case "update":
+		if len(args) < 2 {
+			fmt.Println("Usage: ipgaze --maintenance security update <tracking_id> [--status STATUS] [--comment TEXT] [--disclosure-date YYYY-MM-DD]")
+			os.Exit(exUsage)
+		}
+	default:
+		fmt.Println("Usage: ipgaze --maintenance security <list|show|update>")
 		os.Exit(exUsage)
 	}
-	trackingID, status, disclosureDate, comment, err := parseSecurityReportSetArgs(args[1:], time.Now())
+	trackingID, status, comment, disclosureDate, err := parseSecurityReportUpdateArgs(args[1:])
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(exUsage)
 	}
-	if err := security.UpdateSecurityReportTriage(conn, trackingID, status, comment, disclosureDate, time.Now()); err != nil {
-		log.Printf("security-report: update failed: %v", err)
+	oldStatus, newStatus, err := security.UpdateSecurityReport(conn, trackingID, status, comment, disclosureDate, time.Now())
+	if err != nil {
+		log.Printf("security: update failed: %v", err)
 		os.Exit(exSoftware)
+	}
+	if oldStatus != newStatus {
+		notifySecurityReportStatus(conn, cfg, trackingID, newStatus)
 	}
 	logMgr, logErr := applog.NewManager(logsDir, buildLogConfig(cfg))
 	if logErr == nil {
-		logMgr.WriteAuditEvent("", "security.report_triage_updated", "security", "info", "success", "", map[string]any{
-			"tracking_id": trackingID, "status": status,
+		logMgr.WriteAuditEvent("", "security.report_updated", "security", "info", "success", "", map[string]any{
+			"tracking_id": trackingID, "old_status": oldStatus, "new_status": newStatus,
 		})
+		logMgr.WriteSecurity(fmt.Sprintf("security.report_updated tracking_id=%s old_status=%s new_status=%s", safeSecurityLogField(trackingID), oldStatus, newStatus), "")
 		logMgr.Close()
 	}
-	fmt.Printf("Updated security report %s to %s.\n", trackingID, status)
+	fmt.Printf("Updated security report %s (%s → %s).\n", trackingID, oldStatus, newStatus)
 }
 
-func listSecurityReports(conn *sql.DB, out io.Writer) error {
+func safeSecurityLogField(value string) string {
+	return strings.Map(func(r rune) rune {
+		if r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '_' || r == '-' {
+			return r
+		}
+		return '_'
+	}, value)
+}
+
+func notifySecurityReportStatus(conn *sql.DB, cfg *config.AppConfig, trackingID, status string) {
+	if conn == nil || cfg == nil {
+		return
+	}
+	key, err := base64.StdEncoding.DecodeString(cfg.Server.Security.EncryptionKey)
+	if err != nil || len(key) != 32 {
+		return
+	}
+	contact, err := security.LoadSecurityReportContact(conn, trackingID, key)
+	if err != nil || strings.TrimSpace(contact.Email) == "" {
+		return
+	}
+	smtpCfg := email.SMTPConfig{
+		Enabled:  cfg.Server.Notifications.Email.Enabled,
+		Host:     cfg.Server.Notifications.Email.SMTP.Host,
+		Port:     cfg.Server.Notifications.Email.SMTP.Port,
+		Username: cfg.Server.Notifications.Email.SMTP.Username,
+		Password: cfg.Server.Notifications.Email.SMTP.Password,
+		TLS:      cfg.Server.Notifications.Email.SMTP.TLS,
+		From:     cfg.Server.Notifications.Email.From.Email,
+		FromName: cfg.Server.Notifications.Email.From.Name,
+	}
+	email.ApplyEnvOverrides(&smtpCfg)
+	if smtpCfg.Host == "" {
+		globalIPv4, _ := netutil.FetchPublicIP()
+		if probe, probeErr := email.AutoDetectSMTP(netutil.DefaultGatewayIP(), cfg.Server.FQDN, globalIPv4); probeErr == nil {
+			smtpCfg.Host, smtpCfg.Port = probe.Host, probe.Port
+		}
+	}
+	if smtpCfg.Host == "" || email.TestConnection(smtpCfg) != nil {
+		return
+	}
+	smtpCfg.Enabled = true
+	manager := email.NewEmailManager(smtpCfg, "")
+	lang := contact.Language
+	if !i18n.IsSupported(lang) {
+		lang = "en"
+	}
+	subject := i18n.Translate(lang, "security.report_status_email_subject")
+	body := i18n.Translate(lang, "security.report_status_email_body")
+	if subject == "security.report_status_email_subject" || subject == "" {
+		subject = "Security report status updated"
+	}
+	if body == "security.report_status_email_body" || body == "" {
+		body = "The status of your security report {tracking_id} changed to {status}."
+	}
+	subject = strings.ReplaceAll(subject, "{tracking_id}", trackingID)
+	body = strings.NewReplacer("{tracking_id}", trackingID, "{status}", status).Replace(body)
+	if err := manager.SendDirect(&email.Message{To: []string{contact.Email}, Subject: subject, Body: body}); err != nil {
+		log.Printf("security: status notification failed for %s: %v", trackingID, err)
+	}
+}
+
+func listSecurityReports(conn *sql.DB, out io.Writer, statusFilter string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	rows, err := conn.QueryContext(ctx, `SELECT tracking_id, status, severity, affected_component, created_at
-		FROM security_reports ORDER BY created_at DESC`)
+	query := `SELECT tracking_id, status, severity, component, created_at, updated_at FROM security_reports`
+	var rows *sql.Rows
+	var err error
+	if statusFilter == "" {
+		rows, err = conn.QueryContext(ctx, query+` ORDER BY created_at DESC`)
+	} else {
+		rows, err = conn.QueryContext(ctx, query+` WHERE status = ? ORDER BY created_at DESC`, statusFilter)
+	}
 	if err != nil {
 		return err
 	}
 	defer func() { _ = rows.Close() }()
-	if _, err := fmt.Fprintf(out, "%-22s %-12s %-14s %-24s %s\n", "TRACKING_ID", "STATUS", "SEVERITY", "COMPONENT", "CREATED_UTC"); err != nil {
+	if _, err := fmt.Fprintf(out, "%-22s %-12s %-14s %-24s %-20s %s\n", "TRACKING_ID", "STATUS", "SEVERITY", "COMPONENT", "CREATED_UTC", "UPDATED_UTC"); err != nil {
 		return err
 	}
 	for rows.Next() {
 		var trackingID, status, severity, component string
-		var created int64
-		if err := rows.Scan(&trackingID, &status, &severity, &component, &created); err != nil {
+		var created, updated int64
+		if err := rows.Scan(&trackingID, &status, &severity, &component, &created, &updated); err != nil {
 			return err
 		}
-		if _, err := fmt.Fprintf(out, "%-22s %-12s %-14s %-24s %s\n", trackingID, status, severity, component, time.Unix(created, 0).UTC().Format(time.RFC3339)); err != nil {
+		if _, err := fmt.Fprintf(out, "%-22s %-12s %-14s %-24s %-20s %s\n", trackingID, status, severity, component, time.Unix(created, 0).UTC().Format(time.RFC3339), time.Unix(updated, 0).UTC().Format(time.RFC3339)); err != nil {
 			return err
 		}
 	}
 	return rows.Err()
 }
 
-func parseSecurityReportSetArgs(args []string, now time.Time) (string, string, *time.Time, string, error) {
-	if len(args) < 2 || strings.TrimSpace(args[0]) == "" || strings.TrimSpace(args[1]) == "" {
-		return "", "", nil, "", fmt.Errorf("expected tracking ID and status")
+func parseSecurityListArgs(args []string) (string, error) {
+	fs := flag.NewFlagSet("security list", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	status := fs.String("status", "", "Filter by status")
+	if err := fs.Parse(args); err != nil || fs.NArg() != 0 {
+		return "", fmt.Errorf("usage: --maintenance security list [--status STATUS]")
 	}
-	trackingID, status := strings.TrimSpace(args[0]), strings.TrimSpace(args[1])
-	var disclosureDate *time.Time
-	commentArgs := args[2:]
-	if len(commentArgs) > 0 {
-		if parsed, err := time.Parse("2006-01-02", commentArgs[0]); err == nil {
-			date := parsed.UTC()
-			disclosureDate = &date
-			commentArgs = commentArgs[1:]
+	if *status != "" && !validMaintenanceSecurityStatus(*status) {
+		return "", fmt.Errorf("invalid status %q", *status)
+	}
+	return *status, nil
+}
+
+func validMaintenanceSecurityStatus(status string) bool {
+	switch status {
+	case "received", "triaged", "confirmed", "patching", "disclosed", "wont_fix":
+		return true
+	default:
+		return false
+	}
+}
+
+func parseSecurityReportUpdateArgs(args []string) (string, *string, *string, *time.Time, error) {
+	if len(args) < 1 || strings.TrimSpace(args[0]) == "" {
+		return "", nil, nil, nil, fmt.Errorf("expected tracking ID")
+	}
+	trackingID := strings.TrimSpace(args[0])
+	fs := flag.NewFlagSet("security update", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	status := fs.String("status", "", "New status")
+	comment := fs.String("comment", "", "Researcher-visible maintainer comment")
+	disclosure := fs.String("disclosure-date", "", "Expected disclosure date (YYYY-MM-DD)")
+	if err := fs.Parse(args[1:]); err != nil || fs.NArg() != 0 {
+		return "", nil, nil, nil, fmt.Errorf("invalid security update flags")
+	}
+	statusSet, commentSet, dateSet := false, false, false
+	fs.Visit(func(f *flag.Flag) {
+		switch f.Name {
+		case "status":
+			statusSet = true
+		case "comment":
+			commentSet = true
+		case "disclosure-date":
+			dateSet = true
 		}
+	})
+	if !statusSet && !commentSet && !dateSet {
+		return "", nil, nil, nil, fmt.Errorf("provide at least one update flag")
 	}
-	if status == "Disclosed" && disclosureDate == nil {
-		date := now.UTC()
-		disclosureDate = &date
+	var statusValue, commentValue *string
+	if statusSet {
+		if !validMaintenanceSecurityStatus(*status) {
+			return "", nil, nil, nil, fmt.Errorf("invalid status %q", *status)
+		}
+		statusValue = status
 	}
-	return trackingID, status, disclosureDate, strings.Join(commentArgs, " "), nil
+	if commentSet {
+		commentValue = comment
+	}
+	var disclosureDate *time.Time
+	if dateSet {
+		parsed, err := time.Parse("2006-01-02", *disclosure)
+		if err != nil {
+			return "", nil, nil, nil, fmt.Errorf("invalid --disclosure-date: expected YYYY-MM-DD")
+		}
+		parsed = parsed.UTC()
+		disclosureDate = &parsed
+	}
+	return trackingID, statusValue, commentValue, disclosureDate, nil
+}
+
+func showSecurityReport(conn *sql.DB, out io.Writer, trackingID string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	var status, severity, component, comment string
+	var created, updated int64
+	var disclosure sql.NullString
+	err := conn.QueryRowContext(ctx, `SELECT status, severity, component, researcher_comment, strftime('%Y-%m-%d', disclosure_date), created_at, updated_at FROM security_reports WHERE tracking_id = ?`, trackingID).
+		Scan(&status, &severity, &component, &comment, &disclosure, &created, &updated)
+	if err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(out, "Tracking ID: %s\nStatus: %s\nSeverity: %s\nComponent: %s\nCreated: %s\nUpdated: %s\nResearcher comment: %s\n",
+		trackingID, status, severity, component, time.Unix(created, 0).UTC().Format(time.RFC3339), time.Unix(updated, 0).UTC().Format(time.RFC3339), comment); err != nil {
+		return err
+	}
+	if disclosure.Valid {
+		_, err = fmt.Fprintf(out, "Disclosure date: %s\n", disclosure.String)
+	} else {
+		_, err = fmt.Fprintln(out, "Disclosure date: (not set)")
+	}
+	return err
 }
 
 func handleMaintenanceCommand(cmd, configDir, dataDir, logsDir, configPath string, cfg *config.AppConfig, includeSSL, includeData bool) {
@@ -3445,7 +3618,7 @@ func handleMaintenanceCommand(cmd, configDir, dataDir, logsDir, configPath strin
 
 	switch cmd {
 	case "--help":
-		fmt.Println(`Maintenance commands: backup, restore, update, mode, setup, pgp, secret, security-report, token, data, compliance
+		fmt.Println(`Maintenance commands: backup, restore, update, mode, setup, pgp, secret, security, token, data, compliance
 
 Backup:
   --maintenance backup [file]     Create a backup archive
@@ -3472,10 +3645,12 @@ Restore:
   Example:
     ipgaze --maintenance restore /path/to/backup.tar.gz`)
 		fmt.Println(`Security reports:
-  --maintenance security-report list
-      Lists report IDs and non-identifying triage metadata.
-  --maintenance security-report set <tracking_id> <status> [YYYY-MM-DD] [comment...]
-      Updates researcher-visible triage status, disclosure date, and comment.
+  --maintenance security list [--status STATUS]
+      Lists tracking IDs, status, severity, component, and timestamps.
+  --maintenance security show <tracking_id>
+      Shows metadata, researcher comment, and disclosure date (never the report body).
+  --maintenance security update <tracking_id> [--status STATUS] [--comment TEXT] [--disclosure-date YYYY-MM-DD]
+      Updates researcher-visible triage fields.
       Requires operator authorization.`)
 		return
 	case "backup":
@@ -3540,8 +3715,8 @@ Restore:
 		handlePGPMaintenance(args, configDir, logsDir, cfg)
 	case "secret":
 		handleSecretMaintenance(args, configDir, logsDir, cfg)
-	case "security-report":
-		handleSecurityReportMaintenance(args, logsDir, cfg)
+	case "security":
+		handleSecurityMaintenance(args, logsDir, cfg)
 	case "token":
 		maintenanceToken(args, cfg, logsDir, dirs)
 	case "data":
@@ -3550,7 +3725,7 @@ Restore:
 		maintenanceCompliance(args, cfg, logsDir)
 	default:
 		fmt.Printf("Unknown maintenance command: %s\n", cmd)
-		fmt.Println("Available commands: backup, restore, update, mode, setup, pgp, secret, security-report, token, data, compliance")
+		fmt.Println("Available commands: backup, restore, update, mode, setup, pgp, secret, security, token, data, compliance")
 		os.Exit(exUsage)
 	}
 }

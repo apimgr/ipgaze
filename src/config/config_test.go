@@ -1237,6 +1237,9 @@ func TestSaveConfigToFile_RoundTripsEncryptionKeyAndDNSCredentials(t *testing.T)
 	}
 
 	cfg.Server.Security.EncryptionKey = "dGVzdC1rZXktbWF0ZXJpYWw="
+	cfg.Server.SSL.Cert = "/etc/ipgaze/cert.pem"
+	cfg.Server.SSL.Key = "/etc/ipgaze/key.pem"
+	cfg.Server.SSL.MinVersion = "TLS1.3"
 	cfg.Server.SSL.LetsEncrypt.DNSProvider = "cloudflare"
 	cfg.Server.SSL.LetsEncrypt.DNSCredentials = DNSCredentialsConfig{
 		Provider:             "cloudflare",
@@ -1255,6 +1258,9 @@ func TestSaveConfigToFile_RoundTripsEncryptionKeyAndDNSCredentials(t *testing.T)
 
 	if reloaded.Server.Security.EncryptionKey != "dGVzdC1rZXktbWF0ZXJpYWw=" {
 		t.Errorf("EncryptionKey round-trip: got %q", reloaded.Server.Security.EncryptionKey)
+	}
+	if reloaded.Server.SSL.Cert != "/etc/ipgaze/cert.pem" || reloaded.Server.SSL.Key != "/etc/ipgaze/key.pem" || reloaded.Server.SSL.MinVersion != "TLS1.3" {
+		t.Errorf("SSL certificate settings round-trip: cert=%q key=%q min_version=%q", reloaded.Server.SSL.Cert, reloaded.Server.SSL.Key, reloaded.Server.SSL.MinVersion)
 	}
 	if reloaded.Server.SSL.LetsEncrypt.DNSCredentials.Provider != "cloudflare" {
 		t.Errorf("DNSCredentials.Provider round-trip: got %q", reloaded.Server.SSL.LetsEncrypt.DNSCredentials.Provider)

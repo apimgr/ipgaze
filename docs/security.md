@@ -10,12 +10,15 @@ ipgaze is designed with security-first principles. This page covers the security
 
 ipgaze is a public, anonymous IP lookup service. No login is required for public
 lookup endpoints. The service does not create user accounts or persistent
-lookup-result ownership records. Operator-protected endpoints use scoped
-bearer tokens stored as SHA-256 hashes.
+lookup-result ownership records. Operator-protected endpoints use the
+server-wide `server.token` bearer credential from `server.yml`. API tokens
+issued for owner-managed resources are a conditional feature and are not used
+by this product.
 
 Security practices applied throughout:
 
-- **Token storage:** SHA-256 hashed before storage — raw tokens are never persisted
+- **Operator token:** Stored in `server.yml` and compared using its SHA-256 hash cached in memory; never stored in the database
+- **Issued API tokens:** When owner-token support is enabled, token records store SHA-256 hashes; raw values are not stored in plaintext
 - **Rate limiting:** Requests are limited by client IP and endpoint class; repeated floods can trigger persisted temporary IP blocks
 - **Client address identity:** Trusted proxy headers are validated and normalized to one canonical IP; IPv6 limits and bans use the full address, and rate-limit state is bounded and expires
 - **Constant-time comparison:** All token checks use timing-safe comparison to prevent timing attacks
@@ -43,7 +46,7 @@ The following endpoints are accessible without authentication:
 | `GET /api/healthz` | Direct JSON health alias |
 | `GET /healthz` | Optional health alias when enabled in `server.yml` |
 | `GET /server/security` | Security overview and reporting links |
-| `GET /server/dpo` | Public DPO contact details, with a contact form link when no email is configured |
+| `GET /server/dpo` | Public DPO contact details, privacy link, and contact form link |
 | `GET /server/security/policy` | Coordinated disclosure policy |
 | `GET /server/security/thanks` | Public researcher acknowledgments |
 | `GET /server/security/report/{tracking_id}` | Researcher report status using the one-shot token in the private acknowledgment link |
@@ -97,7 +100,6 @@ the public-key URL.
 
 ## Enumeration Mitigation
 
-- Resource IDs (when used by the CLI for owner-token operations) are opaque, non-sequential identifiers
 - Per-IP rate limiting is uniform across endpoints to avoid timing-based discovery
 
 ---

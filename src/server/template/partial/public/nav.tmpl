@@ -22,6 +22,7 @@
         </select>
         <button type="submit" class="btn btn-icon">{{t .Lang "common.submit"}}</button>
       </form>
+      {{if ne .RequestPath "/server/preferences"}}
       <form action="/server/preferences" method="post" class="theme-toggle-form">
         {{ if .CSRFToken }}
         <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
@@ -31,6 +32,7 @@
           <span class="theme-icon">{{ if eq .Theme "light" }}☀️{{ else if eq .Theme "auto" }}🔄{{ else }}🌙{{ end }}</span>
         </button>
       </form>
+      {{end}}
       <!-- Hidden until app.js's beforeinstallprompt handler reveals it; hidden again by
            appinstalled/isInstalledPWA() (AI.md PART 16 "Install button visibility rules") -->
       <button type="button" id="pwa-install-btn" class="btn btn-icon hidden" data-action="pwa-install" aria-label="{{t .Lang "pwa.install"}}" title="{{t .Lang "pwa.install"}}">

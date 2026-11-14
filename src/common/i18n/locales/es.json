@@ -377,6 +377,8 @@
     "policy_out_scope_disruption": "Pruebas de denegación de servicio, spam, ingeniería social, ataques físicos y pruebas que interrumpan el servicio o accedan a datos de otras personas.",
     "policy_out_scope_third_party": "Vulnerabilidades en servicios o dependencias de terceros sin un impacto demostrado en el servicio oficial de IPGaze.",
     "policy_safe_harbor_text": "No iniciaremos ni apoyaremos acciones legales por investigaciones de seguridad de buena fe en el servicio incluido en el alcance que sigan esta política y eviten acceder, modificar o interrumpir datos o servicios. Detenga las pruebas e informe cuanto antes si encuentra datos de otra persona. Esta declaración no autoriza actividades contra sistemas fuera del alcance indicado.",
+    "report_status_email_subject": "Estado del informe de seguridad {tracking_id} actualizado",
+    "report_status_email_body": "El estado de tu informe de seguridad {tracking_id} cambió a {status}.",
     "report_email_subject": "Informe de seguridad recibido {tracking_id}",
     "report_email_body": "Hemos recibido su informe de seguridad. Identificador de seguimiento: {tracking_id}\nEstado: {status_url}",
     "report_notification_subject": "Informe de seguridad cifrado {tracking_id}",
@@ -445,7 +447,11 @@
     "import_heading": "Import",
     "import_intro": "Paste a short code (or a full import link) from another device below.",
     "import_paste_label": "Code or link",
-    "import_submit": "Apply"
+    "import_submit": "Aplicar",
+    "reset": "Restablecer",
+    "reset_title": "¿Olvidar este navegador?",
+    "reset_warning": "Esto borra las cookies y el almacenamiento del sitio, incluidas tus preferencias y elecciones de consentimiento. No se puede deshacer.",
+    "erase_everything": "Borrar todo"
   },
 
   "announcements": {

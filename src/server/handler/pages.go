@@ -1564,9 +1564,22 @@ func (h *PagesHandler) submitSecurityReport(r *http.Request, req ContactRequest)
 			return "", err
 		}
 	}
+	contactPlain, err := json.Marshal(security.SecurityReportContact{Email: req.Email, ResearcherGPG: string(researcherKey), Language: i18n.DetectLocale(r)})
+	if err != nil {
+		return "", fmt.Errorf("encode security report contact: %w", err)
+	}
+	contactKey, err := base64.StdEncoding.DecodeString(h.Config.Server.Security.EncryptionKey)
+	if err != nil || len(contactKey) != 32 {
+		return "", fmt.Errorf("security report contact encryption key is unavailable")
+	}
+	contactCiphertext, err := security.EncryptWithSecret(contactKey, contactPlain, "security-report-contact")
+	if err != nil {
+		return "", fmt.Errorf("encrypt security report contact: %w", err)
+	}
 	if err := security.StoreSecurityReport(h.DB, security.SecurityReportMetadata{
-		TrackingID: trackingID, Ciphertext: ciphertext, Encryption: encryption,
-		Severity: req.Severity, AffectedComponent: req.AffectedComponent,
+		TrackingID: trackingID, SecurityID: req.SecurityID, Ciphertext: ciphertext, Encryption: encryption,
+		ContactCiphertext: contactCiphertext, Severity: req.Severity, Component: req.AffectedComponent, AffectedComponent: req.AffectedComponent,
+		CVERequested:     req.CVERequested,
 		CreditPreference: req.CreditPreference, CreditName: creditName,
 		ShortCredit: "Security vulnerability report", AccessTokenHash: accessTokenHash,
 	}); err != nil {
@@ -1846,7 +1859,7 @@ func (h *PagesHandler) securityThanksResponse(r *http.Request) (SecurityThanksRe
 	defer cancel()
 	rows, err := h.DB.QueryContext(readCtx, `SELECT credit_preference, credit_name,
 		COALESCE(disclosed_year, CAST(strftime('%Y', created_at, 'unixepoch') AS INTEGER)), short_credit
-		FROM security_reports WHERE status = 'Disclosed' AND credit_preference IN ('real_name', 'handle', 'anonymous')
+		FROM security_reports WHERE status = 'disclosed' AND credit_preference IN ('real_name', 'handle', 'anonymous')
 		ORDER BY COALESCE(disclosed_year, CAST(strftime('%Y', created_at, 'unixepoch') AS INTEGER)), created_at`)
 	if err != nil {
 		return response, h.securityThanksError(r, fmt.Errorf("query disclosed acknowledgments: %w", err))
@@ -2023,7 +2036,11 @@ func safeRedirectTarget(r *http.Request, target string) string {
 }
 
 func preferencesRedirectTarget(r *http.Request, trust *netutil.TrustResolver) string {
-	if target, ok := validPreferencesRedirect(r.URL.Query().Get("redirect")); ok {
+	requested := r.URL.Query().Get("redirect")
+	if requested == "" && r.PostForm != nil {
+		requested = r.PostForm.Get("redirect")
+	}
+	if target, ok := validPreferencesRedirect(requested); ok {
 		return target
 	}
 	if referer := r.Referer(); referer != "" {
@@ -2103,7 +2120,7 @@ func (h *PagesHandler) ConsentHandler(w http.ResponseWriter, r *http.Request) {
 		Essential:   true,
 		Preferences: preferences,
 		Analytics:   analytics,
-		Timestamp:   time.Now().UnixMilli(),
+		Timestamp:   time.Now().Unix(),
 	}
 	value, err := json.Marshal(consent)
 	if err != nil {
@@ -2149,15 +2166,7 @@ func (h *PagesHandler) CCPAHandler(w http.ResponseWriter, r *http.Request) {
 	if choice == "opt-out" {
 		optedOut = "true"
 	}
-	http.SetCookie(w, &http.Cookie{
-		Name:     "ccpa_opt_out",
-		Value:    optedOut,
-		Path:     "/",
-		MaxAge:   365 * 24 * 60 * 60,
-		HttpOnly: true,
-		SameSite: http.SameSiteLaxMode,
-		Secure:   r.TLS != nil,
-	})
+	setCCPAOptOutCookie(w, r, h.Trust, optedOut == "true")
 	if strings.Contains(r.Header.Get("Accept"), "text/html") {
 		ref := safeRedirectTarget(r, r.Referer())
 		http.Redirect(w, r, ref, http.StatusSeeOther)
@@ -2195,6 +2204,48 @@ func (h *PagesHandler) ServerPreferencesUpdateHandler(w http.ResponseWriter, r *
 		h.renderErrorPage(w, r, http.StatusMethodNotAllowed, i18n.T(r.Context(), "errors.method_not_allowed"))
 		return
 	}
+	if err := r.ParseForm(); err != nil {
+		ref := preferencesRedirectTarget(r, h.Trust)
+		w.Header().Set("Cache-Control", "no-store")
+		w.Header().Set("Location", ref)
+		w.WriteHeader(http.StatusSeeOther)
+		return
+	}
+	if r.FormValue("action") == "reset" {
+		for _, cookie := range r.Cookies() {
+			name := strings.ToLower(cookie.Name)
+			if strings.Contains(name, "csrf") || strings.Contains(name, "session") || strings.Contains(name, "token") || strings.Contains(name, "auth") {
+				continue
+			}
+			http.SetCookie(w, &http.Cookie{Name: cookie.Name, Value: "", Path: "/", MaxAge: -1, SameSite: http.SameSiteLaxMode, Secure: isSecurePreferenceRequest(r, h.Trust)})
+		}
+		w.Header().Set("Clear-Site-Data", `"storage"`)
+		w.Header().Set("Cache-Control", "no-store")
+		w.Header().Set("Location", preferencesRedirectTarget(r, h.Trust))
+		w.WriteHeader(http.StatusSeeOther)
+		return
+	}
+	// A pasted export code intentionally overrides form values with the same
+	// key. Decode it through the import validator so save and shared-link
+	// imports apply the same allowlists.
+	if code := strings.TrimSpace(r.FormValue("code")); code != "" && len(code) <= 2048 {
+		codeReq := r.Clone(r.Context())
+		codeURL := *r.URL
+		codeURL.RawQuery = "code=" + url.QueryEscape(code)
+		codeReq.URL = &codeURL
+		codeReq.Form = nil
+		codeReq.PostForm = nil
+		theme, lang, prefs, applied, _ := h.resolvePreferencesImport(codeReq)
+		if containsPreference(applied, "theme") {
+			r.Form.Set("theme", theme)
+		}
+		if containsPreference(applied, "lang") {
+			r.Form.Set("lang", lang)
+		}
+		if containsPreference(applied, lookupWidgetPreferenceCookie) {
+			r.Form.Set(lookupWidgetPreferenceCookie, prefs["widget"])
+		}
+	}
 	if submitted := r.FormValue("theme"); isValidTheme(submitted) {
 		setThemeCookie(w, r, h.Trust, normalizeThemeValue(submitted))
 	}
@@ -2206,10 +2257,40 @@ func (h *PagesHandler) ServerPreferencesUpdateHandler(w http.ResponseWriter, r *
 	if submitted := r.FormValue(lookupWidgetPreferenceCookie); submitted != "" {
 		setLookupWidgetPreference(w, r, h.Trust, submitted)
 	}
+	if r.FormValue("consent_form") == "1" {
+		writeConsentPreferenceCookie(w, r, h.Trust,
+			isCheckboxChecked(r.FormValue("consent_preferences")),
+			isCheckboxChecked(r.FormValue("consent_analytics")))
+		if r.Form.Has("ccpa_opt_out") {
+			setCCPAOptOutCookie(w, r, h.Trust, containsPreference(r.Form["ccpa_opt_out"], "1"))
+		}
+	}
 	ref := preferencesRedirectTarget(r, h.Trust)
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Location", ref)
 	w.WriteHeader(http.StatusSeeOther)
+}
+
+func writeConsentPreferenceCookie(w http.ResponseWriter, r *http.Request, trust *netutil.TrustResolver, preferences, analytics bool) {
+	consent := struct {
+		Essential   bool  `json:"essential"`
+		Preferences bool  `json:"preferences"`
+		Analytics   bool  `json:"analytics"`
+		Timestamp   int64 `json:"timestamp"`
+	}{true, preferences, analytics, time.Now().Unix()}
+	value, err := json.Marshal(consent)
+	if err != nil {
+		return
+	}
+	http.SetCookie(w, &http.Cookie{Name: "cookie_consent", Value: url.QueryEscape(string(value)), Path: "/", MaxAge: 31536000, SameSite: http.SameSiteLaxMode, Secure: isSecurePreferenceRequest(r, trust)})
+}
+
+func setCCPAOptOutCookie(w http.ResponseWriter, r *http.Request, trust *netutil.TrustResolver, optedOut bool) {
+	value := "false"
+	if optedOut {
+		value = "true"
+	}
+	http.SetCookie(w, &http.Cookie{Name: "ccpa_opt_out", Value: value, Path: "/", MaxAge: 31536000, SameSite: http.SameSiteLaxMode, Secure: isSecurePreferenceRequest(r, trust)})
 }
 
 // normalizeThemeValue validates a submitted theme against the allowed enum
@@ -2276,6 +2357,7 @@ type PreferencesPageData struct {
 	PageData
 	PreferencesExportURL  string
 	PreferencesExportCode string
+	CancelURL             string
 	// ConsentPreferences and ConsentAnalytics are the visitor's current
 	// cookie-consent category choices, so the page can render them as
 	// pre-checked toggles the visitor can change here rather than only from
@@ -2332,6 +2414,7 @@ func (h *PagesHandler) ServerPreferencesHandler(w http.ResponseWriter, r *http.R
 		PageData:              base,
 		PreferencesExportURL:  export.URL,
 		PreferencesExportCode: export.Code,
+		CancelURL:             preferencesRedirectTarget(r, h.Trust),
 		ConsentPreferences:    consentPreferences,
 		ConsentAnalytics:      consentAnalytics,
 	}
@@ -2548,9 +2631,7 @@ func decodePreferencesCode(code string) url.Values {
 func (h *PagesHandler) resolvePreferencesImport(r *http.Request) (theme, lang string, prefs map[string]string, applied, ignored []string) {
 	q := r.URL.Query()
 	if code := strings.TrimSpace(q.Get("code")); code != "" {
-		if len(code) > 2048 {
-			ignored = append(ignored, "code")
-		} else {
+		if len(code) <= 2048 {
 			if idx := strings.Index(code, "?"); idx >= 0 {
 				code = code[idx+1:]
 			}
@@ -2561,9 +2642,6 @@ func (h *PagesHandler) resolvePreferencesImport(r *http.Request) (theme, lang st
 				decoded, _ = url.ParseQuery(code)
 			} else if code != "" {
 				decoded = decodePreferencesCode(code)
-			}
-			if len(decoded) == 0 {
-				ignored = append(ignored, "code")
 			}
 			for key, values := range decoded {
 				if _, exists := q[key]; !exists && len(values) > 0 {

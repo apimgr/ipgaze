@@ -27,16 +27,20 @@ server:
   token: tok_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 ```
 
-This token is the operator identity used for resource ownership operations via the CLI.
-It allows the operator to manage resource tokens (view, revoke) regardless of which
-per-resource token was originally issued.
+This is the server-wide operator credential. It authorizes protected server
+operations and permits the operator to manage issued API tokens, including
+tokens associated with resources. The raw value remains in `server.yml`; the
+maintenance token commands do not display it.
 
 To rotate the token: edit `server.yml` and replace the value, then save — the server
 reloads the new token immediately.
 
 ## Token Management (CLI)
 
-Operator tokens are managed by the maintenance command group:
+The maintenance token commands list issued API tokens by prefix and status,
+and revoke an issued token by prefix. They do not rotate `server.token`:
+replace that value in `server.yml` to rotate the operator credential.
+Public IP lookups do not issue owner tokens, so this list is normally empty.
 
 ```bash
 ipgaze --maintenance token list

@@ -377,6 +377,8 @@
     "policy_out_scope_disruption": "اختبارات حجب الخدمة، والرسائل المزعجة، والهندسة الاجتماعية، والهجمات المادية، والاختبارات التي تعطل الخدمة أو تصل إلى بيانات أشخاص آخرين.",
     "policy_out_scope_third_party": "الثغرات في خدمات أو تبعيات الجهات الخارجية التي لم يثبت تأثيرها على خدمة IPGaze الرسمية.",
     "policy_safe_harbor_text": "لن نبدأ أو ندعم إجراءات قانونية بسبب أبحاث أمنية على الخدمة المشمولة بالنطاق إذا اتبعت هذه السياسة وأُجريت بحسن نية وتجنبت الوصول إلى البيانات أو الخدمات أو تغييرها أو تعطيلها. أوقف الاختبار وأبلغنا فوراً إذا صادفت بيانات تخص شخصاً آخر. لا يجيز هذا البيان أي نشاط ضد أنظمة خارج النطاق المحدد.",
+    "report_status_email_subject": "تم تحديث حالة تقرير الأمان {tracking_id}",
+    "report_status_email_body": "تم تغيير حالة تقرير الأمان الخاص بك {tracking_id} إلى {status}.",
     "report_email_subject": "تم استلام تقرير أمني {tracking_id}",
     "report_email_body": "لقد استلمنا تقريرك الأمني. معرّف التتبع: {tracking_id}\nالحالة: {status_url}",
     "report_notification_subject": "تقرير أمني مشفر {tracking_id}",
@@ -445,7 +447,11 @@
     "import_heading": "Import",
     "import_intro": "Paste a short code (or a full import link) from another device below.",
     "import_paste_label": "Code or link",
-    "import_submit": "Apply"
+    "import_submit": "تطبيق",
+    "reset": "إعادة الضبط",
+    "reset_title": "هل تريد نسيان هذا المتصفح؟",
+    "reset_warning": "سيؤدي ذلك إلى حذف ملفات تعريف الارتباط وبيانات تخزين هذا الموقع، بما فيها تفضيلاتك وخيارات الموافقة. لا يمكن التراجع عن ذلك.",
+    "erase_everything": "محو الكل"
   },
 
   "announcements": {

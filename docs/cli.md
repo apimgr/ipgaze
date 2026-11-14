@@ -26,9 +26,10 @@ ipgaze [flags]
 | `--maintenance setup` | Run first-time setup |
 | `--maintenance pgp <action>` | Manage the server PGP keypair (`generate`, `rotate`, `publish`, `export`, `import`, `delete`) |
 | `--maintenance secret rotate <name>` | Rotate `installation_secret` or `encryption_key` |
-| `--maintenance security-report list` | List report IDs and non-identifying triage metadata |
-| `--maintenance security-report set <id> <status> [YYYY-MM-DD] [comment...]` | Update researcher-visible triage status, disclosure date, and comment |
-| `--maintenance token list\|revoke` | List or revoke operator API tokens |
+| `--maintenance security list [--status <status>]` | List report IDs and non-identifying triage metadata |
+| `--maintenance security show <tracking-id>` | Show non-identifying metadata for one report |
+| `--maintenance security update <tracking-id> [--status <status>] [--disclosure-date YYYY-MM-DD] [--comment <text>]` | Update researcher-visible triage status, disclosure date, and comment |
+| `--maintenance token list\|revoke` | List or revoke issued API tokens by prefix (operator authorization required) |
 | `--maintenance data export` | Print a JSON inventory of stored operational data and the configured privacy policy |
 | `--maintenance data delete` | Interactively erase rate-limit and audit-log history |
 | `--maintenance compliance report` | Print enabled standards and the configured compliance controls |

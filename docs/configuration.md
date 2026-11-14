@@ -6,7 +6,7 @@ Complete configuration reference for **ipgaze**.
 
 ipgaze uses `server.yml` for configuration. The file is auto-created with
 sane defaults on first run. Optional drop-in files in `yaml.d/` can override
-or extend it; the database stores resource state, tokens, and the audit log,
+or extend it; the database stores operational state, issued API token records, and the audit log,
 never operator settings.
 
 ### Default Location
@@ -519,9 +519,11 @@ server:
 ```
 
 The DPO page uses `server.contact.dpo.email`, falling back to the general
-contact address only. If neither is configured, the page links to the contact
-form without publishing an address. `web.security.policy` replaces the
-default disclosure policy text when non-empty.
+contact address only. The page always links to the privacy policy and contact
+form; it publishes an email address only when one is configured. If neither
+address is available, it explains that no DPO email is configured.
+`web.security.policy` replaces the default disclosure policy text when
+non-empty.
 
 ### Security Headers
 
@@ -669,6 +671,9 @@ server:
 
   ssl:
     enabled: false
+    cert: ""
+    key: ""
+    min_version: "TLS1.2"
     letsencrypt:
       enabled: false
 
@@ -680,3 +685,25 @@ web:
 
 See `server.yml` itself for the full, always-current set of keys — it is
 regenerated with every default field present on first run.
+
+### TLS and Let's Encrypt
+
+Set `server.ssl.enabled: true` to serve HTTPS when the configured listener
+includes an HTTPS port. `server.ssl.cert` and `server.ssl.key` are an optional
+manual certificate/key pair; configure both or leave both empty for automatic
+certificate discovery. With no explicit pair, ipgaze checks system certbot
+paths under `/etc/letsencrypt/live/`, then
+`{config_dir}/ssl/letsencrypt/{fqdn}/`, then
+`{config_dir}/ssl/local/{fqdn}/`. Certificates must match the configured FQDN
+and be unexpired. The `min_version` setting accepts `TLS1.2` (default) or
+`TLS1.3`.
+
+To request and renew certificates automatically, set
+`server.ssl.letsencrypt.enabled: true` and configure the contact `email`.
+Challenges include `http-01` (default), `tls-alpn-01`, and `dns-01`; staging
+can be enabled while testing. DNS-01 accepts any provider supported by
+`go-acme/lego`: set `server.ssl.letsencrypt.dns_provider` and provide the
+provider-specific values in `server.ssl.letsencrypt.dns_credentials`. The
+credential map is encrypted at rest with `server.security.encryption_key` and
+validated on startup and before certificate requests. App-managed ACME account
+state and certificates are stored under `{config_dir}/ssl/`.

@@ -1,6 +1,6 @@
 module github.com/apimgr/ipgaze
 
-go 1.26.0
+go 1.27.0
 
 require (
 	github.com/ProtonMail/go-crypto v1.4.1

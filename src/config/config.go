@@ -1001,6 +1001,11 @@ type CacheConfig struct {
 type SSLConfig struct {
 	// Enabled forces HTTPS; when false the server uses HTTP only.
 	Enabled bool `yaml:"enabled"`
+	// Cert and Key optionally select an explicit certificate pair instead of auto-detection.
+	Cert string `yaml:"cert"`
+	Key  string `yaml:"key"`
+	// MinVersion accepts TLS1.2 or TLS1.3; an empty value defaults to TLS1.2.
+	MinVersion string `yaml:"min_version"`
 	// LetsEncrypt controls ACME certificate issuance and renewal.
 	LetsEncrypt LetsEncryptConfig `yaml:"letsencrypt"`
 }
@@ -2275,6 +2280,7 @@ func DefaultConfig() *AppConfig {
 			},
 			SSL: SSLConfig{
 				Enabled:     false,
+				MinVersion:  "TLS1.2",
 				LetsEncrypt: LetsEncryptConfig{Enabled: false, Staging: false},
 			},
 			Maintenance: MaintenanceConfig{
@@ -2559,6 +2565,15 @@ func validateConfig(cfg *AppConfig) {
 	default:
 		warnConfigReplaced("server.trusted_proxies.client_ip_header", cfg.Server.TrustedProxies.ClientIPHeader, def.Server.TrustedProxies.ClientIPHeader)
 		cfg.Server.TrustedProxies.ClientIPHeader = def.Server.TrustedProxies.ClientIPHeader
+	}
+	if cfg.Server.SSL.MinVersion == "" {
+		cfg.Server.SSL.MinVersion = def.Server.SSL.MinVersion
+	}
+	switch cfg.Server.SSL.MinVersion {
+	case "TLS1.2", "TLS1.3":
+	default:
+		warnConfigReplaced("server.ssl.min_version", cfg.Server.SSL.MinVersion, def.Server.SSL.MinVersion)
+		cfg.Server.SSL.MinVersion = def.Server.SSL.MinVersion
 	}
 	branch := cfg.Server.Update.Branch
 	if strings.TrimSpace(branch) == "" {
@@ -3320,6 +3335,9 @@ server:
 
   ssl:
     enabled: %t
+    cert: %q
+    key: %q
+    min_version: %q
     letsencrypt:
       enabled: %t
       email: "%s"
@@ -3762,6 +3780,9 @@ pages:
 		cfg.Server.Cache.Prefix,
 		cfg.Server.Cache.TTL,
 		cfg.Server.SSL.Enabled,
+		cfg.Server.SSL.Cert,
+		cfg.Server.SSL.Key,
+		cfg.Server.SSL.MinVersion,
 		cfg.Server.SSL.LetsEncrypt.Enabled,
 		cfg.Server.SSL.LetsEncrypt.Email,
 		cfg.Server.SSL.LetsEncrypt.Staging,

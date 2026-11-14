@@ -37,6 +37,11 @@ for reverse proxy, binary, and service setup.
 Optional services and their defaults are documented in
 [Configuration](configuration.md) and [Integrations](integrations.md).
 
+Visitors can change theme, language, lookup example, cookie consent, and the
+data-sale opt-out from `/server/preferences`. That page also exports a portable
+preference link/code, accepts one during save, and offers a reset that clears
+site cookies and browser storage while preserving security credentials.
+
 ## Documentation
 
 - [Installation](installation.md) — Docker, binaries, and service management

@@ -78,14 +78,15 @@ There is exactly one role. ipgaze is a public, anonymous service with no user ac
 - Blocklists: `{data_dir}/security/blocklists/` (IP/domain, downloaded daily)
 - Threat lists: `{data_dir}/security/threat/` (VPN/proxy/Tor exit-node CIDRs, downloaded daily)
 - CVE database: `{data_dir}/security/cve/` (downloaded daily)
-- Operator tokens: `{data_dir}/db/server.db` (cleaned by `token_cleanup` scheduler task)
+- Server-wide operator token: `{config_dir}/server.yml` (`server.token`)
+- Issued API tokens: `{data_dir}/db/server.db` (expired tokens are cleaned by the `token_cleanup` scheduler task)
 - Backups: `{data_dir}/backups/` (`.tar.gz` archives)
 - TLS certs: `{data_dir}/certs/`
 - Tor keys: `{data_dir}/tor/`
 - Logs: `{log_dir}/` (access logs in Apache CLF format, no PII beyond IP)
 
 No user accounts, passwords, or user sessions. Security reports may retain reporter contact details and vulnerability content in encrypted form for coordinated disclosure; plaintext report content is never stored in the database.
-CLI operator tokens are stored server-side (DB) and cleaned up by the `token_cleanup` scheduler task. The CLI client stores its own token in `{config_dir}/cli.yml`. Public IP/GeoIP endpoints require no authentication.
+The server-wide operator token is stored in `server.yml`; issued API tokens are stored server-side in the database and cleaned up by the `token_cleanup` scheduler task. The CLI client stores its configured token in `{config_dir}/cli.yml`. Public IP/GeoIP endpoints require no authentication.
 
 ### Trust boundaries & external services
 
@@ -203,7 +204,7 @@ Both binaries are built together. See AI.md PART 7, 8, 32, 33 for build, flag, a
 
 **TLS / ACME** (AI.md PART 15)
 
-Certificates issued via Let's Encrypt using `go-acme/lego`. Supported challenge types: HTTP-01 (default), TLS-ALPN-01, and DNS-01. DNS-01 is provider-agnostic — any lego-supported DNS provider (all providers under `lego/providers/dns`) can be selected by name in `server.yml` (`server.ssl.letsencrypt.dns_provider` + `dns_credentials` block, encrypted at rest with `server.security.encryption_key`), with no per-provider Go code required. Credentials are decrypted only at the point of use and validated on startup and before every certificate request; `dns_credentials.validated_at` records the last successful check. ACME account key/registration persisted under `{config_dir}/ssl/letsencrypt/account/`.
+The service supports HTTPS with automatically discovered or operator-supplied certificates and managed renewal. Certificate issuance supports HTTP, TLS-ALPN, and DNS validation; operators can use any provider supported by the DNS challenge service.
 
 **Scheduler** (AI.md PART 18)
 
@@ -216,7 +217,7 @@ All tasks run continuously; state persists across restarts. Jobs are registered 
 | `blocklist_update` | Daily 04:00 | Download IP/domain blocklists for abuse detection |
 | `threat_update` | Daily 04:30 | Download VPN/proxy/Tor exit-node lists for detection |
 | `cve_update` | Daily 05:00 | Download CVE/security databases |
-| `token_cleanup` | Every 15 min | Remove expired CLI operator tokens |
+| `token_cleanup` | Every 15 min | Remove expired issued API tokens |
 | `log_rotation` | Daily 00:00 | Rotate and compress old logs |
 | `backup_daily` | Daily 02:00 | Cumulative daily incremental plus a verified full backup; keeps the incremental's base full |
 | `backup_hourly` | Hourly | Incremental backup — disabled by default |
@@ -273,7 +274,7 @@ documented per its own exception clause)
 - `--maintenance update|mode|setup` — self-update alias, maintenance-mode toggle, re-run first-run setup
 - `--maintenance pgp generate|rotate|publish|export|import|delete` — server PGP keypair lifecycle
 - `--maintenance secret rotate` — rotate `server.security.encryption_key` with a 30-day grace period
-- `--maintenance token list|revoke` — operator API token management
+- `--maintenance token list|revoke` — list or revoke issued API tokens (operator authorization required)
 - `--maintenance data export` — JSON inventory of stored operational data and the configured privacy policy
 - `--maintenance data delete` — interactively erase rate-limit and audit-log history
 - `--maintenance compliance report` — show enabled standards and configured privacy/security controls; enabled standards require encrypted backups

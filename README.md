@@ -207,9 +207,10 @@ docker run -d \
 | `--maintenance setup` | Re-run first-run setup |
 | `--maintenance pgp generate\|rotate\|publish\|export\|import\|delete` | Manage the server PGP keypair |
 | `--maintenance secret rotate` | Rotate `server.security.encryption_key` (30-day grace period) |
-| `--maintenance security-report list` | List non-identifying security report triage metadata |
-| `--maintenance security-report set <id> <status> [date] [comment...]` | Update a report's researcher-visible status and comment |
-| `--maintenance token list\|revoke` | List or revoke operator API tokens |
+| `--maintenance security list [--status <status>]` | List non-identifying security report triage metadata |
+| `--maintenance security show <tracking-id>` | Show non-identifying metadata for one report |
+| `--maintenance security update <tracking-id> [--status <status>] [--disclosure-date YYYY-MM-DD] [--comment <text>]` | Update a report's researcher-visible status and comment |
+| `--maintenance token list\|revoke` | List or revoke issued API tokens (operator authorization required) |
 | `--maintenance data export` | Print a JSON inventory of stored operational data and the configured privacy policy |
 | `--maintenance data delete` | Interactively erase rate-limit and audit-log history |
 | `--maintenance compliance report` | Show enabled standards and configured privacy/security controls; enabled standards require encrypted backups |
@@ -278,11 +279,11 @@ The CLI reads/writes `cli.yml` (created automatically on first run, `0600` permi
 
 The server resolves in priority order: `--server` flag > `server.primary` in `cli.yml` > the compiled-in official site. The token resolves through `--token`, `--token-file`, `IPGAZE_TOKEN`, and `cli.yml`. A flag only persists to `cli.yml` if the current config value is empty or invalid — otherwise it's used for that invocation only.
 
-The CLI is an unauthenticated client to ipgaze's open API by default; a token is only needed to manage resources the token owns.
+The CLI is an unauthenticated client to ipgaze's open lookup API by default. A token is only needed for protected server operations; this product does not expose token-owned resources.
 
 ## Configuration
 
-ipgaze uses `server.yml` for all operator configuration — auto-created with sane defaults on first run. It is the sole source of truth for server settings; the database only stores resource state, tokens, and the audit log.
+ipgaze uses `server.yml` for all operator configuration — auto-created with sane defaults on first run. It is the sole source of truth for server settings; the database stores operational state, issued API token records, and the audit log.
 
 ### Location
 
@@ -329,6 +330,9 @@ server:
 
   ssl:
     enabled: false
+    cert: ""
+    key: ""
+    min_version: "TLS1.2"
     letsencrypt:
       enabled: false
 

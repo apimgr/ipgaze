@@ -377,18 +377,16 @@ func TestRotateEncryptionKey_RotatesAndPersists(t *testing.T) {
 }
 
 func TestSecurityReportMaintenanceHelpers(t *testing.T) {
-	handleSecurityReportMaintenance([]string{"help"}, "", nil)
-	now := time.Date(2026, time.November, 6, 12, 0, 0, 0, time.UTC)
-	id, status, date, comment, err := parseSecurityReportSetArgs([]string{"sec_test", "Disclosed", "2027-02-03", "Fix", "released"}, now)
-	if err != nil || id != "sec_test" || status != "Disclosed" || comment != "Fix released" || date == nil || date.Format("2006-01-02") != "2027-02-03" {
-		t.Fatalf("parsed triage args = (%q, %q, %v, %q, %v)", id, status, date, comment, err)
+	handleSecurityMaintenance([]string{"help"}, "", nil)
+	id, status, comment, date, err := parseSecurityReportUpdateArgs([]string{"sec_test", "--status", "disclosed", "--disclosure-date", "2027-02-03", "--comment", "Fix released"})
+	if err != nil || id != "sec_test" || status == nil || *status != "disclosed" || comment == nil || *comment != "Fix released" || date == nil || date.Format("2006-01-02") != "2027-02-03" {
+		t.Fatalf("parsed update args = (%q, %v, %v, %v, %v)", id, status, comment, date, err)
 	}
-	_, _, defaultDate, _, err := parseSecurityReportSetArgs([]string{"sec_test", "Disclosed"}, now)
-	if err != nil || defaultDate == nil || !defaultDate.Equal(now) {
-		t.Fatalf("default disclosure date = %v, %v; want %v", defaultDate, err, now)
+	if _, _, _, _, err := parseSecurityReportUpdateArgs([]string{"sec_test"}); err == nil {
+		t.Fatal("update without fields was accepted")
 	}
-	if _, _, _, _, err := parseSecurityReportSetArgs([]string{"sec_test"}, now); err == nil {
-		t.Fatal("triage args without status were accepted")
+	if filter, err := parseSecurityListArgs([]string{"--status", "triaged"}); err != nil || filter != "triaged" {
+		t.Fatalf("status filter = %q, %v; want triaged", filter, err)
 	}
 
 	conn := openTestDB(t)
@@ -399,11 +397,23 @@ func TestSecurityReportMaintenanceHelpers(t *testing.T) {
 		t.Fatal(err)
 	}
 	var output bytes.Buffer
-	if err := listSecurityReports(conn, &output); err != nil {
+	if err := listSecurityReports(conn, &output, ""); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(output.String(), "sec_list") || !strings.Contains(output.String(), "Received") || strings.Contains(output.String(), "encrypted private report") {
+	if !strings.Contains(output.String(), "sec_list") || !strings.Contains(output.String(), "received") || strings.Contains(output.String(), "encrypted private report") {
 		t.Errorf("security report list exposed unexpected data: %q", output.String())
+	}
+	var details bytes.Buffer
+	if err := showSecurityReport(conn, &details, "sec_list"); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(details.String(), "Tracking ID: sec_list") || strings.Contains(details.String(), "encrypted private report") {
+		t.Errorf("security report show exposed unexpected data: %q", details.String())
+	}
+	newComment := "Investigating fix"
+	oldStatus, newStatus, err := security.UpdateSecurityReport(conn, "sec_list", nil, &newComment, nil, time.Now())
+	if err != nil || oldStatus != "received" || newStatus != "received" {
+		t.Fatalf("comment update status = %q → %q, %v", oldStatus, newStatus, err)
 	}
 }
 

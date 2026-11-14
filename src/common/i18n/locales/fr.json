@@ -377,6 +377,8 @@
     "policy_out_scope_disruption": "Les tests de déni de service, le spam, l'ingénierie sociale, les attaques physiques et les tests qui perturbent le service ou accèdent aux données d'autrui.",
     "policy_out_scope_third_party": "Les vulnérabilités de services ou dépendances tiers sans impact démontré sur le service officiel IPGaze.",
     "policy_safe_harbor_text": "Nous n'engagerons ni ne soutiendrons de poursuites contre une recherche de sécurité menée de bonne foi sur le service concerné, conforme à cette politique et évitant tout accès, modification ou perturbation des données ou services. Cessez les tests et signalez rapidement toute découverte de données appartenant à autrui. Cette déclaration n'autorise aucune activité contre les systèmes hors du périmètre indiqué.",
+    "report_status_email_subject": "État du rapport de sécurité {tracking_id} mis à jour",
+    "report_status_email_body": "L’état de votre rapport de sécurité {tracking_id} est passé à {status}.",
     "report_email_subject": "Rapport de sécurité reçu {tracking_id}",
     "report_email_body": "Nous avons reçu votre rapport de sécurité. Identifiant de suivi : {tracking_id}\nÉtat : {status_url}",
     "report_notification_subject": "Rapport de sécurité chiffré {tracking_id}",
@@ -445,7 +447,11 @@
     "import_heading": "Import",
     "import_intro": "Paste a short code (or a full import link) from another device below.",
     "import_paste_label": "Code or link",
-    "import_submit": "Apply"
+    "import_submit": "Appliquer",
+    "reset": "Réinitialiser",
+    "reset_title": "Oublier ce navigateur ?",
+    "reset_warning": "Cela efface les cookies et le stockage de ce site, y compris vos préférences et choix de consentement. Cette action est irréversible.",
+    "erase_everything": "Tout effacer"
   },
 
   "announcements": {

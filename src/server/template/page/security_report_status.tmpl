@@ -7,9 +7,9 @@
   <dl>
     <dt>{{t .Lang "security.status"}}</dt>
     <dd>{{if eq .SecurityReportStatus.Status "Received"}}{{t .Lang "security.status_received"}}{{else if eq .SecurityReportStatus.Status "Triaged"}}{{t .Lang "security.status_triaged"}}{{else if eq .SecurityReportStatus.Status "Confirmed"}}{{t .Lang "security.status_confirmed"}}{{else if eq .SecurityReportStatus.Status "Patching"}}{{t .Lang "security.status_patching"}}{{else if eq .SecurityReportStatus.Status "Disclosed"}}{{t .Lang "security.status_disclosed"}}{{else if eq .SecurityReportStatus.Status "Won't Fix"}}{{t .Lang "security.status_wont_fix"}}{{else}}{{.SecurityReportStatus.Status}}{{end}}</dd>
-    {{if .SecurityReportStatus.MaintainerComment}}
+    {{if .SecurityReportStatus.ResearcherComment}}
     <dt>{{t .Lang "security.maintainer_update"}}</dt>
-    <dd>{{.SecurityReportStatus.MaintainerComment}}</dd>
+    <dd>{{.SecurityReportStatus.ResearcherComment}}</dd>
     {{end}}
     {{if .SecurityReportStatus.DisclosureDate}}
     <dt>{{t .Lang "security.expected_disclosure_date"}}</dt>

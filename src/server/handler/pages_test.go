@@ -713,7 +713,7 @@ func TestSubmitSecurityReportEncryptedAndNotifies(t *testing.T) {
 	var ciphertext []byte
 	var encryption string
 	var creditName string
-	if err := conn.QueryRow(`SELECT encrypted_body, encryption, credit_name FROM security_reports WHERE tracking_id = ?`, trackingID).Scan(&ciphertext, &encryption, &creditName); err != nil {
+	if err := conn.QueryRow(`SELECT body_enc, body_alg, credit_name FROM security_reports WHERE tracking_id = ?`, trackingID).Scan(&ciphertext, &encryption, &creditName); err != nil {
 		t.Fatal(err)
 	}
 	if encryption != "aes-256-gcm" || strings.Contains(string(ciphertext), "Private vulnerability details") || strings.Contains(string(ciphertext), "reporter@example.net") {
@@ -1473,6 +1473,72 @@ func TestServerPreferencesHandler_RendersCurrentValues(t *testing.T) {
 	}
 	if got := h.NewPageData(req).DefaultWidget; got != "city" {
 		t.Errorf("NewPageData().DefaultWidget = %q, want city", got)
+	}
+}
+
+func TestServerPreferencesUpdateHandler_CodeOverridesFormAndWritesConsent(t *testing.T) {
+	h := newTestPagesHandler()
+	code := base64.RawURLEncoding.EncodeToString([]byte("theme=light&ipgaze_pref_widget=city"))
+	body := "theme=dark&ipgaze_pref_widget=asn&consent_form=1&consent_preferences=1&ccpa_opt_out=0&ccpa_opt_out=1&code=" + url.QueryEscape(code) + "&redirect=%2Fabout"
+	req := httptest.NewRequest(http.MethodPost, "/server/preferences", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+	h.ServerPreferencesUpdateHandler(w, req)
+	res := w.Result()
+	if res.StatusCode != http.StatusSeeOther || res.Header.Get("Location") != "/about" {
+		t.Fatalf("response = %d, location %q; want 303 to /about", res.StatusCode, res.Header.Get("Location"))
+	}
+	cookies := map[string]*http.Cookie{}
+	for _, cookie := range res.Cookies() {
+		cookies[cookie.Name] = cookie
+	}
+	if cookies["theme"] == nil || cookies["theme"].Value != "light" || cookies[lookupWidgetPreferenceCookie] == nil || cookies[lookupWidgetPreferenceCookie].Value != "city" {
+		t.Errorf("import code did not override submitted fields: %#v", cookies)
+	}
+	if cookies["cookie_consent"] == nil || cookies["ccpa_opt_out"] == nil || cookies["ccpa_opt_out"].Value != "true" {
+		t.Errorf("consent fields were not applied: %#v", cookies)
+	}
+}
+
+func TestServerPreferencesUpdateHandler_DoesNotWriteCCPAWithoutConsentMarker(t *testing.T) {
+	h := newTestPagesHandler()
+	req := httptest.NewRequest(http.MethodPost, "/server/preferences", strings.NewReader("ccpa_opt_out=1"))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+	h.ServerPreferencesUpdateHandler(w, req)
+
+	for _, cookie := range w.Result().Cookies() {
+		if cookie.Name == "ccpa_opt_out" {
+			t.Fatalf("ccpa_opt_out cookie was written without consent_form=1: %#v", cookie)
+		}
+	}
+}
+
+func TestServerPreferencesUpdateHandler_ResetClearsNonCredentialCookies(t *testing.T) {
+	h := newTestPagesHandler()
+	req := httptest.NewRequest(http.MethodPost, "/server/preferences", strings.NewReader("action=reset&redirect=%2Fabout"))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	for _, cookie := range []*http.Cookie{{Name: "theme", Value: "dark"}, {Name: "cookie_consent", Value: "{}"}, {Name: "csrf_token", Value: "csrf"}, {Name: "owner_token", Value: "secret"}} {
+		req.AddCookie(cookie)
+	}
+	w := httptest.NewRecorder()
+	h.ServerPreferencesUpdateHandler(w, req)
+	res := w.Result()
+	if res.StatusCode != http.StatusSeeOther || res.Header.Get("Location") != "/about" || res.Header.Get("Clear-Site-Data") != `"storage"` {
+		t.Fatalf("reset response = %d, location=%q, clear-site-data=%q", res.StatusCode, res.Header.Get("Location"), res.Header.Get("Clear-Site-Data"))
+	}
+	cookies := map[string]*http.Cookie{}
+	for _, cookie := range res.Cookies() {
+		cookies[cookie.Name] = cookie
+		if cookie.Name != "csrf_token" && cookie.Name != "owner_token" && cookie.MaxAge != -1 {
+			t.Errorf("cookie %q MaxAge = %d, want -1 (serialized Max-Age=0)", cookie.Name, cookie.MaxAge)
+		}
+	}
+	if cookies["csrf_token"] != nil || cookies["owner_token"] != nil {
+		t.Errorf("reset deleted credential cookies: %#v", cookies)
+	}
+	if cookies["theme"] == nil || cookies["cookie_consent"] == nil {
+		t.Errorf("reset did not expire request-present site cookies: %#v", cookies)
 	}
 }
 

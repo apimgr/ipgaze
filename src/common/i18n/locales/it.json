@@ -366,6 +366,8 @@
     "policy_out_scope_disruption": "Test di negazione del servizio, spam, ingegneria sociale, attacchi fisici e test che interrompono il servizio o consentono di accedere ai dati di altre persone.",
     "policy_out_scope_third_party": "Vulnerabilità in servizi o dipendenze di terze parti senza un impatto dimostrato sul servizio IPGaze ufficiale.",
     "policy_safe_harbor_text": "Non intraprenderemo né sosterremo azioni legali contro chi svolge ricerche di sicurezza sul servizio incluso nell’ambito, nel rispetto di questa policy e in buona fede, senza accedere a dati o servizi altrui, modificarli o interromperli. Se dovessi imbatterti nei dati di un’altra persona, interrompi i test e segnalacelo tempestivamente. Questa dichiarazione non autorizza attività contro sistemi al di fuori dell’ambito indicato.",
+    "report_status_email_subject": "Stato del rapporto di sicurezza {tracking_id} aggiornato",
+    "report_status_email_body": "Lo stato del tuo rapporto di sicurezza {tracking_id} è cambiato in {status}.",
     "report_email_subject": "Segnalazione di sicurezza ricevuta {tracking_id}",
     "report_email_body": "Abbiamo ricevuto la tua segnalazione di sicurezza. ID di tracciamento: {tracking_id}\nStato: {status_url}",
     "report_notification_subject": "Segnalazione di sicurezza crittografata {tracking_id}",
@@ -431,7 +433,11 @@
     "import_heading": "Importa",
     "import_intro": "Incolla un codice breve (o un collegamento di importazione completo) da un altro dispositivo di seguito.",
     "import_paste_label": "Codice o collegamento",
-    "import_submit": "Applicare"
+    "import_submit": "Applica",
+    "reset": "Reimposta",
+    "reset_title": "Dimenticare questo browser?",
+    "reset_warning": "Questo elimina i cookie e l'archiviazione del sito, incluse le preferenze e le scelte di consenso. L'operazione non può essere annullata.",
+    "erase_everything": "Elimina tutto"
   },
   "announcements": {
     "warning": "Avvertimento",

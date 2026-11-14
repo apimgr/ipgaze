@@ -59,10 +59,9 @@ func TestSecurityCreditEncryptionAndLegacyMigration(t *testing.T) {
 		t.Fatal("StoreSecurityReport accepted a plaintext legacy credit")
 	}
 	if _, err := db.Exec(`INSERT INTO security_reports
-		(tracking_id, encrypted_body, encryption, severity, affected_component,
-		 credit_preference, credit_name, access_token_hash)
-		VALUES ('sec_legacy_credit', 'encrypted', 'aes-256-gcm', 'high', 'api',
-		 'real_name', 'Legacy Name', 'token')`); err != nil {
+		(tracking_id, severity, component, body_enc, body_alg, token_hash, credit_preference, credit_name)
+		VALUES ('sec_legacy_credit', 'high', 'api', 'encrypted', 'aes-256-gcm', 'token',
+		 'real_name', 'Legacy Name')`); err != nil {
 		t.Fatal(err)
 	}
 	if err := EncryptLegacySecurityCredits(db, key); err != nil {
@@ -80,10 +79,9 @@ func TestSecurityCreditEncryptionAndLegacyMigration(t *testing.T) {
 		t.Fatalf("migrated credit decrypt = %q, %v", decrypted, err)
 	}
 	if _, err := db.Exec(`INSERT INTO security_reports
-		(tracking_id, encrypted_body, encryption, severity, affected_component,
-		 credit_preference, credit_name, access_token_hash)
-		VALUES ('sec_invalid_credit', 'encrypted', 'aes-256-gcm', 'high', 'api',
-		 'real_name', 'enc:v1:invalid', 'token')`); err != nil {
+		(tracking_id, severity, component, body_enc, body_alg, token_hash, credit_preference, credit_name)
+		VALUES ('sec_invalid_credit', 'high', 'api', 'encrypted', 'aes-256-gcm', 'token',
+		 'real_name', 'enc:v1:invalid')`); err != nil {
 		t.Fatal(err)
 	}
 	if err := EncryptLegacySecurityCredits(db, key); err == nil {
@@ -122,7 +120,7 @@ func TestReencryptSecurityReports(t *testing.T) {
 		t.Fatal(err)
 	}
 	var rotated []byte
-	if err := db.QueryRow(`SELECT encrypted_body FROM security_reports WHERE tracking_id = ?`, "sec_rotation").Scan(&rotated); err != nil {
+	if err := db.QueryRow(`SELECT body_enc FROM security_reports WHERE tracking_id = ?`, "sec_rotation").Scan(&rotated); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := DecryptWithSecret(oldKey, rotated, "security-reports"); err == nil {
@@ -158,23 +156,50 @@ func TestUpdateSecurityReportTriage(t *testing.T) {
 	}
 	disclosure := time.Date(2027, time.February, 3, 0, 0, 0, 0, time.UTC)
 	closed := time.Date(2027, time.February, 3, 12, 0, 0, 0, time.UTC)
-	if err := UpdateSecurityReportTriage(db, "sec_triage", "Disclosed", "  Fix released\x00\nThank you. ", &disclosure, closed); err != nil {
+	if err := UpdateSecurityReportTriage(db, "sec_triage", "disclosed", "  Fix released\x00\nThank you. ", &disclosure, closed); err != nil {
 		t.Fatal(err)
 	}
-	var status, comment string
+	var status, comment, disclosureDate string
 	var disclosedYear int
-	var disclosureUnix, closedUnix int64
-	if err := db.QueryRow(`SELECT status, maintainer_comment, disclosed_year, disclosure_date, closed_at FROM security_reports WHERE tracking_id = ?`, "sec_triage").Scan(&status, &comment, &disclosedYear, &disclosureUnix, &closedUnix); err != nil {
+	var closedUnix int64
+	if err := db.QueryRow(`SELECT status, researcher_comment, disclosed_year, strftime('%Y-%m-%d', disclosure_date), closed_at FROM security_reports WHERE tracking_id = ?`, "sec_triage").Scan(&status, &comment, &disclosedYear, &disclosureDate, &closedUnix); err != nil {
 		t.Fatal(err)
 	}
-	if status != "Disclosed" || comment != "Fix released\nThank you." || disclosedYear != 2027 || disclosureUnix != disclosure.Unix() || closedUnix != closed.Unix() {
-		t.Errorf("triage row = (%q, %q, %d, %d, %d), unexpected values", status, comment, disclosedYear, disclosureUnix, closedUnix)
+	if status != "disclosed" || comment != "Fix released\nThank you." || disclosedYear != 2027 || disclosureDate != "2027-02-03" || closedUnix != closed.Unix() {
+		t.Errorf("triage row = (%q, %q, %d, %s, %d), unexpected values", status, comment, disclosedYear, disclosureDate, closedUnix)
 	}
-	if err := UpdateSecurityReportTriage(db, "sec_triage", "Unknown", "", nil, closed); err == nil {
+	if err := UpdateSecurityReportTriage(db, "sec_triage", "unknown", "", nil, closed); err == nil {
 		t.Fatal("invalid report status was accepted")
 	}
-	if err := UpdateSecurityReportTriage(db, "sec_missing", "Received", "", nil, closed); err == nil {
+	if err := UpdateSecurityReportTriage(db, "sec_missing", "received", "", nil, closed); err == nil {
 		t.Fatal("unknown report ID was accepted")
+	}
+}
+
+func TestUpdateDisclosedSecurityReportPreservesDisclosureYear(t *testing.T) {
+	db := openMemDB(t)
+	defer func() { _ = db.Close() }()
+	if err := StoreSecurityReport(db, SecurityReportMetadata{
+		TrackingID: "sec_disclosed_year", Ciphertext: []byte("encrypted"), Encryption: "aes-256-gcm", Severity: "high",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	disclosure := time.Date(2027, time.February, 3, 0, 0, 0, 0, time.UTC)
+	status := "disclosed"
+	comment := "Patch released"
+	if _, _, err := UpdateSecurityReport(db, "sec_disclosed_year", &status, &comment, &disclosure, disclosure); err != nil {
+		t.Fatal(err)
+	}
+	comment = "Follow-up note"
+	if _, _, err := UpdateSecurityReport(db, "sec_disclosed_year", nil, &comment, nil, disclosure.Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	var year int
+	if err := db.QueryRow(`SELECT disclosed_year FROM security_reports WHERE tracking_id = ?`, "sec_disclosed_year").Scan(&year); err != nil {
+		t.Fatal(err)
+	}
+	if year != 2027 {
+		t.Fatalf("disclosed_year after comment update = %d, want 2027", year)
 	}
 }
 

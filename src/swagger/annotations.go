@@ -734,7 +734,7 @@ func generateComponents() Components {
 						Items: &Schema{Type: "string"},
 					},
 					"version":    {Type: "string", Example: "1.0.0"},
-					"go_version": {Type: "string", Example: "go1.25.0"},
+					"go_version": {Type: "string", Example: "go1.27.0"},
 					"build": {
 						Type: "object",
 						Properties: map[string]Schema{

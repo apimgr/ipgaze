@@ -142,7 +142,7 @@ access-control requirements.
 | `ipgaze_db_connections_in_use` | Gauge | Database connections currently in use |
 | `ipgaze_db_errors_total` | Counter | Database errors by operation and error category |
 | `ipgaze_auth_attempts_total` | Counter | Authentication attempts by mechanism and outcome |
-| `ipgaze_owner_tokens_active` | Gauge | Active owner tokens by token kind (`primary` or `linked`) |
+| `ipgaze_owner_tokens_active` | Gauge | Active owner tokens by token kind (`primary` or `linked`); emitted only when owner tokens are implemented (not applicable to ipgaze) |
 | `ipgaze_ratelimit_requests_total` | Counter | Rate-limiter requests by limit type and outcome |
 | `ipgaze_ratelimit_blocked_total` | Counter | Requests blocked by the rate limiter |
 

@@ -6,6 +6,7 @@ package db
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -229,21 +230,25 @@ END`,
 	// ----------------------------------------------------------------------------
 	`CREATE TABLE IF NOT EXISTS security_reports (
     tracking_id        TEXT PRIMARY KEY,
-    encrypted_body     BLOB NOT NULL,
-    encryption         TEXT NOT NULL CHECK (encryption IN ('pgp', 'aes-256-gcm')),
+    security_id        TEXT NOT NULL DEFAULT '',
     severity           TEXT NOT NULL,
-    affected_component TEXT NOT NULL,
-    credit_preference  TEXT NOT NULL DEFAULT 'No',
+    component          TEXT NOT NULL,
+    status             TEXT NOT NULL DEFAULT 'received',
+    body_enc           BLOB NOT NULL,
+    body_alg           TEXT NOT NULL CHECK (body_alg IN ('pgp', 'aes-256-gcm')),
+    contact_enc        BLOB,
+    researcher_comment TEXT NOT NULL DEFAULT '',
+    disclosure_date    DATE,
+    cve_requested      BOOLEAN NOT NULL DEFAULT FALSE,
+    token_hash         TEXT NOT NULL,
+    token_last_used    DATE,
+    created_at         INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+    updated_at         INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+    closed_at          INTEGER,
+    credit_preference  TEXT NOT NULL DEFAULT 'no',
     credit_name        TEXT NOT NULL DEFAULT '',
     disclosed_year     INTEGER,
-    short_credit       TEXT NOT NULL DEFAULT '',
-    status             TEXT NOT NULL DEFAULT 'Received',
-    maintainer_comment TEXT,
-    disclosure_date    INTEGER,
-    closed_at          INTEGER,
-    access_token_hash  TEXT NOT NULL,
-    last_access_day    INTEGER,
-    created_at         INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
+    short_credit       TEXT NOT NULL DEFAULT ''
 )`,
 	`CREATE TABLE IF NOT EXISTS contact_captcha_challenges (
     token_hash  TEXT PRIMARY KEY,
@@ -265,6 +270,7 @@ var schemaUpdates = []string{
 	`CREATE INDEX IF NOT EXISTS idx_rate_limits_window ON rate_limits(window_start)`,
 	// v1.2.0 — audit category index
 	`CREATE INDEX IF NOT EXISTS idx_audit_category ON audit_log(category)`,
+	`CREATE INDEX IF NOT EXISTS idx_security_reports_public ON security_reports(status, created_at)`,
 }
 
 // migrationTimeout is the AI.md PART 10 "Query Timeouts" ceiling for schema
@@ -289,6 +295,9 @@ func EnsureSchemaContext(ctx context.Context, db *sql.DB) error {
 			return fmt.Errorf("db: create schema: %w", err)
 		}
 	}
+	if err := upgradeSecurityReportsSchema(ctx, db); err != nil {
+		return fmt.Errorf("db: upgrade security reports schema: %w", err)
+	}
 
 	for _, stmt := range schemaUpdates {
 		if _, err := db.ExecContext(ctx, stmt); err != nil {
@@ -302,6 +311,126 @@ func EnsureSchemaContext(ctx context.Context, db *sql.DB) error {
 	}
 
 	return nil
+}
+
+// upgradeSecurityReportsSchema rebuilds pre-contract tables into the canonical
+// PART 11 shape while copying their encrypted payloads and project-specific
+// researcher credit metadata without loss.
+func upgradeSecurityReportsSchema(ctx context.Context, db *sql.DB) error {
+	rows, err := db.QueryContext(ctx, `PRAGMA table_info(security_reports)`)
+	if err != nil {
+		return err
+	}
+	columns := map[string]bool{}
+	for rows.Next() {
+		var cid, notNull, primary int
+		var name, kind string
+		var defaultValue any
+		if err := rows.Scan(&cid, &name, &kind, &notNull, &defaultValue, &primary); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		columns[name] = true
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return err
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	canonical := []string{"security_id", "severity", "component", "status", "body_enc", "body_alg", "contact_enc", "researcher_comment", "disclosure_date", "cve_requested", "token_hash", "token_last_used", "created_at", "updated_at", "closed_at", "credit_preference", "credit_name", "disclosed_year", "short_credit"}
+	complete := true
+	for _, column := range canonical {
+		if !columns[column] {
+			complete = false
+			break
+		}
+	}
+	if complete {
+		return nil
+	}
+	if !columns["tracking_id"] {
+		return errors.New("security_reports has no tracking_id column")
+	}
+	if _, err := db.ExecContext(ctx, `DROP TABLE IF EXISTS security_reports_upgrade`); err != nil {
+		return err
+	}
+	const create = `CREATE TABLE security_reports_upgrade (
+tracking_id TEXT PRIMARY KEY,
+security_id TEXT NOT NULL DEFAULT '',
+severity TEXT NOT NULL,
+component TEXT NOT NULL,
+status TEXT NOT NULL DEFAULT 'received',
+body_enc BLOB NOT NULL,
+body_alg TEXT NOT NULL CHECK (body_alg IN ('pgp', 'aes-256-gcm')),
+contact_enc BLOB,
+researcher_comment TEXT NOT NULL DEFAULT '',
+disclosure_date DATE,
+cve_requested BOOLEAN NOT NULL DEFAULT FALSE,
+token_hash TEXT NOT NULL,
+token_last_used DATE,
+created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+updated_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+closed_at INTEGER,
+credit_preference TEXT NOT NULL DEFAULT 'no',
+credit_name TEXT NOT NULL DEFAULT '',
+disclosed_year INTEGER,
+short_credit TEXT NOT NULL DEFAULT ''
+)`
+	if _, err := db.ExecContext(ctx, create); err != nil {
+		return err
+	}
+	col := func(name, fallback string) string {
+		if columns[name] {
+			return name
+		}
+		return fallback
+	}
+	body := col("body_enc", col("encrypted_body", "X''"))
+	bodyAlg := col("body_alg", col("encryption", "'aes-256-gcm'"))
+	component := col("component", col("affected_component", "''"))
+	comment := col("researcher_comment", "COALESCE(maintainer_comment, '')")
+	tokenHash := col("token_hash", col("access_token_hash", "''"))
+	used := col("token_last_used", "last_access_day")
+	if !columns["token_last_used"] && !columns["last_access_day"] {
+		used = "NULL"
+	}
+	created := col("created_at", "strftime('%s', 'now')")
+	updated := col("updated_at", created)
+	closed := col("closed_at", "NULL")
+	disclosure := col("disclosure_date", "NULL")
+	disclosure = "CASE WHEN " + disclosure + " IS NULL THEN NULL WHEN typeof(" + disclosure + ") = 'integer' THEN DATE(" + disclosure + ", 'unixepoch') ELSE " + disclosure + " END"
+	if used != "NULL" && used == "last_access_day" {
+		used = "CASE WHEN last_access_day IS NULL THEN NULL WHEN typeof(last_access_day) = 'integer' THEN DATE(last_access_day * 86400, 'unixepoch') ELSE last_access_day END"
+	}
+	securityID := col("security_id", "''")
+	contact := col("contact_enc", "NULL")
+	cve := col("cve_requested", "0")
+	creditPref := col("credit_preference", "'no'")
+	creditName := col("credit_name", "''")
+	disclosedYear := col("disclosed_year", "NULL")
+	shortCredit := col("short_credit", "''")
+	status := col("status", "'received'")
+	status = `CASE ` + status + ` WHEN 'Received' THEN 'received' WHEN 'Triaged' THEN 'triaged' WHEN 'Confirmed' THEN 'confirmed' WHEN 'Patching' THEN 'patching' WHEN 'Disclosed' THEN 'disclosed' WHEN 'Won''t Fix' THEN 'wont_fix' ELSE ` + status + ` END`
+	query := `INSERT INTO security_reports_upgrade (tracking_id, security_id, severity, component, status, body_enc, body_alg, contact_enc, researcher_comment, disclosure_date, cve_requested, token_hash, token_last_used, created_at, updated_at, closed_at, credit_preference, credit_name, disclosed_year, short_credit)
+SELECT tracking_id, ` + securityID + `, severity, ` + component + `, ` + status + `, ` + body + `, ` + bodyAlg + `, ` + contact + `, ` + comment + `, ` + disclosure + `, ` + cve + `, ` + tokenHash + `, ` + used + `, ` + created + `, ` + updated + `, ` + closed + `, ` + creditPref + `, ` + creditName + `, ` + disclosedYear + `, ` + shortCredit + ` FROM security_reports`
+	if _, err := db.ExecContext(ctx, query); err != nil {
+		_, _ = db.ExecContext(ctx, `DROP TABLE IF EXISTS security_reports_upgrade`)
+		return err
+	}
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	if _, err = tx.ExecContext(ctx, `DROP TABLE security_reports`); err == nil {
+		_, err = tx.ExecContext(ctx, `ALTER TABLE security_reports_upgrade RENAME TO security_reports`)
+	}
+	if err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	return tx.Commit()
 }
 
 // isAlreadyExistsError returns true when err indicates that a column, index,

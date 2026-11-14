@@ -179,6 +179,56 @@ func TestGetTLSConfig_LocalCert(t *testing.T) {
 	}
 }
 
+func TestGetTLSConfig_ExplicitCertificateAndTLS13(t *testing.T) {
+	dir := tempDir(t)
+	certPath, keyPath := generateSelfSignedCert(t, dir, "example.com")
+	m := NewSSLManager(SSLManagerConfig{
+		Enabled:    true,
+		CertFile:   certPath,
+		KeyFile:    keyPath,
+		MinVersion: "TLS1.3",
+	})
+	tlsCfg, err := m.GetTLSConfig([]string{"example.com"})
+	if err != nil {
+		t.Fatalf("GetTLSConfig: %v", err)
+	}
+	if tlsCfg.MinVersion != tls.VersionTLS13 {
+		t.Errorf("MinVersion = %d, want TLS 1.3 (%d)", tlsCfg.MinVersion, tls.VersionTLS13)
+	}
+	if len(tlsCfg.Certificates) != 1 {
+		t.Fatalf("Certificates count = %d, want 1", len(tlsCfg.Certificates))
+	}
+}
+
+func TestGetTLSConfig_ExplicitCertificateDefaultsToTLS12(t *testing.T) {
+	dir := tempDir(t)
+	certPath, keyPath := generateSelfSignedCert(t, dir, "example.com")
+	m := NewSSLManager(SSLManagerConfig{Enabled: true, CertFile: certPath, KeyFile: keyPath})
+	tlsCfg, err := m.GetTLSConfig([]string{"example.com"})
+	if err != nil {
+		t.Fatalf("GetTLSConfig: %v", err)
+	}
+	if tlsCfg.MinVersion != tls.VersionTLS12 {
+		t.Errorf("MinVersion = %d, want TLS 1.2 (%d)", tlsCfg.MinVersion, tls.VersionTLS12)
+	}
+}
+
+func TestGetTLSConfig_ExplicitCertificateRejectsWrongFQDN(t *testing.T) {
+	dir := tempDir(t)
+	certPath, keyPath := generateSelfSignedCert(t, dir, "other.example.com")
+	m := NewSSLManager(SSLManagerConfig{Enabled: true, CertFile: certPath, KeyFile: keyPath})
+	if _, err := m.GetTLSConfig([]string{"example.com"}); err == nil {
+		t.Fatal("GetTLSConfig should reject a certificate that does not match the configured FQDN")
+	}
+}
+
+func TestGetTLSConfig_ExplicitCertificateRequiresPair(t *testing.T) {
+	m := NewSSLManager(SSLManagerConfig{Enabled: true, CertFile: "/tmp/cert.pem"})
+	if _, err := m.GetTLSConfig([]string{"example.com"}); err == nil {
+		t.Fatal("GetTLSConfig with only a certificate path should fail")
+	}
+}
+
 func TestGetTLSConfig_AppManagedLECert(t *testing.T) {
 	dir := tempDir(t)
 

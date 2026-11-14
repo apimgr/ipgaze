@@ -377,6 +377,8 @@
     "policy_out_scope_disruption": "サービス拒否テスト、スパム、ソーシャルエンジニアリング、物理的攻撃、サービスを妨害するテスト、または他者のデータにアクセスするテスト。",
     "policy_out_scope_third_party": "公式IPGazeサービスへの影響が実証されていない第三者サービスや依存関係の脆弱性。",
     "policy_safe_harbor_text": "この方針に従い、誠実に行われ、データやサービスへのアクセス、変更、妨害を避ける対象サービスのセキュリティ調査について、法的措置を開始または支持しません。他者のデータを見つけた場合は、テストを中止して速やかに報告してください。この声明は対象範囲外のシステムに対する活動を許可するものではありません。",
+    "report_status_email_subject": "セキュリティ報告 {tracking_id} の状態が更新されました",
+    "report_status_email_body": "セキュリティ報告 {tracking_id} の状態が {status} に変更されました。",
     "report_email_subject": "セキュリティ報告を受領しました {tracking_id}",
     "report_email_body": "セキュリティ報告を受領しました。追跡 ID: {tracking_id}\n状態: {status_url}",
     "report_notification_subject": "暗号化されたセキュリティ報告 {tracking_id}",
@@ -445,7 +447,11 @@
     "import_heading": "Import",
     "import_intro": "Paste a short code (or a full import link) from another device below.",
     "import_paste_label": "Code or link",
-    "import_submit": "Apply"
+    "import_submit": "適用",
+    "reset": "リセット",
+    "reset_title": "このブラウザーのデータを消去しますか？",
+    "reset_warning": "このサイトの Cookie とブラウザー内の保存データ（設定と同意内容を含む）を消去します。この操作は元に戻せません。",
+    "erase_everything": "すべて消去"
   },
 
   "announcements": {
