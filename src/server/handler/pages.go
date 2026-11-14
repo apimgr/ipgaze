@@ -897,6 +897,10 @@ func (h *PagesHandler) ServerContactHandler(w http.ResponseWriter, r *http.Reque
 		if err := r.ParseForm(); err == nil {
 			req := contactRequestFromForm(r, h.contactCaptchaProvider(r))
 			validSecurityID, _ := h.validSecurityID(req.SecurityID)
+			if contactFieldLengthViolation(req, validSecurityID) != nil {
+				h.renderContactError(w, r, http.StatusBadRequest)
+				return
+			}
 			if validSecurityID {
 				if !allowContactSubmission(h.clientIP(r)) {
 					h.renderContactError(w, r, http.StatusTooManyRequests)
@@ -1059,7 +1063,7 @@ func contactFieldsForNames(names []string) []ContactField {
 	for _, name := range names {
 		typeName, required := "text", false
 		switch name {
-		case "name", "email", "subject", "message", "captcha":
+		case "name", "email", "subject", "message", "captcha", "affected_component", "severity", "summary", "steps_to_reproduce", "impact", "credit_preference", "coordinated_disclosure_agreement":
 			required = true
 		}
 		switch name {
@@ -1072,9 +1076,77 @@ func contactFieldsForNames(names []string) []ContactField {
 		case "captcha":
 			typeName = "captcha"
 		}
-		fields = append(fields, ContactField{Name: name, Type: typeName, Required: required})
+		fields = append(fields, ContactField{Name: name, Type: typeName, Required: required, MaxLength: contactFieldMaxLength(name)})
 	}
 	return fields
+}
+
+func contactFieldMaxLength(name string) *int {
+	var limit int
+	switch name {
+	case "name":
+		limit = 100
+	case "handle":
+		limit = 100
+	case "email":
+		limit = 254
+	case "subject", "summary":
+		limit = 200
+	case "message":
+		limit = 5000
+	case "researcher_gpg":
+		limit = 16384
+	case "affected_component":
+		limit = 255
+	case "affected_endpoint":
+		limit = 2048
+	case "steps_to_reproduce":
+		limit = 10000
+	case "impact", "suggested_fix":
+		limit = 5000
+	default:
+		return nil
+	}
+	return &limit
+}
+
+type contactLengthViolation struct {
+	Field     string `json:"field"`
+	Rule      string `json:"rule"`
+	MaxLength int    `json:"max_length"`
+}
+
+func contactFieldLengthViolation(req ContactRequest, securityMode bool) *contactLengthViolation {
+	fields := []struct{ name, value string }{{"name", req.Name}, {"email", req.Email}}
+	if securityMode {
+		fields = append(fields,
+			struct{ name, value string }{"handle", req.Handle},
+			struct{ name, value string }{"researcher_gpg", req.ResearcherGPG},
+			struct{ name, value string }{"affected_component", req.AffectedComponent},
+			struct{ name, value string }{"affected_endpoint", req.AffectedEndpoint},
+			struct{ name, value string }{"summary", req.Summary},
+			struct{ name, value string }{"steps_to_reproduce", req.StepsToReproduce},
+			struct{ name, value string }{"impact", req.Impact},
+			struct{ name, value string }{"suggested_fix", req.SuggestedFix},
+		)
+	} else {
+		fields = append(fields, struct{ name, value string }{"subject", req.Subject}, struct{ name, value string }{"message", req.Message})
+	}
+	for _, field := range fields {
+		limit := contactFieldMaxLength(field.name)
+		if limit == nil {
+			continue
+		}
+		value := strings.TrimSpace(field.value)
+		maximum := *limit
+		if field.name == "researcher_gpg" && strings.HasPrefix(value, "https://") && maximum > 2048 {
+			maximum = 2048
+		}
+		if len([]rune(value)) > maximum {
+			return &contactLengthViolation{Field: field.name, Rule: "max_length", MaxLength: maximum}
+		}
+	}
+	return nil
 }
 
 // ContactRequest for POST submissions
@@ -1128,6 +1200,16 @@ func (h *PagesHandler) APIV1ServerContactHandler(w http.ResponseWriter, r *http.
 	req.Subject = strings.TrimSpace(req.Subject)
 	req.Message = strings.TrimSpace(req.Message)
 	req.SecurityID = strings.TrimSpace(req.SecurityID)
+	req.Handle = strings.TrimSpace(req.Handle)
+	req.ResearcherGPG = strings.TrimSpace(req.ResearcherGPG)
+	req.AffectedComponent = strings.TrimSpace(req.AffectedComponent)
+	req.AffectedEndpoint = strings.TrimSpace(req.AffectedEndpoint)
+	req.Severity = strings.TrimSpace(req.Severity)
+	req.Summary = strings.TrimSpace(req.Summary)
+	req.StepsToReproduce = strings.TrimSpace(req.StepsToReproduce)
+	req.Impact = strings.TrimSpace(req.Impact)
+	req.SuggestedFix = strings.TrimSpace(req.SuggestedFix)
+	req.CreditPreference = strings.TrimSpace(req.CreditPreference)
 	req.Captcha = strings.TrimSpace(req.Captcha)
 	req.CaptchaToken = strings.TrimSpace(req.CaptchaToken)
 
@@ -1136,6 +1218,10 @@ func (h *PagesHandler) APIV1ServerContactHandler(w http.ResponseWriter, r *http.
 		h.logInvalidSecurityID(r, req.SecurityID)
 	}
 	if securityIDErr == nil && validSecurityID {
+		if violation := contactFieldLengthViolation(req, true); violation != nil {
+			SendAPIResponseError(w, http.StatusBadRequest, "VALIDATION_FAILED", "Contact field exceeds the maximum length", violation)
+			return
+		}
 		if !allowContactSubmission(h.clientIP(r)) {
 			SendAPIResponseError(w, http.StatusTooManyRequests, "RATE_LIMITED", i18n.T(r.Context(), "errors.rate_limited"), nil)
 			return
@@ -1154,6 +1240,9 @@ func (h *PagesHandler) APIV1ServerContactHandler(w http.ResponseWriter, r *http.
 	}
 
 	switch {
+	case contactFieldLengthViolation(req, false) != nil:
+		SendAPIResponseError(w, http.StatusBadRequest, "VALIDATION_FAILED", "Contact field exceeds the maximum length", contactFieldLengthViolation(req, false))
+		return
 	case !validStandardContactRequest(req):
 		SendAPIResponseError(w, http.StatusBadRequest, "BAD_REQUEST", i18n.T(r.Context(), "errors.bad_request"), nil)
 		return
@@ -1350,6 +1439,9 @@ func (h *PagesHandler) verifyContactCaptcha(r *http.Request, token, answer strin
 }
 
 func (h *PagesHandler) submitSecurityReport(r *http.Request, req ContactRequest) (string, error) {
+	if contactFieldLengthViolation(req, true) != nil {
+		return "", fmt.Errorf("security report field exceeds the maximum length")
+	}
 	if h.DB == nil || h.Config == nil || req.Name == "" || req.Email == "" || req.AffectedComponent == "" ||
 		req.Summary == "" || req.StepsToReproduce == "" || req.Impact == "" || !req.CoordinatedAgreement ||
 		!validCreditPreference(req.CreditPreference) || req.CreditPreference == "handle" && req.Handle == "" || !validSecuritySeverity(req.Severity) {

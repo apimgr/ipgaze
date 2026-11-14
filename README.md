@@ -380,8 +380,9 @@ can be enabled in `server.yml`.
 
 The versioned API also provides `GET /api/v1/server/contact` for the public
 contact-form definition and `GET /api/v1/server/auth/check` to validate a
-configured operator Bearer token. See [docs/api.md](docs/api.md) for the
-complete route list.
+configured operator Bearer token. Contact submissions enforce the field
+limits returned by the form definition. See [docs/api.md](docs/api.md) for the
+complete route list and validation details.
 
 Health checks also include per-database GeoIP and per-list blocklist status
 when those features are enabled. Results report only `ok`, `degraded`, or

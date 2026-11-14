@@ -106,6 +106,12 @@ Health endpoints are the exception and return the bare health document.
 | `GET` or `POST /api/v1/server/graphql` | GraphQL endpoint when enabled |
 | `POST /api/v1/server/mcp` | MCP Streamable HTTP endpoint when enabled |
 
+Contact submissions enforce the `max_length` values returned by the form
+definition, counting Unicode characters after trimming. Over-limit requests
+return `400 VALIDATION_FAILED` with `details.field`, `details.rule`, and
+`details.max_length`. Researcher key URLs are limited to 2048 characters;
+pasted keys are limited to 16384.
+
 When an active PGP report-encryption key is configured, the security status
 response includes its full SHA-256 fingerprint and the public-key URL.
 Security report submission persists the encrypted report and returns its

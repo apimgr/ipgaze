@@ -36,6 +36,10 @@ and reloaded; an invalid result leaves the last valid configuration active.
 Generated values are written only to `server.yml`. Backups include `yaml.d/`
 when it exists.
 
+Startup logs list loaded drop-ins at info level. Debug logs identify the source
+files when a later setting overrides an earlier one; configuration values are
+not included in those override messages.
+
 ### Migration
 
 If a legacy `server.yaml` is found next to the expected `server.yml` path,

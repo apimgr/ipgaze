@@ -856,6 +856,88 @@ func TestAPIV1ServerContactHandler_GET(t *testing.T) {
 	if !response.OK || len(response.Data.Fields) != 6 || response.Data.SecurityURL == "" || response.Data.Captcha.Provider == "" {
 		t.Errorf("contact form response is incomplete: %#v", response)
 	}
+	if response.Data.Fields[0].MaxLength == nil || *response.Data.Fields[0].MaxLength != 100 || response.Data.Fields[1].MaxLength == nil || *response.Data.Fields[1].MaxLength != 254 {
+		t.Errorf("contact field limits = %#v, want name 100 and email 254", response.Data.Fields[:2])
+	}
+}
+
+func TestAPIV1ServerContactHandler_RejectsOverlongUnicodeField(t *testing.T) {
+	h := newTestPagesHandler()
+	reqBody, err := json.Marshal(ContactRequest{Name: strings.Repeat("é", 101), Email: "user@example.com", Subject: "Question", Message: "Hello"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/server/contact", strings.NewReader(string(reqBody)))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	h.APIV1ServerContactHandler(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400: %s", w.Code, w.Body.String())
+	}
+	var response APIResponse
+	if err := json.NewDecoder(w.Body).Decode(&response); err != nil {
+		t.Fatal(err)
+	}
+	details, ok := response.Details.(map[string]interface{})
+	if !ok || response.Error != "VALIDATION_FAILED" || details["field"] != "name" || details["rule"] != "max_length" {
+		t.Errorf("validation response = %#v, want field-level max_length for name", response)
+	}
+}
+
+func TestContactFieldLengthViolationSecurityFields(t *testing.T) {
+	request := ContactRequest{ResearcherGPG: "https://" + strings.Repeat("a", 2041)}
+	violation := contactFieldLengthViolation(request, true)
+	if violation == nil || violation.Field != "researcher_gpg" || violation.MaxLength != 2048 {
+		t.Errorf("URL key violation = %#v, want researcher_gpg max 2048", violation)
+	}
+	request.ResearcherGPG = strings.Repeat("a", 16384)
+	if violation := contactFieldLengthViolation(request, true); violation != nil {
+		t.Errorf("16384-character key was rejected: %#v", violation)
+	}
+	request.ResearcherGPG = strings.Repeat("a", 16385)
+	if violation := contactFieldLengthViolation(request, true); violation == nil || violation.MaxLength != 16384 {
+		t.Errorf("oversized key violation = %#v, want max 16384", violation)
+	}
+	request = ContactRequest{Handle: strings.Repeat("h", 101)}
+	if violation := contactFieldLengthViolation(request, true); violation == nil || violation.Field != "handle" || violation.MaxLength != 100 {
+		t.Errorf("oversized handle violation = %#v, want max 100", violation)
+	}
+}
+
+func TestContactFormDefinitionSecurityReportLimits(t *testing.T) {
+	conn, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = conn.Close() }()
+	if err := db.EnsureSchema(conn); err != nil {
+		t.Fatal(err)
+	}
+	securityID, err := security.CurrentSecurityID(conn, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := newTestPagesHandler()
+	h.DB = conn
+	h.Config = config.DefaultConfig()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/server/contact?security_id="+url.QueryEscape(securityID), nil)
+	form := h.ContactFormDefinition(req)
+	limits := make(map[string]*int, len(form.Fields))
+	required := make(map[string]bool, len(form.Fields))
+	for _, field := range form.Fields {
+		limits[field.Name] = field.MaxLength
+		required[field.Name] = field.Required
+	}
+	for field, expected := range map[string]int{"name": 100, "email": 254, "handle": 100, "researcher_gpg": 16384, "affected_component": 255, "affected_endpoint": 2048, "summary": 200, "steps_to_reproduce": 10000, "impact": 5000, "suggested_fix": 5000} {
+		if limits[field] == nil || *limits[field] != expected {
+			t.Errorf("field %s max_length = %v, want %d", field, limits[field], expected)
+		}
+	}
+	for _, field := range []string{"name", "email", "captcha", "affected_component", "severity", "summary", "steps_to_reproduce", "impact", "credit_preference", "coordinated_disclosure_agreement"} {
+		if !required[field] {
+			t.Errorf("security form field %s is not marked required", field)
+		}
+	}
 }
 
 func TestServerTermsHandler(t *testing.T) {
