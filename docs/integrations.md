@@ -225,7 +225,10 @@ ipgaze ships PWA assets for installation as a home-screen app on mobile and desk
 
 These endpoints are public and do not require authentication. The service
 worker and manifest are served with revalidation headers so browsers can
-detect deployed asset updates.
+detect deployed asset updates. New worker versions wait for user approval,
+then activate and reload the page once. Navigation requests fall back after
+an eight-second network timeout, and redirects or error responses are never
+stored in the service worker cache.
 
 ---
 
