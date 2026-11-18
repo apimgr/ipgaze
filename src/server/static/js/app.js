@@ -903,7 +903,7 @@ function formatCoordinates(lat, lon) {
 // PWA: SW update notification with dedicated banner (not just a toast)
 // ============================================================================
 
-function showUpdateNotification(worker) {
+function showUpdateNotification(worker, registration) {
   let banner = document.getElementById('sw-update-banner');
   if (banner) { return; }
   banner = document.createElement('div');
@@ -931,11 +931,31 @@ function showUpdateNotification(worker) {
   banner.appendChild(bLater);
   document.body.insertBefore(banner, document.body.firstChild);
   bNow.addEventListener('click', function() {
-    worker.postMessage({ type: 'SKIP_WAITING' });
+    applyServiceWorkerUpdate(worker, registration);
   });
   bLater.addEventListener('click', function() {
     banner.remove();
   });
+}
+
+let serviceWorkerUpdateAccepted = false;
+let serviceWorkerReloadStarted = false;
+
+function reloadForServiceWorkerUpdate() {
+  if (serviceWorkerReloadStarted) { return; }
+  serviceWorkerReloadStarted = true;
+  window.location.reload();
+}
+
+function applyServiceWorkerUpdate(worker, registration) {
+  serviceWorkerUpdateAccepted = true;
+  const waitingWorker = registration.waiting || worker;
+  if (!waitingWorker || waitingWorker.state === 'activated') {
+    reloadForServiceWorkerUpdate();
+    return;
+  }
+  waitingWorker.postMessage({ type: 'SKIP_WAITING' });
+  window.setTimeout(reloadForServiceWorkerUpdate, 5000);
 }
 
 // ============================================================================
@@ -943,23 +963,31 @@ function showUpdateNotification(worker) {
 // ============================================================================
 
 if ('serviceWorker' in navigator) {
+  // Register once, before update acceptance can occur. A controller change
+  // reloads only after the user accepts the update and only once.
+  navigator.serviceWorker.addEventListener('controllerchange', function() {
+    if (serviceWorkerUpdateAccepted) {
+      reloadForServiceWorkerUpdate();
+    }
+  });
+
   window.addEventListener('load', function() {
     navigator.serviceWorker.register('/sw.js', { scope: '/' }).then(function(reg) {
+      if (reg.waiting && navigator.serviceWorker.controller) {
+        showUpdateNotification(reg.waiting, reg);
+      }
       reg.addEventListener('updatefound', function() {
         const w = reg.installing;
         if (!w) { return; }
         w.addEventListener('statechange', function() {
           if (w.state === 'installed' && navigator.serviceWorker.controller) {
-            showUpdateNotification(w);
+            showUpdateNotification(w, reg);
           }
         });
       });
       setInterval(function() { reg.update(); }, 3600000);
     }).catch(function(err) {
       console.warn('Service worker registration failed:', err);
-    });
-    navigator.serviceWorker.addEventListener('controllerchange', function() {
-      location.reload();
     });
   });
 }

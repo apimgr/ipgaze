@@ -330,7 +330,7 @@ func (h *SpecialHandler) ManifestHandler(w http.ResponseWriter, r *http.Request)
 }
 
 // ServiceWorkerHandler serves the PWA service worker per AI.md PART 16.
-// Handles install (pre-cache), activate (clean old caches), and fetch (cache-first).
+// Handles install (pre-cache), activate (clean old caches), and fetch fallback behavior.
 func (h *SpecialHandler) ServiceWorkerHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/javascript")
 	// Never immutable (AI.md PART 9 "HTTP Cache Headers"): a long-cached
@@ -340,32 +340,27 @@ func (h *SpecialHandler) ServiceWorkerHandler(w http.ResponseWriter, r *http.Req
 	// CACHE_VERSION is tied to the running build's commit so this file's
 	// bytes change on every deploy — the browser's periodic sw.js byte
 	// comparison then reliably detects updates and reruns install/activate.
-	cacheVersion := h.CommitID
-	if cacheVersion == "" {
-		cacheVersion = "v1"
-	}
+	cacheVersion := h.assetStampOrCommit()
 	sw := `// IPGaze Service Worker — per AI.md PART 16
 const CACHE_VERSION = '` + cacheVersion + `';
 const CACHE_NAME = 'ipgaze-cache-' + CACHE_VERSION;
 
 const PRECACHE_ASSETS = [
-  '/',
-  '/static/css/common.css',
-  '/static/css/components.css',
-  '/static/css/public.css',
-  '/static/js/app.js',
-  '/static/icons/icon-192.png',
-  '/static/icons/icon-512.png',
-  '/manifest.json',
+  '/static/css/common.css?v=` + cacheVersion + `',
+  '/static/css/components.css?v=` + cacheVersion + `',
+  '/static/css/public.css?v=` + cacheVersion + `',
+  '/static/js/app.js?v=` + cacheVersion + `',
+  '/static/icons/icon-192.png?v=` + cacheVersion + `',
+  '/static/icons/icon-512.png?v=` + cacheVersion + `',
   '/offline.html'
 ];
 
-// INSTALL — pre-cache static assets and activate immediately
+// INSTALL — pre-cache assets. A first installation activates automatically;
+// an update waits for the user to accept it or for existing tabs to close.
 self.addEventListener('install', function(event) {
   event.waitUntil(
     caches.open(CACHE_NAME)
       .then(function(cache) { return cache.addAll(PRECACHE_ASSETS); })
-      .then(function() { return self.skipWaiting(); })
   );
 });
 
@@ -393,8 +388,22 @@ self.addEventListener('message', function(event) {
   }
 });
 
-// FETCH — network-first for HTML (always get the latest page when online),
-// cache-first for static assets (versioned by CACHE_NAME, safe to reuse)
+// Navigation fetches are bounded so server restarts cannot leave a tab loading forever.
+const NAV_TIMEOUT_MS = 8000;
+function withTimeout(promise, ms) {
+  return new Promise(function(resolve, reject) {
+    var timer = setTimeout(function() { reject(new Error('navigation timeout')); }, ms);
+    promise.then(function(value) {
+      clearTimeout(timer);
+      resolve(value);
+    }, function(error) {
+      clearTimeout(timer);
+      reject(error);
+    });
+  });
+}
+
+// FETCH — navigations are network-first; versioned static assets are cache-first.
 self.addEventListener('fetch', function(event) {
   var url = new URL(event.request.url);
   // Only same-origin GET is handled here; cross-origin requests and non-GET
@@ -407,14 +416,19 @@ self.addEventListener('fetch', function(event) {
   if (url.pathname.startsWith('/api/')) {
     return;
   }
-  var isHTML = event.request.mode === 'navigate' ||
-    (event.request.headers.get('accept') || '').indexOf('text/html') !== -1;
-  if (isHTML) {
+  if (event.request.mode === 'navigate') {
     event.respondWith(
-      fetch(event.request)
+      withTimeout(fetch(event.request), NAV_TIMEOUT_MS)
         .then(function(response) {
-          var copy = response.clone();
-          caches.open(CACHE_NAME).then(function(cache) { cache.put(event.request, copy); });
+          if (response.redirected) {
+            throw new Error('redirected navigation');
+          }
+          if (response.ok) {
+            var copy = response.clone();
+            event.waitUntil(caches.open(CACHE_NAME).then(function(cache) {
+              return cache.put(event.request, copy);
+            }).catch(function() {}));
+          }
           return response;
         })
         .catch(function() {
@@ -428,16 +442,26 @@ self.addEventListener('fetch', function(event) {
             });
           });
         })
+        .catch(function() {
+          return new Response('', { status: 503, statusText: 'Service Unavailable' });
+        })
     );
     return;
   }
   event.respondWith(
     caches.match(event.request).then(function(cached) {
-      return cached || fetch(event.request).catch(function() {
-        return caches.match('/offline.html').then(function(offline) {
-          return offline || new Response('', { status: 504, statusText: 'Gateway Timeout' });
-        });
+      if (cached) { return cached; }
+      return fetch(event.request).then(function(response) {
+        if (response.ok && !response.redirected) {
+          var copy = response.clone();
+          event.waitUntil(caches.open(CACHE_NAME).then(function(cache) {
+            return cache.put(event.request, copy);
+          }).catch(function() {}));
+        }
+        return response;
       });
+    }).catch(function() {
+      return new Response('', { status: 504, statusText: 'Gateway Timeout' });
     })
   );
 });
