@@ -4,18 +4,14 @@ package security
 
 import (
 	"context"
-	"crypto/aes"
-	"crypto/cipher"
 	"crypto/rand"
-	"crypto/sha256"
 	"database/sql"
 	"encoding/base64"
 	"errors"
 	"fmt"
-	"io"
 	"time"
 
-	"golang.org/x/crypto/hkdf"
+	"github.com/apimgr/ipgaze/src/security/cryptoutil"
 )
 
 // Query timeouts per the AI.md PART 10 table: simple SELECTs get 5 seconds,
@@ -174,62 +170,13 @@ func PreviousSecret(db *sql.DB, name SecretName) ([]byte, error) {
 	return base64.StdEncoding.DecodeString(previous.String)
 }
 
-// deriveAESKey derives a 32-byte AES-256 key from secret using HKDF-SHA256,
-// scoped by info so different purposes never share the same derived key.
-func deriveAESKey(secret []byte, info string) ([]byte, error) {
-	kdf := hkdf.New(sha256.New, secret, nil, []byte(info))
-	key := make([]byte, 32)
-	if _, err := io.ReadFull(kdf, key); err != nil {
-		return nil, fmt.Errorf("security: derive key: %w", err)
-	}
-	return key, nil
-}
-
 // EncryptWithSecret encrypts plaintext with AES-256-GCM using a key derived
 // from secret via HKDF-SHA256 (scoped by info). Returns nonce||ciphertext.
 func EncryptWithSecret(secret, plaintext []byte, info string) ([]byte, error) {
-	key, err := deriveAESKey(secret, info)
-	if err != nil {
-		return nil, err
-	}
-
-	block, err := aes.NewCipher(key)
-	if err != nil {
-		return nil, fmt.Errorf("security: new cipher: %w", err)
-	}
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return nil, fmt.Errorf("security: new gcm: %w", err)
-	}
-
-	nonce := make([]byte, gcm.NonceSize())
-	if _, err := rand.Read(nonce); err != nil {
-		return nil, fmt.Errorf("security: generate nonce: %w", err)
-	}
-
-	return gcm.Seal(nonce, nonce, plaintext, nil), nil
+	return cryptoutil.EncryptWithSecret(secret, plaintext, info)
 }
 
 // DecryptWithSecret reverses EncryptWithSecret.
 func DecryptWithSecret(secret, ciphertext []byte, info string) ([]byte, error) {
-	key, err := deriveAESKey(secret, info)
-	if err != nil {
-		return nil, err
-	}
-
-	block, err := aes.NewCipher(key)
-	if err != nil {
-		return nil, fmt.Errorf("security: new cipher: %w", err)
-	}
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return nil, fmt.Errorf("security: new gcm: %w", err)
-	}
-
-	nonceSize := gcm.NonceSize()
-	if len(ciphertext) < nonceSize {
-		return nil, errors.New("security: ciphertext too short")
-	}
-	nonce, sealed := ciphertext[:nonceSize], ciphertext[nonceSize:]
-	return gcm.Open(nil, nonce, sealed, nil)
+	return cryptoutil.DecryptWithSecret(secret, ciphertext, info)
 }

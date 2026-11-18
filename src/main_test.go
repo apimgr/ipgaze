@@ -71,12 +71,14 @@ func TestResolveServerPortPrecedence(t *testing.T) {
 	if got := resolveServerPort(" 8080 ", &config.AppConfig{}); got != "8080" {
 		t.Errorf("flag port = %q, want 8080", got)
 	}
+	if got := resolveServerPort("", &config.AppConfig{Server: config.ServerConfig{Port: " 7000 "}}); got != "9090" {
+		t.Errorf("environment port = %q, want 9090", got)
+	}
+	t.Setenv("PORT", "")
 	if got := resolveServerPort("", &config.AppConfig{Server: config.ServerConfig{Port: " 7000 "}}); got != "7000" {
 		t.Errorf("persisted port = %q, want 7000", got)
 	}
-	if got := resolveServerPort("", &config.AppConfig{}); got != "9090" {
-		t.Errorf("environment port = %q, want 9090", got)
-	}
+	t.Setenv("PORT", "9090")
 	if got := resolveServerPort("", nil); got != "9090" {
 		t.Errorf("nil config environment port = %q, want 9090", got)
 	}

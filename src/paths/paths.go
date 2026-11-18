@@ -163,7 +163,7 @@ func GetFullDirs(projectName string) (configDir, dataDir, logsDir, cacheDir, pid
 		dataDir = "/data/" + projectName
 		logsDir = "/data/log/" + projectName
 		cacheDir = "/data/" + projectName + "/cache"
-		pidFile = "/var/run/" + projectName + ".pid"
+		pidFile = ""
 		sslDir = "/config/" + projectName + "/ssl"
 		securityDir = "/data/" + projectName + "/security"
 		dbDir = "/data/db/sqlite"
@@ -215,7 +215,7 @@ func rootDirs(goos, projectName string) (configDir, dataDir, logsDir, cacheDir, 
 		dataDir = filepath.Join(libSupport, "data")
 		logsDir = filepath.Join("/Library/Logs", OrgName, projectName)
 		cacheDir = filepath.Join("/Library/Caches", OrgName, projectName)
-		pidFile = filepath.Join("/var/run", OrgName, projectName+".pid")
+		pidFile = filepath.Join("/var/run", OrgName, projectName, projectName+".pid")
 		sslDir = filepath.Join(libSupport, "ssl")
 		securityDir = filepath.Join(libSupport, "data", "security")
 		dbDir = filepath.Join(libSupport, "db")
@@ -225,7 +225,7 @@ func rootDirs(goos, projectName string) (configDir, dataDir, logsDir, cacheDir, 
 		dataDir = filepath.Join("/var/db", OrgName, projectName)
 		logsDir = filepath.Join("/var/log", OrgName, projectName)
 		cacheDir = filepath.Join("/var/cache", OrgName, projectName)
-		pidFile = filepath.Join("/var/run", OrgName, projectName+".pid")
+		pidFile = filepath.Join("/var/run", OrgName, projectName, projectName+".pid")
 		sslDir = filepath.Join("/usr/local/etc", OrgName, projectName, "ssl")
 		securityDir = filepath.Join("/var/db", OrgName, projectName, "security")
 		dbDir = filepath.Join("/var/db", OrgName, projectName, "db")
@@ -235,7 +235,7 @@ func rootDirs(goos, projectName string) (configDir, dataDir, logsDir, cacheDir, 
 		dataDir = filepath.Join("/var/lib", OrgName, projectName)
 		logsDir = filepath.Join("/var/log", OrgName, projectName)
 		cacheDir = filepath.Join("/var/cache", OrgName, projectName)
-		pidFile = filepath.Join("/var/run", OrgName, projectName+".pid")
+		pidFile = filepath.Join("/var/run", OrgName, projectName, projectName+".pid")
 		sslDir = filepath.Join("/etc", OrgName, projectName, "ssl")
 		securityDir = filepath.Join("/var/lib", OrgName, projectName, "security")
 		dbDir = filepath.Join("/var/lib", OrgName, projectName, "db")
@@ -476,6 +476,9 @@ func EnsureDirectories(dirs Directories) error {
 		dirs.Security,
 		dirs.DB,
 		dirs.Backup,
+	}
+	if dirs.PID != "" {
+		dirsToCreate = append(dirsToCreate, filepath.Dir(dirs.PID))
 	}
 	for _, dir := range dirsToCreate {
 		if dir != "" {

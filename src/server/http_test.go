@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -21,6 +22,68 @@ import (
 
 func lookupAddr(net.IP) (string, error) { return "localhost", nil }
 func lookupPort(net.IP, uint64) error   { return nil }
+
+func TestTrustedProxyCORSOriginLearning(t *testing.T) {
+	t.Setenv("DOMAIN", "")
+	learned := &sync.Map{}
+	trust := netutil.NewTrustResolver(config.TrustedProxiesConfig{}, "")
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if origin := r.Header.Get("Origin"); origin != "" {
+			if _, ok := learned.Load(origin); !ok {
+				t.Errorf("origin %q was not learned before handler", origin)
+			}
+		}
+	})
+	handler := learnTrustedProxyCORSOrigins(next, trust, learned)
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.RemoteAddr = "192.168.1.8:1234"
+	req.Header.Set("X-Forwarded-Host", "API.Example.test:8443, internal.local")
+	req.Header.Set("X-Forwarded-Proto", "http, https")
+	req.Header.Set("Origin", "http://api.example.test:8443")
+	handler.ServeHTTP(httptest.NewRecorder(), req)
+	if _, ok := learned.Load("http://api.example.test:8443"); !ok {
+		t.Fatal("trusted proxy host was not learned")
+	}
+}
+
+func TestTrustedProxyCORSLearningDisabledWhenDomainIsSet(t *testing.T) {
+	t.Setenv("DOMAIN", "api.example.test")
+	learned := &sync.Map{}
+	handler := learnTrustedProxyCORSOrigins(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}), netutil.NewTrustResolver(config.TrustedProxiesConfig{}, ""), learned)
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.RemoteAddr = "192.168.1.8:1234"
+	req.Header.Set("X-Forwarded-Host", "other.example.test")
+	handler.ServeHTTP(httptest.NewRecorder(), req)
+	if _, ok := learned.Load("https://other.example.test"); ok {
+		t.Fatal("proxy host should not be learned when DOMAIN is set")
+	}
+}
+
+func TestTrustedProxyCORSOriginRejectsUntrustedAndInvalidHosts(t *testing.T) {
+	learned := &sync.Map{}
+	trust := netutil.NewTrustResolver(config.TrustedProxiesConfig{}, "")
+	next := http.HandlerFunc(func(http.ResponseWriter, *http.Request) {})
+	handler := learnTrustedProxyCORSOrigins(next, trust, learned)
+	for _, tc := range []struct {
+		name string
+		peer string
+		host string
+	}{
+		{name: "untrusted peer", peer: "203.0.113.7:1234", host: "api.example.test"},
+		{name: "invalid host", peer: "192.168.1.8:1234", host: "evil.example/path"},
+		{name: "invalid port", peer: "192.168.1.8:1234", host: "api.example.test:70000"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/", nil)
+			req.RemoteAddr = tc.peer
+			req.Header.Set("X-Forwarded-Host", tc.host)
+			handler.ServeHTTP(httptest.NewRecorder(), req)
+			if _, ok := learned.Load("https://" + strings.ToLower(tc.host)); ok {
+				t.Fatalf("unexpected learned origin for host %q", tc.host)
+			}
+		})
+	}
+}
 
 func TestApplyVersionPurgeNavigationGate(t *testing.T) {
 	tests := []struct {

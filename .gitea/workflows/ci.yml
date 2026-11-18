@@ -7,6 +7,7 @@ on:
     branches: [main, master]
   schedule:
     - cron: "0 6 * * 1"
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -19,7 +20,7 @@ jobs:
   lint:
     name: Lint
     if: gitea.event_name != 'schedule'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     container:
       image: casjaysdev/go:latest
       options: "--user 0:0"
@@ -36,7 +37,7 @@ jobs:
   test:
     name: Test
     if: gitea.event_name != 'schedule'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     container:
       image: casjaysdev/go:latest
       options: "--user 0:0"
@@ -65,7 +66,7 @@ jobs:
     name: Build
     if: gitea.event_name != 'schedule'
     needs: [lint, test]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     container:
       image: casjaysdev/go:latest
       options: "--user 0:0"
@@ -79,7 +80,7 @@ jobs:
 
   vuln-scan:
     name: Vulnerability Scan
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     container:
       image: casjaysdev/go:latest
       options: "--user 0:0"
@@ -90,7 +91,7 @@ jobs:
 
   secret-scan:
     name: Secret Scan
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     permissions:
       contents: read
     steps:
@@ -105,7 +106,10 @@ jobs:
 
   workflow-policy:
     name: Workflow SHA Policy
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
+    container:
+      image: casjaysdev/go:latest
+      options: "--user 0:0"
     permissions:
       contents: read
     steps:
@@ -122,7 +126,7 @@ jobs:
 
   image-scan:
     name: Image Scan
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     permissions:
       contents: read
     steps:

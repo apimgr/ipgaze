@@ -2,7 +2,10 @@ package config
 
 import (
 	cryptorand "crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net"
@@ -18,7 +21,9 @@ import (
 
 	"github.com/apimgr/ipgaze/src/common/i18n"
 	"github.com/apimgr/ipgaze/src/common/updatechannel"
+	"github.com/apimgr/ipgaze/src/security/cryptoutil"
 	"github.com/google/uuid"
+	"gopkg.in/yaml.v3"
 )
 
 // brandingDefaultTitle is the fallback value for server.branding.title, which
@@ -97,12 +102,13 @@ type CVEDataConfig struct {
 // WebConfig holds all web-layer settings per AI.md PART 16.
 // YAML key: web (nested: web.ui, web.robots, web.cors, web.csrf, web.security).
 type WebConfig struct {
-	UI       WebUIConfig       `yaml:"ui"`
-	Robots   WebRobotsConfig   `yaml:"robots"`
-	CORS     string            `yaml:"cors"`
-	CSRF     CSRFConfig        `yaml:"csrf"`
-	Security WebSecurityConfig `yaml:"security"`
-	Footer   FooterConfig      `yaml:"footer"`
+	UI               WebUIConfig       `yaml:"ui"`
+	Robots           WebRobotsConfig   `yaml:"robots"`
+	CORS             string            `yaml:"cors"`
+	AllowCredentials bool              `yaml:"allow_credentials"`
+	CSRF             CSRFConfig        `yaml:"csrf"`
+	Security         WebSecurityConfig `yaml:"security"`
+	Footer           FooterConfig      `yaml:"footer"`
 	// HSTS controls the Strict-Transport-Security header (AI.md PART 11
 	// "Security Header Config").
 	HSTS HSTSConfig `yaml:"hsts"`
@@ -396,14 +402,15 @@ type ServerConfig struct {
 	// Token is the operator token (server.token).
 	// Auto-generated on first run, stored in server.yml.
 	// Never stored in the DB — validated via SHA-256 hash comparison in memory.
-	Token        string       `yaml:"token"`
-	Port         string       `yaml:"port"`
-	FQDN         string       `yaml:"fqdn"`
-	BaseURL      string       `yaml:"baseurl"`
-	Address      string       `yaml:"address"`
-	Mode         string       `yaml:"mode"`
-	UpdateBranch string       `yaml:"update_branch"`
-	Update       UpdateConfig `yaml:"update"`
+	Token        string           `yaml:"token"`
+	Port         string           `yaml:"port"`
+	CORS         ServerCORSConfig `yaml:"cors"`
+	FQDN         string           `yaml:"fqdn"`
+	BaseURL      string           `yaml:"baseurl"`
+	Address      string           `yaml:"address"`
+	Mode         string           `yaml:"mode"`
+	UpdateBranch string           `yaml:"update_branch"`
+	Update       UpdateConfig     `yaml:"update"`
 	// CLIMinVersion is the minimum CLI version the server accepts (AI.md PART 32).
 	// CLIs older than this version are refused until updated.
 	CLIMinVersion string `yaml:"cli_min_version"`
@@ -441,6 +448,13 @@ type ServerConfig struct {
 	Compliance     ComplianceConfig          `yaml:"compliance"`
 	CLI            CLIConfig                 `yaml:"cli"`
 	Debug          DebugConfig               `yaml:"debug"`
+}
+
+// ServerCORSConfig defines the one global CORS policy for all server routes.
+type ServerCORSConfig struct {
+	AllowedOrigins   []string `yaml:"allowed_origins"`
+	AllowCredentials bool     `yaml:"allow_credentials"`
+	MaxAge           int      `yaml:"max_age"`
 }
 
 // DebugConfig contains debug-only diagnostic settings per AI.md PART 6.
@@ -1023,23 +1037,69 @@ type LetsEncryptConfig struct {
 	// DNSProvider is the lego DNS provider name (e.g. "cloudflare", "route53", "digitalocean"),
 	// used only when Challenge is "dns-01". See https://go-acme.github.io/lego/dns/ for the full list.
 	DNSProvider string `yaml:"dns_provider"`
-	// DNSCredentials holds the DNS-01 provider credentials, encrypted at rest with
-	// server.security.encryption_key (AES-256-GCM), used only when Challenge is "dns-01".
+	// DNSCredentials contains the flat map of lego environment-variable names
+	// to encrypted values used only when Challenge is "dns-01".
 	DNSCredentials DNSCredentialsConfig `yaml:"dns_credentials"`
 }
 
-// DNSCredentialsConfig stores DNS-01 provider credentials encrypted at rest per AI.md PART 15.
-// The plaintext credential map is never persisted to server.yml — only the encrypted blob.
+// DNSCredentialsConfig stores lego environment-variable names and their encrypted values.
 type DNSCredentialsConfig struct {
-	// Provider identifies which DNS provider the credentials belong to (e.g. "cloudflare", "route53").
-	Provider string `yaml:"provider"`
-	// CredentialsEncrypted is the base64-encoded AES-256-GCM ciphertext of the JSON-encoded
-	// provider credential map (e.g. {"CLOUDFLARE_API_TOKEN": "..."}), encrypted with
-	// server.security.encryption_key. Decrypted only in memory, at the point of use.
-	CredentialsEncrypted string `yaml:"credentials_encrypted"`
-	// ValidatedAt is the RFC3339 timestamp of the last successful credential validation
-	// (checked on startup and before every certificate request), per AI.md PART 15.
-	ValidatedAt string `yaml:"validated_at"`
+	Values               map[string]string `yaml:"-" json:"-"`
+	Provider             string            `yaml:"-" json:"-"`
+	CredentialsEncrypted string            `yaml:"-" json:"-"`
+	ValidatedAt          string            `yaml:"-" json:"-"`
+}
+
+// MarshalJSON always redacts DNS credential values, including in config API responses.
+func (c DNSCredentialsConfig) MarshalJSON() ([]byte, error) {
+	redacted := make(map[string]string, len(c.Values))
+	for name, value := range c.Values {
+		if value != "" {
+			redacted[name] = "********"
+		}
+	}
+	return json.Marshal(redacted)
+}
+
+// UnmarshalYAML accepts the flat credential map and recognizes the previous
+// nested storage shape so existing installations can migrate without losing credentials.
+func (c *DNSCredentialsConfig) UnmarshalYAML(node *yaml.Node) error {
+	var entries map[string]yaml.Node
+	if err := node.Decode(&entries); err != nil {
+		return err
+	}
+	c.Values = make(map[string]string)
+	for name, value := range entries {
+		switch name {
+		case "provider":
+			if err := value.Decode(&c.Provider); err != nil {
+				return fmt.Errorf("decode legacy DNS provider: %w", err)
+			}
+		case "credentials_encrypted":
+			if err := value.Decode(&c.CredentialsEncrypted); err != nil {
+				return fmt.Errorf("decode legacy DNS credentials: %w", err)
+			}
+		case "validated_at":
+			if err := value.Decode(&c.ValidatedAt); err != nil {
+				return fmt.Errorf("decode legacy DNS validation timestamp: %w", err)
+			}
+		default:
+			var credential string
+			if err := value.Decode(&credential); err != nil {
+				return fmt.Errorf("DNS credential %s must be a string", name)
+			}
+			c.Values[name] = credential
+		}
+	}
+	return nil
+}
+
+// MarshalYAML emits only the flat environment-variable map.
+func (c DNSCredentialsConfig) MarshalYAML() (any, error) {
+	if c.Values == nil {
+		return map[string]string{}, nil
+	}
+	return c.Values, nil
 }
 
 // MaintenanceConfig controls self-healing, auto-cleanup, and maintenance notifications.
@@ -2511,6 +2571,15 @@ func LoadConfigFromFile(path string) (*AppConfig, error) {
 		if err != nil {
 			return nil, err
 		}
+		changedDNS, err := normalizeDNSCredentials(cfg)
+		if err != nil {
+			return nil, configValidationError(path, err)
+		}
+		if changedDNS {
+			if err := saveConfig(cfg, path); err != nil {
+				return nil, fmt.Errorf("failed to persist encrypted DNS credentials: %w", err)
+			}
+		}
 		if err := validateOperatorSecurityConfig(cfg); err != nil {
 			return nil, configValidationError(path, err)
 		}
@@ -2528,6 +2597,15 @@ func LoadConfigFromFile(path string) (*AppConfig, error) {
 	cfg, err := parseMergedConfig(path, data)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse config file: %w", err)
+	}
+	changedDNS, err := normalizeDNSCredentials(cfg)
+	if err != nil {
+		return nil, configValidationError(path, err)
+	}
+	if changedDNS {
+		if err := saveConfig(cfg, path); err != nil {
+			return nil, fmt.Errorf("failed to persist encrypted DNS credentials: %w", err)
+		}
 	}
 	if err := validateOperatorSecurityConfig(cfg); err != nil {
 		return nil, configValidationError(path, err)
@@ -2955,20 +3033,182 @@ func prefixLength(mask net.IPMask) int {
 
 // saveConfig writes configuration to a YAML file
 func saveConfig(cfg *AppConfig, path string) error {
+	if _, err := normalizeDNSCredentials(cfg); err != nil {
+		return err
+	}
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return fmt.Errorf("failed to create config directory: %w", err)
 	}
 
 	content := generateConfigYAML(cfg)
-	if err := os.WriteFile(path, []byte(content), 0600); err != nil {
-		return fmt.Errorf("failed to write config file: %w", err)
+	tmp, err := os.CreateTemp(dir, ".server.yml-*")
+	if err != nil {
+		return fmt.Errorf("create temporary config file: %w", err)
 	}
-	if err := os.Chmod(path, 0600); err != nil {
-		return fmt.Errorf("failed to secure config file: %w", err)
+	tmpName := tmp.Name()
+	defer func() { _ = os.Remove(tmpName) }()
+	if err := tmp.Chmod(0600); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("secure temporary config file: %w", err)
 	}
-
+	if _, err := tmp.WriteString(content); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("write temporary config file: %w", err)
+	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("sync temporary config file: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("close temporary config file: %w", err)
+	}
+	if err := os.Rename(tmpName, path); err != nil {
+		return fmt.Errorf("replace config file: %w", err)
+	}
 	return nil
+}
+
+func normalizeDNSCredentials(cfg *AppConfig) (bool, error) {
+	credentials := &cfg.Server.SSL.LetsEncrypt.DNSCredentials
+	changed := false
+	if credentials.Values == nil {
+		credentials.Values = make(map[string]string)
+	}
+	if credentials.Provider != "" {
+		if cfg.Server.SSL.LetsEncrypt.DNSProvider == "" {
+			cfg.Server.SSL.LetsEncrypt.DNSProvider = credentials.Provider
+		}
+		credentials.Provider = ""
+		changed = true
+	}
+	if credentials.ValidatedAt != "" {
+		credentials.ValidatedAt = ""
+		changed = true
+	}
+	if credentials.CredentialsEncrypted != "" {
+		key, err := base64.StdEncoding.DecodeString(cfg.Server.Security.EncryptionKey)
+		if err != nil {
+			return false, fmt.Errorf("decode server.security.encryption_key for legacy DNS credential migration: %w", err)
+		}
+		ciphertext, err := base64.StdEncoding.DecodeString(credentials.CredentialsEncrypted)
+		if err != nil {
+			return false, fmt.Errorf("decode legacy DNS credentials: %w", err)
+		}
+		plaintext, err := cryptoutil.DecryptWithSecret(key, ciphertext, "dns_credentials")
+		if err != nil {
+			return false, fmt.Errorf("decrypt legacy DNS credentials: %w", err)
+		}
+		var legacyValues map[string]string
+		if err := json.Unmarshal(plaintext, &legacyValues); err != nil {
+			return false, fmt.Errorf("parse legacy DNS credentials: %w", err)
+		}
+		for name, value := range legacyValues {
+			credentials.Values[name] = value
+		}
+		if cfg.Server.SSL.LetsEncrypt.DNSProvider == "" {
+			cfg.Server.SSL.LetsEncrypt.DNSProvider = credentials.Provider
+		}
+		credentials.Provider = ""
+		credentials.CredentialsEncrypted = ""
+		credentials.ValidatedAt = ""
+		changed = true
+	}
+	if len(credentials.Values) == 0 {
+		return changed, nil
+	}
+	keyText := strings.TrimSpace(cfg.Server.Security.EncryptionKey)
+	if keyText == "" {
+		for _, value := range credentials.Values {
+			if strings.HasPrefix(value, "enc:v1:") {
+				return false, fmt.Errorf("server.security.encryption_key is required to decrypt DNS credentials")
+			}
+		}
+		key := make([]byte, 32)
+		if _, err := cryptorand.Read(key); err != nil {
+			return false, fmt.Errorf("generate encryption key for DNS credentials: %w", err)
+		}
+		cfg.Server.Security.EncryptionKey = base64.StdEncoding.EncodeToString(key)
+		keyText = cfg.Server.Security.EncryptionKey
+		changed = true
+	}
+	key, err := base64.StdEncoding.DecodeString(keyText)
+	if err != nil {
+		return false, fmt.Errorf("decode server.security.encryption_key for DNS credentials: %w", err)
+	}
+	for name, value := range credentials.Values {
+		if !regexp.MustCompile(`^[A-Z][A-Z0-9_]*$`).MatchString(name) {
+			return false, fmt.Errorf("DNS credential name %q is not a valid environment variable name", name)
+		}
+		if strings.HasPrefix(value, "enc:v1:") {
+			continue
+		}
+		ciphertext, err := cryptoutil.EncryptWithSecret(key, []byte(value), "dns_credentials:"+name)
+		if err != nil {
+			return false, fmt.Errorf("encrypt DNS credential %s: %w", name, err)
+		}
+		credentials.Values[name] = "enc:v1:" + base64.StdEncoding.EncodeToString(ciphertext)
+		changed = true
+	}
+	return changed, nil
+}
+
+// ReencryptDNSCredentials applies a new server encryption key to each DNS
+// credential while preserving the flat lego environment-variable map.
+func ReencryptDNSCredentials(values map[string]string, oldKey, newKey []byte) (map[string]string, error) {
+	reencrypted := make(map[string]string, len(values))
+	for name, value := range values {
+		if !strings.HasPrefix(value, "enc:v1:") {
+			return nil, fmt.Errorf("DNS credential %s is not encrypted", name)
+		}
+		ciphertext, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(value, "enc:v1:"))
+		if err != nil {
+			return nil, fmt.Errorf("decode DNS credential %s: %w", name, err)
+		}
+		plaintext, err := cryptoutil.DecryptWithSecret(oldKey, ciphertext, "dns_credentials:"+name)
+		if err != nil {
+			return nil, fmt.Errorf("decrypt DNS credential %s: %w", name, err)
+		}
+		ciphertext, err = cryptoutil.EncryptWithSecret(newKey, plaintext, "dns_credentials:"+name)
+		if err != nil {
+			return nil, fmt.Errorf("re-encrypt DNS credential %s: %w", name, err)
+		}
+		reencrypted[name] = "enc:v1:" + base64.StdEncoding.EncodeToString(ciphertext)
+	}
+	return reencrypted, nil
+}
+
+// DNSCredentialsFingerprint returns a stable digest of the decrypted DNS
+// provider identity and values without exposing them to callers.
+func DNSCredentialsFingerprint(provider, keyText string, values map[string]string) (string, error) {
+	key, err := base64.StdEncoding.DecodeString(keyText)
+	if err != nil {
+		return "", fmt.Errorf("decode server.security.encryption_key: %w", err)
+	}
+	plaintextValues := make(map[string]string, len(values))
+	for name, value := range values {
+		if !strings.HasPrefix(value, "enc:v1:") {
+			return "", fmt.Errorf("DNS credential %s is not encrypted", name)
+		}
+		ciphertext, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(value, "enc:v1:"))
+		if err != nil {
+			return "", fmt.Errorf("decode DNS credential %s: %w", name, err)
+		}
+		plaintext, err := cryptoutil.DecryptWithSecret(key, ciphertext, "dns_credentials:"+name)
+		if err != nil {
+			return "", fmt.Errorf("decrypt DNS credential %s: %w", name, err)
+		}
+		plaintextValues[name] = string(plaintext)
+	}
+	encoded, err := json.Marshal(struct {
+		Provider string            `json:"provider"`
+		Values   map[string]string `json:"values"`
+	}{provider, plaintextValues})
+	if err != nil {
+		return "", fmt.Errorf("encode DNS credential fingerprint: %w", err)
+	}
+	digest := sha256.Sum256(encoded)
+	return base64.RawURLEncoding.EncodeToString(digest[:]), nil
 }
 
 // formatAllowlist renders security.allowlist entries as an indented YAML block.
@@ -2980,6 +3220,22 @@ func formatAllowlist(entries []AllowlistEntry) string {
 	b.WriteString("    allowlist:\n")
 	for _, e := range entries {
 		fmt.Fprintf(&b, "      - cidr: %q\n        description: %q\n", e.CIDR, e.Description)
+	}
+	return b.String()
+}
+
+func formatDNSCredentials(values map[string]string) string {
+	if len(values) == 0 {
+		return "        {}\n"
+	}
+	names := make([]string, 0, len(values))
+	for name := range values {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	var b strings.Builder
+	for _, name := range names {
+		fmt.Fprintf(&b, "        %s: %q\n", name, values[name])
 	}
 	return b.String()
 }
@@ -3082,6 +3338,10 @@ server:
   # on first run; treat as a secret, never share or log the raw value.
   token: "%s"
   port: "%s"
+  cors:
+    allowed_origins: %s
+    allow_credentials: %t
+    max_age: %d
   fqdn: "%s"
   baseurl: "%s"
   address: "%s"
@@ -3345,9 +3605,7 @@ server:
       challenge: "%s"
       dns_provider: "%s"
       dns_credentials:
-        provider: "%s"
-        credentials_encrypted: "%s"
-        validated_at: "%s"
+%s
 
   # EncryptionKey is the base64-encoded 32-byte AES-256-GCM key used to encrypt
   # sensitive at-rest data (e.g. DNS-01 provider credentials), per AI.md PART 11.
@@ -3509,7 +3767,6 @@ web:
       # Per-bot overrides: allow | deny
       bots:
 %s
-  cors: "%s"
   footer:
     custom_html: "%s"
   # Strict-Transport-Security; only emitted when SSL is enabled
@@ -3607,6 +3864,9 @@ pages:
 `,
 		cfg.Server.Token,
 		cfg.Server.Port,
+		formatStringSlice(effectiveCORSOrigins(cfg)),
+		GetCORSAllowCredentialsFor(cfg),
+		GetCORSMaxAgeFor(cfg),
 		cfg.Server.FQDN,
 		cfg.Server.BaseURL,
 		cfg.Server.Address,
@@ -3788,9 +4048,7 @@ pages:
 		cfg.Server.SSL.LetsEncrypt.Staging,
 		cfg.Server.SSL.LetsEncrypt.Challenge,
 		cfg.Server.SSL.LetsEncrypt.DNSProvider,
-		cfg.Server.SSL.LetsEncrypt.DNSCredentials.Provider,
-		cfg.Server.SSL.LetsEncrypt.DNSCredentials.CredentialsEncrypted,
-		cfg.Server.SSL.LetsEncrypt.DNSCredentials.ValidatedAt,
+		formatDNSCredentials(cfg.Server.SSL.LetsEncrypt.DNSCredentials.Values),
 		cfg.Server.Security.EncryptionKey,
 		formatAllowlist(cfg.Server.Security.Allowlist),
 		cfg.Server.Security.AbuseDetection.RequestFlood.Multiplier,
@@ -3877,7 +4135,6 @@ pages:
 		formatStringSlice(cfg.Web.Robots.Deny),
 		formatAIBotsDefault(cfg.Web.Robots.AIBots.Default),
 		formatAIBotsMap(cfg.Web.Robots.AIBots.Bots),
-		cfg.Web.CORS,
 		cfg.Web.Footer.CustomHTML,
 		cfg.Web.HSTS.Enabled,
 		cfg.Web.HSTS.MaxAgeSeconds,
@@ -4037,10 +4294,119 @@ func getTheme() string {
 // GetCORS returns the CORS setting
 func GetCORS() string {
 	cfg := getCurrentConfig()
-	if cfg.Web.CORS == "" {
-		return "*"
+	return strings.Join(effectiveCORSOrigins(cfg), ",")
+}
+
+// GetCORSAllowCredentials reports whether credentialed CORS is enabled.
+func GetCORSAllowCredentials() bool {
+	return GetCORSAllowCredentialsFor(getCurrentConfig())
+}
+
+func effectiveCORSOrigins(cfg *AppConfig) []string {
+	if cfg == nil {
+		return []string{"*"}
 	}
-	return cfg.Web.CORS
+	if cfg.Server.CORS.AllowedOrigins != nil {
+		origins := make([]string, 0, len(cfg.Server.CORS.AllowedOrigins))
+		for _, origin := range cfg.Server.CORS.AllowedOrigins {
+			origins = append(origins, strings.TrimSpace(origin))
+		}
+		if len(origins) == 1 && origins[0] == "" {
+			return origins
+		}
+		return appendDomainCORSOrigins(origins)
+	}
+	var origins []string
+	if strings.TrimSpace(cfg.Web.CORS) == "" {
+		origins = []string{"*"}
+	} else {
+		origins = strings.Split(cfg.Web.CORS, ",")
+		for i := range origins {
+			origins[i] = strings.TrimSpace(origins[i])
+		}
+	}
+	if len(origins) == 1 && origins[0] == "" || (len(origins) == 1 && origins[0] == "*") {
+		return origins
+	}
+	return appendDomainCORSOrigins(origins)
+}
+
+func appendDomainCORSOrigins(origins []string) []string {
+	seen := make(map[string]struct{}, len(origins))
+	for _, origin := range origins {
+		seen[origin] = struct{}{}
+	}
+	for _, domain := range strings.Split(os.Getenv("DOMAIN"), ",") {
+		domain = strings.TrimSpace(domain)
+		if domain == "" {
+			continue
+		}
+		origin := "https://" + domain
+		if _, exists := seen[origin]; !exists {
+			origins = append(origins, origin)
+			seen[origin] = struct{}{}
+		}
+	}
+	return origins
+}
+
+// GetCORSAllowCredentialsFor applies credentials only to explicit origins.
+func GetCORSAllowCredentialsFor(cfg *AppConfig) bool {
+	origins := effectiveCORSOrigins(cfg)
+	for _, origin := range origins {
+		if origin == "*" {
+			return false
+		}
+	}
+	if cfg == nil {
+		return false
+	}
+	if cfg.Server.CORS.AllowedOrigins != nil {
+		return cfg.Server.CORS.AllowCredentials
+	}
+	return cfg.Web.AllowCredentials
+}
+
+// GetCORSMaxAgeFor returns the CORS preflight cache duration in seconds.
+func GetCORSMaxAgeFor(cfg *AppConfig) int {
+	if cfg != nil && cfg.Server.CORS.MaxAge > 0 {
+		return cfg.Server.CORS.MaxAge
+	}
+	return 86400
+}
+
+func GetCORSMaxAge() int {
+	return GetCORSMaxAgeFor(getCurrentConfig())
+}
+
+// PeekServerPort reads only the server.port scalar from a YAML document without
+// loading or validating the rest of the application configuration.
+func PeekServerPort(path string) (string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	var document yaml.Node
+	if err := yaml.Unmarshal(data, &document); err != nil {
+		return "", fmt.Errorf("parse server.port peek: %w", err)
+	}
+	if len(document.Content) == 0 {
+		return "", nil
+	}
+	root := document.Content[0]
+	for i := 0; i+1 < len(root.Content); i += 2 {
+		if root.Content[i].Value != "server" {
+			continue
+		}
+		server := root.Content[i+1]
+		for j := 0; j+1 < len(server.Content); j += 2 {
+			if server.Content[j].Value == "port" {
+				return strings.TrimSpace(server.Content[j+1].Value), nil
+			}
+		}
+		return "", nil
+	}
+	return "", nil
 }
 
 // IsDebug returns true when debug mode is active (--debug flag or DEBUG=true env var).
@@ -4055,6 +4421,12 @@ func (c *AppConfig) IsDebug() bool {
 // Returns a value (not a pointer) so callers cannot modify the original.
 func (c *AppConfig) Sanitized() AppConfig {
 	sanitized := *c
+	sanitized.Server.SSL.LetsEncrypt.DNSCredentials.Values = make(map[string]string, len(c.Server.SSL.LetsEncrypt.DNSCredentials.Values))
+	for name, value := range c.Server.SSL.LetsEncrypt.DNSCredentials.Values {
+		if value != "" {
+			sanitized.Server.SSL.LetsEncrypt.DNSCredentials.Values[name] = "********"
+		}
+	}
 	if sanitized.Server.Token != "" {
 		sanitized.Server.Token = "xxxxx"
 	}

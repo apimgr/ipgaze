@@ -445,7 +445,7 @@ func (s *Service) Status() error {
 		if out, err := exec.Command("rc-update", "show", "default").Output(); err == nil && strings.Contains(string(out), appName) {
 			autostart = "enabled"
 		}
-		pid = readPIDFile(fmt.Sprintf("/var/run/%s/%s.pid", orgName, appName))
+		pid = readPIDFile(fmt.Sprintf("/var/run/%s/%s/%s.pid", orgName, appName, appName))
 	case ServiceSysVinit:
 		installed = isStatOK(fmt.Sprintf("/etc/init.d/%s", appName))
 		if exec.Command("service", appName, "status").Run() == nil {
@@ -457,7 +457,7 @@ func (s *Service) Status() error {
 				autostart = "enabled"
 			}
 		}
-		pid = readPIDFile(fmt.Sprintf("/var/run/%s/%s.pid", orgName, appName))
+		pid = readPIDFile(fmt.Sprintf("/var/run/%s/%s/%s.pid", orgName, appName, appName))
 	case ServiceRunit:
 		svDir := fmt.Sprintf("/etc/sv/%s", appName)
 		installed = isStatOK(svDir)
@@ -520,7 +520,7 @@ func (s *Service) Status() error {
 		if out, err := exec.Command("sysrc", "-n", appName+"_enable").Output(); err == nil && strings.EqualFold(strings.TrimSpace(string(out)), "yes") {
 			autostart = "enabled"
 		}
-		pid = readPIDFile(fmt.Sprintf("/var/run/%s/%s.pid", orgName, appName))
+		pid = readPIDFile(fmt.Sprintf("/var/run/%s/%s/%s.pid", orgName, appName, appName))
 	default:
 		return fmt.Errorf("unsupported service manager")
 	}
@@ -958,15 +958,26 @@ StandardError=journal
 ProtectSystem=strict
 ProtectHome=yes
 PrivateTmp=yes
-ReadWritePaths=/etc/%s/%s
-ReadWritePaths=/var/lib/%s/%s
-ReadWritePaths=/var/cache/%s/%s
-ReadWritePaths=/var/log/%s/%s
+ExecStartPre=+/usr/bin/install -d -m 0755 /etc/%s/%s /var/lib/%s/%s /var/cache/%s/%s /var/log/%s/%s /var/run/%s/%s /mnt/Backups/%s/%s
+ReadWritePaths=-/etc/%s/%s
+ReadWritePaths=-/var/lib/%s/%s
+ReadWritePaths=-/var/cache/%s/%s
+ReadWritePaths=-/var/log/%s/%s
+ReadWritePaths=-/var/run/%s/%s
+ReadWritePaths=-/mnt/Backups/%s/%s
 
 [Install]
 WantedBy=multi-user.target
 `, appName, orgName, appName,
 		binaryPath,
+		orgName, appName,
+		orgName, appName,
+		orgName, appName,
+		orgName, appName,
+		orgName, appName,
+		orgName, appName,
+		orgName, appName,
+		orgName, appName,
 		orgName, appName,
 		orgName, appName,
 		orgName, appName,
@@ -1031,7 +1042,7 @@ description="%s service"
 command="%s"
 command_args=""
 command_user="%s:%s"
-pidfile="/var/run/%s/%s.pid"
+pidfile="/var/run/%s/%s/%s.pid"
 command_background=true
 output_log="/var/log/%s/%s/server.log"
 error_log="/var/log/%s/%s/error.log"
@@ -1043,16 +1054,16 @@ depend() {
 }
 
 start_pre() {
-    checkpath -d -m 0755 -o %s:%s /var/run/%s
+    checkpath -d -m 0755 -o %s:%s /var/run/%s/%s
     checkpath -d -m 0755 -o %s:%s /var/log/%s/%s
 }
 `,
 		appName, appName, binaryPath,
 		appName, appName,
+		orgName, appName, appName,
 		orgName, appName,
 		orgName, appName,
-		orgName, appName,
-		appName, appName, orgName,
+		appName, appName, orgName, appName,
 		appName, appName, orgName, appName,
 	)
 
@@ -1116,7 +1127,7 @@ func installSysVinit() error {
 NAME=%s
 DAEMON=%s
 DAEMON_USER=%s
-PIDFILE=/var/run/%s/%s.pid
+PIDFILE=/var/run/%s/%s/%s.pid
 LOGFILE=/var/log/%s/%s/server.log
 
 case "$1" in
@@ -1156,7 +1167,7 @@ exit 0
 `,
 		appName, appName,
 		appName, binaryPath, appName,
-		orgName, appName,
+		orgName, appName, appName,
 		orgName, appName,
 	)
 
@@ -1494,13 +1505,13 @@ func installBSDRC() error {
 name="%s"
 rcvar="%s_enable"
 command="%s"
-pidfile="/var/run/%s/%s.pid"
+pidfile="/var/run/%s/%s/%s.pid"
 
 load_rc_config $name
 : ${%s_enable:="NO"}
 
 run_rc_command "$1"
-`, appName, appName, appName, binaryPath, orgName, appName, appName)
+`, appName, appName, appName, binaryPath, orgName, appName, appName, appName)
 
 	if err := os.WriteFile(rcPath, []byte(rcContent), 0755); err != nil {
 		return fmt.Errorf("failed to write rc.d script: %w", err)

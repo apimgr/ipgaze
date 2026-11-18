@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"crypto/sha256"
@@ -1469,6 +1470,16 @@ func (s *Server) buildHandler() http.Handler {
 	// When tor.onion_address is set it is added to the allow-list automatically (AI.md PART 12).
 	var h http.Handler = r
 	corsOrigin := config.GetCORS()
+	explicitOrigins := map[string]struct{}{}
+	allowedOrigins := map[string]struct{}{}
+	learnedOrigins := &sync.Map{}
+	for _, origin := range strings.Split(corsOrigin, ",") {
+		origin = strings.TrimSpace(origin)
+		if origin != "" && origin != "*" {
+			explicitOrigins[origin] = struct{}{}
+			allowedOrigins[origin] = struct{}{}
+		}
+	}
 	corsOpts := cors.Options{
 		AllowedMethods: []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 		// Explicit enumeration per AI.md PART 16 -> "CORS Headers": a "*" wildcard
@@ -1481,14 +1492,21 @@ func (s *Server) buildHandler() http.Handler {
 			"X-Service-Token", "X-Internal-Token",
 		},
 		// 24 hours preflight cache per AI.md spec
-		MaxAge: 86400,
+		MaxAge: config.GetCORSMaxAge(),
 	}
 	if corsOrigin == "*" {
 		corsOpts.AllowedOrigins = []string{"*"}
 		corsOpts.AllowCredentials = false
 	} else if corsOrigin != "" {
 		corsOpts.AllowedOrigins = strings.Split(corsOrigin, ",")
-		corsOpts.AllowCredentials = true
+		corsOpts.AllowCredentials = config.GetCORSAllowCredentials()
+		corsOpts.AllowOriginFunc = func(origin string) bool {
+			if _, ok := allowedOrigins[origin]; ok {
+				return true
+			}
+			_, ok := learnedOrigins.Load(origin)
+			return ok
+		}
 	}
 	// Automatically add the Tor onion origin when the hidden service is running.
 	// Wildcard already covers all origins; only append for explicit allow-lists or when
@@ -1502,7 +1520,7 @@ func (s *Server) buildHandler() http.Handler {
 	if onionHostname != "" && corsOrigin != "*" {
 		onionOrigin := "http://" + onionHostname
 		corsOpts.AllowedOrigins = append(corsOpts.AllowedOrigins, onionOrigin)
-		corsOpts.AllowCredentials = true
+		allowedOrigins[onionOrigin] = struct{}{}
 		corsOrigin = "tor-enabled"
 	}
 	// Automatically add the I2P eepsite origin when the eepsite is running,
@@ -1514,14 +1532,129 @@ func (s *Server) buildHandler() http.Handler {
 	if i2pHostname != "" && corsOrigin != "*" {
 		i2pOrigin := "http://" + i2pHostname
 		corsOpts.AllowedOrigins = append(corsOpts.AllowedOrigins, i2pOrigin)
-		corsOpts.AllowCredentials = true
+		allowedOrigins[i2pOrigin] = struct{}{}
 		corsOrigin = "overlay-enabled"
 	}
 	if corsOrigin != "" {
-		h = cors.New(corsOpts).Handler(h)
+		corsHandler := cors.New(corsOpts).Handler(h)
+		if corsOpts.AllowOriginFunc != nil {
+			corsHandler = learnTrustedProxyCORSOrigins(corsHandler, s.getTrust(), learnedOrigins)
+		}
+		if corsOpts.AllowCredentials {
+			h = restrictCORSCredentials(explicitOrigins, learnedOrigins, corsHandler)
+		} else {
+			h = corsHandler
+		}
 	}
 
 	return h
+}
+
+func learnTrustedProxyCORSOrigins(next http.Handler, trust *netutil.TrustResolver, learned *sync.Map) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.TrimSpace(os.Getenv("DOMAIN")) == "" && trust != nil && trust.IsTrustedPeer(r) {
+			if origin := trustedProxyOrigin(r); origin != "" {
+				learned.Store(origin, struct{}{})
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func trustedProxyOrigin(r *http.Request) string {
+	hostHeader := strings.TrimSpace(strings.Split(r.Header.Get("X-Forwarded-Host"), ",")[0])
+	if hostHeader == "" {
+		return ""
+	}
+	if strings.ContainsAny(hostHeader, "/\\@ \t\r\n") {
+		return ""
+	}
+	scheme := strings.ToLower(strings.TrimSpace(strings.Split(r.Header.Get("X-Forwarded-Proto"), ",")[0]))
+	if scheme != "http" && scheme != "https" {
+		scheme = "https"
+	}
+	forwardedHost := hostHeader
+	if host, port, err := net.SplitHostPort(hostHeader); err == nil {
+		portNumber, err := strconv.Atoi(port)
+		if err != nil || portNumber < 1 || portNumber > 65535 {
+			return ""
+		}
+		defaultPort := scheme == "http" && port == "80" || scheme == "https" && port == "443"
+		if defaultPort {
+			forwardedHost = host
+		} else {
+			forwardedHost = net.JoinHostPort(strings.ToLower(host), port)
+		}
+	} else if strings.Contains(hostHeader, ":") && !strings.HasPrefix(hostHeader, "[") {
+		return ""
+	}
+	if forwardedHost == "" {
+		return ""
+	}
+	return scheme + "://" + strings.ToLower(forwardedHost)
+}
+
+func restrictCORSCredentials(explicitOrigins map[string]struct{}, learnedOrigins *sync.Map, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, explicitlyAllowed := explicitOrigins[r.Header.Get("Origin")]
+		if _, learned := learnedOrigins.Load(r.Header.Get("Origin")); learned {
+			explicitlyAllowed = true
+		}
+		next.ServeHTTP(&corsCredentialsWriter{ResponseWriter: w, allow: explicitlyAllowed}, r)
+	})
+}
+
+type corsCredentialsWriter struct {
+	http.ResponseWriter
+	allow bool
+	wrote bool
+}
+
+func (w *corsCredentialsWriter) WriteHeader(status int) {
+	if w.wrote {
+		return
+	}
+	w.wrote = true
+	if !w.allow {
+		w.Header().Del("Access-Control-Allow-Credentials")
+	}
+	w.ResponseWriter.WriteHeader(status)
+}
+
+func (w *corsCredentialsWriter) Write(data []byte) (int, error) {
+	if !w.wrote {
+		w.WriteHeader(http.StatusOK)
+	}
+	return w.ResponseWriter.Write(data)
+}
+
+func (w *corsCredentialsWriter) Flush() {
+	if !w.wrote {
+		w.WriteHeader(http.StatusOK)
+	}
+	if flusher, ok := w.ResponseWriter.(http.Flusher); ok {
+		flusher.Flush()
+	}
+}
+
+func (w *corsCredentialsWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	hijacker, ok := w.ResponseWriter.(http.Hijacker)
+	if !ok {
+		return nil, nil, fmt.Errorf("response writer does not support hijacking")
+	}
+	return hijacker.Hijack()
+}
+
+func (w *corsCredentialsWriter) Push(target string, options *http.PushOptions) error {
+	pusher, ok := w.ResponseWriter.(http.Pusher)
+	if !ok {
+		return http.ErrNotSupported
+	}
+	return pusher.Push(target, options)
+}
+
+func (w *corsCredentialsWriter) Unwrap() http.ResponseWriter {
+	return w.ResponseWriter
 }
 
 // rootHandler dispatches GET / under the AI.md PART 14 "Smart Content

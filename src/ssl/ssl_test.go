@@ -1057,6 +1057,60 @@ func TestDecryptDNSCredentials_RoundTrip(t *testing.T) {
 	}
 }
 
+func TestDecryptDNSCredentials_FlatEncryptedMap(t *testing.T) {
+	key := make([]byte, 32)
+	if _, err := rand.Read(key); err != nil {
+		t.Fatalf("generate key: %v", err)
+	}
+	sealed, err := security.EncryptWithSecret(key, []byte("token-value"), "dns_credentials:CF_DNS_API_TOKEN")
+	if err != nil {
+		t.Fatalf("encrypt credential: %v", err)
+	}
+	m := NewSSLManager(SSLManagerConfig{
+		EncryptionKey: base64.StdEncoding.EncodeToString(key),
+		LetsEncrypt: LetsEncryptConfig{
+			DNSProvider: "cloudflare",
+			DNSCredentials: map[string]string{
+				"CF_DNS_API_TOKEN": "enc:v1:" + base64.StdEncoding.EncodeToString(sealed),
+			},
+		},
+	})
+	credentials, err := m.decryptDNSCredentials()
+	if err != nil {
+		t.Fatalf("decrypt flat credentials: %v", err)
+	}
+	if credentials["CF_DNS_API_TOKEN"] != "token-value" {
+		t.Fatalf("decrypted credential = %q", credentials["CF_DNS_API_TOKEN"])
+	}
+}
+
+func TestDNSProviderRestoresEnvironment(t *testing.T) {
+	key := make([]byte, 32)
+	if _, err := rand.Read(key); err != nil {
+		t.Fatalf("generate key: %v", err)
+	}
+	sealed, err := security.EncryptWithSecret(key, []byte("temporary-token"), "dns_credentials:CF_DNS_API_TOKEN")
+	if err != nil {
+		t.Fatalf("encrypt credential: %v", err)
+	}
+	t.Setenv("CF_DNS_API_TOKEN", "preexisting-token")
+	m := NewSSLManager(SSLManagerConfig{
+		EncryptionKey: base64.StdEncoding.EncodeToString(key),
+		LetsEncrypt: LetsEncryptConfig{
+			DNSProvider: "cloudflare",
+			DNSCredentials: map[string]string{
+				"CF_DNS_API_TOKEN": "enc:v1:" + base64.StdEncoding.EncodeToString(sealed),
+			},
+		},
+	})
+	if err := m.ValidateDNSCredentials(); err != nil {
+		t.Fatalf("ValidateDNSCredentials: %v", err)
+	}
+	if got := os.Getenv("CF_DNS_API_TOKEN"); got != "preexisting-token" {
+		t.Fatalf("provider environment value = %q, want restored value", got)
+	}
+}
+
 func TestDecryptDNSCredentials_NoCredentialsConfigured(t *testing.T) {
 	m := NewSSLManager(SSLManagerConfig{
 		EncryptionKey: base64.StdEncoding.EncodeToString(make([]byte, 32)),
@@ -1111,9 +1165,9 @@ func TestValidateDNSCredentials_Success(t *testing.T) {
 		},
 	})
 
-	var gotValidatedAt string
-	m.config.OnDNSCredentialsValidated = func(validatedAt string) {
-		gotValidatedAt = validatedAt
+	var issuedAt string
+	m.config.OnDNSCertificateIssued = func(timestamp string) {
+		issuedAt = timestamp
 	}
 
 	// dnsProvider() injects credentials into real process env vars per lego's
@@ -1127,11 +1181,8 @@ func TestValidateDNSCredentials_Success(t *testing.T) {
 	if err := m.ValidateDNSCredentials(); err != nil {
 		t.Fatalf("ValidateDNSCredentials: %v", err)
 	}
-	if gotValidatedAt == "" {
-		t.Error("expected OnDNSCredentialsValidated callback to be invoked with a timestamp")
-	}
-	if _, err := time.Parse(time.RFC3339, gotValidatedAt); err != nil {
-		t.Errorf("validatedAt %q is not RFC3339: %v", gotValidatedAt, err)
+	if issuedAt != "" {
+		t.Error("credential validation alone must not set the certificate issuance timestamp")
 	}
 }
 
@@ -1159,13 +1210,13 @@ func TestValidateDNSCredentials_MalformedCredentialsFails(t *testing.T) {
 	}
 
 	callbackInvoked := false
-	m.config.OnDNSCredentialsValidated = func(string) { callbackInvoked = true }
+	m.config.OnDNSCertificateIssued = func(string) { callbackInvoked = true }
 
 	if err := m.ValidateDNSCredentials(); err == nil {
 		t.Fatal("expected error for malformed/incomplete dns credentials")
 	}
 	if callbackInvoked {
-		t.Error("OnDNSCredentialsValidated must not be called on failure")
+		t.Error("OnDNSCertificateIssued must not be called on validation failure")
 	}
 }
 

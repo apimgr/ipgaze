@@ -70,7 +70,7 @@ func (s *Server) validMCPOrigin(r *http.Request) bool {
 		}
 	}
 	if cfg := config.Get(); cfg != nil {
-		configured = append(configured, strings.Split(cfg.Web.CORS, ",")...)
+		configured = append(configured, strings.Split(config.GetCORS(), ",")...)
 	}
 	for _, candidate := range configured {
 		allowed, valid := parseMCPOrigin(strings.TrimSpace(candidate))

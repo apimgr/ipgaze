@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -706,6 +707,116 @@ func TestGetCORS_ReturnsConfiguredValue(t *testing.T) {
 	}
 }
 
+func TestServerCORSUsesExplicitOriginsAndCredentialPolicy(t *testing.T) {
+	t.Setenv("DOMAIN", "api.example.test, www.example.test")
+	cfg := DefaultConfig()
+	cfg.Server.CORS.AllowedOrigins = []string{"https://app.example.test"}
+	cfg.Server.CORS.AllowCredentials = true
+	cfg.Server.CORS.MaxAge = 1200
+	if got := strings.Join(effectiveCORSOrigins(cfg), ","); got != "https://app.example.test,https://api.example.test,https://www.example.test" {
+		t.Fatalf("effective origins = %q", got)
+	}
+	if !GetCORSAllowCredentialsFor(cfg) {
+		t.Fatal("explicit origin should honor allow_credentials")
+	}
+	if got := GetCORSMaxAgeFor(cfg); got != 1200 {
+		t.Fatalf("max age = %d, want 1200", got)
+	}
+	cfg.Server.CORS.AllowedOrigins = []string{"*"}
+	if GetCORSAllowCredentialsFor(cfg) {
+		t.Fatal("wildcard origins must never allow credentials")
+	}
+}
+
+func TestServerCORSExplicitEmptyDisablesDomainOrigins(t *testing.T) {
+	t.Setenv("DOMAIN", "api.example.test")
+	cfg := DefaultConfig()
+	cfg.Server.CORS.AllowedOrigins = []string{""}
+	if got := effectiveCORSOrigins(cfg); len(got) != 1 || got[0] != "" {
+		t.Fatalf("empty explicit CORS list should disable CORS, got %#v", got)
+	}
+}
+
+func TestPeekServerPort(t *testing.T) {
+	path := writeTempYAML(t, "server:\n  port: '8088,8443'\n  unknown: [ignored]\nweb:\n  cors: '*'\n")
+	port, err := PeekServerPort(path)
+	if err != nil {
+		t.Fatalf("PeekServerPort: %v", err)
+	}
+	if port != "8088,8443" {
+		t.Fatalf("PeekServerPort = %q, want %q", port, "8088,8443")
+	}
+}
+
+func TestLoadConfigEncryptsPlaintextDNSCredentialsAtomically(t *testing.T) {
+	resetGlobals()
+	path := writeTempYAML(t, `server:
+  security:
+    encryption_key: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+  ssl:
+    letsencrypt:
+      dns_provider: cloudflare
+      dns_credentials:
+        CF_DNS_API_TOKEN: "plaintext-dns-token"
+`)
+	cfg, err := LoadConfigFromFile(path)
+	if err != nil {
+		t.Fatalf("LoadConfigFromFile: %v", err)
+	}
+	stored := cfg.Server.SSL.LetsEncrypt.DNSCredentials.Values["CF_DNS_API_TOKEN"]
+	if !strings.HasPrefix(stored, "enc:v1:") {
+		t.Fatalf("credential = %q, want enc:v1 value", stored)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if strings.Contains(string(data), "plaintext-dns-token") {
+		t.Fatal("plaintext DNS credential persisted to server.yml")
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("Stat: %v", err)
+	}
+	if got := info.Mode().Perm(); got != 0600 {
+		t.Errorf("server.yml mode = %04o, want 0600", got)
+	}
+	encoded, err := json.Marshal(cfg)
+	if err != nil {
+		t.Fatalf("MarshalJSON: %v", err)
+	}
+	if strings.Contains(string(encoded), stored) || strings.Contains(string(encoded), "plaintext-dns-token") {
+		t.Fatal("DNS credential exposed in JSON config")
+	}
+}
+
+func TestGetCORSAllowCredentials(t *testing.T) {
+	tests := []struct {
+		name string
+		want bool
+	}{
+		{name: "disabled by default", want: false},
+		{name: "enabled explicitly", want: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resetGlobals()
+			mu.Lock()
+			cfg := DefaultConfig()
+			cfg.Web.AllowCredentials = tt.want
+			if tt.want {
+				cfg.Web.CORS = "https://app.example.test"
+			}
+			current = cfg
+			mu.Unlock()
+
+			if got := GetCORSAllowCredentials(); got != tt.want {
+				t.Errorf("GetCORSAllowCredentials() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 // ─────────────────────────────── GetTheme ────────────────────────────────────
 
 func TestGetTheme_DefaultIsDark(t *testing.T) {
@@ -1242,9 +1353,7 @@ func TestSaveConfigToFile_RoundTripsEncryptionKeyAndDNSCredentials(t *testing.T)
 	cfg.Server.SSL.MinVersion = "TLS1.3"
 	cfg.Server.SSL.LetsEncrypt.DNSProvider = "cloudflare"
 	cfg.Server.SSL.LetsEncrypt.DNSCredentials = DNSCredentialsConfig{
-		Provider:             "cloudflare",
-		CredentialsEncrypted: "ZmFrZS1jaXBoZXJ0ZXh0",
-		ValidatedAt:          "2026-01-01T00:00:00Z",
+		Values: map[string]string{"CF_DNS_API_TOKEN": "plaintext-test-token"},
 	}
 	if err := SaveConfigToFile(); err != nil {
 		t.Fatalf("SaveConfigToFile: %v", err)
@@ -1262,14 +1371,16 @@ func TestSaveConfigToFile_RoundTripsEncryptionKeyAndDNSCredentials(t *testing.T)
 	if reloaded.Server.SSL.Cert != "/etc/ipgaze/cert.pem" || reloaded.Server.SSL.Key != "/etc/ipgaze/key.pem" || reloaded.Server.SSL.MinVersion != "TLS1.3" {
 		t.Errorf("SSL certificate settings round-trip: cert=%q key=%q min_version=%q", reloaded.Server.SSL.Cert, reloaded.Server.SSL.Key, reloaded.Server.SSL.MinVersion)
 	}
-	if reloaded.Server.SSL.LetsEncrypt.DNSCredentials.Provider != "cloudflare" {
-		t.Errorf("DNSCredentials.Provider round-trip: got %q", reloaded.Server.SSL.LetsEncrypt.DNSCredentials.Provider)
+	stored := reloaded.Server.SSL.LetsEncrypt.DNSCredentials.Values["CF_DNS_API_TOKEN"]
+	if !strings.HasPrefix(stored, "enc:v1:") {
+		t.Errorf("DNS credential was not encrypted at rest: %q", stored)
 	}
-	if reloaded.Server.SSL.LetsEncrypt.DNSCredentials.CredentialsEncrypted != "ZmFrZS1jaXBoZXJ0ZXh0" {
-		t.Errorf("DNSCredentials.CredentialsEncrypted round-trip: got %q", reloaded.Server.SSL.LetsEncrypt.DNSCredentials.CredentialsEncrypted)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile after save: %v", err)
 	}
-	if reloaded.Server.SSL.LetsEncrypt.DNSCredentials.ValidatedAt != "2026-01-01T00:00:00Z" {
-		t.Errorf("DNSCredentials.ValidatedAt round-trip: got %q", reloaded.Server.SSL.LetsEncrypt.DNSCredentials.ValidatedAt)
+	if strings.Contains(string(data), "plaintext-test-token") || strings.Contains(string(data), "validated_at") {
+		t.Errorf("server.yml contains plaintext credentials or a validation timestamp")
 	}
 }
 

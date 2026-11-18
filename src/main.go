@@ -504,11 +504,20 @@ func runMain() {
 		if userErr != nil {
 			log.Printf("Warning: Failed to create system user %s: %v", projectName, userErr)
 		} else {
-			for _, d := range []string{dirs.Config, dirs.Data, dirs.Cache, dirs.Logs, dirs.SSL, dirs.Security, dirs.DB, dirs.Backup} {
+			for _, d := range []string{dirs.Config, dirs.Data, dirs.Cache, dirs.Logs, dirs.SSL, dirs.Security, dirs.DB, dirs.Backup, filepath.Dir(dirs.PID)} {
 				if chownErr := chownRecursive(d, uid, gid); chownErr != nil {
 					log.Printf("Warning: Failed to set ownership on %s: %v", d, chownErr)
 				}
 			}
+		}
+	}
+	if strings.TrimSpace(*port) == "" && strings.TrimSpace(os.Getenv("PORT")) == "" {
+		if earlyPort, peekErr := config.PeekServerPort(configPath); peekErr == nil {
+			if earlyPort != "" {
+				cfg.Server.Port = earlyPort
+			}
+		} else if !os.IsNotExist(peekErr) {
+			log.Printf("Warning: could not read early server.port setting: %v", peekErr)
 		}
 	}
 
@@ -556,28 +565,6 @@ func runMain() {
 			log.Printf("Warning: Failed to save generated encryption key: %v", saveErr)
 		}
 		log.Printf("Generated server encryption key")
-	}
-
-	// Validate DNS-01 credentials on startup if configured, per AI.md PART 15.
-	if cfg.Server.SSL.LetsEncrypt.DNSProvider != "" && cfg.Server.SSL.LetsEncrypt.DNSCredentials.CredentialsEncrypted != "" {
-		startupSSLMgr := ssl.NewSSLManager(ssl.SSLManagerConfig{
-			EncryptionKey: cfg.Server.Security.EncryptionKey,
-			LetsEncrypt: ssl.LetsEncryptConfig{
-				DNSProvider:             cfg.Server.SSL.LetsEncrypt.DNSProvider,
-				DNSCredentialsEncrypted: cfg.Server.SSL.LetsEncrypt.DNSCredentials.CredentialsEncrypted,
-			},
-			OnDNSCredentialsValidated: func(validatedAt string) {
-				cfg.Server.SSL.LetsEncrypt.DNSCredentials.ValidatedAt = validatedAt
-				if saveErr := config.SaveConfigToFile(); saveErr != nil {
-					log.Printf("Warning: Failed to save dns_credentials.validated_at: %v", saveErr)
-				}
-			},
-		})
-		if err := startupSSLMgr.ValidateDNSCredentials(); err != nil {
-			log.Printf("Warning: DNS-01 credential validation failed for provider %q: %v", cfg.Server.SSL.LetsEncrypt.DNSProvider, err)
-		} else {
-			log.Printf("DNS-01 credentials validated for provider %q", cfg.Server.SSL.LetsEncrypt.DNSProvider)
-		}
 	}
 
 	// Apply config-based daemonize when --daemon flag was not already provided.
@@ -674,8 +661,11 @@ func runMain() {
 
 	// Phase 7: PID file — atomically check + write per AI.md PART 7.
 	// Resolve PID file path: --pid flag > PID_FILE env > OS default (dirs.PID).
-	pidFile := resolvePIDFilePath(*pidFileFlag, dirs.PID)
-	writePIDFile(pidFile)
+	pidFile := ""
+	if !paths.IsRunningInContainer() {
+		pidFile = resolvePIDFilePath(*pidFileFlag, dirs.PID)
+		writePIDFile(pidFile)
+	}
 
 	// Phase 8e: initialize and spawn Tor while still privileged, per AI.md
 	// PART 23 step 5 — managed children are started before the drop so the
@@ -808,6 +798,24 @@ func runMain() {
 		}
 	}
 
+	if serverDB != nil {
+		if err := syncDNSCredentialState(serverDB, cfg); err != nil {
+			log.Printf("Warning: could not synchronize DNS credential state: %v", err)
+		}
+	}
+	if cfg.Server.SSL.LetsEncrypt.DNSProvider != "" && len(cfg.Server.SSL.LetsEncrypt.DNSCredentials.Values) > 0 {
+		startupSSLMgr := ssl.NewSSLManager(ssl.SSLManagerConfig{
+			EncryptionKey: cfg.Server.Security.EncryptionKey,
+			LetsEncrypt: ssl.LetsEncryptConfig{
+				DNSProvider:    cfg.Server.SSL.LetsEncrypt.DNSProvider,
+				DNSCredentials: cfg.Server.SSL.LetsEncrypt.DNSCredentials.Values,
+			},
+		})
+		if err := startupSSLMgr.ValidateDNSCredentials(); err != nil {
+			log.Printf("DNS-01 credential validation failed for provider %q: %v", cfg.Server.SSL.LetsEncrypt.DNSProvider, err)
+		}
+	}
+
 	// Initialize SSL manager per AI.md PART 15.
 	// Shared between scheduler renewal task and HTTPS server startup.
 	// sslEnabled was resolved before the listeners were bound.
@@ -819,17 +827,20 @@ func runMain() {
 		MinVersion:    cfg.Server.SSL.MinVersion,
 		EncryptionKey: cfg.Server.Security.EncryptionKey,
 		LetsEncrypt: ssl.LetsEncryptConfig{
-			Enabled:                 sslEnabled && cfg.Server.SSL.LetsEncrypt.Enabled,
-			Email:                   cfg.Server.SSL.LetsEncrypt.Email,
-			Staging:                 cfg.Server.SSL.LetsEncrypt.Staging,
-			Challenge:               cfg.Server.SSL.LetsEncrypt.Challenge,
-			DNSProvider:             cfg.Server.SSL.LetsEncrypt.DNSProvider,
-			DNSCredentialsEncrypted: cfg.Server.SSL.LetsEncrypt.DNSCredentials.CredentialsEncrypted,
+			Enabled:        sslEnabled && cfg.Server.SSL.LetsEncrypt.Enabled,
+			Email:          cfg.Server.SSL.LetsEncrypt.Email,
+			Staging:        cfg.Server.SSL.LetsEncrypt.Staging,
+			Challenge:      cfg.Server.SSL.LetsEncrypt.Challenge,
+			DNSProvider:    cfg.Server.SSL.LetsEncrypt.DNSProvider,
+			DNSCredentials: cfg.Server.SSL.LetsEncrypt.DNSCredentials.Values,
 		},
-		OnDNSCredentialsValidated: func(validatedAt string) {
-			cfg.Server.SSL.LetsEncrypt.DNSCredentials.ValidatedAt = validatedAt
-			if saveErr := config.SaveConfigToFile(); saveErr != nil {
-				log.Printf("Warning: Failed to save dns_credentials.validated_at: %v", saveErr)
+		OnDNSCertificateIssued: func(issuedAt string) {
+			if serverDB == nil {
+				log.Printf("Warning: cannot store DNS certificate issuance timestamp because server.db is unavailable")
+				return
+			}
+			if _, err := serverDB.Exec(`INSERT INTO app_secrets (name, value) VALUES ('dns_validated_at', ?) ON CONFLICT(name) DO UPDATE SET value = excluded.value`, issuedAt); err != nil {
+				log.Printf("Warning: failed to store DNS certificate issuance timestamp: %v", err)
 			}
 		},
 	})
@@ -2135,6 +2146,33 @@ func runMain() {
 	}
 }
 
+func syncDNSCredentialState(conn *sql.DB, cfg *config.AppConfig) error {
+	provider := cfg.Server.SSL.LetsEncrypt.DNSProvider
+	values := cfg.Server.SSL.LetsEncrypt.DNSCredentials.Values
+	fingerprint := ""
+	if len(values) > 0 || provider != "" {
+		var err error
+		fingerprint, err = config.DNSCredentialsFingerprint(provider, cfg.Server.Security.EncryptionKey, values)
+		if err != nil {
+			return err
+		}
+	}
+	var previous string
+	err := conn.QueryRow(`SELECT value FROM app_secrets WHERE name = 'dns_credentials_fingerprint'`).Scan(&previous)
+	if err != nil && err != sql.ErrNoRows {
+		return fmt.Errorf("read DNS credential fingerprint: %w", err)
+	}
+	if err == nil && previous != fingerprint {
+		if _, err := conn.Exec(`DELETE FROM app_secrets WHERE name = 'dns_validated_at'`); err != nil {
+			return fmt.Errorf("clear DNS validation timestamp: %w", err)
+		}
+	}
+	if _, err := conn.Exec(`INSERT INTO app_secrets (name, value) VALUES ('dns_credentials_fingerprint', ?) ON CONFLICT(name) DO UPDATE SET value = excluded.value`, fingerprint); err != nil {
+		return fmt.Errorf("store DNS credential fingerprint: %w", err)
+	}
+	return nil
+}
+
 // parseDurationOrDefault parses a duration string (e.g. "30s", "2m") and
 // returns the fallback value when the string is empty or unparseable.
 func parseDurationOrDefault(s string, fallback time.Duration) time.Duration {
@@ -3295,8 +3333,8 @@ func rotateEncryptionKey(conn *sql.DB, configDir string, cfg *config.AppConfig, 
 		os.Exit(exSoftware)
 	}
 
-	reencryptedDNS, err := ssl.ReencryptDNSCredentialsEncrypted(
-		cfg.Server.SSL.LetsEncrypt.DNSCredentials.CredentialsEncrypted, oldKey, newKey)
+	reencryptedDNS, err := config.ReencryptDNSCredentials(
+		cfg.Server.SSL.LetsEncrypt.DNSCredentials.Values, oldKey, newKey)
 	if err != nil {
 		log.Printf("secret rotate encryption_key: re-encrypt dns_credentials: %v", err)
 		os.Exit(exSoftware)
@@ -3316,17 +3354,20 @@ func rotateEncryptionKey(conn *sql.DB, configDir string, cfg *config.AppConfig, 
 
 	oldPreviousKey := cfg.Server.Security.PreviousEncryptionKey
 	oldPreviousUntil := cfg.Server.Security.PreviousEncryptionKeyUntil
-	oldDNSCredentials := cfg.Server.SSL.LetsEncrypt.DNSCredentials.CredentialsEncrypted
+	oldDNSCredentials := make(map[string]string, len(cfg.Server.SSL.LetsEncrypt.DNSCredentials.Values))
+	for name, value := range cfg.Server.SSL.LetsEncrypt.DNSCredentials.Values {
+		oldDNSCredentials[name] = value
+	}
 	cfg.Server.Security.PreviousEncryptionKey = oldKeyB64
 	cfg.Server.Security.PreviousEncryptionKeyUntil = time.Now().Add(30 * 24 * time.Hour).Unix()
 	cfg.Server.Security.EncryptionKey = newKeyB64
-	cfg.Server.SSL.LetsEncrypt.DNSCredentials.CredentialsEncrypted = reencryptedDNS
+	cfg.Server.SSL.LetsEncrypt.DNSCredentials.Values = reencryptedDNS
 
 	if err := config.SaveConfigToFile(); err != nil {
 		cfg.Server.Security.EncryptionKey = oldKeyB64
 		cfg.Server.Security.PreviousEncryptionKey = oldPreviousKey
 		cfg.Server.Security.PreviousEncryptionKeyUntil = oldPreviousUntil
-		cfg.Server.SSL.LetsEncrypt.DNSCredentials.CredentialsEncrypted = oldDNSCredentials
+		cfg.Server.SSL.LetsEncrypt.DNSCredentials.Values = oldDNSCredentials
 		log.Printf("secret rotate encryption_key: save config: %v", err)
 		os.Exit(exIoErr)
 	}
@@ -3334,7 +3375,7 @@ func rotateEncryptionKey(conn *sql.DB, configDir string, cfg *config.AppConfig, 
 		cfg.Server.Security.EncryptionKey = oldKeyB64
 		cfg.Server.Security.PreviousEncryptionKey = oldPreviousKey
 		cfg.Server.Security.PreviousEncryptionKeyUntil = oldPreviousUntil
-		cfg.Server.SSL.LetsEncrypt.DNSCredentials.CredentialsEncrypted = oldDNSCredentials
+		cfg.Server.SSL.LetsEncrypt.DNSCredentials.Values = oldDNSCredentials
 		if restoreErr := config.SaveConfigToFile(); restoreErr != nil {
 			log.Printf("secret rotate encryption_key: failed to restore old config after database commit error: %v", restoreErr)
 		}
@@ -5236,25 +5277,19 @@ func parsePortSpec(spec string) (string, string) {
 	return first, strings.TrimSpace(second)
 }
 
-// resolveServerPort returns the port setting from the highest-priority source
-// that supplies one: the --port flag, then a previously persisted server.yml
-// value, then the PORT env var. PORT is an Init-Only env var (AI.md PART 5):
-// it seeds the port on first run only and MUST be ignored on every later run
-// once a port has been persisted to server.yml — checking the persisted
-// config before PORT (rather than after) is what enforces that. An empty
-// result means no port has ever been chosen and the caller must pick one
-// (container default or a random unused port).
+// resolveServerPort follows the startup precedence in AI.md PART 8: CLI flag,
+// PORT environment variable, early server.yml peek, then an empty result.
 func resolveServerPort(flagPort string, cfg *config.AppConfig) string {
 	if strings.TrimSpace(flagPort) != "" {
 		return strings.TrimSpace(flagPort)
+	}
+	if envPort := strings.TrimSpace(os.Getenv("PORT")); envPort != "" {
+		return envPort
 	}
 	if cfg != nil {
 		if persisted := strings.TrimSpace(cfg.Server.Port); persisted != "" {
 			return persisted
 		}
-	}
-	if envPort := strings.TrimSpace(os.Getenv("PORT")); envPort != "" {
-		return envPort
 	}
 	return ""
 }

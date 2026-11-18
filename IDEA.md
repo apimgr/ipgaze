@@ -202,6 +202,11 @@ Both binaries are built together. See AI.md PART 7, 8, 32, 33 for build, flag, a
 - API clients with `Accept: application/json` receive JSON
 - All field endpoints support `.txt` extension for explicit plain text
 
+**CORS**
+- Uses one policy for all routes, with `server.cors.allowed_origins` as the explicit configuration source
+- Adds each `DOMAIN` hostname as an HTTPS origin and learns forwarded hosts only from trusted proxies
+- Allows credentials only for explicit origins; the wildcard default never enables credentials
+
 **TLS / ACME** (AI.md PART 15)
 
 The service supports HTTPS with automatically discovered or operator-supplied certificates and managed renewal. Certificate issuance supports HTTP, TLS-ALPN, and DNS validation; operators can use any provider supported by the DNS challenge service.

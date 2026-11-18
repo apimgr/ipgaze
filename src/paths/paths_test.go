@@ -84,6 +84,12 @@ func TestGetAllDirs_ContainsProjectName(t *testing.T) {
 
 func TestGetAllDirs_PIDContainsProjectName(t *testing.T) {
 	dirs := GetAllDirs("testproject")
+	if IsRunningInContainer() {
+		if dirs.PID != "" {
+			t.Errorf("container PID path = %q, want empty", dirs.PID)
+		}
+		return
+	}
 	if dirs.PID == "" {
 		t.Error("PID path is empty")
 	}
@@ -711,6 +717,10 @@ func TestRootDirs_Linux(t *testing.T) {
 	if logs == "" || cache == "" || pid == "" || ssl == "" || sec == "" || db == "" || backup == "" {
 		t.Error("rootDirs(linux) returned empty paths")
 	}
+	wantPID := filepath.Join("/var/run", OrgName, "myapp", "myapp.pid")
+	if pid != wantPID {
+		t.Errorf("rootDirs(linux) PID = %q, want %q", pid, wantPID)
+	}
 }
 
 func TestRootDirs_Darwin(t *testing.T) {
@@ -720,6 +730,10 @@ func TestRootDirs_Darwin(t *testing.T) {
 	}
 	if data == "" || logs == "" || cache == "" || pid == "" || ssl == "" || sec == "" || db == "" || backup == "" {
 		t.Error("rootDirs(darwin) returned empty paths")
+	}
+	wantPID := filepath.Join("/var/run", OrgName, "myapp", "myapp.pid")
+	if pid != wantPID {
+		t.Errorf("rootDirs(darwin) PID = %q, want %q", pid, wantPID)
 	}
 }
 

@@ -336,10 +336,8 @@ server:
     letsencrypt:
       enabled: false
 
-web:
-  ui:
-    theme: dark
-  cors: "*"
+  cors:
+    allowed_origins: ["*"]
 ```
 
 ### Precedence
@@ -365,7 +363,7 @@ For any value settable by flag, env var, and config file (highest wins):
 | `server.logging` | Global + per-log level, rotation, retention |
 | `server.ssl` | TLS and Let's Encrypt (DNS-01/HTTP-01) |
 | `server.trusted_proxies` | Additional trusted proxy CIDRs (private ranges always trusted) |
-| `web.cors` | Single origin, `*`, or comma-separated list |
+| `server.cors.allowed_origins` | CORS origin list; `DOMAIN` entries and trusted-proxy hosts are also included |
 
 Environment variables (`DOMAIN`, `MODE`, `DEBUG`, `DATABASE_DRIVER`, `SMTP_*`, and more), the full GeoIP/cache/rate-limit/logging schema, reverse-proxy examples, and the complete key reference live in [docs/configuration.md](docs/configuration.md).
 

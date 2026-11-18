@@ -49,11 +49,10 @@ type SSLManagerConfig struct {
 	MinVersion  string
 	LetsEncrypt LetsEncryptConfig
 	// EncryptionKey is the base64-encoded 32-byte AES-256-GCM key (server.security.encryption_key)
-	// used to decrypt DNSCredentialsEncrypted at the point of use, per AI.md PART 11/PART 15.
+	// used to decrypt DNSCredentials at the point of use, per AI.md PART 11/PART 15.
 	EncryptionKey string
-	// OnDNSCredentialsValidated is called with an RFC3339 timestamp after a successful
-	// DNS-01 credential validation, so the caller can persist dns_credentials.validated_at.
-	OnDNSCredentialsValidated func(validatedAt string)
+	// OnDNSCertificateIssued is called after a DNS-01 certificate is successfully issued.
+	OnDNSCertificateIssued func(issuedAt string)
 }
 
 // LetsEncryptConfig holds Let's Encrypt settings
@@ -66,9 +65,9 @@ type LetsEncryptConfig struct {
 	// DNSProvider is the lego DNS provider name (e.g. "cloudflare", "route53", "digitalocean"),
 	// used only when Challenge is "dns-01". See https://go-acme.github.io/lego/dns/ for the full list.
 	DNSProvider string
-	// DNSCredentialsEncrypted is the base64-encoded AES-256-GCM ciphertext of the JSON-encoded
-	// provider credential map, decrypted at the point of use and never cached longer than
-	// necessary. Used only when Challenge is "dns-01". Per AI.md PART 15.
+	// DNSCredentials maps lego environment variable names to enc:v1 encrypted values.
+	DNSCredentials map[string]string
+	// DNSCredentialsEncrypted reads the legacy encrypted blob during migration only.
 	DNSCredentialsEncrypted string
 	// caDirURL overrides the ACME directory URL when set, bypassing the Staging/Production
 	// selection below. Unexported: internal test seam only, never populated from config/CLI/env.
@@ -257,6 +256,9 @@ func (m *SSLManager) obtainLetsEncryptCert(domains []string) (certPath, keyPath 
 	if err != nil {
 		return "", "", fmt.Errorf("obtain certificate: %w", err)
 	}
+	if ParseChallenge(m.config.LetsEncrypt.Challenge) == "dns-01" && m.config.OnDNSCertificateIssued != nil {
+		m.config.OnDNSCertificateIssued(time.Now().UTC().Format(time.RFC3339))
+	}
 
 	outDir := filepath.Join(m.config.CertPath, "letsencrypt", domains[0])
 	if err := os.MkdirAll(outDir, 0700); err != nil {
@@ -359,6 +361,29 @@ func (m *SSLManager) setChallengeProvider(client *lego.Client) (func(), error) {
 // plaintext provider credential map. The decrypted map must never be cached or
 // persisted — callers use it immediately and let it fall out of scope.
 func (m *SSLManager) decryptDNSCredentials() (map[string]string, error) {
+	if len(m.config.LetsEncrypt.DNSCredentials) > 0 {
+		keyText := strings.TrimSpace(m.config.EncryptionKey)
+		key, err := base64.StdEncoding.DecodeString(keyText)
+		if err != nil {
+			return nil, fmt.Errorf("decode server.security.encryption_key: %w", err)
+		}
+		credentials := make(map[string]string, len(m.config.LetsEncrypt.DNSCredentials))
+		for name, value := range m.config.LetsEncrypt.DNSCredentials {
+			if !strings.HasPrefix(value, "enc:v1:") {
+				return nil, fmt.Errorf("dns credential %s is not encrypted", name)
+			}
+			ciphertext, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(value, "enc:v1:"))
+			if err != nil {
+				return nil, fmt.Errorf("decode dns credential %s: %w", name, err)
+			}
+			plaintext, err := security.DecryptWithSecret(key, ciphertext, "dns_credentials:"+name)
+			if err != nil {
+				return nil, fmt.Errorf("decrypt dns credential %s: %w", name, err)
+			}
+			credentials[name] = string(plaintext)
+		}
+		return credentials, nil
+	}
 	encrypted := strings.TrimSpace(m.config.LetsEncrypt.DNSCredentialsEncrypted)
 	if encrypted == "" {
 		return nil, fmt.Errorf("dns-01 challenge selected but no dns_credentials configured")
@@ -422,9 +447,6 @@ func (m *SSLManager) ValidateDNSCredentials() error {
 	if _, err := m.dnsProvider(); err != nil {
 		return err
 	}
-	if m.config.OnDNSCredentialsValidated != nil {
-		m.config.OnDNSCredentialsValidated(time.Now().UTC().Format(time.RFC3339))
-	}
 	return nil
 }
 
@@ -442,26 +464,46 @@ func (m *SSLManager) dnsProvider() (challenge.Provider, error) {
 	if err != nil {
 		return nil, err
 	}
+	dnsProviderEnvMu.Lock()
+	defer dnsProviderEnvMu.Unlock()
+	previous := make(map[string]envValue, len(creds))
 	for key, value := range creds {
+		old, exists := os.LookupEnv(key)
+		previous[key] = envValue{value: old, exists: exists}
 		if err := os.Setenv(key, value); err != nil {
+			restoreDNSProviderEnv(previous)
 			return nil, fmt.Errorf("set env %s for dns provider %s: %w", key, name, err)
 		}
 	}
-	// lego's provider constructors read their config from the environment
-	// only during construction (via env.Get()/NewDefaultConfig()), so the
-	// decrypted credentials are no longer needed afterward. Unset them
-	// immediately so they are never left sitting in the process environment,
-	// honoring decryptDNSCredentials' "never cached/persisted" contract.
-	defer func() {
-		for key := range creds {
-			_ = os.Unsetenv(key)
-		}
-	}()
+	defer restoreDNSProviderEnv(previous)
 	provider, err := dns.NewDNSChallengeProviderByName(name)
 	if err != nil {
-		return nil, fmt.Errorf("dns provider %q: %w", name, err)
+		message := err.Error()
+		for _, value := range creds {
+			if value != "" {
+				message = strings.ReplaceAll(message, value, "********")
+			}
+		}
+		return nil, fmt.Errorf("dns provider %q: %s", name, message)
 	}
 	return provider, nil
+}
+
+var dnsProviderEnvMu sync.Mutex
+
+type envValue struct {
+	value  string
+	exists bool
+}
+
+func restoreDNSProviderEnv(previous map[string]envValue) {
+	for key, old := range previous {
+		if old.exists {
+			_ = os.Setenv(key, old.value)
+		} else {
+			_ = os.Unsetenv(key)
+		}
+	}
 }
 
 // acmeDir returns {config_dir}/ssl/letsencrypt/account/, where the ACME
