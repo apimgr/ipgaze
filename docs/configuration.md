@@ -499,9 +499,11 @@ missing key. Provider hosts are added only for the selected provider, and
 Tor/I2P requests always use the built-in challenge. The built-in challenge
 stores a keyed answer hash, expires after 10 minutes, and is consumed on the
 first verification attempt. Public form submissions use a 16 KiB request limit,
-a hidden honeypot, a signed form-age token, a content filter, duplicate
-detection, and in-memory IP, email, and global rate limits. Tor and I2P
-submissions skip only the per-IP counter.
+a hidden honeypot, a signed form-age token, markup and link checks, blocked-word
+and domain filters, duplicate detection, and in-memory IP, email, and global
+rate limits. Repeated honeypot, CAPTCHA, content, or duplicate rejections
+temporarily ban the source IP. Tor and I2P submissions skip per-IP limits and
+strike bans.
 
 ```yaml
 pages:
@@ -518,8 +520,12 @@ pages:
       global: 60
       window: 1h
       max_links: 2
+      reject_markup: true
       blocked_words: []
       blocked_email_domains: []
+      blocked_link_domains: []
+      strikes: 3
+      ban_hours: 24
       duplicate_window_hours: 24
 
 web:
