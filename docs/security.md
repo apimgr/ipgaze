@@ -46,7 +46,7 @@ The following endpoints are accessible without authentication:
 | `GET /api/healthz` | Direct JSON health alias |
 | `GET /healthz` | Optional health alias when enabled in `server.yml` |
 | `GET /server/security` | Security overview and reporting links |
-| `GET /server/dpo` | Public DPO contact details, privacy link, and contact form link |
+| `GET /server/dpo` | Public DPO contact details, privacy link, and security page link |
 | `GET /server/security/policy` | Coordinated disclosure policy |
 | `GET /server/security/thanks` | Public researcher acknowledgments |
 | `GET /server/security/report/{tracking_id}` | Researcher report status using the one-shot token in the private acknowledgment link |

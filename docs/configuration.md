@@ -68,7 +68,6 @@ server:
     enabled: true
 
   rate_limit:
-    enabled: true
 
   seo:
     feed:
@@ -386,18 +385,8 @@ labels:
 
 ## MCP Endpoint
 
-The Streamable HTTP MCP endpoint is enabled by default. Set
-`server.mcp.enabled: false` to return the standard JSON `NOT_FOUND` error
-(HTTP `404`) from `/api/v1/server/mcp`, `/api/mcp`, and `/mcp` without
-restarting the server.
-
-```yaml
-server:
-  mcp:
-    enabled: true
-```
-
-MCP exposes the anonymous public API operations without authentication. The
+The Streamable HTTP MCP endpoint is always available at `/api/v1/server/mcp`,
+with aliases at `/api/mcp` and `/mcp`. MCP exposes the anonymous public API operations without authentication. The
 endpoint is stateless, accepts POST requests, validates the `Origin` header,
 and applies the server's rate limits. It does not accept cookies or issue
 MCP-specific tokens.
@@ -431,12 +420,12 @@ Set `type: none` to disable caching entirely. `memcache` uses `host`/`port`
 
 ## Rate Limiting
 
-Rate limiting is bucketed by request class under `server.rate_limit`:
+Rate limiting is always enabled and bucketed by request class under
+`server.rate_limit`:
 
 ```yaml
 server:
   rate_limit:
-    enabled: true
     # Read: GET/HEAD requests
     read:
       requests: 120
@@ -546,17 +535,17 @@ server:
 ```
 
 The DPO page uses `server.contact.dpo.email`, falling back to the general
-contact address only. The page always links to the privacy policy and contact
-form; it publishes an email address only when one is configured. If neither
+contact address only. The page links to the privacy policy and security page;
+it publishes an email address only when one is configured. If neither
 address is available, it explains that no DPO email is configured.
 `web.security.policy` replaces the default disclosure policy text when
 non-empty.
 
 ### Security Headers
 
-Security headers are automatically added from secure defaults and can be
-adjusted under `web.hsts`, `web.csp`, `web.permissions_policy`, and
-`web.headers`:
+Security headers are automatically added from secure defaults. HSTS, CSP, and
+other headers can be adjusted under `web.hsts`, `web.csp`, and `web.headers`.
+Permissions-Policy is fixed by the project and always emitted:
 
 - The default Content-Security-Policy uses `script-src 'self'`; inline scripts
   are blocked. Add a provider host to `web.csp.script_src_extra` only when the
@@ -583,18 +572,16 @@ server:
   logging:
     # level: debug, info, warn, error
     level: warn
+    defaults:
+      custom: ""
+      rotate: weekly,50MB
+      keep: none
     access:
-      enabled: true
-      filename: access.log
       format: apache
       rotate: monthly
-      keep: none
     audit:
-      enabled: true
-      filename: audit.log
       format: json
       rotate: daily
-      keep: none
       compress: false
       include_user_agent: true
       events:
@@ -604,9 +591,9 @@ server:
         server: true
 ```
 
-Each per-file block supports `rotate` (`daily`, `weekly`, `monthly`, or a
-size like `100MB`, combinable) and `keep` (`none`, `N`, `Nd`, `Nw`, `Nm`,
-`forever`) retention settings.
+Each log kind inherits `custom`, `rotate`, and `keep` from `defaults`; a kind
+can override those values. Filenames are derived from the kind, such as
+`access.log` and `audit.log`.
 
 ## Backups
 
@@ -681,7 +668,6 @@ server:
     allow_countries: []
 
   rate_limit:
-    enabled: true
     read:
       requests: 120
       window: 60
@@ -691,10 +677,17 @@ server:
 
   logging:
     level: warn
+    defaults:
+      custom: ""
+      rotate: weekly,50MB
+      keep: none
 
   branding:
     title: "IPGaze"
     tagline: "IP intelligence, self-hosted"
+    description: ""
+    favicon: ""
+    logo: ""
 
   ssl:
     enabled: false

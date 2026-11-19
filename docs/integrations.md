@@ -76,8 +76,8 @@ Example query:
 
 ## Model Context Protocol (MCP)
 
-When `server.mcp.enabled` is true, IPGaze exposes its registered public API
-operations as tools over stateless Streamable HTTP:
+IPGaze exposes its registered public API operations as tools over stateless
+Streamable HTTP:
 
 | Endpoint | Purpose |
 |----------|---------|
