@@ -64,9 +64,29 @@ type PagesConfig struct {
 
 // ContactPageConfig configures the public contact form's CAPTCHA provider.
 type ContactPageConfig struct {
-	Captcha          string `yaml:"captcha"`
-	CaptchaSiteKey   string `yaml:"captcha_site_key"`
-	CaptchaSecretKey string `yaml:"captcha_secret_key"`
+	Captcha          string                `yaml:"captcha"`
+	CaptchaSiteKey   string                `yaml:"captcha_site_key"`
+	CaptchaSecretKey string                `yaml:"captcha_secret_key"`
+	Antispam         ContactAntispamConfig `yaml:"antispam"`
+}
+
+// ContactAntispamConfig controls the server-side contact form checks in AI.md PART 16.
+type ContactAntispamConfig struct {
+	Honeypot             bool     `yaml:"honeypot"`
+	MinFillSeconds       int      `yaml:"min_fill_seconds"`
+	MaxAgeSeconds        int      `yaml:"max_age_seconds"`
+	PerIP                int      `yaml:"per_ip"`
+	PerEmail             int      `yaml:"per_email"`
+	Global               int      `yaml:"global"`
+	Window               string   `yaml:"window"`
+	MaxLinks             int      `yaml:"max_links"`
+	RejectMarkup         bool     `yaml:"reject_markup"`
+	BlockedWords         []string `yaml:"blocked_words"`
+	BlockedEmailDomains  []string `yaml:"blocked_email_domains"`
+	BlockedLinkDomains   []string `yaml:"blocked_link_domains"`
+	Strikes              int      `yaml:"strikes"`
+	BanHours             int      `yaml:"ban_hours"`
+	DuplicateWindowHours int      `yaml:"duplicate_window_hours"`
 }
 
 // OutputConfig controls terminal color and emoji output per AI.md PART 8
@@ -2496,7 +2516,14 @@ func DefaultConfig() *AppConfig {
 			Headers:           DefaultSecurityHeaders(),
 			Reports:           DefaultReportsConfig(),
 		},
-		Pages: PagesConfig{Contact: ContactPageConfig{Captcha: "simple"}},
+		Pages: PagesConfig{Contact: ContactPageConfig{
+			Captcha: "simple",
+			Antispam: ContactAntispamConfig{
+				Honeypot: true, MinFillSeconds: 3, MaxAgeSeconds: 43200,
+				PerIP: 5, PerEmail: 3, Global: 60, Window: "1h",
+				MaxLinks: 2, RejectMarkup: true, Strikes: 3, BanHours: 24, DuplicateWindowHours: 24,
+			},
+		}},
 		Data: DataConfig{
 			CVE: CVEDataConfig{
 				Source:      "https://services.nvd.nist.gov/rest/json/cves/2.0",
@@ -3861,6 +3888,22 @@ pages:
     captcha: %q
     captcha_site_key: %q
     captcha_secret_key: %q
+    antispam:
+      honeypot: %t
+      min_fill_seconds: %d
+      max_age_seconds: %d
+      per_ip: %d
+      per_email: %d
+      global: %d
+      window: %q
+      max_links: %d
+      reject_markup: %t
+      blocked_words: %s
+      blocked_email_domains: %s
+      blocked_link_domains: %s
+      strikes: %d
+      ban_hours: %d
+      duplicate_window_hours: %d
 `,
 		cfg.Server.Token,
 		cfg.Server.Port,
@@ -4187,6 +4230,21 @@ pages:
 		cfg.Pages.Contact.Captcha,
 		cfg.Pages.Contact.CaptchaSiteKey,
 		cfg.Pages.Contact.CaptchaSecretKey,
+		cfg.Pages.Contact.Antispam.Honeypot,
+		cfg.Pages.Contact.Antispam.MinFillSeconds,
+		cfg.Pages.Contact.Antispam.MaxAgeSeconds,
+		cfg.Pages.Contact.Antispam.PerIP,
+		cfg.Pages.Contact.Antispam.PerEmail,
+		cfg.Pages.Contact.Antispam.Global,
+		cfg.Pages.Contact.Antispam.Window,
+		cfg.Pages.Contact.Antispam.MaxLinks,
+		cfg.Pages.Contact.Antispam.RejectMarkup,
+		formatStringSlice(cfg.Pages.Contact.Antispam.BlockedWords),
+		formatStringSlice(cfg.Pages.Contact.Antispam.BlockedEmailDomains),
+		formatStringSlice(cfg.Pages.Contact.Antispam.BlockedLinkDomains),
+		cfg.Pages.Contact.Antispam.Strikes,
+		cfg.Pages.Contact.Antispam.BanHours,
+		cfg.Pages.Contact.Antispam.DuplicateWindowHours,
 	)
 }
 

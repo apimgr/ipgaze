@@ -59,6 +59,15 @@ func TestDefaultConfig_ServerDefaults(t *testing.T) {
 	}
 }
 
+func TestDefaultConfig_ContactAntispamDefaults(t *testing.T) {
+	antispam := DefaultConfig().Pages.Contact.Antispam
+	if !antispam.Honeypot || antispam.MinFillSeconds != 3 || antispam.MaxAgeSeconds != 43200 ||
+		antispam.PerIP != 5 || antispam.PerEmail != 3 || antispam.Global != 60 || antispam.Window != "1h" ||
+		antispam.MaxLinks != 2 || !antispam.RejectMarkup || antispam.Strikes != 3 || antispam.BanHours != 24 {
+		t.Fatalf("contact antispam defaults = %+v", antispam)
+	}
+}
+
 func TestComplianceConfig_StandardsDefaultDisabledAndOrdered(t *testing.T) {
 	var cfg ComplianceConfig
 	if cfg.IsEnabled() || len(cfg.EnabledStandards()) != 0 {
@@ -1479,6 +1488,13 @@ func TestGenerateConfigYAML_ContainsRequiredKeys(t *testing.T) {
 		"tor:",
 		"cache:",
 		"branding:",
+		"antispam:",
+		"min_fill_seconds: 3",
+		"per_email: 3",
+		"global: 60",
+		"reject_markup: true",
+		"strikes: 3",
+		"ban_hours: 24",
 	}
 	for _, key := range requiredKeys {
 		if !strings.Contains(yaml, key) {

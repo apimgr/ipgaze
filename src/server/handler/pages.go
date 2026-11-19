@@ -24,7 +24,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	i18n "github.com/apimgr/ipgaze/src/common/i18n"
@@ -120,43 +119,6 @@ type MCPHelpResponse struct {
 	Project string               `json:"project"`
 }
 
-// contactThrottle rate-limits /server/contact submissions per client IP so a
-// single sender can't flood the configured recipients (AI.md PART 12:
-// general/abuse roles are "spam-filtered before dispatch"). This is a simple
-// per-IP cooldown, not content-based spam filtering.
-var contactThrottle = struct {
-	mu   sync.Mutex
-	last map[string]time.Time
-}{last: make(map[string]time.Time)}
-
-// contactThrottleWindow is the minimum time between accepted submissions
-// from the same client IP.
-const contactThrottleWindow = 60 * time.Second
-
-// contactThrottleMaxEntries bounds the per-IP timestamp map. The endpoint is
-// unauthenticated, so without a ceiling a spoofed-source flood would grow the
-// map without limit; past this size expired entries are swept before insert.
-const contactThrottleMaxEntries = 4096
-
-// allowContactSubmission reports whether a submission from ip should be
-// accepted, recording the attempt either way.
-func allowContactSubmission(ip string) bool {
-	contactThrottle.mu.Lock()
-	defer contactThrottle.mu.Unlock()
-	if t, ok := contactThrottle.last[ip]; ok && time.Since(t) < contactThrottleWindow {
-		return false
-	}
-	if len(contactThrottle.last) >= contactThrottleMaxEntries {
-		for k, t := range contactThrottle.last {
-			if time.Since(t) >= contactThrottleWindow {
-				delete(contactThrottle.last, k)
-			}
-		}
-	}
-	contactThrottle.last[ip] = time.Now()
-	return true
-}
-
 // NewPagesHandler creates a new PagesHandler with the provided renderer and trust resolver.
 func NewPagesHandler(version, buildDate string, trust *netutil.TrustResolver, render func(http.ResponseWriter, *http.Request, string, interface{}) error) *PagesHandler {
 	return &PagesHandler{
@@ -220,6 +182,7 @@ type PageData struct {
 	SecurityReportTrackingID string
 	CaptchaQuestion          string
 	CaptchaToken             string
+	ContactFormToken         string
 	CaptchaProvider          string
 	CaptchaSiteKey           string
 	ContactError             string
@@ -894,18 +857,44 @@ func (h *PagesHandler) buildDPOResponse() DPOResponse {
 // email + webhooks per AI.md PART 12.
 func (h *PagesHandler) ServerContactHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodPost {
+		if retry := h.contactBan(h.clientIP(r), r, time.Now()); retry > 0 {
+			w.Header().Set("Retry-After", contactRetryAfter(&contactRateLimitError{RetryAfter: retry}))
+			h.logContactBlock(r, "banned")
+			h.renderContactError(w, r, http.StatusTooManyRequests)
+			return
+		}
+		r.Body = http.MaxBytesReader(w, r.Body, maxContactRequestBytes)
 		if err := r.ParseForm(); err == nil {
 			req := contactRequestFromForm(r, h.contactCaptchaProvider(r))
-			validSecurityID, _ := h.validSecurityID(req.SecurityID)
-			if contactFieldLengthViolation(req, validSecurityID) != nil {
+			if !validContactFormFields(r.Form) {
+				h.logContactBlock(r, "shape")
 				h.renderContactError(w, r, http.StatusBadRequest)
 				return
 			}
-			if validSecurityID {
-				if !allowContactSubmission(h.clientIP(r)) {
+			validSecurityID, _ := h.validSecurityID(req.SecurityID)
+			if contactFieldLengthViolation(req, validSecurityID) != nil || validSecurityID && !validateContactReportShape(req) || !validSecurityID && (!validStandardContactRequest(req) || !validateContactStandardShape(req)) {
+				h.logContactBlock(r, "shape")
+				h.renderContactError(w, r, http.StatusBadRequest)
+				return
+			}
+			if h.contactAntispamConfig().Honeypot && req.Website != "" {
+				if h.logContactBlock(r, "honeypot") {
+					w.Header().Set("Retry-After", fmt.Sprint(h.contactAntispamConfig().BanHours*3600))
 					h.renderContactError(w, r, http.StatusTooManyRequests)
 					return
 				}
+				if validSecurityID {
+					w.Header().Set("Cache-Control", "no-store")
+					data := h.NewPageData(r)
+					data.SecurityReportSubmitted = true
+					data.SecurityReportTrackingID, _ = security.NewSecurityTrackingID()
+					h.renderNegotiated(w, r, "contact.tmpl", data, ContactResponse{Success: true, Message: translateRequest(r, "contact.report_received_body"), TrackingID: data.SecurityReportTrackingID})
+				} else {
+					http.Redirect(w, r, "/server/contact", http.StatusSeeOther)
+				}
+				return
+			}
+			if validSecurityID {
 				if id, err := h.submitSecurityReport(r, req); err == nil {
 					w.Header().Set("Cache-Control", "no-store")
 					data := h.NewPageData(r)
@@ -913,6 +902,13 @@ func (h *PagesHandler) ServerContactHandler(w http.ResponseWriter, r *http.Reque
 					data.SecurityReportTrackingID = id
 					h.renderNegotiated(w, r, "contact.tmpl", data, ContactResponse{Success: true, Message: translateRequest(r, "contact.report_received_body"), TrackingID: id})
 					return
+				} else if errors.Is(err, errContactFormToken) {
+					h.logContactBlock(r, "fill_time")
+					h.renderContactErrorMessage(w, r, http.StatusBadRequest, "Please wait a moment and submit again")
+				} else if rateErr := new(contactRateLimitError); errors.As(err, &rateErr) {
+					w.Header().Set("Retry-After", contactRetryAfter(rateErr))
+					h.logContactBlock(r, rateErr.Reason)
+					h.renderContactError(w, r, http.StatusTooManyRequests)
 				} else if errors.Is(err, errCaptchaProviderUnavailable) {
 					h.renderContactError(w, r, http.StatusServiceUnavailable)
 				} else {
@@ -921,7 +917,18 @@ func (h *PagesHandler) ServerContactHandler(w http.ResponseWriter, r *http.Reque
 				return
 			}
 			if !validStandardContactRequest(req) {
+				h.logContactBlock(r, "shape")
 				http.Redirect(w, r, "/server/contact", http.StatusSeeOther)
+				return
+			}
+			if !validateContactStandardShape(req) {
+				h.logContactBlock(r, "shape")
+				h.renderContactError(w, r, http.StatusBadRequest)
+				return
+			}
+			if !h.verifyContactFormToken(req.FormToken, time.Now()) {
+				h.logContactBlock(r, "fill_time")
+				h.renderContactErrorMessage(w, r, http.StatusBadRequest, "Please wait a moment and submit again")
 				return
 			}
 			validCaptcha, captchaErr := h.verifyContactCaptcha(r, req.CaptchaToken, req.Captcha, time.Now())
@@ -930,14 +937,49 @@ func (h *PagesHandler) ServerContactHandler(w http.ResponseWriter, r *http.Reque
 				return
 			}
 			if !validCaptcha {
+				if h.logContactBlock(r, "captcha") {
+					w.Header().Set("Retry-After", fmt.Sprint(h.contactAntispamConfig().BanHours*3600))
+					h.renderContactError(w, r, http.StatusTooManyRequests)
+					return
+				}
 				h.renderContactError(w, r, http.StatusBadRequest)
 				return
 			}
-			if !allowContactSubmission(h.clientIP(r)) {
+			antispam := h.contactAntispamConfig()
+			if contactContentBlocked(req, antispam) {
+				if h.logContactBlock(r, contactContentBlockReason(req, antispam)) {
+					w.Header().Set("Retry-After", fmt.Sprint(antispam.BanHours*3600))
+					h.renderContactError(w, r, http.StatusTooManyRequests)
+					return
+				}
+				h.renderContactErrorMessage(w, r, http.StatusBadRequest, "Your message could not be sent")
+				return
+			}
+			duplicateWindow := time.Duration(antispam.DuplicateWindowHours) * time.Hour
+			if duplicateContactSubmission(req, time.Now(), duplicateWindow, false) {
+				if h.logContactBlock(r, "duplicate") {
+					w.Header().Set("Retry-After", fmt.Sprint(antispam.BanHours*3600))
+					h.renderContactError(w, r, http.StatusTooManyRequests)
+					return
+				}
+				http.Redirect(w, r, "/server/contact", http.StatusSeeOther)
+				return
+			}
+			if rateErr := h.allowContactRate(h.clientIP(r), req.Email, r, time.Now()); rateErr != nil {
+				w.Header().Set("Retry-After", contactRetryAfter(rateErr))
+				h.logContactBlock(r, rateErr.Reason)
 				h.renderContactError(w, r, http.StatusTooManyRequests)
 				return
 			}
+			if duplicateContactSubmission(req, time.Now(), duplicateWindow, true) {
+				h.logContactBlock(r, "duplicate")
+				http.Redirect(w, r, "/server/contact", http.StatusSeeOther)
+				return
+			}
 			h.dispatchContactSubmission(r, req)
+		} else {
+			h.renderContactError(w, r, http.StatusBadRequest)
+			return
 		}
 		http.Redirect(w, r, "/server/contact", http.StatusSeeOther)
 		return
@@ -952,11 +994,13 @@ func (h *PagesHandler) ServerContactHandler(w http.ResponseWriter, r *http.Reque
 		}
 	}
 	data.CaptchaProvider, data.CaptchaQuestion, data.CaptchaToken = h.newContactCaptcha(r, time.Now())
+	data.ContactFormToken = h.newContactFormToken(time.Now())
 	if data.CaptchaProvider != "simple" && h.Config != nil {
 		data.CaptchaSiteKey = h.Config.Pages.Contact.CaptchaSiteKey
 	}
 	form := buildContactFormResponse()
 	form.CaptchaQuestion, form.CaptchaToken = data.CaptchaQuestion, data.CaptchaToken
+	form.FormToken = data.ContactFormToken
 	form.CaptchaProvider, form.CaptchaSiteKey = data.CaptchaProvider, data.CaptchaSiteKey
 	form.SecurityReportMode = data.SecurityReportMode
 	form.Captcha = ContactCaptcha{Provider: data.CaptchaProvider, Challenge: data.CaptchaToken, Question: data.CaptchaQuestion}
@@ -966,7 +1010,7 @@ func (h *PagesHandler) ServerContactHandler(w http.ResponseWriter, r *http.Reque
 	form.SecurityURL = netutil.BuildURL(r, h.Trust, "/server/security")
 	form.AbuseEmail = data.AbuseEmail
 	if data.SecurityReportMode {
-		form.FieldNames = []string{"name", "handle", "email", "captcha", "captcha_token", "researcher_gpg", "affected_component", "affected_endpoint", "severity", "summary", "steps_to_reproduce", "impact", "suggested_fix", "cve_requested", "disclosure_days", "credit_preference", "coordinated_disclosure_agreement"}
+		form.FieldNames = []string{"form_token", "website", "name", "handle", "email", "captcha", "captcha_token", "researcher_gpg", "affected_component", "affected_endpoint", "severity", "summary", "steps_to_reproduce", "impact", "suggested_fix", "cve_requested", "disclosure_days", "credit_preference", "coordinated_disclosure_agreement"}
 		form.Fields = contactFieldsForNames(form.FieldNames)
 	}
 	h.renderNegotiated(w, r, "contact.tmpl", data, form)
@@ -982,6 +1026,7 @@ func contactRequestFromForm(r *http.Request, provider string) ContactRequest {
 	}
 	return ContactRequest{
 		Name: strings.TrimSpace(r.FormValue("name")), Handle: strings.TrimSpace(r.FormValue("handle")), Email: strings.TrimSpace(r.FormValue("email")),
+		Website: strings.TrimSpace(r.FormValue("website")), FormToken: strings.TrimSpace(r.FormValue("form_token")),
 		Subject: strings.TrimSpace(r.FormValue("subject")), Message: strings.TrimSpace(r.FormValue("message")),
 		SecurityID: strings.TrimSpace(r.FormValue("security_id")), ResearcherGPG: strings.TrimSpace(r.FormValue("researcher_gpg")),
 		AffectedComponent: strings.TrimSpace(r.FormValue("affected_component")), AffectedEndpoint: strings.TrimSpace(r.FormValue("affected_endpoint")),
@@ -994,6 +1039,36 @@ func contactRequestFromForm(r *http.Request, provider string) ContactRequest {
 	}
 }
 
+func (h *PagesHandler) logContactBlock(r *http.Request, reason string) bool {
+	if h.strikeContact(h.clientIP(r), r, reason, time.Now()) > 0 {
+		if h.SecurityLogger != nil {
+			h.SecurityLogger("contact.spam_blocked reason="+reason, h.clientIP(r))
+		}
+		return true
+	}
+	if h.SecurityLogger != nil {
+		h.SecurityLogger("contact.spam_blocked reason="+reason, h.clientIP(r))
+	}
+	return false
+}
+
+func validContactFormFields(values url.Values) bool {
+	allowed := map[string]struct{}{
+		"csrf_token": {}, "form_token": {}, "website": {}, "name": {}, "handle": {}, "email": {},
+		"subject": {}, "message": {}, "captcha": {}, "captcha_token": {}, "g-recaptcha-response": {},
+		"h-captcha-response": {}, "security_id": {}, "researcher_gpg": {}, "affected_component": {},
+		"affected_endpoint": {}, "severity": {}, "summary": {}, "steps_to_reproduce": {}, "impact": {},
+		"suggested_fix": {}, "cve_requested": {}, "disclosure_days": {}, "credit_preference": {},
+		"coordinated_disclosure_agreement": {},
+	}
+	for name := range values {
+		if _, ok := allowed[name]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
 // ContactFormResponse describes the contact form to a non-browser client, so
 // our CLI can render the same submission form the HTML page offers. The field
 // list mirrors the form fields ServerContactHandler's POST branch reads.
@@ -1003,6 +1078,7 @@ type ContactFormResponse struct {
 	Fields             []ContactField `json:"fields"`
 	FieldNames         []string       `json:"-"`
 	Captcha            ContactCaptcha `json:"captcha"`
+	FormToken          string         `json:"form_token"`
 	SecurityURL        string         `json:"security_url"`
 	AbuseEmail         string         `json:"abuse_email"`
 	CaptchaQuestion    string         `json:"-"`
@@ -1029,7 +1105,7 @@ type ContactCaptcha struct {
 // buildContactFormResponse returns the contact form description served to
 // non-browser clients on GET /server/contact.
 func buildContactFormResponse() ContactFormResponse {
-	names := []string{"name", "email", "subject", "message", "captcha", "captcha_token"}
+	names := []string{"form_token", "website", "name", "email", "subject", "message", "captcha", "captcha_token"}
 	return ContactFormResponse{
 		Method:     http.MethodPost,
 		Action:     "/api/v1/server/contact",
@@ -1044,6 +1120,7 @@ func (h *PagesHandler) ContactFormDefinition(r *http.Request) ContactFormRespons
 	data := h.NewPageData(r)
 	provider, question, challenge := h.newContactCaptcha(r, time.Now())
 	form := buildContactFormResponse()
+	form.FormToken = h.newContactFormToken(time.Now())
 	form.Captcha = ContactCaptcha{Provider: provider, Challenge: challenge, Question: question}
 	if provider != "simple" && h.Config != nil {
 		form.Captcha.SiteKey = h.Config.Pages.Contact.CaptchaSiteKey
@@ -1052,7 +1129,7 @@ func (h *PagesHandler) ContactFormDefinition(r *http.Request) ContactFormRespons
 	form.AbuseEmail = data.AbuseEmail
 	if securityID := r.URL.Query().Get("security_id"); securityID != "" {
 		if valid, err := h.validSecurityID(securityID); err == nil && valid {
-			form.Fields = contactFieldsForNames([]string{"name", "handle", "email", "captcha", "captcha_token", "researcher_gpg", "affected_component", "affected_endpoint", "severity", "summary", "steps_to_reproduce", "impact", "suggested_fix", "cve_requested", "disclosure_days", "credit_preference", "coordinated_disclosure_agreement"})
+			form.Fields = contactFieldsForNames([]string{"form_token", "website", "name", "handle", "email", "captcha", "captcha_token", "researcher_gpg", "affected_component", "affected_endpoint", "severity", "summary", "steps_to_reproduce", "impact", "suggested_fix", "cve_requested", "disclosure_days", "credit_preference", "coordinated_disclosure_agreement"})
 		}
 	}
 	return form
@@ -1063,10 +1140,12 @@ func contactFieldsForNames(names []string) []ContactField {
 	for _, name := range names {
 		typeName, required := "text", false
 		switch name {
-		case "name", "email", "subject", "message", "captcha", "affected_component", "severity", "summary", "steps_to_reproduce", "impact", "credit_preference", "coordinated_disclosure_agreement":
+		case "form_token", "name", "email", "subject", "message", "captcha", "affected_component", "severity", "summary", "steps_to_reproduce", "impact", "credit_preference", "coordinated_disclosure_agreement":
 			required = true
 		}
 		switch name {
+		case "website":
+			typeName = "hidden"
 		case "email":
 			typeName = "email"
 		case "message", "summary", "steps_to_reproduce", "impact", "suggested_fix":
@@ -1151,6 +1230,8 @@ func contactFieldLengthViolation(req ContactRequest, securityMode bool) *contact
 
 // ContactRequest for POST submissions
 type ContactRequest struct {
+	Website              string `json:"website,omitempty"`
+	FormToken            string `json:"form_token"`
 	Name                 string `json:"name"`
 	Handle               string `json:"handle,omitempty"`
 	Email                string `json:"email"`
@@ -1190,11 +1271,30 @@ func (h *PagesHandler) APIV1ServerContactHandler(w http.ResponseWriter, r *http.
 		SendAPIResponseError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", i18n.T(r.Context(), "errors.method_not_allowed"), nil)
 		return
 	}
+	if retry := h.contactBan(h.clientIP(r), r, time.Now()); retry > 0 {
+		w.Header().Set("Retry-After", contactRetryAfter(&contactRateLimitError{RetryAfter: retry}))
+		h.logContactBlock(r, "banned")
+		SendAPIResponseError(w, http.StatusTooManyRequests, "RATE_LIMITED", i18n.T(r.Context(), "errors.rate_limited"), nil)
+		return
+	}
 
 	var req ContactRequest
-	// A malformed/empty body just yields a zero-value req, caught by the
-	// validation check below — no separate decode-error branch needed.
-	_ = json.NewDecoder(r.Body).Decode(&req)
+	r.Body = http.MaxBytesReader(w, r.Body, maxContactRequestBytes)
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&req); err != nil {
+		h.logContactBlock(r, "shape")
+		SendAPIResponseError(w, http.StatusBadRequest, "VALIDATION_FAILED", i18n.T(r.Context(), "errors.bad_request"), nil)
+		return
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		h.logContactBlock(r, "shape")
+		SendAPIResponseError(w, http.StatusBadRequest, "VALIDATION_FAILED", i18n.T(r.Context(), "errors.bad_request"), nil)
+		return
+	}
+	req.Website = strings.TrimSpace(req.Website)
+	req.FormToken = strings.TrimSpace(req.FormToken)
 	req.Name = strings.TrimSpace(req.Name)
 	req.Email = strings.TrimSpace(req.Email)
 	req.Subject = strings.TrimSpace(req.Subject)
@@ -1212,24 +1312,64 @@ func (h *PagesHandler) APIV1ServerContactHandler(w http.ResponseWriter, r *http.
 	req.CreditPreference = strings.TrimSpace(req.CreditPreference)
 	req.Captcha = strings.TrimSpace(req.Captcha)
 	req.CaptchaToken = strings.TrimSpace(req.CaptchaToken)
-
 	validSecurityID, securityIDErr := h.validSecurityID(req.SecurityID)
+	isSecurityReport := securityIDErr == nil && validSecurityID
+	if violation := contactFieldLengthViolation(req, securityIDErr == nil && validSecurityID); violation != nil {
+		h.logContactBlock(r, "shape")
+		SendAPIResponseError(w, http.StatusBadRequest, "VALIDATION_FAILED", "Contact field exceeds the maximum length", violation)
+		return
+	}
+	if isSecurityReport {
+		if !validateContactReportShape(req) {
+			h.logContactBlock(r, "shape")
+			SendAPIResponseError(w, http.StatusBadRequest, "VALIDATION_FAILED", i18n.T(r.Context(), "errors.bad_request"), nil)
+			return
+		}
+	} else if !validStandardContactRequest(req) || !validateContactStandardShape(req) {
+		h.logContactBlock(r, "shape")
+		SendAPIResponseError(w, http.StatusBadRequest, "VALIDATION_FAILED", i18n.T(r.Context(), "errors.bad_request"), nil)
+		return
+	}
+	if h.contactAntispamConfig().Honeypot && req.Website != "" {
+		message := i18n.T(r.Context(), "contact.success")
+		response := ContactResponse{Success: true, Message: message}
+		if h.logContactBlock(r, "honeypot") {
+			w.Header().Set("Retry-After", fmt.Sprint(h.contactAntispamConfig().BanHours*3600))
+			SendAPIResponseError(w, http.StatusTooManyRequests, "RATE_LIMITED", i18n.T(r.Context(), "errors.rate_limited"), nil)
+			return
+		}
+		if securityIDErr == nil && validSecurityID {
+			message = translateRequest(r, "contact.report_received_body")
+			response.TrackingID, _ = security.NewSecurityTrackingID()
+		}
+		response.Message = message
+		SendAPIResponseOK(w, response, nil)
+		return
+	}
 	if req.SecurityID != "" && securityIDErr == nil && !validSecurityID && h.SecurityLogger != nil {
 		h.logInvalidSecurityID(r, req.SecurityID)
 	}
 	if securityIDErr == nil && validSecurityID {
-		if violation := contactFieldLengthViolation(req, true); violation != nil {
-			SendAPIResponseError(w, http.StatusBadRequest, "VALIDATION_FAILED", "Contact field exceeds the maximum length", violation)
+		if !validateContactReportShape(req) {
+			h.logContactBlock(r, "shape")
+			SendAPIResponseError(w, http.StatusBadRequest, "VALIDATION_FAILED", i18n.T(r.Context(), "errors.bad_request"), nil)
 			return
 		}
-		if !allowContactSubmission(h.clientIP(r)) {
-			SendAPIResponseError(w, http.StatusTooManyRequests, "RATE_LIMITED", i18n.T(r.Context(), "errors.rate_limited"), nil)
+		if violation := contactFieldLengthViolation(req, true); violation != nil {
+			h.logContactBlock(r, "shape")
+			SendAPIResponseError(w, http.StatusBadRequest, "VALIDATION_FAILED", "Contact field exceeds the maximum length", violation)
 			return
 		}
 		trackingID, err := h.submitSecurityReport(r, req)
 		if err != nil {
-			if errors.Is(err, errCaptchaProviderUnavailable) {
+			if errors.Is(err, errContactFormToken) {
+				SendAPIResponseError(w, http.StatusBadRequest, "VALIDATION_FAILED", "Please wait a moment and submit again", map[string]string{"form_token": h.newContactFormToken(time.Now())})
+			} else if errors.Is(err, errCaptchaProviderUnavailable) {
 				SendAPIResponseError(w, http.StatusServiceUnavailable, "CAPTCHA_UNAVAILABLE", i18n.T(r.Context(), "errors.maintenance_mode"), nil)
+			} else if rateErr := new(contactRateLimitError); errors.As(err, &rateErr) {
+				w.Header().Set("Retry-After", contactRetryAfter(rateErr))
+				h.logContactBlock(r, rateErr.Reason)
+				SendAPIResponseError(w, http.StatusTooManyRequests, "RATE_LIMITED", i18n.T(r.Context(), "errors.rate_limited"), nil)
 			} else {
 				SendAPIResponseError(w, http.StatusBadRequest, "BAD_REQUEST", i18n.T(r.Context(), "errors.bad_request"), nil)
 			}
@@ -1241,13 +1381,20 @@ func (h *PagesHandler) APIV1ServerContactHandler(w http.ResponseWriter, r *http.
 
 	switch {
 	case contactFieldLengthViolation(req, false) != nil:
+		h.logContactBlock(r, "shape")
 		SendAPIResponseError(w, http.StatusBadRequest, "VALIDATION_FAILED", "Contact field exceeds the maximum length", contactFieldLengthViolation(req, false))
 		return
 	case !validStandardContactRequest(req):
+		h.logContactBlock(r, "shape")
 		SendAPIResponseError(w, http.StatusBadRequest, "BAD_REQUEST", i18n.T(r.Context(), "errors.bad_request"), nil)
 		return
-	case !allowContactSubmission(h.clientIP(r)):
-		SendAPIResponseError(w, http.StatusTooManyRequests, "RATE_LIMITED", i18n.T(r.Context(), "errors.rate_limited"), nil)
+	case !validateContactStandardShape(req):
+		h.logContactBlock(r, "shape")
+		SendAPIResponseError(w, http.StatusBadRequest, "VALIDATION_FAILED", i18n.T(r.Context(), "errors.bad_request"), nil)
+		return
+	case !h.verifyContactFormToken(req.FormToken, time.Now()):
+		h.logContactBlock(r, "fill_time")
+		SendAPIResponseError(w, http.StatusBadRequest, "VALIDATION_FAILED", "Please wait a moment and submit again", map[string]string{"form_token": h.newContactFormToken(time.Now())})
 		return
 	default:
 		validCaptcha, captchaErr := h.verifyContactCaptcha(r, req.CaptchaToken, req.Captcha, time.Now())
@@ -1256,7 +1403,43 @@ func (h *PagesHandler) APIV1ServerContactHandler(w http.ResponseWriter, r *http.
 			return
 		}
 		if !validCaptcha {
+			if h.logContactBlock(r, "captcha") {
+				w.Header().Set("Retry-After", fmt.Sprint(h.contactAntispamConfig().BanHours*3600))
+				SendAPIResponseError(w, http.StatusTooManyRequests, "RATE_LIMITED", i18n.T(r.Context(), "errors.rate_limited"), nil)
+				return
+			}
 			SendAPIResponseError(w, http.StatusBadRequest, "BAD_REQUEST", i18n.T(r.Context(), "errors.bad_request"), nil)
+			return
+		}
+		antispam := h.contactAntispamConfig()
+		if contactContentBlocked(req, antispam) {
+			if h.logContactBlock(r, contactContentBlockReason(req, antispam)) {
+				w.Header().Set("Retry-After", fmt.Sprint(antispam.BanHours*3600))
+				SendAPIResponseError(w, http.StatusTooManyRequests, "RATE_LIMITED", i18n.T(r.Context(), "errors.rate_limited"), nil)
+				return
+			}
+			SendAPIResponseError(w, http.StatusBadRequest, "VALIDATION_FAILED", "Your message could not be sent", nil)
+			return
+		}
+		duplicateWindow := time.Duration(antispam.DuplicateWindowHours) * time.Hour
+		if duplicateContactSubmission(req, time.Now(), duplicateWindow, false) {
+			if h.logContactBlock(r, "duplicate") {
+				w.Header().Set("Retry-After", fmt.Sprint(antispam.BanHours*3600))
+				SendAPIResponseError(w, http.StatusTooManyRequests, "RATE_LIMITED", i18n.T(r.Context(), "errors.rate_limited"), nil)
+				return
+			}
+			SendAPIResponseOK(w, ContactResponse{Success: true, Message: i18n.T(r.Context(), "contact.success")}, nil)
+			return
+		}
+		if rateErr := h.allowContactRate(h.clientIP(r), req.Email, r, time.Now()); rateErr != nil {
+			w.Header().Set("Retry-After", contactRetryAfter(rateErr))
+			h.logContactBlock(r, rateErr.Reason)
+			SendAPIResponseError(w, http.StatusTooManyRequests, "RATE_LIMITED", i18n.T(r.Context(), "errors.rate_limited"), nil)
+			return
+		}
+		if duplicateContactSubmission(req, time.Now(), duplicateWindow, true) {
+			h.logContactBlock(r, "duplicate")
+			SendAPIResponseOK(w, ContactResponse{Success: true, Message: i18n.T(r.Context(), "contact.success")}, nil)
 			return
 		}
 		h.dispatchContactSubmission(r, req)
@@ -1439,7 +1622,12 @@ func (h *PagesHandler) verifyContactCaptcha(r *http.Request, token, answer strin
 }
 
 func (h *PagesHandler) submitSecurityReport(r *http.Request, req ContactRequest) (string, error) {
+	if !validateContactReportShape(req) {
+		h.logContactBlock(r, "shape")
+		return "", fmt.Errorf("security report shape validation failed")
+	}
 	if contactFieldLengthViolation(req, true) != nil {
+		h.logContactBlock(r, "shape")
 		return "", fmt.Errorf("security report field exceeds the maximum length")
 	}
 	if h.DB == nil || h.Config == nil || req.Name == "" || req.Email == "" || req.AffectedComponent == "" ||
@@ -1447,15 +1635,21 @@ func (h *PagesHandler) submitSecurityReport(r *http.Request, req ContactRequest)
 		!validCreditPreference(req.CreditPreference) || req.CreditPreference == "handle" && req.Handle == "" || !validSecuritySeverity(req.Severity) {
 		return "", fmt.Errorf("security report validation failed")
 	}
+	if _, err := mail.ParseAddress(req.Email); err != nil || strings.ContainsAny(req.Email, ",;<>\r\n") {
+		return "", fmt.Errorf("invalid reporter email")
+	}
+	if !h.verifyContactFormToken(req.FormToken, time.Now()) {
+		return "", errContactFormToken
+	}
 	validCaptcha, captchaErr := h.verifyContactCaptcha(r, req.CaptchaToken, req.Captcha, time.Now())
 	if captchaErr != nil {
 		return "", errCaptchaProviderUnavailable
 	}
 	if !validCaptcha {
+		if h.logContactBlock(r, "captcha") {
+			return "", &contactRateLimitError{RetryAfter: time.Duration(h.contactAntispamConfig().BanHours) * time.Hour, Reason: "banned"}
+		}
 		return "", fmt.Errorf("security report validation failed")
-	}
-	if _, err := mail.ParseAddress(req.Email); err != nil {
-		return "", fmt.Errorf("invalid reporter email")
 	}
 	days := 90
 	if req.DisclosureDays != "" {
@@ -1576,6 +1770,11 @@ func (h *PagesHandler) submitSecurityReport(r *http.Request, req ContactRequest)
 	if err != nil {
 		return "", fmt.Errorf("encrypt security report contact: %w", err)
 	}
+	rateReservation, rateErr := h.reserveContactRate(h.clientIP(r), req.Email, r, time.Now())
+	if rateErr != nil {
+		return "", rateErr
+	}
+	defer rateReservation.rollback()
 	if err := security.StoreSecurityReport(h.DB, security.SecurityReportMetadata{
 		TrackingID: trackingID, SecurityID: req.SecurityID, Ciphertext: ciphertext, Encryption: encryption,
 		ContactCiphertext: contactCiphertext, Severity: req.Severity, Component: req.AffectedComponent, AffectedComponent: req.AffectedComponent,
@@ -1585,6 +1784,7 @@ func (h *PagesHandler) submitSecurityReport(r *http.Request, req ContactRequest)
 	}); err != nil {
 		return "", err
 	}
+	rateReservation.commit()
 	if ack != "" && h.EmailMgr != nil && h.EmailMgr.IsEnabled() {
 		if sendErr := h.EmailMgr.SendDirect(&email.Message{To: []string{req.Email}, Subject: translateRequest(r, "security.report_email_subject", "tracking_id", trackingID), Body: ack}); sendErr != nil && h.SecurityLogger != nil {
 			h.SecurityLogger("security.report_acknowledgment_failed tracking_id="+trackingID, h.clientIP(r))
@@ -1633,8 +1833,13 @@ func validSecuritySeverity(value string) bool {
 }
 
 func (h *PagesHandler) renderContactError(w http.ResponseWriter, r *http.Request, status int) {
+	h.renderContactErrorMessage(w, r, status, translateRequest(r, "contact.submit_error"))
+}
+
+func (h *PagesHandler) renderContactErrorMessage(w http.ResponseWriter, r *http.Request, status int, message string) {
 	data := h.NewPageData(r)
-	data.ContactError = translateRequest(r, "contact.submit_error")
+	data.ContactFormToken = h.newContactFormToken(time.Now())
+	data.ContactError = message
 	if candidate := r.FormValue("security_id"); candidate != "" {
 		if valid, err := h.validSecurityID(candidate); err == nil && valid {
 			data.SecurityReportMode = true
@@ -1647,6 +1852,7 @@ func (h *PagesHandler) renderContactError(w http.ResponseWriter, r *http.Request
 	}
 	w.WriteHeader(status)
 	form := buildContactFormResponse()
+	form.FormToken = data.ContactFormToken
 	form.CaptchaQuestion, form.CaptchaToken = data.CaptchaQuestion, data.CaptchaToken
 	form.CaptchaProvider, form.CaptchaSiteKey = data.CaptchaProvider, data.CaptchaSiteKey
 	form.SecurityReportMode = data.SecurityReportMode

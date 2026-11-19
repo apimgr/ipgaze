@@ -269,6 +269,10 @@ pre {
   border-width: 0;
 }
 
+.contact-honeypot {
+  left: -10000px;
+}
+
 /* Visually hidden until focused, so skip links and similar controls can
    reveal themselves for keyboard users */
 .sr-only-focusable:focus {

@@ -2,6 +2,7 @@ package handler
 
 import (
 	"bufio"
+	"container/list"
 	"context"
 	"database/sql"
 	"encoding/base64"
@@ -519,8 +520,8 @@ func TestServerContactHandler_POST(t *testing.T) {
 	h.ServerContactHandler(w, req)
 
 	res := w.Result()
-	if res.StatusCode != http.StatusSeeOther {
-		t.Errorf("StatusCode = %d, want %d for POST", res.StatusCode, http.StatusSeeOther)
+	if res.StatusCode != http.StatusBadRequest {
+		t.Errorf("StatusCode = %d, want %d for an empty POST", res.StatusCode, http.StatusBadRequest)
 	}
 }
 
@@ -554,7 +555,7 @@ func TestAPIV1ServerContactHandler_POST(t *testing.T) {
 		}
 		answer += value
 	}
-	encoded, err := json.Marshal(ContactRequest{Name: "Example User", Email: "user@example.com", Subject: "Question", Message: "hello", Captcha: strconv.Itoa(answer), CaptchaToken: token})
+	encoded, err := json.Marshal(ContactRequest{Name: "Example User", Email: "user@example.com", Subject: "Question", Message: "hello", FormToken: h.newContactFormToken(time.Now().Add(-4 * time.Second)), Captcha: strconv.Itoa(answer), CaptchaToken: token})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -698,6 +699,7 @@ func TestSubmitSecurityReportEncryptedAndNotifies(t *testing.T) {
 	h.EmailMgr = email.NewEmailManager(email.SMTPConfig{Enabled: true, Host: host, Port: port, From: "noreply@example.com", TLS: "none"}, "")
 	req := ContactRequest{
 		Name: "Reporter Name", Email: "reporter@example.net", SecurityID: securityID,
+		FormToken:         h.newContactFormToken(now.Add(-4 * time.Second)),
 		AffectedComponent: "API", Severity: "high", Summary: "Private vulnerability details",
 		StepsToReproduce: "Private reproduction steps", Impact: "Private impact details",
 		CreditPreference: "real_name", CoordinatedAgreement: true,
@@ -734,6 +736,287 @@ func TestSubmitSecurityReportEncryptedAndNotifies(t *testing.T) {
 	firstMessage = strings.ReplaceAll(firstMessage, "=\r\n", "")
 	if !strings.Contains(firstMessage, "/server/security/report/"+trackingID+"?token=3D") || !strings.Contains(secondMessage, trackingID+".enc") {
 		t.Errorf("notification messages missing acknowledgment status URL or encrypted attachment")
+	}
+	if !strings.Contains(firstMessage, "From: noreply@example.com") || strings.Contains(firstMessage, "Private vulnerability details") || strings.Contains(firstMessage, "Private reproduction steps") || strings.Contains(firstMessage, "Private impact details") {
+		t.Errorf("researcher acknowledgment must use the configured sender and contain no report content")
+	}
+	if !strings.Contains(secondMessage, "From: noreply@example.com") {
+		t.Errorf("maintainer notification did not use the configured sender")
+	}
+}
+
+func TestContactFormTokenChecksSignatureAndAge(t *testing.T) {
+	conn, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = conn.Close() }()
+	if err := db.EnsureSchema(conn); err != nil {
+		t.Fatal(err)
+	}
+	h := newTestPagesHandler()
+	h.DB = conn
+	h.Config = config.DefaultConfig()
+	now := time.Now().Truncate(time.Second)
+	token := h.newContactFormToken(now.Add(-4 * time.Second))
+	if !h.verifyContactFormToken(token, now) {
+		t.Fatal("valid in-window contact form token was rejected")
+	}
+	if h.verifyContactFormToken(token+"x", now) {
+		t.Fatal("tampered contact form token was accepted")
+	}
+	if h.verifyContactFormToken(h.newContactFormToken(now), now) {
+		t.Fatal("contact form token younger than min_fill_seconds was accepted")
+	}
+	if h.verifyContactFormToken(h.newContactFormToken(now.Add(-13*time.Hour)), now) {
+		t.Fatal("expired contact form token was accepted")
+	}
+}
+
+func TestContactShapeRejectsHeaderInjectionAndMultipleRecipients(t *testing.T) {
+	base := ContactRequest{
+		Name: "Reporter", Email: "researcher@example.net", SecurityID: "sec_123",
+		AffectedComponent: "API", Severity: "high", Summary: "Issue",
+		StepsToReproduce: "Steps", Impact: "Impact", CreditPreference: "anonymous",
+	}
+	if !validateContactReportShape(base) {
+		t.Fatal("valid security report shape was rejected")
+	}
+	withNewline := base
+	withNewline.Name = "Reporter\r\nBcc: victim@example.net"
+	if validateContactReportShape(withNewline) {
+		t.Fatal("control characters in report fields were accepted")
+	}
+	withMultipleRecipients := base
+	withMultipleRecipients.Email = "researcher@example.net, victim@example.net"
+	if validateContactReportShape(withMultipleRecipients) {
+		t.Fatal("multiple reporter addresses were accepted")
+	}
+	withZeroWidth := base
+	withZeroWidth.Summary = "bug\u200btitle"
+	if validateContactReportShape(withZeroWidth) {
+		t.Fatal("zero-width characters in report fields were accepted")
+	}
+}
+
+func TestContactFormRejectsUnknownFields(t *testing.T) {
+	if !validContactFormFields(url.Values{"name": {"A"}, "form_token": {"token"}, "website": {""}}) {
+		t.Fatal("known contact form fields were rejected")
+	}
+	if validContactFormFields(url.Values{"name": {"A"}, "admin": {"true"}}) {
+		t.Fatal("unknown contact form field was accepted")
+	}
+}
+
+func TestContactContentRulesAndDuplicateWindow(t *testing.T) {
+	request := ContactRequest{Name: "Reporter", Email: "reporter@example.net", Subject: "Question", Message: "A normal message"}
+	if contactContentBlocked(request, config.DefaultConfig().Pages.Contact.Antispam) {
+		t.Fatal("ordinary contact message was blocked")
+	}
+	blocked := config.DefaultConfig().Pages.Contact.Antispam
+	blocked.BlockedWords = []string{"not allowed"}
+	request.Message = "This is NOT ALLOWED content"
+	if !contactContentBlocked(request, blocked) {
+		t.Fatal("blocked word match was accepted")
+	}
+	request.Message = "See https://one.example https://two.example https://three.example"
+	if !contactContentBlocked(request, config.DefaultConfig().Pages.Contact.Antispam) {
+		t.Fatal("message exceeding max_links was accepted")
+	}
+	request.Message = "A normal message"
+	request.Email = "reporter@disposable.example"
+	blocked = config.DefaultConfig().Pages.Contact.Antispam
+	blocked.BlockedEmailDomains = []string{"disposable.example"}
+	if !contactContentBlocked(request, blocked) {
+		t.Fatal("blocked email domain was accepted")
+	}
+	request.Email = "reporter@example.net"
+	request.Message = "<a href=\"https://bad.example\">link</a>"
+	if got := contactContentBlockReason(request, config.DefaultConfig().Pages.Contact.Antispam); got != "markup" {
+		t.Fatalf("HTML markup reason = %q, want markup", got)
+	}
+	request.Message = "[url=https://bad.example]link[/url]"
+	if got := contactContentBlockReason(request, config.DefaultConfig().Pages.Contact.Antispam); got != "markup" {
+		t.Fatalf("BBCode reason = %q, want markup", got)
+	}
+	request.Message = "encoded &lt;b&gt;markup&lt;/b&gt;"
+	if got := contactContentBlockReason(request, config.DefaultConfig().Pages.Contact.Antispam); got != "markup" {
+		t.Fatalf("encoded markup reason = %q, want markup", got)
+	}
+	request.Message = "Visit mgmarket10.shop, foo.example.net, and bar.test.org"
+	if !contactContentBlocked(request, config.DefaultConfig().Pages.Contact.Antispam) {
+		t.Fatal("three bare domains exceeded max_links without being blocked")
+	}
+	request.Message = "Visit a.subdomain.blocked.example"
+	blocked = config.DefaultConfig().Pages.Contact.Antispam
+	blocked.BlockedLinkDomains = []string{"blocked.example"}
+	if !contactContentBlocked(request, blocked) {
+		t.Fatal("blocked link-domain suffix was accepted")
+	}
+
+	contactDuplicateState.Lock()
+	contactDuplicateState.items = make(map[string]*list.Element)
+	contactDuplicateState.lru.Init()
+	contactDuplicateState.Unlock()
+	t.Cleanup(func() {
+		contactDuplicateState.Lock()
+		contactDuplicateState.items = make(map[string]*list.Element)
+		contactDuplicateState.lru.Init()
+		contactDuplicateState.Unlock()
+	})
+	request = ContactRequest{Email: "REPORTER@example.net", Subject: "  Hello   World ", Message: "same\nmessage"}
+	now := time.Now()
+	if duplicateContactSubmission(request, now, time.Hour, false) {
+		t.Fatal("first occurrence was reported as duplicate")
+	}
+	if duplicateContactSubmission(request, now, time.Hour, true) {
+		t.Fatal("first stored occurrence was reported as duplicate")
+	}
+	normalized := request
+	normalized.Email = "reporter@example.net"
+	normalized.Subject = "hello world"
+	normalized.Message = "same message"
+	if !duplicateContactSubmission(normalized, now.Add(time.Minute), time.Hour, false) {
+		t.Fatal("normalized repeat inside the duplicate window was not detected")
+	}
+	if duplicateContactSubmission(normalized, now.Add(2*time.Hour), time.Hour, false) {
+		t.Fatal("expired duplicate was not removed")
+	}
+}
+
+func TestContactThirdStrikeBansIP(t *testing.T) {
+	contactStrikeState.Lock()
+	contactStrikeState.events = make(map[string][]time.Time)
+	contactStrikeState.bans = make(map[string]time.Time)
+	contactStrikeState.Unlock()
+	t.Cleanup(func() {
+		contactStrikeState.Lock()
+		contactStrikeState.events = make(map[string][]time.Time)
+		contactStrikeState.bans = make(map[string]time.Time)
+		contactStrikeState.Unlock()
+	})
+	h := newTestPagesHandler()
+	cfg := config.DefaultConfig()
+	cfg.Pages.Contact.Antispam.Strikes = 3
+	cfg.Pages.Contact.Antispam.BanHours = 2
+	h.Config = cfg
+	for attempt := 1; attempt <= 3; attempt++ {
+		body, err := json.Marshal(ContactRequest{Website: "filled", Name: "Reporter", Email: "reporter@example.net", Subject: "Contact", Message: "Hello"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/server/contact", strings.NewReader(string(body)))
+		req.RemoteAddr = "192.0.2.99:12345"
+		req.Header.Set("Content-Type", "application/json")
+		response := httptest.NewRecorder()
+		h.APIV1ServerContactHandler(response, req)
+		want := http.StatusOK
+		if attempt == 3 {
+			want = http.StatusTooManyRequests
+		}
+		if response.Code != want {
+			t.Fatalf("attempt %d status = %d, want %d: %s", attempt, response.Code, want, response.Body.String())
+		}
+		if attempt == 3 && response.Header().Get("Retry-After") == "" {
+			t.Fatal("third strike response is missing Retry-After")
+		}
+	}
+}
+
+func TestSecurityReportHoneypotSilentlyDropsWithoutStoringOrSending(t *testing.T) {
+	conn, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = conn.Close() }()
+	if err := db.EnsureSchema(conn); err != nil {
+		t.Fatal(err)
+	}
+	h := newTestPagesHandler()
+	h.DB = conn
+	h.Config = config.DefaultConfig()
+	body, err := json.Marshal(ContactRequest{Website: "bot-filled", Name: "Reporter", Email: "reporter@example.net", Subject: "Contact", Message: "Hello"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/server/contact", strings.NewReader(string(body)))
+	req.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	h.APIV1ServerContactHandler(response, req)
+	if response.Code != http.StatusOK {
+		t.Fatalf("honeypot response status = %d, want 200: %s", response.Code, response.Body.String())
+	}
+	var envelope APIResponse
+	if err := json.Unmarshal(response.Body.Bytes(), &envelope); err != nil || !envelope.OK {
+		t.Fatalf("honeypot response = %s, err=%v; want normal success", response.Body.String(), err)
+	}
+	var count int
+	if err := conn.QueryRow(`SELECT COUNT(*) FROM security_reports`).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Fatalf("honeypot stored %d reports, want none", count)
+	}
+}
+
+func TestSecurityReportRateLimitsEmailAndGlobal(t *testing.T) {
+	contactRateState.Lock()
+	contactRateState.events = make(map[string][]time.Time)
+	contactRateState.Unlock()
+	t.Cleanup(func() {
+		contactRateState.Lock()
+		contactRateState.events = make(map[string][]time.Time)
+		contactRateState.Unlock()
+	})
+	h := newTestPagesHandler()
+	cfg := config.DefaultConfig()
+	cfg.Pages.Contact.Antispam.PerIP = 0
+	cfg.Pages.Contact.Antispam.PerEmail = 1
+	cfg.Pages.Contact.Antispam.Global = 2
+	cfg.Pages.Contact.Antispam.Window = "1h"
+	h.Config = cfg
+	r := httptest.NewRequest(http.MethodPost, "https://example.test/server/contact", nil)
+	if limitErr := h.allowContactRate("192.0.2.1", "Researcher@example.net", r, time.Now()); limitErr != nil {
+		t.Fatalf("first email submission rejected: %v", limitErr)
+	}
+	if limitErr := h.allowContactRate("192.0.2.2", "researcher@example.net", r, time.Now()); limitErr == nil || limitErr.Reason != "rate_email" {
+		t.Fatalf("second case-insensitive email submission error = %v, want rate_email", limitErr)
+	}
+	if limitErr := h.allowContactRate("192.0.2.3", "other@example.net", r, time.Now()); limitErr != nil {
+		t.Fatalf("second email submission rejected before global limit: %v", limitErr)
+	}
+	if limitErr := h.allowContactRate("192.0.2.4", "third@example.net", r, time.Now()); limitErr == nil || limitErr.Reason != "rate_global" {
+		t.Fatalf("global limit error = %v, want rate_global", limitErr)
+	}
+}
+
+func TestContactRateReservationRollsBackFailedSubmission(t *testing.T) {
+	contactRateState.Lock()
+	contactRateState.events = make(map[string][]time.Time)
+	contactRateState.Unlock()
+	t.Cleanup(func() {
+		contactRateState.Lock()
+		contactRateState.events = make(map[string][]time.Time)
+		contactRateState.Unlock()
+	})
+	h := newTestPagesHandler()
+	cfg := config.DefaultConfig()
+	cfg.Pages.Contact.Antispam.PerIP = 1
+	cfg.Pages.Contact.Antispam.PerEmail = 1
+	cfg.Pages.Contact.Antispam.Global = 1
+	h.Config = cfg
+	r := httptest.NewRequest(http.MethodPost, "https://example.test/server/contact", nil)
+	now := time.Now()
+	reservation, limitErr := h.reserveContactRate("192.0.2.20", "reporter@example.net", r, now)
+	if limitErr != nil {
+		t.Fatalf("reserve contact quota: %v", limitErr)
+	}
+	reservation.rollback()
+	if limitErr := h.allowContactRate("192.0.2.20", "reporter@example.net", r, now.Add(time.Second)); limitErr != nil {
+		t.Fatalf("rolled-back submission consumed its quota: %v", limitErr)
+	}
+	if limitErr := h.allowContactRate("192.0.2.20", "reporter@example.net", r, now.Add(2*time.Second)); limitErr == nil {
+		t.Fatal("committed accepted submission did not consume its quota")
 	}
 }
 
@@ -820,8 +1103,8 @@ func TestAPIV1ServerContactHandler_EmptyBody_BadRequest(t *testing.T) {
 	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
 		t.Fatalf("decode error: %v", err)
 	}
-	if body.OK || body.Error != "BAD_REQUEST" {
-		t.Errorf("response = %#v, want BAD_REQUEST error envelope", body)
+	if body.OK || body.Error != "VALIDATION_FAILED" {
+		t.Errorf("response = %#v, want VALIDATION_FAILED error envelope", body)
 	}
 }
 
@@ -840,6 +1123,15 @@ func TestAPIV1ServerContactHandler_MethodNotAllowed(t *testing.T) {
 
 func TestAPIV1ServerContactHandler_GET(t *testing.T) {
 	h := newTestPagesHandler()
+	conn, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = conn.Close() }()
+	if err := db.EnsureSchema(conn); err != nil {
+		t.Fatal(err)
+	}
+	h.DB = conn
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/server/contact", nil)
 	w := httptest.NewRecorder()
 	h.APIV1ServerContactHandler(w, req)
@@ -853,11 +1145,15 @@ func TestAPIV1ServerContactHandler_GET(t *testing.T) {
 	if err := json.NewDecoder(w.Body).Decode(&response); err != nil {
 		t.Fatal(err)
 	}
-	if !response.OK || len(response.Data.Fields) != 6 || response.Data.SecurityURL == "" || response.Data.Captcha.Provider == "" {
+	if !response.OK || len(response.Data.Fields) != 8 || response.Data.SecurityURL == "" || response.Data.Captcha.Provider == "" || response.Data.FormToken == "" {
 		t.Errorf("contact form response is incomplete: %#v", response)
 	}
-	if response.Data.Fields[0].MaxLength == nil || *response.Data.Fields[0].MaxLength != 100 || response.Data.Fields[1].MaxLength == nil || *response.Data.Fields[1].MaxLength != 254 {
-		t.Errorf("contact field limits = %#v, want name 100 and email 254", response.Data.Fields[:2])
+	fieldLimits := make(map[string]*int, len(response.Data.Fields))
+	for _, field := range response.Data.Fields {
+		fieldLimits[field.Name] = field.MaxLength
+	}
+	if fieldLimits["name"] == nil || *fieldLimits["name"] != 100 || fieldLimits["email"] == nil || *fieldLimits["email"] != 254 {
+		t.Errorf("contact field limits = %#v, want name 100 and email 254", fieldLimits)
 	}
 }
 
@@ -1895,38 +2191,6 @@ func TestNextTheme(t *testing.T) {
 			t.Errorf("NextTheme(%q) = %q, want %q", in, got, want)
 		}
 	}
-}
-
-// TestAllowContactSubmissionPrunesExpiredEntries verifies the per-IP throttle
-// map is bounded: once it reaches contactThrottleMaxEntries, entries older
-// than the cooldown window are swept instead of accumulating forever.
-func TestAllowContactSubmissionPrunesExpiredEntries(t *testing.T) {
-	contactThrottle.mu.Lock()
-	contactThrottle.last = make(map[string]time.Time)
-	stale := time.Now().Add(-2 * contactThrottleWindow)
-	for i := 0; i < contactThrottleMaxEntries; i++ {
-		contactThrottle.last["10.0."+strconv.Itoa(i/256)+"."+strconv.Itoa(i%256)] = stale
-	}
-	contactThrottle.mu.Unlock()
-
-	if !allowContactSubmission("203.0.113.7") {
-		t.Fatal("first submission from a fresh IP should be allowed")
-	}
-
-	contactThrottle.mu.Lock()
-	size := len(contactThrottle.last)
-	contactThrottle.mu.Unlock()
-	if size != 1 {
-		t.Errorf("expected stale entries pruned leaving 1 entry, got %d", size)
-	}
-
-	if allowContactSubmission("203.0.113.7") {
-		t.Error("second submission inside the cooldown window should be rejected")
-	}
-
-	contactThrottle.mu.Lock()
-	contactThrottle.last = make(map[string]time.Time)
-	contactThrottle.mu.Unlock()
 }
 
 func TestRenderNegotiated_OurCLIGetsJSON(t *testing.T) {
