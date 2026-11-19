@@ -498,16 +498,20 @@ an external provider, configure both keys; startup and hot reload reject a
 missing key. Provider hosts are added only for the selected provider, and
 Tor/I2P requests always use the built-in challenge. The built-in challenge
 stores a keyed answer hash, expires after 10 minutes, and is consumed on the
-first verification attempt. Public form submissions use a 16 KiB request limit,
-a hidden honeypot, a signed form-age token, markup and link checks, blocked-word
-and domain filters, duplicate detection, and in-memory IP, email, and global
-rate limits. Repeated honeypot, CAPTCHA, content, or duplicate rejections
-temporarily ban the source IP. Tor and I2P submissions skip per-IP limits and
-strike bans.
+first verification attempt. The report form handles abuse, DMCA, privacy, and
+security reports. Each submission first returns a server-rendered review; the
+second confirmed submission delivers it. Public form submissions use a 256 KiB
+request limit, a hidden honeypot, single-use signed form and review tokens,
+same-origin checks for browser posts, markup and link checks, blocked-word and
+domain filters, duplicate detection, and in-memory IP, email, and global rate
+limits. Repeated honeypot, CAPTCHA, content, origin, replay, or duplicate
+rejections temporarily ban the source IP. Tor and I2P submissions skip per-IP
+limits and strike bans.
 
 ```yaml
 pages:
   contact:
+    enabled: true
     captcha: simple # simple, recaptcha, or hcaptcha
     captcha_site_key: ""
     captcha_secret_key: ""
@@ -519,13 +523,15 @@ pages:
       per_email: 3
       global: 60
       window: 1h
-      max_links: 2
+      max_links: 10
       reject_markup: true
       blocked_words: []
       blocked_email_domains: []
       blocked_link_domains: []
       strikes: 3
       ban_hours: 24
+      review_min_seconds: 2
+      review_max_seconds: 900
       duplicate_window_hours: 24
 
 web:
