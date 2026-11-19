@@ -498,7 +498,10 @@ an external provider, configure both keys; startup and hot reload reject a
 missing key. Provider hosts are added only for the selected provider, and
 Tor/I2P requests always use the built-in challenge. The built-in challenge
 stores a keyed answer hash, expires after 10 minutes, and is consumed on the
-first verification attempt. Contact submissions are rate-limited per client IP.
+first verification attempt. Public form submissions use a 16 KiB request limit,
+a hidden honeypot, a signed form-age token, a content filter, duplicate
+detection, and in-memory IP, email, and global rate limits. Tor and I2P
+submissions skip only the per-IP counter.
 
 ```yaml
 pages:
@@ -506,6 +509,18 @@ pages:
     captcha: simple # simple, recaptcha, or hcaptcha
     captcha_site_key: ""
     captcha_secret_key: ""
+    antispam:
+      honeypot: true
+      min_fill_seconds: 3
+      max_age_seconds: 43200
+      per_ip: 5
+      per_email: 3
+      global: 60
+      window: 1h
+      max_links: 2
+      blocked_words: []
+      blocked_email_domains: []
+      duplicate_window_hours: 24
 
 web:
   security:

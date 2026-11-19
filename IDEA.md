@@ -163,7 +163,7 @@ ipgaze enhancements on top of the echoip-compatible surface:
 - Standard pages: security.txt, robots.txt, privacy, terms, contact
 - Public contact-form metadata and safe operator-token validation for CLI/GUI server setup
 - Contact submissions enforce documented per-field input limits
-- Coordinated vulnerability reporting for the official service, with encrypted submissions, private status tracking, configurable disclosure policy, selectable contact-form CAPTCHA, and researcher acknowledgments
+- Public contact and coordinated vulnerability reporting with layered antispam, CAPTCHA, signed form timing, honeypot, IP/email/global rate limits, encrypted reports, private status tracking, and researcher acknowledgments
 - Public DPO contact page/API and consent-gated, same-origin analytics loading
 
 ---

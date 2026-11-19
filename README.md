@@ -36,7 +36,7 @@ https://ifcfg.us
 - **PWA Support** - Web app manifest and service worker for offline use
 - **Tor Hidden Service** - Auto-enabled when the `tor` binary is present; optional outbound Tor routing via `server.tor.use_network`
 - **I2P Eepsite** - Opt-in via `server.i2p.enabled`
-- **Privacy & Security Pages** - Consent-gated analytics, DPO contact, coordinated disclosure, and configurable form CAPTCHA
+- **Privacy & Security Pages** - Consent-gated analytics, DPO contact, coordinated disclosure, and CAPTCHA-protected, rate-limited forms
 - **Abuse Protection** - IPv4/IPv6 allowlists and blocks with persisted, temporary request-flood blocking
 - **Built-in Scheduler** - GeoIP, blocklist, threat, and CVE updates; cert renewal; backups; log rotation
 
