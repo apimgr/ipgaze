@@ -38,7 +38,7 @@ https://ifcfg.us
 - **I2P Eepsite** - Opt-in via `server.i2p.enabled`
 - **Privacy & Security Pages** - Consent-gated analytics, DPO contact, coordinated disclosure, and typed abuse, DMCA, privacy, and security reports with two-step review, CAPTCHA, markup/link filtering, duplicate suppression, and temporary strike bans
 - **Abuse Protection** - IPv4/IPv6 allowlists and blocks with persisted, temporary request-flood blocking
-- **Built-in Scheduler** - GeoIP, blocklist, threat, and CVE updates; cert renewal; backups; log rotation
+- **Built-in Scheduler** - GeoIP, blocklist, threat, CVE, and release checks; cert renewal; backups; log rotation. Release installation is notify-only by default and requires an elevated server start when enabled.
 
 ## Production
 

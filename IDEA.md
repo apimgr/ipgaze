@@ -222,6 +222,7 @@ All tasks run continuously; state persists across restarts. Jobs are registered 
 | `blocklist_update` | Daily 04:00 | Download IP/domain blocklists for abuse detection |
 | `threat_update` | Daily 04:30 | Download VPN/proxy/Tor exit-node lists for detection |
 | `cve_update` | Daily 05:00 | Download CVE/security databases |
+| `update_check` | Daily 06:00 | Notify about eligible releases by default; automatic installation requires an elevated server start, while other instances receive manual update instructions |
 | `token_cleanup` | Every 15 min | Remove expired issued API tokens |
 | `log_rotation` | Daily 00:00 | Rotate and compress old logs |
 | `backup_daily` | Daily 02:00 | Cumulative daily incremental plus a verified full backup; keeps the incremental's base full |
