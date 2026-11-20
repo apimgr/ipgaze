@@ -955,7 +955,7 @@ Restart=on-failure
 RestartSec=5
 StandardOutput=journal
 StandardError=journal
-ProtectSystem=strict
+ProtectSystem=true
 ProtectHome=yes
 PrivateTmp=yes
 ExecStartPre=+/usr/bin/install -d -m 0755 /etc/%s/%s /var/lib/%s/%s /var/cache/%s/%s /var/log/%s/%s /var/run/%s/%s /mnt/Backups/%s/%s
@@ -965,6 +965,8 @@ ReadWritePaths=-/var/cache/%s/%s
 ReadWritePaths=-/var/log/%s/%s
 ReadWritePaths=-/var/run/%s/%s
 ReadWritePaths=-/mnt/Backups/%s/%s
+# The update flow replaces the binary in place
+ReadWritePaths=-/usr/local/bin
 
 [Install]
 WantedBy=multi-user.target
