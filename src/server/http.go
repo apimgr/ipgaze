@@ -46,7 +46,7 @@ const (
 	jsonMediaType = "application/json"
 	textMediaType = "text/plain"
 	// defaultLogoURL is the project default branding logo, used when the
-	// operator has not set server.branding.logo_url in server.yml.
+	// operator has not set server.branding.logo in server.yml.
 	defaultLogoURL = "https://avatars.githubusercontent.com/u/126880?v=4"
 )
 
@@ -1046,6 +1046,7 @@ func (s *Server) buildHandler() http.Handler {
 	}
 	if s.config != nil {
 		s.SpecialHandler.TorContactEmail = s.config.Tor.ContactEmail
+		s.SpecialHandler.ContactFormDisabled = !s.config.Pages.Contact.Enabled
 	}
 	// Wire the PGP keypair (AI.md PART 11 "GPG Keypair Management") into SpecialHandler
 	// so SecurityTxtHandler can emit the Encryption: line and PGPKeyHandler can serve the key.
@@ -1218,6 +1219,9 @@ func (s *Server) buildHandler() http.Handler {
 	// does, without src/server/handler importing src/server (see theme.go
 	// doc comment on DetectTheme for the import-cycle rationale).
 	s.PagesHandler.DetectTheme = DetectTheme
+	s.PagesHandler.RouteMatch = func(method, path string) bool {
+		return r.Match(chi.NewRouteContext(), method, path)
+	}
 	// Inject the single theme-validation implementation (theme.go) so the
 	// preferences import endpoint validates the theme query param against
 	// the exact same enum DetectTheme/ServerPreferencesUpdateHandler use (see theme.go doc
@@ -1252,9 +1256,6 @@ func (s *Server) buildHandler() http.Handler {
 			s.logManager.WriteSecurity(message, ip)
 		}
 	}
-	if s.config != nil {
-		s.PagesHandler.MCPEnabled = s.config.Server.MCP.Enabled
-	}
 	s.PagesHandler.MCPTools = func(r *http.Request) []handler.MCPToolDescription {
 		return s.registeredMCPTools(r)
 	}
@@ -1278,9 +1279,7 @@ func (s *Server) buildHandler() http.Handler {
 	r.Get("/server", s.PagesHandler.ServerRedirectHandler)
 	r.Get("/server/about", s.PagesHandler.ServerAboutHandler)
 	r.Get("/server/help", s.PagesHandler.ServerHelpHandler)
-	if s.config != nil && s.config.Server.MCP.Enabled {
-		r.Get("/server/help/mcp", s.PagesHandler.ServerMCPHelpHandler)
-	}
+	r.Get("/server/help/mcp", s.PagesHandler.ServerMCPHelpHandler)
 	r.Get("/server/privacy", s.PagesHandler.ServerPrivacyHandler)
 	r.Get("/server/contact", s.PagesHandler.ServerContactHandler)
 	r.Post("/server/contact", s.PagesHandler.ServerContactHandler)

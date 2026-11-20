@@ -13,7 +13,6 @@ import (
 	"sort"
 	"strings"
 
-	i18n "github.com/apimgr/ipgaze/src/common/i18n"
 	"github.com/apimgr/ipgaze/src/config"
 	applog "github.com/apimgr/ipgaze/src/log"
 	"github.com/apimgr/ipgaze/src/netutil"
@@ -31,11 +30,6 @@ func (s *Server) MCPHandler() http.Handler {
 		return s.mcpServer(r)
 	}, &mcp.StreamableHTTPOptions{Stateless: true, JSONResponse: true})
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if cfg := config.Get(); cfg == nil || !cfg.Server.MCP.Enabled {
-			lang := i18n.DetectLocale(r)
-			handler.WriteAPIError(w, http.StatusNotFound, "NOT_FOUND", i18n.T(i18n.WithLang(r.Context(), lang), "errors.not_found"))
-			return
-		}
 		if r.Method != http.MethodPost {
 			w.Header().Set("Allow", http.MethodPost)
 			handler.WriteAPIError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "Method not allowed")

@@ -62,8 +62,9 @@ type PagesConfig struct {
 	Contact ContactPageConfig `yaml:"contact"`
 }
 
-// ContactPageConfig configures the public contact form's CAPTCHA provider.
+// ContactPageConfig configures the public report form.
 type ContactPageConfig struct {
+	Enabled          bool                  `yaml:"enabled"`
 	Captcha          string                `yaml:"captcha"`
 	CaptchaSiteKey   string                `yaml:"captcha_site_key"`
 	CaptchaSecretKey string                `yaml:"captcha_secret_key"`
@@ -86,6 +87,8 @@ type ContactAntispamConfig struct {
 	BlockedLinkDomains   []string `yaml:"blocked_link_domains"`
 	Strikes              int      `yaml:"strikes"`
 	BanHours             int      `yaml:"ban_hours"`
+	ReviewMinSeconds     int      `yaml:"review_min_seconds"`
+	ReviewMaxSeconds     int      `yaml:"review_max_seconds"`
 	DuplicateWindowHours int      `yaml:"duplicate_window_hours"`
 }
 
@@ -128,15 +131,9 @@ type WebConfig struct {
 	AllowCredentials bool              `yaml:"allow_credentials"`
 	CSRF             CSRFConfig        `yaml:"csrf"`
 	Security         WebSecurityConfig `yaml:"security"`
-	Footer           FooterConfig      `yaml:"footer"`
 	// HSTS controls the Strict-Transport-Security header (AI.md PART 11
 	// "Security Header Config").
 	HSTS HSTSConfig `yaml:"hsts"`
-	// PermissionsPolicy maps a browser feature name to its allowlist value
-	// ("()" to deny everywhere, "(self)" to allow same-origin). An empty value
-	// omits the feature so the browser default applies (AI.md PART 11
-	// "Generation rule").
-	PermissionsPolicy map[string]string `yaml:"permissions_policy"`
 	// CSP controls the Content-Security-Policy header.
 	CSP CSPConfig `yaml:"csp"`
 	// Headers holds the modern / privacy / cross-origin response headers.
@@ -345,62 +342,6 @@ func DefaultDatabasePoolConfig() DatabasePoolConfig {
 	}
 }
 
-// DefaultPermissionsPolicy returns the AI.md PART 11 Permissions-Policy
-// feature allowlist. "()" denies the feature everywhere; "(self)" allows it
-// same-origin only.
-func DefaultPermissionsPolicy() map[string]string {
-	return map[string]string{
-		"accelerometer":                   "()",
-		"ambient-light-sensor":            "()",
-		"attribution-reporting":           "()",
-		"autoplay":                        "(self)",
-		"battery":                         "()",
-		"browsing-topics":                 "()",
-		"camera":                          "()",
-		"cross-origin-isolated":           "()",
-		"display-capture":                 "()",
-		"document-domain":                 "()",
-		"encrypted-media":                 "(self)",
-		"execution-while-not-rendered":    "()",
-		"execution-while-out-of-viewport": "()",
-		"fullscreen":                      "(self)",
-		"hid":                             "()",
-		"geolocation":                     "()",
-		"gyroscope":                       "()",
-		"interest-cohort":                 "()",
-		"idle-detection":                  "()",
-		"keyboard-map":                    "()",
-		"magnetometer":                    "()",
-		"microphone":                      "()",
-		"midi":                            "()",
-		"navigation-override":             "()",
-		"payment":                         "(self)",
-		"picture-in-picture":              "(self)",
-		"publickey-credentials-get":       "(self)",
-		"screen-wake-lock":                "()",
-		"serial":                          "()",
-		"storage-access":                  "(self)",
-		"sync-xhr":                        "()",
-		"usb":                             "()",
-		"web-share":                       "(self)",
-		"xr-spatial-tracking":             "()",
-	}
-}
-
-// FooterConfig controls operator-supplied footer branding per AI.md PART 16
-// "Footer Customization". CustomHTML sits above the built-in Application
-// Footer and is sanitized before rendering (see src/config/footer.go).
-type FooterConfig struct {
-	// CustomHTML is operator branding HTML rendered above the Application
-	// Footer. Semantics per AI.md PART 16:
-	//   - unset / "" : use the default built-in branding row
-	//   - " " (single space): disable branding, show only the Application Footer
-	//   - any other value: render this sanitized HTML in place of default branding
-	// The value is always sanitized (bluemonday strict policy) before rendering;
-	// scripts, event handlers, javascript: URLs, and the style attribute are stripped.
-	CustomHTML string `yaml:"custom_html"`
-}
-
 // WebSecurityConfig controls the security.txt / GPG keypair surface per AI.md PART 11.
 type WebSecurityConfig struct {
 	// Keyservers are the HTTP submission endpoints the project's PGP public key
@@ -441,7 +382,6 @@ type ServerConfig struct {
 	Database       DatabaseConfig            `yaml:"database"`
 	Schedule       ScheduleConfig            `yaml:"schedule"`
 	Metrics        MetricsConfig             `yaml:"metrics"`
-	MCP            MCPConfig                 `yaml:"mcp"`
 	Logging        LoggingConfig             `yaml:"logging"`
 	GeoIP          GeoIPConfig               `yaml:"geoip"`
 	Security       SecurityConfig            `yaml:"security"`
@@ -872,7 +812,7 @@ type PrivacyConfig struct {
 	Consent    ConsentConfig    `yaml:"consent"`
 	Cookies    CookieCategories `yaml:"cookies"`
 	ThirdParty ThirdPartyConfig `yaml:"third_party"`
-	Content    PrivacyContent   `yaml:"content"`
+	Content    PrivacyContent   `yaml:"-"`
 }
 
 // DataPolicy controls data handling and CCPA compliance.
@@ -966,10 +906,17 @@ type ThirdPartyService struct {
 
 // PrivacyContent holds the Markdown content blocks for the privacy page.
 type PrivacyContent struct {
-	DataCollection  string `yaml:"data_collection"`
-	DataUsage       string `yaml:"data_usage"`
-	DataUsageIfSold string `yaml:"data_usage_if_sold"`
-	DataSecurity    string `yaml:"data_security"`
+	DataCollection  string
+	DataUsage       string
+	DataUsageIfSold string
+	DataSecurity    string
+}
+
+var builtinPrivacy = PrivacyContent{
+	DataCollection:  "**We collect only what is necessary to provide our service:**\n\n**Usage Information (with consent):**\n- Pages visited and features used\n- Browser type and device information\n- Approximate location (country/region from IP, not precise)\n\n**Technical Information:**\n- IP address (for security and abuse prevention)\n- API token identifiers (hashed, never stored in plain text)\n\n**We do NOT collect:**\n- Payment information (unless explicitly required by the service)\n- Precise location data\n- Data from other websites or apps",
+	DataUsage:       "**Your data is used solely to:**\n\n- **Provide the service:** Authentication, core functionality\n- **Improve the experience:** Performance optimization, bug fixes, feature improvements\n- **Ensure security:** Prevent abuse, detect fraud, protect the service\n- **Communicate:** Service updates, security alerts, and (with consent) product news\n\n**Your data is NEVER:**\n- Sold to third parties\n- Used for targeted advertising\n- Shared without your explicit consent (except as required by law)",
+	DataUsageIfSold: "**Your data may be used to:**\n\n- **Provide the service:** Authentication, core functionality\n- **Improve the experience:** Performance optimization, bug fixes, feature improvements\n- **Ensure security:** Prevent abuse, detect fraud, protect the service\n- **Communicate:** Service updates, security alerts, and (with consent) product news\n- **Third-party sharing:** Your data may be shared with or sold to third parties for analytics, advertising, or other purposes as described below\n\n**Your rights:**\n- You can opt out of data sales with the CCPA opt-out on the preferences page (`/server/preferences`)\n- You can delete the resources you created at any time with your owner token, and request deletion of other data through the contact details on the privacy page\n- See \"Your Rights\" section below for details",
+	DataSecurity:    "**How we protect your data:**\n\n- All data is stored on our servers (not third-party cloud services unless specified)\n- API tokens are stored as SHA-256 hashes (never in plain text)\n- All connections are encrypted (HTTPS/TLS)\n- Regular security audits and updates\n- Access controls and audit logging for operator actions",
 }
 
 // GetConsentMessage returns the appropriate consent message based on the data.sold setting.
@@ -994,9 +941,9 @@ func (p *PrivacyConfig) GetAnalyticsDescription() string {
 // Exported: called directly from privacy.tmpl (`.Privacy.GetDataUsageContent`) per AI.md PART 16.
 func (p *PrivacyConfig) GetDataUsageContent() string {
 	if p.Data.Sold {
-		return p.Content.DataUsageIfSold
+		return builtinPrivacy.DataUsageIfSold
 	}
-	return p.Content.DataUsage
+	return builtinPrivacy.DataUsage
 }
 
 // IsCCPAApplicable returns true when CCPA "Do Not Sell" disclosure is required.
@@ -1131,7 +1078,6 @@ type MaintenanceConfig struct {
 
 // MaintenanceSelfHealingConfig sets automatic recovery behaviour.
 type MaintenanceSelfHealingConfig struct {
-	Enabled       bool   `yaml:"enabled"`
 	RetryInterval string `yaml:"retry_interval"`
 	MaxAttempts   int    `yaml:"max_attempts"`
 }
@@ -1154,9 +1100,8 @@ type BrandingConfig struct {
 	Title       string `yaml:"title"`
 	Tagline     string `yaml:"tagline"`
 	Description string `yaml:"description"`
-	LogoURL     string `yaml:"logo_url"`
-	FaviconURL  string `yaml:"favicon_url"`
-	ThemeColor  string `yaml:"theme_color"`
+	LogoURL     string `yaml:"logo"`
+	FaviconURL  string `yaml:"favicon"`
 }
 
 // SEOConfig holds search-engine metadata used to build the meta tags,
@@ -1544,11 +1489,6 @@ type MetricsLokiConfig struct {
 }
 
 // MetricsConfig contains metrics settings per AI.md PART 20.
-// MCPConfig controls the stateless Streamable HTTP MCP endpoint (AI.md PART 14).
-type MCPConfig struct {
-	Enabled bool `yaml:"enabled"`
-}
-
 type MetricsConfig struct {
 	Enabled bool `yaml:"enabled"`
 	// Root gates the /metrics and /metrics/{service} root aliases.
@@ -1604,9 +1544,8 @@ type AuditLogFileConfig struct {
 // LoggingConfig contains logging settings per AI.md PART 11.
 type LoggingConfig struct {
 	// Level is the global log level: debug, info, warn, error.
-	Level string `yaml:"level"`
-	// AccessFormat is kept for backward YAML compatibility; prefer Access.Format.
-	AccessFormat string `yaml:"access_format"`
+	Level    string                `yaml:"level"`
+	Defaults LoggingDefaultsConfig `yaml:"defaults"`
 	// Per-file configuration
 	Access   LogFileConfig      `yaml:"access"`
 	Server   LogFileConfig      `yaml:"server"`
@@ -1616,6 +1555,12 @@ type LoggingConfig struct {
 	Audit    AuditLogFileConfig `yaml:"audit"`
 	Security LogFileConfig      `yaml:"security"`
 	Debug    LogFileConfig      `yaml:"debug"`
+}
+
+type LoggingDefaultsConfig struct {
+	Custom string `yaml:"custom"`
+	Rotate string `yaml:"rotate"`
+	Keep   string `yaml:"keep"`
 }
 
 // UpdateConfig holds update check settings per AI.md PART 22.
@@ -1630,24 +1575,9 @@ type UpdateConfig struct {
 	DeferDays int `yaml:"defer_days"`
 }
 
-// GeoIPDatabasesConfig controls which MMDB databases are downloaded per AI.md PART 19.
-type GeoIPDatabasesConfig struct {
-	// ASN enables ASN lookups (asn.mmdb).
-	ASN bool `yaml:"asn"`
-	// Country enables country lookups (country.mmdb).
-	Country bool `yaml:"country"`
-	// City enables city lookups (dbip-city-ipv4.mmdb, dbip-city-ipv6.mmdb).
-	City bool `yaml:"city"`
-	// WHOIS enables the combined WHOIS lookup — no whois.mmdb file exists;
-	// this joins the ASN and Country databases at query time.
-	WHOIS bool `yaml:"whois"`
-}
-
 // GeoIPConfig contains GeoIP settings per AI.md PART 19.
 type GeoIPConfig struct {
 	Enabled bool `yaml:"enabled"`
-	// Dir is the directory for downloaded MMDB files; defaults to {data_dir}/security/geoip.
-	Dir string `yaml:"dir"`
 	// DenyCountries blocks listed ISO 3166-1 alpha-2 country codes.
 	// Mutually exclusive with AllowCountries (AllowCountries takes precedence if both set).
 	DenyCountries []string `yaml:"deny_countries"`
@@ -1658,8 +1588,6 @@ type GeoIPConfig struct {
 	// A preset is never applied on its own — only by being named in
 	// DenyCountries or AllowCountries.
 	Presets map[string][]string `yaml:"presets"`
-	// Databases controls which MMDB databases to download and use.
-	Databases GeoIPDatabasesConfig `yaml:"databases"`
 }
 
 // ResolvedDenyCountries returns DenyCountries with any preset names expanded
@@ -1710,16 +1638,30 @@ type SecurityConfig struct {
 	Allowlist      []AllowlistEntry     `yaml:"allowlist"`
 	BlockedIPs     []BlockedIPEntry     `yaml:"blocked_ips"`
 	AbuseDetection AbuseDetectionConfig `yaml:"abuse_detection"`
+	Blocklists     BlocklistsConfig     `yaml:"blocklists"`
 	// EncryptionKey is the base64-encoded 32-byte AES-256-GCM key used to encrypt
 	// sensitive at-rest data (e.g. DNS-01 provider credentials), per AI.md PART 11.
 	// Auto-generated via crypto/rand on first run and persisted to server.yml.
-	EncryptionKey string `yaml:"encryption_key"`
+	EncryptionKey        string `yaml:"encryption_key"`
+	EncryptionKeyVersion string `yaml:"encryption_key_version"`
 	// PreviousEncryptionKey is the pre-rotation encryption key, kept for the
 	// 30-day grace period described in AI.md PART 11 "Secret Rotation" so any
 	// at-rest data not yet re-encrypted under the new key remains decryptable.
 	PreviousEncryptionKey string `yaml:"previous_encryption_key,omitempty"`
 	// PreviousEncryptionKeyUntil is the Unix timestamp the grace period above ends.
 	PreviousEncryptionKeyUntil int64 `yaml:"previous_encryption_key_until,omitempty"`
+}
+
+type BlocklistsConfig struct {
+	Enabled      bool                    `yaml:"enabled"`
+	ExtraSources []BlocklistSourceConfig `yaml:"extra_sources"`
+}
+
+type BlocklistSourceConfig struct {
+	ID      string `yaml:"id"`
+	Type    string `yaml:"type"`
+	URL     string `yaml:"url"`
+	Enabled *bool  `yaml:"enabled"`
 }
 
 // BlockedIPEntry is a permanent operator-configured IP/CIDR block.
@@ -1763,7 +1705,6 @@ type RateLimitBucketConfig struct {
 
 // RateLimitConfig holds per-class rate limiting settings per AI.md PART 12.
 type RateLimitConfig struct {
-	Enabled bool `yaml:"enabled"`
 	// Read applies to GET and HEAD requests.
 	Read RateLimitBucketConfig `yaml:"read"`
 	// Write applies to POST, PUT, PATCH, DELETE requests.
@@ -2229,44 +2170,34 @@ func DefaultConfig() *AppConfig {
 				DurationBuckets: []float64{0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10},
 				SizeBuckets:     []float64{100, 1000, 10000, 100000, 1000000, 10000000},
 			},
-			MCP: MCPConfig{Enabled: true},
 			Logging: LoggingConfig{
-				Level:        "warn",
-				AccessFormat: "apache",
+				Level:    "warn",
+				Defaults: LoggingDefaultsConfig{Rotate: "weekly,50MB", Keep: "none"},
 				Access: LogFileConfig{
 					Enabled:  true,
 					Filename: "access.log",
 					Format:   "apache",
 					Rotate:   "monthly",
-					Keep:     "none",
 				},
 				Server: LogFileConfig{
 					Enabled:  true,
 					Filename: "server.log",
 					Format:   "text",
-					Rotate:   "weekly,50MB",
-					Keep:     "none",
 				},
 				Error: LogFileConfig{
 					Enabled:  true,
 					Filename: "error.log",
 					Format:   "text",
-					Rotate:   "weekly,50MB",
-					Keep:     "none",
 				},
 				App: LogFileConfig{
 					Enabled:  true,
 					Filename: "app.log",
 					Format:   "logfmt",
-					Rotate:   "weekly,50MB",
-					Keep:     "none",
 				},
 				Auth: LogFileConfig{
 					Enabled:  true,
 					Filename: "auth.log",
 					Format:   "syslog",
-					Rotate:   "weekly,50MB",
-					Keep:     "none",
 				},
 				Audit: AuditLogFileConfig{
 					LogFileConfig: LogFileConfig{
@@ -2274,7 +2205,6 @@ func DefaultConfig() *AppConfig {
 						Filename: "audit.log",
 						Format:   "json",
 						Rotate:   "daily",
-						Keep:     "none",
 					},
 					Events: AuditEventFilterConfig{
 						Configuration: true,
@@ -2288,29 +2218,18 @@ func DefaultConfig() *AppConfig {
 					Enabled:  true,
 					Filename: "security.log",
 					Format:   "fail2ban",
-					Rotate:   "weekly,50MB",
-					Keep:     "none",
 				},
 				Debug: LogFileConfig{
 					Enabled:  false,
 					Filename: "debug.log",
 					Format:   "text",
-					Rotate:   "weekly,50MB",
-					Keep:     "none",
 				},
 			},
 			GeoIP: GeoIPConfig{
 				Enabled:        true,
-				Dir:            "",
 				DenyCountries:  []string{},
 				AllowCountries: []string{},
 				Presets:        map[string][]string{},
-				Databases: GeoIPDatabasesConfig{
-					ASN:     true,
-					Country: true,
-					City:    true,
-					WHOIS:   true,
-				},
 			},
 			I18n: I18nConfig{
 				Enabled:            true,
@@ -2321,13 +2240,14 @@ func DefaultConfig() *AppConfig {
 			Healthz: HealthzConfig{
 				Root: RootHealthzConfig{Enabled: false},
 			},
-			Security: SecurityConfig{AbuseDetection: AbuseDetectionConfig{
+			Security: SecurityConfig{Blocklists: BlocklistsConfig{Enabled: true}, AbuseDetection: AbuseDetectionConfig{
 				RequestFlood: RequestFloodConfig{Multiplier: 10, Window: "60s", BlockDuration: "1h"},
 				AutoBlockIP:  true, AutoAlert: true,
 			}},
 			Contact:  ContactConfig{},
 			Tracking: TrackingConfig{},
 			Privacy: PrivacyConfig{
+				Content: builtinPrivacy,
 				Data: DataPolicy{
 					Sold:           false,
 					StoredOnServer: true,
@@ -2365,7 +2285,6 @@ func DefaultConfig() *AppConfig {
 			},
 			Maintenance: MaintenanceConfig{
 				SelfHealing: MaintenanceSelfHealingConfig{
-					Enabled:       true,
 					RetryInterval: "30s",
 					MaxAttempts:   0,
 				},
@@ -2383,12 +2302,10 @@ func DefaultConfig() *AppConfig {
 				// AI.md PART 16 Branding Defaults: title defaults to the project
 				// name and falls back to it whenever it is left empty; tagline,
 				// description and the rest stay empty until an operator sets them.
-				Title:      brandingDefaultTitle,
-				ThemeColor: "#bd93f9",
+				Title: brandingDefaultTitle,
 			},
 			SEO: DefaultSEOConfig(),
 			RateLimit: RateLimitConfig{
-				Enabled:     true,
 				Read:        RateLimitBucketConfig{Requests: 120, Window: 60},
 				Write:       RateLimitBucketConfig{Requests: 10, Window: 60},
 				Health:      RateLimitBucketConfig{Requests: 120, Window: 60},
@@ -2510,18 +2427,19 @@ func DefaultConfig() *AppConfig {
 				Keyservers:    []string{"keys.openpgp.org", "keyserver.ubuntu.com"},
 				PublishPGPKey: true,
 			},
-			HSTS:              DefaultHSTSConfig(),
-			PermissionsPolicy: DefaultPermissionsPolicy(),
-			CSP:               DefaultCSPConfig(),
-			Headers:           DefaultSecurityHeaders(),
-			Reports:           DefaultReportsConfig(),
+			HSTS:    DefaultHSTSConfig(),
+			CSP:     DefaultCSPConfig(),
+			Headers: DefaultSecurityHeaders(),
+			Reports: DefaultReportsConfig(),
 		},
 		Pages: PagesConfig{Contact: ContactPageConfig{
+			Enabled: true,
 			Captcha: "simple",
 			Antispam: ContactAntispamConfig{
 				Honeypot: true, MinFillSeconds: 3, MaxAgeSeconds: 43200,
 				PerIP: 5, PerEmail: 3, Global: 60, Window: "1h",
-				MaxLinks: 2, RejectMarkup: true, Strikes: 3, BanHours: 24, DuplicateWindowHours: 24,
+				MaxLinks: 10, RejectMarkup: true, Strikes: 3, BanHours: 24,
+				ReviewMinSeconds: 2, ReviewMaxSeconds: 900, DuplicateWindowHours: 24,
 			},
 		}},
 		Data: DataConfig{
@@ -2565,6 +2483,9 @@ func LoadConfigFromFile(path string) (*AppConfig, error) {
 	// Migrate .yaml to .yml if needed
 	path = migrateYamlToYml(path)
 	configPath = path
+	if err := secureConfigPermissions(path); err != nil {
+		return nil, err
+	}
 
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		cfg := DefaultConfig()
@@ -2620,6 +2541,10 @@ func LoadConfigFromFile(path string) (*AppConfig, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to read config file: %w", err)
 	}
+	data, err = migrateLegacySecrets(path, data)
+	if err != nil {
+		return nil, err
+	}
 
 	cfg, err := parseMergedConfig(path, data)
 	if err != nil {
@@ -2642,6 +2567,150 @@ func LoadConfigFromFile(path string) (*AppConfig, error) {
 	applyRuntimeDatabaseEnv(cfg)
 	current = cfg
 	return cfg, nil
+}
+
+func migrateLegacySecrets(configFile string, content []byte) ([]byte, error) {
+	var legacy struct {
+		Server struct {
+			Token    string `yaml:"token"`
+			Security struct {
+				EncryptionKey string `yaml:"encryption_key"`
+			} `yaml:"security"`
+		} `yaml:"server"`
+	}
+	if err := yaml.Unmarshal(content, &legacy); err != nil {
+		return nil, err
+	}
+	secretsPath := filepath.Join(filepath.Dir(configFile), "secrets.yml")
+	secrets := map[string]any{}
+	if data, err := os.ReadFile(secretsPath); err == nil {
+		if err := yaml.Unmarshal(data, &secrets); err != nil {
+			return nil, fmt.Errorf("parse existing secrets file: %w", err)
+		}
+	} else if !os.IsNotExist(err) {
+		return nil, err
+	}
+	secretServer, _ := secrets["server"].(map[string]any)
+	if secretServer == nil {
+		secretServer = map[string]any{}
+		secrets["server"] = secretServer
+	}
+	secretSecurity, _ := secretServer["security"].(map[string]any)
+	if secretSecurity == nil {
+		secretSecurity = map[string]any{}
+		secretServer["security"] = secretSecurity
+	}
+	migrateToken := legacy.Server.Token != "" && secretServer["token"] == nil
+	migrateKey := legacy.Server.Security.EncryptionKey != "" && secretSecurity["encryption_key"] == nil
+	if !migrateToken && !migrateKey {
+		return content, nil
+	}
+	if migrateToken {
+		secretServer["token"] = legacy.Server.Token
+	}
+	if migrateKey {
+		secretSecurity["encryption_key"] = legacy.Server.Security.EncryptionKey
+		secretSecurity["encryption_key_version"] = "v1"
+	}
+	encodedSecrets, err := yaml.Marshal(secrets)
+	if err != nil {
+		return nil, err
+	}
+	if err := atomicPrivateWrite(secretsPath, encodedSecrets); err != nil {
+		return nil, fmt.Errorf("migrate legacy secrets: %w", err)
+	}
+	cleaned, err := removeSelectedSecretValues(content, migrateToken, migrateKey)
+	if err != nil {
+		return nil, err
+	}
+	if err := atomicPrivateWrite(configFile, cleaned); err != nil {
+		return nil, fmt.Errorf("remove migrated secrets from server config: %w", err)
+	}
+	return cleaned, nil
+}
+
+func removeSelectedSecretValues(content []byte, removeToken, removeKey bool) ([]byte, error) {
+	var doc yaml.Node
+	if err := yaml.Unmarshal(content, &doc); err != nil {
+		return nil, err
+	}
+	if len(doc.Content) == 0 {
+		return content, nil
+	}
+	find := func(parent *yaml.Node, key string) *yaml.Node {
+		if parent == nil || parent.Kind != yaml.MappingNode {
+			return nil
+		}
+		for i := 0; i+1 < len(parent.Content); i += 2 {
+			if parent.Content[i].Value == key {
+				return parent.Content[i+1]
+			}
+		}
+		return nil
+	}
+	remove := func(parent *yaml.Node, key string) {
+		if parent == nil || parent.Kind != yaml.MappingNode {
+			return
+		}
+		for i := 0; i+1 < len(parent.Content); i += 2 {
+			if parent.Content[i].Value == key {
+				parent.Content = append(parent.Content[:i], parent.Content[i+2:]...)
+				return
+			}
+		}
+	}
+	server := find(doc.Content[0], "server")
+	if removeToken {
+		remove(server, "token")
+	}
+	if removeKey {
+		remove(find(server, "security"), "encryption_key")
+	}
+	return yaml.Marshal(&doc)
+}
+
+func atomicPrivateWrite(path string, content []byte) error {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	if err := os.Chmod(dir, 0o700); err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(dir, ".config-secret-*")
+	if err != nil {
+		return err
+	}
+	name := tmp.Name()
+	defer func() { _ = os.Remove(name) }()
+	if err := tmp.Chmod(0o600); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if _, err := tmp.Write(content); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(name, path); err != nil {
+		return err
+	}
+	return syncDirectory(dir)
+}
+
+func syncDirectory(path string) error {
+	directory, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = directory.Close() }()
+	return directory.Sync()
 }
 
 // applyRuntimeDatabaseEnv re-checks the DATABASE_DRIVER/DATABASE_URL Runtime
@@ -2873,11 +2942,6 @@ func validateConfig(cfg *AppConfig) {
 		cfg.Web.Reports.RateLimitPerIPBurst = def.Web.Reports.RateLimitPerIPBurst
 	}
 
-	// Permissions-Policy must not be empty or the header would be omitted.
-	if len(cfg.Web.PermissionsPolicy) == 0 {
-		cfg.Web.PermissionsPolicy = def.Web.PermissionsPolicy
-	}
-
 	// Overly broad allowlist ranges are rejected unless explicitly confirmed.
 	cfg.Server.Security.Allowlist = validateAllowlist(cfg.Server.Security.Allowlist)
 }
@@ -2951,6 +3015,10 @@ func getConfigPath() string {
 	return configPath
 }
 
+func ConfigDirectory() string {
+	return filepath.Dir(getConfigPath())
+}
+
 // SaveConfigToFile writes the current in-memory configuration to the loaded config path.
 func SaveConfigToFile() error {
 	mu.Lock()
@@ -2959,6 +3027,24 @@ func SaveConfigToFile() error {
 		return fmt.Errorf("no configuration loaded")
 	}
 	return saveConfig(current, configPath)
+}
+
+func SaveGeneratedOperatorToken() error {
+	mu.RLock()
+	defer mu.RUnlock()
+	if current == nil || configPath == "" {
+		return fmt.Errorf("no configuration loaded")
+	}
+	return saveGeneratedSecrets(current, filepath.Join(filepath.Dir(configPath), "secrets.yml"), true, false)
+}
+
+func SaveGeneratedEncryptionKey() error {
+	mu.RLock()
+	defer mu.RUnlock()
+	if current == nil || configPath == "" {
+		return fmt.Errorf("no configuration loaded")
+	}
+	return saveGeneratedSecrets(current, filepath.Join(filepath.Dir(configPath), "secrets.yml"), false, true)
 }
 
 // reloadConfigFromFile re-reads configuration from the previously loaded path.
@@ -2998,6 +3084,21 @@ func validateOperatorSecurityConfig(cfg *AppConfig) error {
 		return err
 	}
 	cfg.Server.Security.BlockedIPs = blocked
+	seen := map[string]bool{"firehol_level1": true}
+	for _, source := range cfg.Server.Security.Blocklists.ExtraSources {
+		id := strings.TrimSpace(source.ID)
+		if id == "" || !regexp.MustCompile(`^[a-z0-9_]+$`).MatchString(id) || seen[id] {
+			return fmt.Errorf("security.blocklists.extra_sources has invalid or duplicate id %q", source.ID)
+		}
+		seen[id] = true
+		if source.Type != "ip" && source.Type != "domain" {
+			return fmt.Errorf("security.blocklists.extra_sources[%s].type must be ip or domain", id)
+		}
+		parsed, parseErr := url.Parse(source.URL)
+		if parseErr != nil || parsed.Scheme != "https" || parsed.Host == "" {
+			return fmt.Errorf("security.blocklists.extra_sources[%s].url must be an https URL", id)
+		}
+	}
 	return nil
 }
 
@@ -3064,11 +3165,23 @@ func saveConfig(cfg *AppConfig, path string) error {
 		return err
 	}
 	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("failed to create config directory: %w", err)
 	}
+	if err := os.Chmod(dir, 0o700); err != nil {
+		return fmt.Errorf("secure config directory: %w", err)
+	}
 
-	content := generateConfigYAML(cfg)
+	var original []byte
+	if existing, readErr := os.ReadFile(path); readErr == nil {
+		original = existing
+	} else if !os.IsNotExist(readErr) {
+		return readErr
+	}
+	content, err := removeGeneratedSecretValues(generateConfigYAML(cfg), original)
+	if err != nil {
+		return fmt.Errorf("remove generated secrets from server config: %w", err)
+	}
 	tmp, err := os.CreateTemp(dir, ".server.yml-*")
 	if err != nil {
 		return fmt.Errorf("create temporary config file: %w", err)
@@ -3093,7 +3206,229 @@ func saveConfig(cfg *AppConfig, path string) error {
 	if err := os.Rename(tmpName, path); err != nil {
 		return fmt.Errorf("replace config file: %w", err)
 	}
-	return nil
+	return syncDirectory(dir)
+}
+
+func saveGeneratedSecrets(cfg *AppConfig, path string, saveToken, saveEncryptionKey bool) error {
+	secrets := map[string]any{}
+	if data, err := os.ReadFile(path); err == nil {
+		if err := yaml.Unmarshal(data, &secrets); err != nil {
+			return fmt.Errorf("parse existing secrets file: %w", err)
+		}
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+	server, _ := secrets["server"].(map[string]any)
+	if server == nil {
+		server = map[string]any{}
+		secrets["server"] = server
+	}
+	if saveToken && cfg.Server.Token != "" {
+		server["token"] = cfg.Server.Token
+	}
+	security, _ := server["security"].(map[string]any)
+	if security == nil {
+		security = map[string]any{}
+		server["security"] = security
+	}
+	if saveEncryptionKey && cfg.Server.Security.EncryptionKey != "" {
+		security["encryption_key"] = cfg.Server.Security.EncryptionKey
+		version := cfg.Server.Security.EncryptionKeyVersion
+		if version == "" {
+			version = "v1"
+		}
+		security["encryption_key_version"] = version
+	}
+	if len(server) == 0 {
+		return nil
+	}
+	content, err := yaml.Marshal(secrets)
+	if err != nil {
+		return fmt.Errorf("marshal secrets file: %w", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".secrets.yml-*")
+	if err != nil {
+		return err
+	}
+	name := tmp.Name()
+	defer func() { _ = os.Remove(name) }()
+	if err := tmp.Chmod(0o600); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if _, err := tmp.Write(content); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(name, path); err != nil {
+		return err
+	}
+	return syncDirectory(filepath.Dir(path))
+}
+
+func removeGeneratedSecretValues(content string, original []byte) (string, error) {
+	var doc yaml.Node
+	if err := yaml.Unmarshal([]byte(content), &doc); err != nil {
+		return "", err
+	}
+	if len(doc.Content) == 0 {
+		return content, nil
+	}
+	dnsCredentials := findConfigNode(doc.Content[0], "server.ssl.letsencrypt.dns_credentials")
+	stripSecretConfigNodes(doc.Content[0], "")
+	if len(original) > 0 {
+		var oldDoc yaml.Node
+		if err := yaml.Unmarshal(original, &oldDoc); err != nil {
+			return "", fmt.Errorf("parse existing server config before save: %w", err)
+		}
+		if len(oldDoc.Content) > 0 {
+			restorePrimarySecretConfigNodes(doc.Content[0], oldDoc.Content[0], "")
+			if findConfigNode(oldDoc.Content[0], "server.ssl.letsencrypt.dns_credentials") != nil && dnsCredentials != nil {
+				setConfigNode(doc.Content[0], "server.ssl.letsencrypt.dns_credentials", dnsCredentials)
+			}
+		}
+	}
+	encoded, err := yaml.Marshal(&doc)
+	return string(encoded), err
+}
+
+func findConfigNode(root *yaml.Node, path string) *yaml.Node {
+	current := root
+	for _, part := range strings.Split(path, ".") {
+		if current == nil || current.Kind != yaml.MappingNode {
+			return nil
+		}
+		var next *yaml.Node
+		for index := 0; index+1 < len(current.Content); index += 2 {
+			if current.Content[index].Value == part {
+				next = current.Content[index+1]
+				break
+			}
+		}
+		current = next
+	}
+	return current
+}
+
+func setConfigNode(root *yaml.Node, path string, value *yaml.Node) {
+	parts := strings.Split(path, ".")
+	current := root
+	for _, part := range parts[:len(parts)-1] {
+		next := findConfigNode(current, part)
+		if next == nil {
+			next = &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+			current.Content = append(current.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: part}, next)
+		}
+		current = next
+	}
+	key := parts[len(parts)-1]
+	for index := 0; index+1 < len(current.Content); index += 2 {
+		if current.Content[index].Value == key {
+			current.Content[index+1] = value
+			return
+		}
+	}
+	current.Content = append(current.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: key}, value)
+}
+
+func isSecretConfigKey(path string) bool {
+	if path == "server.token" || path == "server.security.encryption_key" || path == "server.security.encryption_key_version" ||
+		path == "server.notifications.email.smtp.password" || path == "server.cache.password" ||
+		path == "server.database.password" || path == "server.database.token" || path == "server.pages.contact.captcha_secret_key" ||
+		path == "server.ssl.letsencrypt.dns_credentials" || path == "data.cve.api_key" || path == "server.backup.encryption_password" {
+		return true
+	}
+	if strings.HasPrefix(path, "server.metrics.auth.tokens.") || path == "server.metrics.auth.tokens" {
+		return true
+	}
+	if strings.Contains(path, ".webhooks.") {
+		for _, channel := range []string{"telegram", "discord", "slack", "mattermost", "pushover", "gotify", "generic"} {
+			if strings.HasSuffix(path, "."+channel) || strings.HasSuffix(path, "."+channel+"_secret") {
+				return true
+			}
+		}
+	}
+	return strings.Contains(path, ".providers.") && (strings.HasSuffix(path, ".bind_password") || strings.HasSuffix(path, ".client_secret"))
+}
+
+func stripSecretConfigNodes(node *yaml.Node, prefix string) {
+	if node.Kind == yaml.MappingNode {
+		for index := 0; index+1 < len(node.Content); {
+			key, value := node.Content[index], node.Content[index+1]
+			full := key.Value
+			if prefix != "" {
+				full = prefix + "." + full
+			}
+			if isSecretConfigKey(full) {
+				node.Content = append(node.Content[:index], node.Content[index+2:]...)
+				continue
+			}
+			stripSecretConfigNodes(value, full)
+			index += 2
+		}
+		return
+	}
+	for _, child := range node.Content {
+		stripSecretConfigNodes(child, prefix)
+	}
+}
+
+func restorePrimarySecretConfigNodes(target, source *yaml.Node, prefix string) {
+	if source.Kind == yaml.MappingNode {
+		if target.Kind != yaml.MappingNode {
+			target.Kind, target.Tag, target.Content = yaml.MappingNode, "!!map", nil
+		}
+		for index := 0; index+1 < len(source.Content); index += 2 {
+			key, value := source.Content[index], source.Content[index+1]
+			full := key.Value
+			if prefix != "" {
+				full = prefix + "." + full
+			}
+			destinationIndex := -1
+			for i := 0; i+1 < len(target.Content); i += 2 {
+				if target.Content[i].Value == key.Value {
+					destinationIndex = i + 1
+					break
+				}
+			}
+			if isSecretConfigKey(full) {
+				if destinationIndex < 0 {
+					target.Content = append(target.Content, key, value)
+				} else {
+					target.Content[destinationIndex] = value
+				}
+				continue
+			}
+			if destinationIndex < 0 {
+				child := &yaml.Node{Kind: value.Kind, Tag: value.Tag}
+				target.Content = append(target.Content, key, child)
+				destinationIndex = len(target.Content) - 1
+			}
+			restorePrimarySecretConfigNodes(target.Content[destinationIndex], value, full)
+		}
+		return
+	}
+	if source.Kind == yaml.SequenceNode {
+		if target.Kind != yaml.SequenceNode {
+			target.Kind, target.Tag, target.Content = yaml.SequenceNode, "!!seq", nil
+		}
+		for index, value := range source.Content {
+			if index >= len(target.Content) {
+				target.Content = append(target.Content, &yaml.Node{Kind: value.Kind, Tag: value.Tag})
+			}
+			restorePrimarySecretConfigNodes(target.Content[index], value, prefix)
+		}
+	}
 }
 
 func normalizeDNSCredentials(cfg *AppConfig) (bool, error) {
@@ -3251,6 +3586,21 @@ func formatAllowlist(entries []AllowlistEntry) string {
 	return b.String()
 }
 
+func formatBlocklists(cfg BlocklistsConfig) string {
+	var out strings.Builder
+	fmt.Fprintf(&out, "    blocklists:\n      enabled: %t\n      extra_sources:", cfg.Enabled)
+	if len(cfg.ExtraSources) == 0 {
+		out.WriteString(" []\n")
+		return out.String()
+	}
+	out.WriteByte('\n')
+	for _, source := range cfg.ExtraSources {
+		enabled := source.Enabled == nil || *source.Enabled
+		fmt.Fprintf(&out, "        - id: %q\n          type: %q\n          url: %q\n          enabled: %t\n", source.ID, source.Type, source.URL, enabled)
+	}
+	return out.String()
+}
+
 func formatDNSCredentials(values map[string]string) string {
 	if len(values) == 0 {
 		return "        {}\n"
@@ -3311,26 +3661,31 @@ func formatScheduleTasks(t ScheduleTasksConfig) string {
 	return strings.TrimRight(b.String(), "\n")
 }
 
-// formatLogFile renders a single per-file logging block at 4-space indent.
-func formatLogFile(name string, l LogFileConfig) string {
+// formatLogFile renders one log-kind block containing only non-default options.
+func formatLogFile(name string, l LogFileConfig, defaults LoggingDefaultsConfig) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "    %s:\n", name)
-	fmt.Fprintf(&b, "      enabled: %t\n", l.Enabled)
-	fmt.Fprintf(&b, "      filename: %q\n", l.Filename)
+	if !l.Enabled {
+		b.WriteString("      enabled: false\n")
+	}
 	fmt.Fprintf(&b, "      format: %q\n", l.Format)
-	if l.Custom != "" {
+	if l.Custom != "" && l.Custom != defaults.Custom {
 		fmt.Fprintf(&b, "      custom: %q\n", l.Custom)
 	}
-	fmt.Fprintf(&b, "      rotate: %q\n", l.Rotate)
-	fmt.Fprintf(&b, "      keep: %q\n", l.Keep)
+	if l.Rotate != "" && l.Rotate != defaults.Rotate {
+		fmt.Fprintf(&b, "      rotate: %q\n", l.Rotate)
+	}
+	if l.Keep != "" && l.Keep != defaults.Keep {
+		fmt.Fprintf(&b, "      keep: %q\n", l.Keep)
+	}
 	return b.String()
 }
 
 // formatAuditLogFile renders the audit log block, which extends LogFileConfig
 // with compression, event-category filters, and user-agent inclusion.
-func formatAuditLogFile(a AuditLogFileConfig) string {
+func formatAuditLogFile(a AuditLogFileConfig, defaults LoggingDefaultsConfig) string {
 	var b strings.Builder
-	b.WriteString(formatLogFile("audit", a.LogFileConfig))
+	b.WriteString(formatLogFile("audit", a.LogFileConfig, defaults))
 	fmt.Fprintf(&b, "      compress: %t\n", a.Compress)
 	fmt.Fprintf(&b, "      include_user_agent: %t\n", a.IncludeUserAgent)
 	b.WriteString("      events:\n")
@@ -3344,14 +3699,15 @@ func formatAuditLogFile(a AuditLogFileConfig) string {
 // formatLoggingFiles renders all per-file logging blocks under server.logging.
 func formatLoggingFiles(l LoggingConfig) string {
 	var b strings.Builder
-	b.WriteString(formatLogFile("access", l.Access))
-	b.WriteString(formatLogFile("server", l.Server))
-	b.WriteString(formatLogFile("error", l.Error))
-	b.WriteString(formatLogFile("app", l.App))
-	b.WriteString(formatLogFile("auth", l.Auth))
-	b.WriteString(formatAuditLogFile(l.Audit))
-	b.WriteString(formatLogFile("security", l.Security))
-	b.WriteString(formatLogFile("debug", l.Debug))
+	fmt.Fprintf(&b, "    defaults:\n      custom: %q\n      rotate: %q\n      keep: %q\n", l.Defaults.Custom, l.Defaults.Rotate, l.Defaults.Keep)
+	b.WriteString(formatLogFile("access", l.Access, l.Defaults))
+	b.WriteString(formatLogFile("server", l.Server, l.Defaults))
+	b.WriteString(formatLogFile("error", l.Error, l.Defaults))
+	b.WriteString(formatLogFile("app", l.App, l.Defaults))
+	b.WriteString(formatLogFile("auth", l.Auth, l.Defaults))
+	b.WriteString(formatAuditLogFile(l.Audit, l.Defaults))
+	b.WriteString(formatLogFile("security", l.Security, l.Defaults))
+	b.WriteString(formatLogFile("debug", l.Debug, l.Defaults))
 	return strings.TrimRight(b.String(), "\n")
 }
 
@@ -3420,13 +3776,8 @@ server:
       max_entries: %d
       max_age: "%s"
 
-  mcp:
-    # Streamable HTTP MCP endpoint and aliases
-    enabled: %t
-
   # Per-class request rate limiting (read/write/health buckets + global ceiling)
   rate_limit:
-    enabled: %t
     read:
       requests: %d
       window: %d
@@ -3465,24 +3816,16 @@ server:
     live_reload: %t
 
   logging:
-    access_format: "%s"
     level: "%s"
 %s
 
   geoip:
     enabled: %t
-    dir: "%s"
     deny_countries: %s
     allow_countries: %s
     # Named operator-authored country lists, reusable in the two fields above.
     # Ships empty; nothing here is ever applied unless it is named above.
     presets: %s
-    databases:
-      asn: %t
-      country: %t
-      city: %t
-      whois: %t
-
   tor:
     binary: "%s"
     use_network: %t
@@ -3640,6 +3983,7 @@ server:
     encryption_key: "%s"
     # Trusted IP/CIDR entries that bypass blocklist, rate limiting, and GeoIP
 %s
+%s
     abuse_detection:
       request_flood:
         multiplier: %d
@@ -3651,7 +3995,6 @@ server:
 
   maintenance:
     self_healing:
-      enabled: %t
       retry_interval: "%s"
       max_attempts: %d
     cleanup:
@@ -3666,9 +4009,8 @@ server:
     title: "%s"
     tagline: "%s"
     description: "%s"
-    logo_url: "%s"
-    favicon_url: "%s"
-    theme_color: "%s"
+    favicon: "%s"
+    logo: "%s"
 
   seo:
     # Meta keywords, e.g. ["ip", "geolocation", "api"]
@@ -3794,8 +4136,6 @@ web:
       # Per-bot overrides: allow | deny
       bots:
 %s
-  footer:
-    custom_html: "%s"
   # Strict-Transport-Security; only emitted when SSL is enabled
   hsts:
     enabled: %t
@@ -3803,10 +4143,6 @@ web:
     max_age_seconds: %d
     include_subdomains: %t
     preload: %t
-  # Browser feature allowlist. "()" denies everywhere, "(self)" allows
-  # same-origin only, "" omits the feature so the browser default applies
-  permissions_policy:
-%s
   csp:
     enabled: %t
     # "enforce" | "report-only"; empty means report-only in debug, enforce otherwise
@@ -3885,6 +4221,7 @@ data:
 
 pages:
   contact:
+    enabled: %t
     captcha: %q
     captcha_site_key: %q
     captcha_secret_key: %q
@@ -3903,6 +4240,8 @@ pages:
       blocked_link_domains: %s
       strikes: %d
       ban_hours: %d
+      review_min_seconds: %d
+      review_max_seconds: %d
       duplicate_window_hours: %d
 `,
 		cfg.Server.Token,
@@ -3936,8 +4275,6 @@ pages:
 		cfg.Server.Metrics.IncludeRuntime,
 		cfg.Server.Metrics.Loki.MaxEntries,
 		cfg.Server.Metrics.Loki.MaxAge,
-		cfg.Server.MCP.Enabled,
-		cfg.Server.RateLimit.Enabled,
 		cfg.Server.RateLimit.Read.Requests,
 		cfg.Server.RateLimit.Read.Window,
 		cfg.Server.RateLimit.Write.Requests,
@@ -3959,18 +4296,12 @@ pages:
 		cfg.Server.URLDetection.SampleWindow,
 		cfg.Server.URLDetection.LogChanges,
 		cfg.Server.URLDetection.LiveReload,
-		cfg.Server.Logging.AccessFormat,
 		cfg.Server.Logging.Level,
 		formatLoggingFiles(cfg.Server.Logging),
 		cfg.Server.GeoIP.Enabled,
-		cfg.Server.GeoIP.Dir,
 		formatStringSlice(cfg.Server.GeoIP.DenyCountries),
 		formatStringSlice(cfg.Server.GeoIP.AllowCountries),
 		formatCountryPresets(cfg.Server.GeoIP.Presets),
-		cfg.Server.GeoIP.Databases.ASN,
-		cfg.Server.GeoIP.Databases.Country,
-		cfg.Server.GeoIP.Databases.City,
-		cfg.Server.GeoIP.Databases.WHOIS,
 		cfg.Server.Tor.Binary,
 		cfg.Server.Tor.UseNetwork,
 		cfg.Server.Tor.MaxCircuits,
@@ -4094,13 +4425,13 @@ pages:
 		formatDNSCredentials(cfg.Server.SSL.LetsEncrypt.DNSCredentials.Values),
 		cfg.Server.Security.EncryptionKey,
 		formatAllowlist(cfg.Server.Security.Allowlist),
+		formatBlocklists(cfg.Server.Security.Blocklists),
 		cfg.Server.Security.AbuseDetection.RequestFlood.Multiplier,
 		cfg.Server.Security.AbuseDetection.RequestFlood.Window,
 		cfg.Server.Security.AbuseDetection.RequestFlood.BlockDuration,
 		cfg.Server.Security.AbuseDetection.AutoBlockIP,
 		cfg.Server.Security.AbuseDetection.AutoAlert,
 		formatBlockedIPs(cfg.Server.Security.BlockedIPs),
-		cfg.Server.Maintenance.SelfHealing.Enabled,
 		cfg.Server.Maintenance.SelfHealing.RetryInterval,
 		cfg.Server.Maintenance.SelfHealing.MaxAttempts,
 		cfg.Server.Maintenance.Cleanup.DiskThreshold,
@@ -4111,9 +4442,8 @@ pages:
 		cfg.Server.Branding.Title,
 		cfg.Server.Branding.Tagline,
 		cfg.Server.Branding.Description,
-		cfg.Server.Branding.LogoURL,
 		cfg.Server.Branding.FaviconURL,
-		cfg.Server.Branding.ThemeColor,
+		cfg.Server.Branding.LogoURL,
 		cfg.Server.SEO.Author,
 		cfg.Server.SEO.OGImage,
 		cfg.Server.SEO.TwitterHandle,
@@ -4178,12 +4508,10 @@ pages:
 		formatStringSlice(cfg.Web.Robots.Deny),
 		formatAIBotsDefault(cfg.Web.Robots.AIBots.Default),
 		formatAIBotsMap(cfg.Web.Robots.AIBots.Bots),
-		cfg.Web.Footer.CustomHTML,
 		cfg.Web.HSTS.Enabled,
 		cfg.Web.HSTS.MaxAgeSeconds,
 		cfg.Web.HSTS.IncludeSubdomains,
 		cfg.Web.HSTS.Preload,
-		formatPermissionsPolicy(cfg.Web.PermissionsPolicy),
 		cfg.Web.CSP.Enabled,
 		cfg.Web.CSP.Mode,
 		cfg.Web.CSP.ScriptSrcExtra,
@@ -4227,6 +4555,7 @@ pages:
 		cfg.Web.Reports.RateLimitPerIPBurst,
 		cfg.Data.CVE.Source,
 		cfg.Data.CVE.FilterByCPE,
+		cfg.Pages.Contact.Enabled,
 		cfg.Pages.Contact.Captcha,
 		cfg.Pages.Contact.CaptchaSiteKey,
 		cfg.Pages.Contact.CaptchaSecretKey,
@@ -4244,6 +4573,8 @@ pages:
 		formatStringSlice(cfg.Pages.Contact.Antispam.BlockedLinkDomains),
 		cfg.Pages.Contact.Antispam.Strikes,
 		cfg.Pages.Contact.Antispam.BanHours,
+		cfg.Pages.Contact.Antispam.ReviewMinSeconds,
+		cfg.Pages.Contact.Antispam.ReviewMaxSeconds,
 		cfg.Pages.Contact.Antispam.DuplicateWindowHours,
 	)
 }
@@ -4283,25 +4614,6 @@ func formatAIBotsMap(bots map[string]string) string {
 	sort.Strings(extra)
 	for _, name := range extra {
 		lines = append(lines, fmt.Sprintf("        %s: %s", name, formatAIBotsDefault(bots[name])))
-	}
-	return strings.Join(lines, "\n")
-}
-
-// formatPermissionsPolicy renders web.permissions_policy as a YAML mapping with
-// feature names sorted so a rewritten server.yml stays byte-stable. An empty
-// map falls back to the AI.md PART 11 defaults so a fresh install is complete.
-func formatPermissionsPolicy(features map[string]string) string {
-	if len(features) == 0 {
-		features = DefaultPermissionsPolicy()
-	}
-	names := make([]string, 0, len(features))
-	for name := range features {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	lines := make([]string, 0, len(names))
-	for _, name := range names {
-		lines = append(lines, fmt.Sprintf("    %s: \"%s\"", name, features[name]))
 	}
 	return strings.Join(lines, "\n")
 }

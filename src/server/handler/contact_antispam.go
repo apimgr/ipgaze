@@ -3,14 +3,17 @@ package handler
 import (
 	"container/list"
 	"crypto/hmac"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
 	"html"
+	"net"
 	"net/http"
 	"net/mail"
 	"net/url"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -24,9 +27,11 @@ import (
 	"github.com/apimgr/ipgaze/src/security"
 )
 
-const maxContactRequestBytes = 16 << 10
+const maxContactRequestBytes = 256 << 10
 
 var errContactFormToken = errors.New("contact form token invalid")
+var errContactFormReplay = errors.New("contact form token replayed")
+var errContactReviewToken = errors.New("contact review token invalid")
 
 var contactRateState = struct {
 	sync.Mutex
@@ -45,6 +50,11 @@ var contactStrikeState = struct {
 	bans   map[string]time.Time
 }{events: make(map[string][]time.Time), bans: make(map[string]time.Time)}
 
+var contactNonceState = struct {
+	sync.Mutex
+	used map[string]time.Time
+}{used: make(map[string]time.Time)}
+
 type contactDuplicateEntry struct {
 	key       string
 	createdAt time.Time
@@ -52,6 +62,7 @@ type contactDuplicateEntry struct {
 
 var contactLinkPattern = regexp.MustCompile(`(?i)(?:[a-z][a-z0-9+.-]*://[^\s<>()]+|www\.[^\s<>()]+|\b(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}(?:/[^\s<>()]*)?)`)
 var contactMarkupPattern = regexp.MustCompile(`(?i)<\s*/?\s*[a-z!]|</|<!|\[(?:url|img|b)(?:\s|=|\])|\[/`)
+var contactEmailTokenPattern = regexp.MustCompile(`(?i)\b[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}\b`)
 
 type contactRateLimitError struct {
 	RetryAfter time.Duration
@@ -103,40 +114,139 @@ func (h *PagesHandler) newContactFormToken(now time.Time) string {
 		return ""
 	}
 	issuedAt := strconv.FormatInt(now.Unix(), 10)
+	nonce, err := contactNonce()
+	if err != nil {
+		return ""
+	}
 	mac := hmac.New(sha256.New, secret)
-	_, _ = mac.Write([]byte("contact-form|" + issuedAt))
-	return issuedAt + "." + hex.EncodeToString(mac.Sum(nil))
+	_, _ = mac.Write([]byte("contact-form|" + issuedAt + "|" + nonce))
+	return issuedAt + "." + nonce + "." + hex.EncodeToString(mac.Sum(nil))
 }
 
 func (h *PagesHandler) verifyContactFormToken(token string, now time.Time) bool {
+	_, err := h.consumeContactFormToken(token, now)
+	return err == nil
+}
+
+func (h *PagesHandler) consumeContactFormToken(token string, now time.Time) (bool, error) {
 	if h.DB == nil {
-		return false
+		return false, errContactFormToken
 	}
 	parts := strings.Split(token, ".")
-	if len(parts) != 2 || len(parts[1]) != sha256.Size*2 {
-		return false
+	if len(parts) != 3 || len(parts[1]) != 32 || len(parts[2]) != sha256.Size*2 {
+		return false, errContactFormToken
 	}
 	issuedAt, err := strconv.ParseInt(parts[0], 10, 64)
 	if err != nil {
-		return false
+		return false, errContactFormToken
 	}
 	cfg := h.contactAntispamConfig()
 	issued := time.Unix(issuedAt, 0)
 	age := now.Sub(issued)
 	if age < 0 || cfg.MinFillSeconds > 0 && age < time.Duration(cfg.MinFillSeconds)*time.Second || cfg.MaxAgeSeconds > 0 && age > time.Duration(cfg.MaxAgeSeconds)*time.Second {
-		return false
+		return false, errContactFormToken
 	}
-	provided, err := hex.DecodeString(parts[1])
+	provided, err := hex.DecodeString(parts[2])
 	if err != nil {
-		return false
+		return false, errContactFormToken
 	}
 	secret, err := security.GetOrCreateSecret(h.DB, security.SecretInstallationSecret)
 	if err != nil {
-		return false
+		return false, errContactFormToken
 	}
 	mac := hmac.New(sha256.New, secret)
-	_, _ = mac.Write([]byte("contact-form|" + parts[0]))
-	return hmac.Equal(provided, mac.Sum(nil))
+	_, _ = mac.Write([]byte("contact-form|" + parts[0] + "|" + parts[1]))
+	if !hmac.Equal(provided, mac.Sum(nil)) {
+		return false, errContactFormToken
+	}
+	if !consumeContactNonce("form:"+parts[1], time.Unix(issuedAt, 0).Add(time.Duration(cfg.MaxAgeSeconds)*time.Second), now) {
+		return false, errContactFormReplay
+	}
+	return false, nil
+}
+
+func contactNonce() (string, error) {
+	value := make([]byte, 16)
+	if _, err := rand.Read(value); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(value), nil
+}
+
+func consumeContactNonce(key string, expiresAt, now time.Time) bool {
+	contactNonceState.Lock()
+	defer contactNonceState.Unlock()
+	for nonce, expires := range contactNonceState.used {
+		if !expires.After(now) {
+			delete(contactNonceState.used, nonce)
+		}
+	}
+	if _, exists := contactNonceState.used[key]; exists {
+		return false
+	}
+	if len(contactNonceState.used) >= 50000 {
+		return false
+	}
+	contactNonceState.used[key] = expiresAt
+	return true
+}
+
+func contactReviewHash(req ContactRequest) string {
+	values := []string{req.Type, req.Name, req.Email, req.Subject, req.Message, req.ReportedURL, req.Reason, req.CopyrightedWork, strconv.FormatBool(req.GoodFaith), strconv.FormatBool(req.Accuracy), req.Signature, req.RequestKind, req.Handle, req.ResearcherGPG, req.AffectedComponent, req.AffectedEndpoint, req.Severity, req.Summary, req.StepsToReproduce, req.Impact, req.SuggestedFix, strconv.FormatBool(req.CVERequested), req.DisclosureDays, req.CreditPreference, strconv.FormatBool(req.CoordinatedAgreement), req.SecurityID}
+	digest := sha256.Sum256([]byte(strings.Join(values, "\x00")))
+	return hex.EncodeToString(digest[:])
+}
+
+func (h *PagesHandler) newContactReviewToken(req ContactRequest, flags string, now time.Time) (string, error) {
+	if h.DB == nil {
+		return "", errContactFormToken
+	}
+	secret, err := security.GetOrCreateSecret(h.DB, security.SecretInstallationSecret)
+	if err != nil {
+		return "", err
+	}
+	nonce, err := contactNonce()
+	if err != nil {
+		return "", err
+	}
+	issued := strconv.FormatInt(now.Unix(), 10)
+	hash := contactReviewHash(req)
+	mac := hmac.New(sha256.New, secret)
+	_, _ = mac.Write([]byte("contact-review|" + issued + "|" + nonce + "|" + flags + "|" + hash))
+	return issued + "." + nonce + "." + flags + "." + hash + "." + hex.EncodeToString(mac.Sum(nil)), nil
+}
+
+func (h *PagesHandler) consumeContactReviewToken(token string, req ContactRequest, now time.Time) (string, error) {
+	parts := strings.Split(token, ".")
+	if h.DB == nil || len(parts) != 5 || len(parts[1]) != 32 || len(parts[4]) != sha256.Size*2 || parts[2] != "" && parts[2] != "d" {
+		return "", errContactReviewToken
+	}
+	issuedAt, err := strconv.ParseInt(parts[0], 10, 64)
+	if err != nil {
+		return "", errContactReviewToken
+	}
+	cfg := h.contactAntispamConfig()
+	age := now.Sub(time.Unix(issuedAt, 0))
+	if age < time.Duration(cfg.ReviewMinSeconds)*time.Second || age > time.Duration(cfg.ReviewMaxSeconds)*time.Second || parts[3] != contactReviewHash(req) {
+		return "", errContactReviewToken
+	}
+	secret, err := security.GetOrCreateSecret(h.DB, security.SecretInstallationSecret)
+	if err != nil {
+		return "", errContactReviewToken
+	}
+	provided, err := hex.DecodeString(parts[4])
+	if err != nil {
+		return "", errContactReviewToken
+	}
+	mac := hmac.New(sha256.New, secret)
+	_, _ = mac.Write([]byte("contact-review|" + parts[0] + "|" + parts[1] + "|" + parts[2] + "|" + parts[3]))
+	if !hmac.Equal(provided, mac.Sum(nil)) {
+		return "", errContactReviewToken
+	}
+	if !consumeContactNonce("review:"+parts[1], time.Unix(issuedAt, 0).Add(time.Duration(cfg.ReviewMaxSeconds)*time.Second), now) {
+		return "", errContactFormReplay
+	}
+	return parts[2], nil
 }
 
 func (h *PagesHandler) contactAntispamConfig() config.ContactAntispamConfig {
@@ -147,11 +257,19 @@ func (h *PagesHandler) contactAntispamConfig() config.ContactAntispamConfig {
 }
 
 func contactContentBlockReason(req ContactRequest, cfg config.ContactAntispamConfig) string {
+	return contactContentBlockReasonForRequest(req, cfg, nil, nil)
+}
+
+func contactContentBlockReasonForRequest(req ContactRequest, cfg config.ContactAntispamConfig, h *PagesHandler, r *http.Request) string {
+	if req.Type == "security" {
+		return ""
+	}
 	name := strings.ToLower(req.Name)
 	subject := strings.ToLower(req.Subject)
 	message := strings.ToLower(req.Message)
-	if cfg.RejectMarkup {
-		for _, field := range []string{name, subject, message} {
+	fields := []string{name, subject, message, strings.ToLower(req.ReportedURL), strings.ToLower(req.Reason), strings.ToLower(req.CopyrightedWork), strings.ToLower(req.Signature), strings.ToLower(req.RequestKind), strings.ToLower(req.Handle), strings.ToLower(req.ResearcherGPG), strings.ToLower(req.AffectedComponent), strings.ToLower(req.AffectedEndpoint), strings.ToLower(req.Summary), strings.ToLower(req.StepsToReproduce), strings.ToLower(req.Impact), strings.ToLower(req.SuggestedFix)}
+	if cfg.RejectMarkup && req.Type != "security" {
+		for _, field := range fields {
 			decoded := html.UnescapeString(field)
 			if contactMarkupPattern.MatchString(field) || decoded != field && (strings.Contains(decoded, "<") || strings.Contains(decoded, ">")) {
 				return "markup"
@@ -159,14 +277,14 @@ func contactContentBlockReason(req ContactRequest, cfg config.ContactAntispamCon
 		}
 	}
 	var hosts []string
-	for index, field := range []string{name, subject, message} {
+	linkCount := 0
+	for index, field := range fields {
+		field = contactEmailTokenPattern.ReplaceAllString(field, " ")
 		links := contactLinkPattern.FindAllString(field, -1)
-		if cfg.MaxLinks > 0 && index < 2 && len(links) > 0 {
+		if cfg.MaxLinks > 0 && (index == 0 || index == 1) && len(links) > 0 {
 			return "content"
 		}
-		if index == 2 && cfg.MaxLinks > 0 && len(links) > cfg.MaxLinks {
-			return "content"
-		}
+		linkCount += len(links)
 		for _, link := range links {
 			host := contactLinkHost(link)
 			if host != "" {
@@ -174,10 +292,29 @@ func contactContentBlockReason(req ContactRequest, cfg config.ContactAntispamCon
 			}
 		}
 	}
+	if cfg.MaxLinks > 0 && linkCount > cfg.MaxLinks {
+		return "content"
+	}
+	if req.Type != "security" {
+		for _, host := range hosts {
+			if h != nil && r != nil && !contactLinkHostAllowed(host, h, r) {
+				return "content"
+			}
+		}
+		if req.Type == "abuse" || req.Type == "dmca" {
+			if !validReportedURL(req.ReportedURL, h, r) {
+				return "content"
+			}
+		}
+	}
 	for _, word := range cfg.BlockedWords {
 		word = strings.ToLower(strings.TrimSpace(word))
-		if word != "" && (strings.Contains(name, word) || strings.Contains(subject, word) || strings.Contains(message, word)) {
-			return "content"
+		if word != "" {
+			for _, field := range fields {
+				if strings.Contains(field, word) {
+					return "content"
+				}
+			}
 		}
 	}
 	for _, host := range hosts {
@@ -197,6 +334,54 @@ func contactContentBlockReason(req ContactRequest, cfg config.ContactAntispamCon
 		}
 	}
 	return ""
+}
+
+func contactLinkHostAllowed(host string, h *PagesHandler, r *http.Request) bool {
+	if host == "" || h == nil || r == nil {
+		return false
+	}
+	canonical, err := url.Parse(netutil.BuildURL(r, h.Trust, "/"))
+	if err == nil && strings.EqualFold(host, canonical.Hostname()) {
+		return true
+	}
+	domains := strings.Split(os.Getenv("DOMAIN"), ",")
+	if h.Config != nil && h.Config.Server.FQDN != "" {
+		domains = append(domains, h.Config.Server.FQDN)
+	}
+	if h.Config != nil && h.Config.Tor.OnionAddress != "" {
+		domains = append(domains, h.Config.Tor.OnionAddress)
+	}
+	for _, domain := range domains {
+		if strings.EqualFold(host, strings.TrimSpace(domain)) {
+			return true
+		}
+	}
+	return strings.EqualFold(host, r.Host) && (netutil.IsTorRequest(r, h.Trust) || netutil.IsI2PRequest(r, h.Trust))
+}
+
+func validReportedURL(raw string, h *PagesHandler, r *http.Request) bool {
+	parsed, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || parsed.Scheme != "http" && parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil {
+		return false
+	}
+	if h == nil || r == nil || !contactLinkHostAllowed(strings.ToLower(parsed.Hostname()), h, r) {
+		return false
+	}
+	path := parsed.EscapedPath()
+	if path == "" {
+		path = "/"
+	}
+	decoded, err := url.PathUnescape(path)
+	if err != nil || decoded == "/" || decoded == "/server/contact" || strings.HasPrefix(decoded, "/api/") || strings.HasPrefix(decoded, "/server/admin/") {
+		return false
+	}
+	if strings.HasPrefix(decoded, "/api/v1/ip/") {
+		return net.ParseIP(strings.TrimPrefix(decoded, "/api/v1/ip/")) != nil && h.RouteMatch != nil && h.RouteMatch(http.MethodGet, decoded)
+	}
+	if candidate := strings.TrimPrefix(decoded, "/"); candidate != decoded && !strings.Contains(candidate, "/") && net.ParseIP(candidate) != nil {
+		return h.RouteMatch != nil && h.RouteMatch(http.MethodGet, decoded)
+	}
+	return h.RouteMatch != nil && h.RouteMatch(http.MethodGet, decoded)
 }
 
 func contactContentBlocked(req ContactRequest, cfg config.ContactAntispamConfig) bool {
@@ -261,7 +446,7 @@ func (h *PagesHandler) contactBan(ip string, r *http.Request, now time.Time) tim
 }
 
 func (h *PagesHandler) strikeContact(ip string, r *http.Request, reason string, now time.Time) time.Duration {
-	if reason != "honeypot" && reason != "captcha" && reason != "content" && reason != "markup" && reason != "duplicate" || isOverlayContactRequest(h, r) {
+	if reason != "honeypot" && reason != "captcha" && reason != "content" && reason != "markup" && reason != "duplicate" && reason != "origin" && reason != "replay" || isOverlayContactRequest(h, r) {
 		return 0
 	}
 	cfg := h.contactAntispamConfig()
@@ -374,11 +559,11 @@ func duplicateContactSubmission(req ContactRequest, now time.Time, window time.D
 
 func validateContactReportShape(req ContactRequest) bool {
 	fields := []string{
-		req.Name, req.Handle, req.Email, req.SecurityID, req.ResearcherGPG,
+		req.Name, req.Handle, req.Email, req.Subject, req.Message, req.SecurityID, req.ResearcherGPG,
 		req.AffectedComponent, req.AffectedEndpoint, req.Severity, req.Summary,
-		req.StepsToReproduce, req.Impact, req.SuggestedFix, req.CreditPreference,
+		req.StepsToReproduce, req.Impact, req.SuggestedFix, req.CreditPreference, req.Type,
 	}
-	if !validContactTextFields(fields, 0, 2) || strings.ContainsAny(req.Email, ",;<>\r\n") {
+	if !validContactTextFields(fields, 0, 2, 3) || strings.ContainsAny(req.Email, ",;<>\r\n") {
 		return false
 	}
 	_, err := mail.ParseAddress(req.Email)
@@ -386,12 +571,74 @@ func validateContactReportShape(req ContactRequest) bool {
 }
 
 func validateContactStandardShape(req ContactRequest) bool {
-	fields := []string{req.Name, req.Email, req.Subject, req.Message}
+	fields := []string{req.Name, req.Email, req.Subject, req.Message, req.Type, req.ReportedURL, req.Reason, req.CopyrightedWork, req.Signature, req.RequestKind}
 	if !validContactTextFields(fields, 0, 1, 2) || strings.ContainsAny(req.Email, ",;<>\r\n") {
 		return false
 	}
 	_, err := mail.ParseAddress(req.Email)
 	return err == nil
+}
+
+func validContactTypeShape(req ContactRequest, securityMode bool) bool {
+	if securityMode {
+		return req.Type == "security" && strings.TrimSpace(req.SecurityID) != "" && validateContactReportShape(req)
+	}
+	if req.SecurityID != "" {
+		return false
+	}
+	switch req.Type {
+	case "abuse":
+		return strings.TrimSpace(req.ReportedURL) != "" && contactValueIn(req.Reason, "illegal_content", "terms_violation", "harassment", "malware_phishing", "other")
+	case "dmca":
+		return strings.TrimSpace(req.ReportedURL) != "" && strings.TrimSpace(req.CopyrightedWork) != "" && req.GoodFaith && req.Accuracy && strings.TrimSpace(req.Signature) != ""
+	case "privacy":
+		return contactValueIn(req.RequestKind, "access", "export", "deletion", "correction", "opt_out", "other")
+	default:
+		return false
+	}
+}
+
+func contactValueIn(value string, allowed ...string) bool {
+	for _, candidate := range allowed {
+		if value == candidate {
+			return true
+		}
+	}
+	return false
+}
+
+func validContactOrigin(r *http.Request, h *PagesHandler) bool {
+	if r == nil || h == nil {
+		return false
+	}
+	origin := strings.TrimSpace(r.Header.Get("Origin"))
+	referer := strings.TrimSpace(r.Header.Get("Referer"))
+	fetchSite := strings.TrimSpace(r.Header.Get("Sec-Fetch-Site"))
+	if origin == "" && referer == "" && fetchSite == "" {
+		return false
+	}
+	if fetchSite != "" && !strings.EqualFold(fetchSite, "same-origin") {
+		return false
+	}
+	provided := origin
+	if provided == "" {
+		provided = referer
+	}
+	if provided == "" {
+		return strings.EqualFold(fetchSite, "same-origin")
+	}
+	providedURL, err := url.Parse(provided)
+	if err != nil || providedURL.Scheme == "" || providedURL.Host == "" || providedURL.User != nil {
+		return false
+	}
+	if origin != "" && (providedURL.Path != "" || providedURL.RawQuery != "" || providedURL.Fragment != "") {
+		return false
+	}
+	canonical, err := url.Parse(netutil.BuildURL(r, h.Trust, "/"))
+	if err != nil {
+		return false
+	}
+	return strings.EqualFold(providedURL.Scheme, canonical.Scheme) && strings.EqualFold(providedURL.Host, canonical.Host)
 }
 
 func validContactTextFields(fields []string, rejectControls ...int) bool {
@@ -422,6 +669,15 @@ func (h *PagesHandler) allowContactRate(ip, email string, request *http.Request,
 }
 
 func (h *PagesHandler) reserveContactRate(ip, email string, request *http.Request, now time.Time) (*contactRateReservation, *contactRateLimitError) {
+	return h.contactRateLimit(ip, email, request, now, true)
+}
+
+func (h *PagesHandler) checkContactRate(ip, email string, request *http.Request, now time.Time) *contactRateLimitError {
+	_, limitErr := h.contactRateLimit(ip, email, request, now, false)
+	return limitErr
+}
+
+func (h *PagesHandler) contactRateLimit(ip, email string, request *http.Request, now time.Time, reserve bool) (*contactRateReservation, *contactRateLimitError) {
 	cfg := h.contactAntispamConfig()
 	window, err := time.ParseDuration(strings.TrimSpace(cfg.Window))
 	if err != nil || window <= 0 {
@@ -478,6 +734,9 @@ func (h *PagesHandler) reserveContactRate(ip, email string, request *http.Reques
 		if len(times) >= entry.limit {
 			return nil, &contactRateLimitError{RetryAfter: times[0].Add(window).Sub(now), Reason: entry.reason}
 		}
+	}
+	if !reserve {
+		return &contactRateReservation{}, nil
 	}
 	if len(contactRateState.events) > 65536 {
 		return nil, &contactRateLimitError{RetryAfter: time.Minute, Reason: "rate_global"}

@@ -620,7 +620,7 @@ func TestBuildMultipartBodyWithEncryptedAttachment(t *testing.T) {
 	ciphertext := []byte{0x01, 0x02, 0x03, 0xfe}
 	body, err := buildMultipartBodyWithAttachments("Security report", "Encrypted attachment", "from@example.com", []string{"security@example.com"}, []Attachment{{
 		Filename: "sec_1234.enc", ContentType: "application/octet-stream", Data: ciphertext,
-	}})
+	}}, "")
 	if err != nil {
 		t.Fatalf("buildMultipartBodyWithAttachments: %v", err)
 	}
@@ -628,5 +628,24 @@ func TestBuildMultipartBodyWithEncryptedAttachment(t *testing.T) {
 		if !strings.Contains(string(body), want) {
 			t.Errorf("multipart body missing %q", want)
 		}
+	}
+}
+
+func TestBuildPlainTextBodyUsesReplyToWithoutHTMLPart(t *testing.T) {
+	body, err := buildPlainTextBody("[IPGaze contact] Report", "A plain text report", "IPGaze <noreply@example.com>", []string{"abuse@example.com"}, "reporter@example.net")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(body)
+	for _, want := range []string{"From: IPGaze <noreply@example.com>", "Reply-To: reporter@example.net", "Subject: [IPGaze contact] Report", "Content-Type: text/plain; charset=UTF-8", "A plain text report"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("plain-text message missing %q", want)
+		}
+	}
+	if strings.Contains(text, "text/html") {
+		t.Fatal("plain-text message contains an HTML MIME part")
+	}
+	if _, err := buildPlainTextBody("subject\r\nBcc: victim@example.net", "body", "from@example.com", []string{"to@example.com"}, "reporter@example.net"); err == nil {
+		t.Fatal("header injection subject was accepted")
 	}
 }

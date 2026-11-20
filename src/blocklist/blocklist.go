@@ -23,19 +23,16 @@ import (
 var DefaultSources = []Source{
 	{
 		Name: "firehol_level1",
+		Type: "ip",
 		URL:  "https://raw.githubusercontent.com/firehol/blocklist-ipsets/master/firehol_level1.netset",
 		File: "firehol_level1.txt",
-	},
-	{
-		Name: "spamhaus_drop",
-		URL:  "https://www.spamhaus.org/drop/drop.txt",
-		File: "spamhaus_drop.txt",
 	},
 }
 
 // Source describes one blocklist data source.
 type Source struct {
 	Name string
+	Type string
 	URL  string
 	File string
 }
@@ -80,6 +77,7 @@ type Lookup struct {
 	mu            sync.RWMutex
 	nets          []*net.IPNet
 	singles       []net.IP
+	domains       []string
 	health        map[string]string
 	healthUpdated map[string]time.Time
 }
@@ -87,6 +85,10 @@ type Lookup struct {
 // LoadDir reads all .txt files in dir and parses each non-comment line as an
 // IP address or CIDR block. Existing data is replaced atomically.
 func (l *Lookup) LoadDir(dir string) error {
+	return l.LoadDirWithTypes(dir, nil)
+}
+
+func (l *Lookup) LoadDirWithTypes(dir string, sourceTypes map[string]string) error {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -98,12 +100,19 @@ func (l *Lookup) LoadDir(dir string) error {
 
 	var nets []*net.IPNet
 	var singles []net.IP
+	var domains []string
 	health := make(map[string]string)
 	healthUpdated := make(map[string]time.Time)
 
 	for _, e := range entries {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".txt") {
 			continue
+		}
+		key := strings.TrimSuffix(e.Name(), filepath.Ext(e.Name()))
+		if sourceTypes != nil {
+			if _, enabled := sourceTypes[key]; !enabled {
+				continue
+			}
 		}
 		f, err := os.Open(filepath.Join(dir, e.Name()))
 		if err != nil {
@@ -112,16 +121,34 @@ func (l *Lookup) LoadDir(dir string) error {
 		}
 		scanner := bufio.NewScanner(f)
 		entries := 0
+		domainSource := sourceTypes[key] == "domain"
 		for scanner.Scan() {
 			line := strings.TrimSpace(scanner.Text())
 			if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, ";") {
 				continue
 			}
-			// Strip inline comments
-			if idx := strings.IndexByte(line, ' '); idx != -1 {
-				line = strings.TrimSpace(line[:idx])
+			// Drop inline annotations after the first whitespace or semicolon.
+			commentIndex := len(line)
+			for _, marker := range []byte{' ', '\t', ';'} {
+				if idx := strings.IndexByte(line, marker); idx >= 0 && idx < commentIndex {
+					commentIndex = idx
+				}
 			}
-			if strings.Contains(line, "/") {
+			line = strings.TrimSpace(line[:commentIndex])
+			if domainSource {
+				domain := strings.ToLower(strings.TrimSuffix(line, "."))
+				wildcard := strings.HasPrefix(domain, "*.")
+				if wildcard {
+					domain = strings.TrimPrefix(domain, "*.")
+				}
+				if validBlocklistDomain(domain) {
+					if wildcard {
+						domain = "*." + domain
+					}
+					domains = append(domains, domain)
+					entries++
+				}
+			} else if strings.Contains(line, "/") {
 				_, ipnet, err := net.ParseCIDR(line)
 				if err == nil {
 					nets = append(nets, ipnet)
@@ -140,7 +167,6 @@ func (l *Lookup) LoadDir(dir string) error {
 			return fmt.Errorf("scan %s: %w", e.Name(), err)
 		}
 		info, statErr := e.Info()
-		key := strings.TrimSuffix(e.Name(), filepath.Ext(e.Name()))
 		if statErr == nil {
 			healthUpdated[key] = info.ModTime()
 		}
@@ -160,10 +186,26 @@ func (l *Lookup) LoadDir(dir string) error {
 	l.mu.Lock()
 	l.nets = nets
 	l.singles = singles
+	l.domains = domains
 	l.health = health
 	l.healthUpdated = healthUpdated
 	l.mu.Unlock()
 	return nil
+}
+
+func validBlocklistDomain(domain string) bool {
+	if domain == "" || strings.Contains(domain, "..") || strings.ContainsAny(domain, "/:@") || net.ParseIP(domain) != nil {
+		return false
+	}
+	for _, label := range strings.Split(domain, ".") {
+		if label == "" || len(label) > 63 || strings.HasPrefix(label, "-") || strings.HasSuffix(label, "-") {
+			return false
+		}
+		if strings.Trim(label, "abcdefghijklmnopqrstuvwxyz0123456789-") != "" {
+			return false
+		}
+	}
+	return true
 }
 
 // HealthStatus reports the cached health of one parsed list by stable source ID.
@@ -196,6 +238,26 @@ func (l *Lookup) Contains(ip net.IP) bool {
 	}
 	for _, s := range l.singles {
 		if s.Equal(ip) {
+			return true
+		}
+	}
+	return false
+}
+
+func (l *Lookup) ContainsDomain(host string) bool {
+	host = strings.ToLower(strings.TrimSuffix(host, "."))
+	if host == "" {
+		return false
+	}
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	for _, domain := range l.domains {
+		if strings.HasPrefix(domain, "*.") {
+			base := strings.TrimPrefix(domain, "*.")
+			if strings.HasSuffix(host, "."+base) {
+				return true
+			}
+		} else if host == domain {
 			return true
 		}
 	}

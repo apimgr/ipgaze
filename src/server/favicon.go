@@ -61,7 +61,7 @@ func defaultFaviconICO() []byte {
 }
 
 // faviconHandler serves /favicon.ico (AI.md PART 24 "Static Files"). A
-// configured branding.favicon_url takes precedence and is redirected to, so
+// configured branding.favicon takes precedence and is redirected to, so
 // operators can point at their own asset without rebuilding the binary;
 // otherwise the embedded default is served.
 func (s *Server) faviconHandler() http.HandlerFunc {

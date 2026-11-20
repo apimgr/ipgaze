@@ -178,10 +178,12 @@
   </section>
   {{ end }}
 
+  {{index .OperatorContents "privacy"}}
+
   <!-- Contact -->
   <section id="contact" class="section-card">
     <h2>{{t .Lang "privacy.contact_us"}}</h2>
-    <p><a href="/server/contact">{{t .Lang "privacy.privacy_inquiries"}}</a></p>
+    <p><a href="/server/security">{{t .Lang "security.title"}}</a></p>
   </section>
 </article>
 {{end}}

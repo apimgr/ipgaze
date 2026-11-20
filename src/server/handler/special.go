@@ -30,7 +30,8 @@ type SpecialHandler struct {
 	// address used in security.txt's Contact: line.
 	SecurityContact string
 	// SecurityReportURL is the repository's private vulnerability reporting URL.
-	SecurityReportURL string
+	SecurityReportURL   string
+	ContactFormDisabled bool
 	// SecurityID returns the current rotating security.txt token.
 	SecurityID func() (string, error)
 	// PublishPGPKey mirrors web.security.publish_pgp_key (AI.md PART 11). When
@@ -172,8 +173,10 @@ func (h *SpecialHandler) SecurityTxtHandler(w http.ResponseWriter, r *http.Reque
 	if h.isTorRequest(r) {
 		// Tor variant: all URLs use the onion address, no clearnet FQDN (AI.md PART 12).
 		base := "http://" + h.OnionAddress
-		if securityID, err := h.currentSecurityID(); err == nil && securityID != "" {
-			_, _ = fmt.Fprintln(w, "Contact: "+base+"/server/contact?security_id="+securityID)
+		if !h.ContactFormDisabled {
+			if securityID, err := h.currentSecurityID(); err == nil && securityID != "" {
+				_, _ = fmt.Fprintln(w, "Contact: "+base+"/server/contact?security_id="+securityID)
+			}
 		}
 		if h.TorContactEmail != "" {
 			_, _ = fmt.Fprintln(w, "Contact: mailto:"+h.TorContactEmail)
@@ -194,8 +197,10 @@ func (h *SpecialHandler) SecurityTxtHandler(w http.ResponseWriter, r *http.Reque
 	if h.SecurityReportURL != "" {
 		_, _ = fmt.Fprintln(w, "Contact: "+h.SecurityReportURL)
 	}
-	if securityID, err := h.currentSecurityID(); err == nil && securityID != "" {
-		_, _ = fmt.Fprintf(w, "Contact: %s/server/contact?security_id=%s\n", h.OfficialSite, securityID)
+	if !h.ContactFormDisabled {
+		if securityID, err := h.currentSecurityID(); err == nil && securityID != "" {
+			_, _ = fmt.Fprintf(w, "Contact: %s/server/contact?security_id=%s\n", h.OfficialSite, securityID)
+		}
 	}
 	_, _ = fmt.Fprintln(w, "Contact: mailto:"+contact)
 	_, _ = fmt.Fprintln(w, "Expires: "+expires)
@@ -569,9 +574,6 @@ License: MIT
 func llmsReadRateLimit(cfg *config.AppConfig) string {
 	requests, window := 120, 60
 	if cfg != nil {
-		if !cfg.Server.RateLimit.Enabled {
-			return "disabled"
-		}
 		if cfg.Server.RateLimit.Read.Requests > 0 {
 			requests = cfg.Server.RateLimit.Read.Requests
 		}

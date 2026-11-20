@@ -686,7 +686,7 @@
     "mcp_403_cause": "Origine non valida o ambito del token insufficiente",
     "mcp_403_fix": "Connettiti da un’origine consentita e usa un token con l’ambito richiesto.",
     "mcp_404_cause": "MCP è disabilitato",
-    "mcp_404_fix": "Chiedi all’amministratore del server di abilitare server.mcp.enabled.",
+    "mcp_404_fix": "MCP è sempre disponibile; verifica che il percorso dell’endpoint sia corretto e raggiungibile.",
     "mcp_405_cause": "È stato usato GET o DELETE sull’endpoint MCP",
     "mcp_405_fix": "Usa POST per le richieste MCP.",
     "mcp_project_tools": "Strumenti IPGaze"

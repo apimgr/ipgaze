@@ -706,7 +706,7 @@
     "mcp_403_cause": "Ungültiger Origin oder unzureichender Token-Bereich",
     "mcp_403_fix": "Stellen Sie die Verbindung von einem zulässigen Origin her und verwenden Sie ein Token mit dem erforderlichen Bereich.",
     "mcp_404_cause": "MCP ist deaktiviert",
-    "mcp_404_fix": "Bitten Sie den Serverbetreiber, server.mcp.enabled zu aktivieren.",
+    "mcp_404_fix": "MCP ist immer verfügbar; prüfen Sie, ob der Endpunktpfad korrekt und erreichbar ist.",
     "mcp_405_cause": "GET oder DELETE am MCP-Endpunkt verwendet",
     "mcp_405_fix": "Verwenden Sie POST für MCP-Anfragen.",
     "mcp_project_tools": "IPGaze-Werkzeuge"

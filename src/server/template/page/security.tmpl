@@ -10,7 +10,8 @@
     <li><a href="{{.URL}}">{{.Type}}</a></li>
     {{end}}
   </ol>
-  <p>{{t .Lang "security.instance_report_form"}}: <code>{{.ReportFormURL}}</code></p>
+  {{if .ReportFormURL}}<p>{{t .Lang "security.instance_report_form"}}: <a href="{{.ReportFormURL}}">{{.ReportFormURL}}</a></p>{{end}}
+  {{if .AbuseReportURL}}<p>For terms violations, DMCA notices, or privacy requests, use the <a href="{{.AbuseReportURL}}">report form</a>.</p>{{end}}
   <p>{{t .Lang "security.contact_file_expires"}}: <time>{{.Expires}}</time></p>
   {{if .EncryptionURL}}<p>{{t .Lang "security.pgp_encryption_key"}}: <a href="{{.EncryptionURL}}">{{.EncryptionURL}}</a></p>{{end}}
 </section>

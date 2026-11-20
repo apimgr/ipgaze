@@ -60,7 +60,7 @@ func TestRequiredServerPageContracts(t *testing.T) {
 		{
 			name: "privacy contact",
 			file: "template/page/privacy.tmpl",
-			need: []string{`href="/server/contact"`},
+			need: []string{`href="/server/security"`},
 		},
 		{
 			name: "help sections",

@@ -469,27 +469,23 @@ func DefaultSecurityHeaderConfig() SecurityHeaderConfig {
 			{Feature: "battery", Value: "()"},
 			{Feature: "browsing-topics", Value: "()"},
 			{Feature: "camera", Value: "()"},
-			{Feature: "cross-origin-isolated", Value: "()"},
 			{Feature: "display-capture", Value: "()"},
-			{Feature: "document-domain", Value: "()"},
 			{Feature: "encrypted-media", Value: "(self)"},
-			{Feature: "execution-while-not-rendered", Value: "()"},
-			{Feature: "execution-while-out-of-viewport", Value: "()"},
 			{Feature: "fullscreen", Value: "(self)"},
 			{Feature: "geolocation", Value: "()"},
 			{Feature: "gyroscope", Value: "()"},
+			{Feature: "hid", Value: "()"},
+			{Feature: "idle-detection", Value: "()"},
 			{Feature: "interest-cohort", Value: "()"},
-			{Feature: "keyboard-map", Value: "()"},
 			{Feature: "magnetometer", Value: "()"},
 			{Feature: "microphone", Value: "()"},
 			{Feature: "midi", Value: "()"},
-			{Feature: "navigation-override", Value: "()"},
 			{Feature: "payment", Value: "(self)"},
 			{Feature: "picture-in-picture", Value: "(self)"},
 			{Feature: "publickey-credentials-get", Value: "(self)"},
 			{Feature: "screen-wake-lock", Value: "()"},
+			{Feature: "serial", Value: "()"},
 			{Feature: "storage-access", Value: "(self)"},
-			{Feature: "sync-xhr", Value: "()"},
 			{Feature: "usb", Value: "()"},
 			{Feature: "web-share", Value: "(self)"},
 			{Feature: "xr-spatial-tracking", Value: "()"},
@@ -666,12 +662,8 @@ var healthCheckPaths = map[string]bool{
 }
 
 // suppressAccessLog reports whether this request must be omitted from
-// access.log. Only successful (2xx) GET/HEAD health checks are suppressed;
-// any failure, and every request while debug is enabled, is always logged.
-func suppressAccessLog(r *http.Request, status int, debug bool) bool {
-	if debug {
-		return false
-	}
+// access.log. Only successful (2xx) GET/HEAD health checks are suppressed.
+func suppressAccessLog(r *http.Request, status int, _ bool) bool {
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		return false
 	}

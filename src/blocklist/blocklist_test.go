@@ -461,3 +461,47 @@ func TestDefaultSources_FieldsNonEmpty(t *testing.T) {
 		}
 	}
 }
+
+func TestLookup_LoadDirWithDomainTypes(t *testing.T) {
+	dir := t.TempDir()
+	content := "example.com; feed annotation\n*.bad.example\nnot a domain\n"
+	if err := os.WriteFile(filepath.Join(dir, "domains.txt"), []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var lookup Lookup
+	if err := lookup.LoadDirWithTypes(dir, map[string]string{"domains": "domain"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, host := range []string{"example.com", "sub.bad.example"} {
+		if !lookup.ContainsDomain(host) {
+			t.Errorf("ContainsDomain(%q) = false", host)
+		}
+	}
+	for _, host := range []string{"bad.example", "other.example"} {
+		if lookup.ContainsDomain(host) {
+			t.Errorf("ContainsDomain(%q) = true", host)
+		}
+	}
+}
+
+func TestLookup_LoadDirWithTypesIgnoresUnconfiguredFiles(t *testing.T) {
+	dir := t.TempDir()
+	for name, content := range map[string]string{
+		"enabled.txt":  "203.0.113.10\n",
+		"disabled.txt": "198.51.100.20\n",
+	} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var lookup Lookup
+	if err := lookup.LoadDirWithTypes(dir, map[string]string{"enabled": "ip"}); err != nil {
+		t.Fatal(err)
+	}
+	if !lookup.Contains(net.ParseIP("203.0.113.10")) {
+		t.Fatal("enabled source address was not loaded")
+	}
+	if lookup.Contains(net.ParseIP("198.51.100.20")) {
+		t.Fatal("unconfigured source address was loaded")
+	}
+}

@@ -2,7 +2,6 @@ package server
 
 import (
 	"net/http"
-	"sort"
 	"strings"
 
 	"github.com/apimgr/ipgaze/src/config"
@@ -28,7 +27,6 @@ func SecurityHeaderConfigFromApp(cfg *config.AppConfig) SecurityHeaderConfig {
 	applyHSTSConfig(&headerCfg, cfg.Web.HSTS)
 	applyCSPConfig(&headerCfg, cfg.Web.CSP)
 	applyContactCaptchaCSP(&headerCfg, cfg.Pages.Contact.Captcha)
-	applyPermissionsPolicyConfig(&headerCfg, cfg.Web.PermissionsPolicy)
 	applyMiscHeaderConfig(&headerCfg, cfg.Web.Headers)
 	applyNELConfig(&headerCfg, cfg.Web.Headers.NEL)
 
@@ -93,26 +91,6 @@ func applyCSPConfig(target *SecurityHeaderConfig, csp config.CSPConfig) {
 		directives = append(directives, directive)
 	}
 	target.CSP.Directives = directives
-}
-
-// applyPermissionsPolicyConfig replaces the default feature list with the
-// operator's map, emitted in a stable alphabetical order. An empty map keeps
-// the defaults so a truncated config cannot silently drop the whole header.
-func applyPermissionsPolicyConfig(target *SecurityHeaderConfig, features map[string]string) {
-	if len(features) == 0 {
-		return
-	}
-	names := make([]string, 0, len(features))
-	for name := range features {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-
-	policy := make([]PermissionsPolicyFeature, 0, len(names))
-	for _, name := range names {
-		policy = append(policy, PermissionsPolicyFeature{Feature: name, Value: features[name]})
-	}
-	target.PermissionsPolicy = policy
 }
 
 // applyMiscHeaderConfig overlays web.headers. Empty string values are honoured

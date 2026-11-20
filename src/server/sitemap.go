@@ -47,7 +47,6 @@ var sitemapEntries = []sitemapEntry{
 	{path: "/server/privacy", changeFreq: "weekly", priority: "0.8"},
 	{path: "/server/dpo", changeFreq: "weekly", priority: "0.8"},
 	{path: "/server/terms", changeFreq: "weekly", priority: "0.8"},
-	{path: "/server/contact", changeFreq: "weekly", priority: "0.8"},
 	{path: "/server/security", changeFreq: "weekly", priority: "0.8"},
 	{path: "/server/security/policy", changeFreq: "weekly", priority: "0.8"},
 	{path: "/server/security/thanks", changeFreq: "weekly", priority: "0.8"},

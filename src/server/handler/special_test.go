@@ -388,11 +388,6 @@ func TestLLMsReadRateLimitUsesConfiguration(t *testing.T) {
 			cfg.Server.RateLimit.Read.Window = 30
 			return cfg
 		}(), want: "25 requests per 30 seconds per IP"},
-		{name: "disabled", cfg: func() *config.AppConfig {
-			cfg := config.DefaultConfig()
-			cfg.Server.RateLimit.Enabled = false
-			return cfg
-		}(), want: "disabled"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

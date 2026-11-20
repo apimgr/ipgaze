@@ -2,6 +2,7 @@
 {{define "title"}}{{t .Lang "about.title"}} — {{.ProjectName}}{{end}}
 {{define "content"}}
 <h1>{{t .Lang "about.title"}} — {{.ProjectName}}</h1>
+{{index .OperatorContents "about"}}
 {{if .Description}}
 <p>{{.Description}}</p>
 {{else}}

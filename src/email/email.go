@@ -9,6 +9,7 @@ import (
 	"mime"
 	"mime/multipart"
 	"mime/quotedprintable"
+	"net/mail"
 	"net/smtp"
 	"net/textproto"
 	"os"
@@ -50,11 +51,13 @@ type EmailManager struct {
 
 // Message represents an email message.
 type Message struct {
-	To          []string
-	Subject     string
-	Body        string
-	HTML        bool
-	Attachments []Attachment
+	To            []string
+	ReplyTo       string
+	Subject       string
+	Body          string
+	HTML          bool
+	PlainTextOnly bool
+	Attachments   []Attachment
 }
 
 // Attachment is a MIME file attachment included with a direct email.
@@ -119,12 +122,49 @@ func (m *EmailManager) SendDirect(msg *Message) error {
 	if m.config.FromName != "" {
 		headerFrom = fmt.Sprintf("%s <%s>", m.config.FromName, m.config.From)
 	}
-	body, err := buildMultipartBodyWithAttachments(msg.Subject, msg.Body, headerFrom, msg.To, msg.Attachments)
+	if strings.ContainsAny(msg.ReplyTo, "\r\n") {
+		return fmt.Errorf("email: invalid reply-to address")
+	}
+	if msg.ReplyTo != "" {
+		parsed, err := mail.ParseAddress(msg.ReplyTo)
+		if err != nil || parsed.Address != msg.ReplyTo {
+			return fmt.Errorf("email: invalid reply-to address")
+		}
+	}
+	var body []byte
+	var err error
+	if msg.PlainTextOnly && len(msg.Attachments) == 0 {
+		body, err = buildPlainTextBody(msg.Subject, msg.Body, headerFrom, msg.To, msg.ReplyTo)
+	} else {
+		body, err = buildMultipartBodyWithAttachments(msg.Subject, msg.Body, headerFrom, msg.To, msg.Attachments, msg.ReplyTo)
+	}
 	if err != nil {
 		return fmt.Errorf("email: failed to build message body: %w", err)
 	}
 
 	return sendWithTLSMode(m.config, msg.To, body)
+}
+
+func buildPlainTextBody(subject, plainText, from string, to []string, replyTo string) ([]byte, error) {
+	if strings.ContainsAny(subject+from+strings.Join(to, ","), "\r\n") {
+		return nil, fmt.Errorf("email: invalid header value")
+	}
+	var message bytes.Buffer
+	fmt.Fprintf(&message, "From: %s\r\n", from)
+	fmt.Fprintf(&message, "To: %s\r\n", strings.Join(to, ", "))
+	if replyTo != "" {
+		fmt.Fprintf(&message, "Reply-To: %s\r\n", replyTo)
+	}
+	fmt.Fprintf(&message, "Subject: %s\r\n", subject)
+	fmt.Fprint(&message, "MIME-Version: 1.0\r\nContent-Type: text/plain; charset=UTF-8\r\nContent-Transfer-Encoding: quoted-printable\r\n\r\n")
+	writer := quotedprintable.NewWriter(&message)
+	if _, err := writer.Write([]byte(plainText)); err != nil {
+		return nil, err
+	}
+	if err := writer.Close(); err != nil {
+		return nil, err
+	}
+	return message.Bytes(), nil
 }
 
 // sendWithTLSMode connects to the configured SMTP server and sends msg,
@@ -177,12 +217,12 @@ func sendWithTLSMode(cfg SMTPConfig, to []string, body []byte) error {
 
 // buildMultipartBody constructs a multipart/alternative MIME message with plain text and HTML parts.
 func buildMultipartBody(subject, plainText, from string, to []string) ([]byte, error) {
-	return buildMultipartBodyWithAttachments(subject, plainText, from, to, nil)
+	return buildMultipartBodyWithAttachments(subject, plainText, from, to, nil, "")
 }
 
-func buildMultipartBodyWithAttachments(subject, plainText, from string, to []string, attachments []Attachment) ([]byte, error) {
+func buildMultipartBodyWithAttachments(subject, plainText, from string, to []string, attachments []Attachment, replyTo string) ([]byte, error) {
 	if len(attachments) > 0 {
-		return buildMultipartMixedBody(subject, plainText, from, to, attachments)
+		return buildMultipartMixedBody(subject, plainText, from, to, attachments, replyTo)
 	}
 	var buf bytes.Buffer
 	writer := multipart.NewWriter(&buf)
@@ -192,6 +232,9 @@ func buildMultipartBodyWithAttachments(subject, plainText, from string, to []str
 	buf.Reset()
 	fmt.Fprintf(&buf, "From: %s\r\n", from)
 	fmt.Fprintf(&buf, "To: %s\r\n", strings.Join(to, ", "))
+	if replyTo != "" {
+		fmt.Fprintf(&buf, "Reply-To: %s\r\n", replyTo)
+	}
 	fmt.Fprintf(&buf, "Subject: %s\r\n", subject)
 	fmt.Fprintf(&buf, "MIME-Version: 1.0\r\n")
 	fmt.Fprintf(&buf, "Content-Type: multipart/alternative; boundary=%q\r\n", boundary)
@@ -237,7 +280,7 @@ func buildMultipartBodyWithAttachments(subject, plainText, from string, to []str
 	return buf.Bytes(), nil
 }
 
-func buildMultipartMixedBody(subject, plainText, from string, to []string, attachments []Attachment) ([]byte, error) {
+func buildMultipartMixedBody(subject, plainText, from string, to []string, attachments []Attachment, replyTo string) ([]byte, error) {
 	var alternative bytes.Buffer
 	altWriter := multipart.NewWriter(&alternative)
 	altBoundary := altWriter.Boundary()
@@ -268,6 +311,9 @@ func buildMultipartMixedBody(subject, plainText, from string, to []string, attac
 	writer := multipart.NewWriter(&message)
 	fmt.Fprintf(&message, "From: %s\r\n", from)
 	fmt.Fprintf(&message, "To: %s\r\n", strings.Join(to, ", "))
+	if replyTo != "" {
+		fmt.Fprintf(&message, "Reply-To: %s\r\n", replyTo)
+	}
 	fmt.Fprintf(&message, "Subject: %s\r\n", subject)
 	fmt.Fprint(&message, "MIME-Version: 1.0\r\n")
 	fmt.Fprintf(&message, "Content-Type: multipart/mixed; boundary=%q\r\n\r\n", writer.Boundary())

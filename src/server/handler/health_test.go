@@ -204,6 +204,18 @@ func TestHealthCheckRegistryCachesAndAggregatesDatasetResults(t *testing.T) {
 	}
 }
 
+func TestHealthCheckRegistryUnregistersDataset(t *testing.T) {
+	h := newTestHandler()
+	h.RegisterHealthCheck("blocklist_ads", false, func() string { return "ok" })
+	if got := len(h.HealthSnapshot().Checks.Datasets); got != 1 {
+		t.Fatalf("initial dataset checks = %d, want 1", got)
+	}
+	h.UnregisterHealthCheck("blocklist_ads")
+	if got := len(h.HealthSnapshot().Checks.Datasets); got != 0 {
+		t.Fatalf("dataset checks after unregister = %d, want 0", got)
+	}
+}
+
 func TestHealthChecksJSONKeepsCoreAndDatasetOrder(t *testing.T) {
 	checks := model.ChecksInfo{
 		Database: "ok", Cache: "ok", Disk: "ok", Scheduler: "ok", Tor: "ok", I2P: "ok",

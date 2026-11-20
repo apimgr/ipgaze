@@ -705,8 +705,8 @@
     "mcp_401_fix": "IPGaze’s public tools need no token. For deployments with linked tokens, use a valid linked Bearer token; the response includes WWW-Authenticate: Bearer.",
     "mcp_403_cause": "Invalid Origin or insufficient token scope",
     "mcp_403_fix": "Connect from an allowed origin and use a token with the required scope.",
-    "mcp_404_cause": "MCP is disabled",
-    "mcp_404_fix": "Ask the server operator to enable server.mcp.enabled.",
+    "mcp_404_cause": "MCP endpoint route was not found",
+    "mcp_404_fix": "MCP is always available; check that the endpoint path is correct and reachable.",
     "mcp_405_cause": "GET or DELETE used on the MCP endpoint",
     "mcp_405_fix": "Use POST for MCP requests.",
     "mcp_project_tools": "IPGaze tools"

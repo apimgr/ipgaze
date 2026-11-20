@@ -64,14 +64,14 @@ func TestHealthCheckSuppressedFromAccessLog(t *testing.T) {
 	}
 }
 
-// TestHealthCheckNotSuppressedInDebug covers the debug-mode carve-out.
-func TestHealthCheckNotSuppressedInDebug(t *testing.T) {
+// TestHealthCheckSuppressedInDebug covers the always-suppressed rule.
+func TestHealthCheckSuppressedInDebug(t *testing.T) {
 	lm, dir := newTestLogManager(t)
 	serveThrough(t, lm, true, http.MethodGet, "/healthz")
 	lm.Close()
 
-	if got := readLogFile(t, dir, "access.log"); !strings.Contains(got, "/healthz") {
-		t.Errorf("healthz poll must be logged in debug mode, got %q", got)
+	if got := readLogFile(t, dir, "access.log"); strings.Contains(got, "/healthz") {
+		t.Errorf("healthz poll was logged in debug mode: %q", got)
 	}
 }
 
@@ -132,7 +132,7 @@ func TestSuppressAccessLog(t *testing.T) {
 		{"healthy poll", http.MethodGet, "/healthz", 200, false, true},
 		{"api healthz", http.MethodGet, "/api/v1/server/healthz", 200, false, true},
 		{"failing poll", http.MethodGet, "/healthz", 503, false, false},
-		{"debug mode", http.MethodGet, "/healthz", 200, true, false},
+		{"debug mode", http.MethodGet, "/healthz", 200, true, true},
 		{"post to healthz", http.MethodPost, "/healthz", 200, false, false},
 		{"other path", http.MethodGet, "/api/v1/ip", 200, false, false},
 	}

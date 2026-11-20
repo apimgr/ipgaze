@@ -700,7 +700,7 @@
     "mcp_403_cause": "Origin 无效或令牌权限范围不足",
     "mcp_403_fix": "请从允许的 Origin 连接，并使用具有所需权限范围的令牌。",
     "mcp_404_cause": "MCP 已禁用",
-    "mcp_404_fix": "请联系服务器操作员启用 server.mcp.enabled。",
+    "mcp_404_fix": "MCP 始终可用；请检查端点路径是否正确且可访问。",
     "mcp_405_cause": "在 MCP 端点上使用了 GET 或 DELETE",
     "mcp_405_fix": "MCP 请求请使用 POST。",
     "mcp_project_tools": "IPGaze 工具"

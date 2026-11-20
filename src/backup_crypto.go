@@ -277,6 +277,9 @@ func backupArchiveContents(layout backupArchiveLayout) []string {
 	if fileExists(filepath.Join(layout.configDir, "server.yml")) {
 		contents = append(contents, "server.yml")
 	}
+	if fileExists(filepath.Join(layout.configDir, "secrets.yml")) {
+		contents = append(contents, "secrets.yml")
+	}
 	if dirExists(filepath.Join(layout.configDir, "yaml.d")) {
 		contents = append(contents, "yaml.d/")
 	}
@@ -291,6 +294,9 @@ func backupArchiveContents(layout backupArchiveLayout) []string {
 	}
 	if dirExists(filepath.Join(layout.configDir, "security")) {
 		contents = append(contents, "security/")
+	}
+	if dirExists(filepath.Join(layout.configDir, "html")) {
+		contents = append(contents, "html/")
 	}
 	if layout.includeSSL && dirExists(layout.sslDir()) {
 		contents = append(contents, "ssl/")

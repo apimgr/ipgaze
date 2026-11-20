@@ -706,7 +706,7 @@
     "mcp_403_cause": "Origin no válido o alcance insuficiente del token",
     "mcp_403_fix": "Conéctese desde un origen permitido y use un token con el alcance requerido.",
     "mcp_404_cause": "MCP está desactivado",
-    "mcp_404_fix": "Pida al operador del servidor que habilite server.mcp.enabled.",
+    "mcp_404_fix": "MCP siempre está disponible; compruebe que la ruta del endpoint sea correcta y accesible.",
     "mcp_405_cause": "Se usó GET o DELETE en el endpoint MCP",
     "mcp_405_fix": "Use POST para las solicitudes MCP.",
     "mcp_project_tools": "Herramientas de IPGaze"

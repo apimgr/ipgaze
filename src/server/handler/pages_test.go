@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -264,7 +265,6 @@ func TestAPIV1ServerHelpHandler(t *testing.T) {
 
 func TestAPIV1ServerMCPHelpHandler(t *testing.T) {
 	h := newTestPagesHandler()
-	h.MCPEnabled = true
 	h.MCPTools = func(*http.Request) []MCPToolDescription {
 		return []MCPToolDescription{{Name: "lookup_ip", Description: "Look up an IP address"}}
 	}
@@ -289,19 +289,19 @@ func TestAPIV1ServerMCPHelpHandler(t *testing.T) {
 	}
 }
 
-func TestAPIV1ServerMCPHelpHandlerDisabled(t *testing.T) {
+func TestAPIV1ServerMCPHelpHandlerAlwaysAvailable(t *testing.T) {
 	h := newTestPagesHandler()
 	w := httptest.NewRecorder()
 	h.APIV1ServerMCPHelpHandler(w, httptest.NewRequest(http.MethodGet, "/api/v1/server/help/mcp", nil))
-	if w.Code != http.StatusNotFound {
-		t.Errorf("status = %d, want %d", w.Code, http.StatusNotFound)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusOK)
 	}
 	var body APIResponse
 	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
-		t.Fatalf("decode error response: %v", err)
+		t.Fatalf("decode response: %v", err)
 	}
-	if body.OK || body.Error != "NOT_FOUND" {
-		t.Errorf("error envelope = %#v, want NOT_FOUND", body)
+	if !body.OK {
+		t.Errorf("response = %#v, want success", body)
 	}
 }
 
@@ -512,6 +512,27 @@ func TestServerContactHandler_GET(t *testing.T) {
 	}
 }
 
+func TestServerContactHandler_DisabledReturnsNotFound(t *testing.T) {
+	h := newTestPagesHandler()
+	cfg := config.DefaultConfig()
+	cfg.Pages.Contact.Enabled = false
+	h.Config = cfg
+	for _, method := range []string{http.MethodGet, http.MethodPost} {
+		request := httptest.NewRequest(method, "/server/contact", nil)
+		response := httptest.NewRecorder()
+		h.ServerContactHandler(response, request)
+		if response.Code != http.StatusNotFound {
+			t.Errorf("%s status = %d, want 404", method, response.Code)
+		}
+	}
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/server/contact", nil)
+	response := httptest.NewRecorder()
+	h.APIV1ServerContactHandler(response, request)
+	if response.Code != http.StatusNotFound {
+		t.Errorf("API status = %d, want 404", response.Code)
+	}
+}
+
 func TestServerContactHandler_POST(t *testing.T) {
 	h := newTestPagesHandler()
 	req := httptest.NewRequest(http.MethodPost, "/server/contact", nil)
@@ -539,6 +560,10 @@ func TestAPIV1ServerContactHandler_POST(t *testing.T) {
 		t.Fatal(err)
 	}
 	h.DB = db
+	cfg := config.DefaultConfig()
+	cfg.Pages.Contact.Antispam.ReviewMinSeconds = 0
+	cfg.Pages.Contact.Antispam.MinFillSeconds = 0
+	h.Config = cfg
 	question, token, err := newSimpleCaptcha(context.Background(), db, time.Now())
 	if err != nil {
 		t.Fatal(err)
@@ -555,7 +580,7 @@ func TestAPIV1ServerContactHandler_POST(t *testing.T) {
 		}
 		answer += value
 	}
-	encoded, err := json.Marshal(ContactRequest{Name: "Example User", Email: "user@example.com", Subject: "Question", Message: "hello", FormToken: h.newContactFormToken(time.Now().Add(-4 * time.Second)), Captcha: strconv.Itoa(answer), CaptchaToken: token})
+	encoded, err := json.Marshal(ContactRequest{Name: "Example User", Email: "user@example.com", Type: "privacy", RequestKind: "access", Subject: "Question", Message: "hello", FormToken: h.newContactFormToken(time.Now().Add(-4 * time.Second)), Captcha: strconv.Itoa(answer), CaptchaToken: token})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -575,8 +600,54 @@ func TestAPIV1ServerContactHandler_POST(t *testing.T) {
 		t.Fatalf("decode error: %v", err)
 	}
 	data, ok := body.Data.(map[string]interface{})
-	if !body.OK || !ok || data["success"] != true {
-		t.Errorf("response = %#v, want successful envelope (question %s)", body, question)
+	if !body.OK || !ok || data["review"] == nil || data["review_token"] == nil {
+		t.Errorf("response = %#v, want first-step review envelope (question %s)", body, question)
+	}
+	challenge, ok := data["captcha"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("review captcha = %#v", data["captcha"])
+	}
+	confirmQuestion, _ := challenge["question"].(string)
+	confirmToken, _ := challenge["challenge_id"].(string)
+	confirmAnswer := 0
+	for _, part := range strings.Fields(strings.TrimSuffix(strings.TrimPrefix(confirmQuestion, "What is "), "?")) {
+		if part == "+" {
+			continue
+		}
+		value, err := strconv.Atoi(part)
+		if err != nil {
+			t.Fatal(err)
+		}
+		confirmAnswer += value
+	}
+	reqData := data["review"].(map[string]interface{})
+	confirmRequest := ContactRequest{
+		Name: "Example User", Email: "user@example.com", Type: "privacy", RequestKind: "access",
+		Subject: "Question", Message: "hello", Step: "confirm", Confirmed: true,
+		FormToken: data["form_token"].(string), ReviewToken: data["review_token"].(string),
+		Captcha: strconv.Itoa(confirmAnswer), CaptchaToken: confirmToken,
+	}
+	if reqData["email"] != confirmRequest.Email {
+		t.Fatal("review response did not identify the request email")
+	}
+	encoded, err = json.Marshal(confirmRequest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	confirmReq := httptest.NewRequest(http.MethodPost, "/api/v1/server/contact", strings.NewReader(string(encoded)))
+	confirmReq.Header.Set("Content-Type", "application/json")
+	confirmResponse := httptest.NewRecorder()
+	h.APIV1ServerContactHandler(confirmResponse, confirmReq)
+	if confirmResponse.Code != http.StatusOK {
+		t.Fatalf("confirm status = %d, body=%s", confirmResponse.Code, confirmResponse.Body.String())
+	}
+	var confirmed APIResponse
+	if err := json.NewDecoder(confirmResponse.Body).Decode(&confirmed); err != nil {
+		t.Fatal(err)
+	}
+	confirmedData, ok := confirmed.Data.(map[string]interface{})
+	if !confirmed.OK || !ok || confirmedData["success"] != true {
+		t.Fatalf("confirm response = %#v, want success", confirmed)
 	}
 }
 
@@ -762,6 +833,9 @@ func TestContactFormTokenChecksSignatureAndAge(t *testing.T) {
 	if !h.verifyContactFormToken(token, now) {
 		t.Fatal("valid in-window contact form token was rejected")
 	}
+	if h.verifyContactFormToken(token, now) {
+		t.Fatal("reused contact form token was accepted")
+	}
 	if h.verifyContactFormToken(token+"x", now) {
 		t.Fatal("tampered contact form token was accepted")
 	}
@@ -770,6 +844,66 @@ func TestContactFormTokenChecksSignatureAndAge(t *testing.T) {
 	}
 	if h.verifyContactFormToken(h.newContactFormToken(now.Add(-13*time.Hour)), now) {
 		t.Fatal("expired contact form token was accepted")
+	}
+}
+
+func TestContactReviewTokenBindsFieldsAndIsSingleUse(t *testing.T) {
+	conn, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = conn.Close() }()
+	if err := db.EnsureSchema(conn); err != nil {
+		t.Fatal(err)
+	}
+	h := newTestPagesHandler()
+	h.DB = conn
+	h.Config = config.DefaultConfig()
+	now := time.Now().Truncate(time.Second)
+	req := ContactRequest{Type: "privacy", Name: "Reporter", Email: "reporter@example.net", Subject: "Request", Message: "Please export my data", RequestKind: "export"}
+	token, err := h.newContactReviewToken(req, "", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	changed := req
+	changed.Message = "Changed after review"
+	if _, err := h.consumeContactReviewToken(token, changed, now.Add(3*time.Second)); err == nil {
+		t.Fatal("review token accepted changed fields")
+	}
+	changed = req
+	changed.Message = "please export my data"
+	if _, err := h.consumeContactReviewToken(token, changed, now.Add(3*time.Second)); err == nil {
+		t.Fatal("review token accepted changed capitalization")
+	}
+	changed = req
+	changed.Message = "Please  export my data"
+	if _, err := h.consumeContactReviewToken(token, changed, now.Add(3*time.Second)); err == nil {
+		t.Fatal("review token accepted changed whitespace")
+	}
+	if _, err := h.consumeContactReviewToken(token, req, now.Add(time.Second)); err == nil {
+		t.Fatal("review token was accepted before review_min_seconds")
+	}
+	if _, err := h.consumeContactReviewToken(token, req, now.Add(3*time.Second)); err != nil {
+		t.Fatalf("valid review token rejected: %v", err)
+	}
+	if _, err := h.consumeContactReviewToken(token, req, now.Add(4*time.Second)); !errors.Is(err, errContactFormReplay) {
+		t.Fatalf("reused review token error = %v, want replay", err)
+	}
+}
+
+func TestValidContactOrigin(t *testing.T) {
+	h := newTestPagesHandler()
+	request := httptest.NewRequest(http.MethodPost, "https://example.test/server/contact", nil)
+	if validContactOrigin(request, h) {
+		t.Fatal("request without origin headers was accepted")
+	}
+	request.Header.Set("Origin", "https://attacker.test")
+	if validContactOrigin(request, h) {
+		t.Fatal("mismatched origin was accepted")
+	}
+	request.Header.Set("Origin", "https://example.test")
+	if !validContactOrigin(request, h) {
+		t.Fatal("same-origin browser post was rejected")
 	}
 }
 
@@ -819,7 +953,11 @@ func TestContactContentRulesAndDuplicateWindow(t *testing.T) {
 	if !contactContentBlocked(request, blocked) {
 		t.Fatal("blocked word match was accepted")
 	}
-	request.Message = "See https://one.example https://two.example https://three.example"
+	var links strings.Builder
+	for index := 0; index < 11; index++ {
+		fmt.Fprintf(&links, "https://host%d.example ", index)
+	}
+	request.Message = "See " + links.String()
 	if !contactContentBlocked(request, config.DefaultConfig().Pages.Contact.Antispam) {
 		t.Fatal("message exceeding max_links was accepted")
 	}
@@ -844,8 +982,8 @@ func TestContactContentRulesAndDuplicateWindow(t *testing.T) {
 		t.Fatalf("encoded markup reason = %q, want markup", got)
 	}
 	request.Message = "Visit mgmarket10.shop, foo.example.net, and bar.test.org"
-	if !contactContentBlocked(request, config.DefaultConfig().Pages.Contact.Antispam) {
-		t.Fatal("three bare domains exceeded max_links without being blocked")
+	if contactContentBlocked(request, config.DefaultConfig().Pages.Contact.Antispam) {
+		t.Fatal("three bare domains were over the configured max_links limit")
 	}
 	request.Message = "Visit a.subdomain.blocked.example"
 	blocked = config.DefaultConfig().Pages.Contact.Antispam
@@ -884,6 +1022,42 @@ func TestContactContentRulesAndDuplicateWindow(t *testing.T) {
 	}
 }
 
+func TestContactTypesAndReportedURLRoutes(t *testing.T) {
+	if validContactTypeShape(ContactRequest{Type: "general"}, false) || validContactTypeShape(ContactRequest{Type: "support"}, false) || validContactTypeShape(ContactRequest{Type: "bug"}, false) {
+		t.Fatal("unsupported report type was accepted")
+	}
+	if validContactTypeShape(ContactRequest{Type: "abuse", Reason: "terms_violation"}, false) {
+		t.Fatal("abuse report without a URL was accepted")
+	}
+	if validContactTypeShape(ContactRequest{Type: "dmca", ReportedURL: "https://example.test/item", CopyrightedWork: "Work"}, false) {
+		t.Fatal("DMCA report missing required statements or signature was accepted")
+	}
+	h := newTestPagesHandler()
+	h.RouteMatch = func(method, path string) bool { return method == http.MethodGet && path == "/item/1" }
+	r := httptest.NewRequest(http.MethodPost, "https://example.test/server/contact", nil)
+	if !validReportedURL("https://example.test/item/1", h, r) {
+		t.Fatal("reported URL matching an application route was rejected")
+	}
+	if validReportedURL("https://example.test/not-a-route", h, r) {
+		t.Fatal("reported URL without an application route was accepted")
+	}
+	if validReportedURL("https://example.test/", h, r) {
+		t.Fatal("root URL was accepted as a reported resource")
+	}
+	if validReportedURL("https://example.test/server/contact", h, r) {
+		t.Fatal("contact route was accepted as a reported resource")
+	}
+	if validReportedURL("https://example.test/203.0.113.1", h, r) {
+		t.Fatal("IP-shaped path without an active route was accepted")
+	}
+	securityRequest := ContactRequest{Type: "security", Name: "Researcher", Email: "r@example.net", Subject: "CVE at https://external.example", Message: "See https://external.example/advisory"}
+	cfg := config.DefaultConfig().Pages.Contact.Antispam
+	cfg.BlockedWords = []string{"cve"}
+	if got := contactContentBlockReasonForRequest(securityRequest, cfg, h, r); got != "" {
+		t.Fatalf("security report content rules returned %q", got)
+	}
+}
+
 func TestContactThirdStrikeBansIP(t *testing.T) {
 	contactStrikeState.Lock()
 	contactStrikeState.events = make(map[string][]time.Time)
@@ -900,30 +1074,22 @@ func TestContactThirdStrikeBansIP(t *testing.T) {
 	cfg.Pages.Contact.Antispam.Strikes = 3
 	cfg.Pages.Contact.Antispam.BanHours = 2
 	h.Config = cfg
+	request := httptest.NewRequest(http.MethodPost, "https://example.test/api/v1/server/contact", nil)
+	request.RemoteAddr = "192.0.2.99:12345"
 	for attempt := 1; attempt <= 3; attempt++ {
-		body, err := json.Marshal(ContactRequest{Website: "filled", Name: "Reporter", Email: "reporter@example.net", Subject: "Contact", Message: "Hello"})
-		if err != nil {
-			t.Fatal(err)
-		}
-		req := httptest.NewRequest(http.MethodPost, "/api/v1/server/contact", strings.NewReader(string(body)))
-		req.RemoteAddr = "192.0.2.99:12345"
-		req.Header.Set("Content-Type", "application/json")
-		response := httptest.NewRecorder()
-		h.APIV1ServerContactHandler(response, req)
-		want := http.StatusOK
-		if attempt == 3 {
-			want = http.StatusTooManyRequests
-		}
-		if response.Code != want {
-			t.Fatalf("attempt %d status = %d, want %d: %s", attempt, response.Code, want, response.Body.String())
-		}
-		if attempt == 3 && response.Header().Get("Retry-After") == "" {
-			t.Fatal("third strike response is missing Retry-After")
-		}
+		h.logContactBlock(request, "honeypot")
+	}
+	if retry := h.contactBan(h.clientIP(request), request, time.Now()); retry <= 0 {
+		t.Fatal("third strike did not ban the IP")
+	}
+	response := httptest.NewRecorder()
+	h.APIV1ServerContactHandler(response, request)
+	if response.Code != http.StatusTooManyRequests || response.Header().Get("Retry-After") == "" {
+		t.Fatalf("banned request status=%d Retry-After=%q", response.Code, response.Header().Get("Retry-After"))
 	}
 }
 
-func TestSecurityReportHoneypotSilentlyDropsWithoutStoringOrSending(t *testing.T) {
+func TestContactHoneypotReviewSilentlyDropsWithoutDelivery(t *testing.T) {
 	conn, err := sql.Open("sqlite", ":memory:")
 	if err != nil {
 		t.Fatal(err)
@@ -934,21 +1100,53 @@ func TestSecurityReportHoneypotSilentlyDropsWithoutStoringOrSending(t *testing.T
 	}
 	h := newTestPagesHandler()
 	h.DB = conn
-	h.Config = config.DefaultConfig()
-	body, err := json.Marshal(ContactRequest{Website: "bot-filled", Name: "Reporter", Email: "reporter@example.net", Subject: "Contact", Message: "Hello"})
+	cfg := config.DefaultConfig()
+	cfg.Pages.Contact.Antispam.ReviewMinSeconds = 0
+	cfg.Pages.Contact.Antispam.MinFillSeconds = 0
+	h.Config = cfg
+	question, captchaToken, err := newSimpleCaptcha(context.Background(), conn, time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/server/contact", strings.NewReader(string(body)))
-	req.Header.Set("Content-Type", "application/json")
-	response := httptest.NewRecorder()
-	h.APIV1ServerContactHandler(response, req)
-	if response.Code != http.StatusOK {
-		t.Fatalf("honeypot response status = %d, want 200: %s", response.Code, response.Body.String())
+	answer := 0
+	for _, part := range strings.Fields(strings.TrimSuffix(strings.TrimPrefix(question, "What is "), "?")) {
+		if part == "+" {
+			continue
+		}
+		value, parseErr := strconv.Atoi(part)
+		if parseErr != nil {
+			t.Fatal(parseErr)
+		}
+		answer += value
 	}
-	var envelope APIResponse
-	if err := json.Unmarshal(response.Body.Bytes(), &envelope); err != nil || !envelope.OK {
-		t.Fatalf("honeypot response = %s, err=%v; want normal success", response.Body.String(), err)
+	request := httptest.NewRequest(http.MethodPost, "https://example.test/api/v1/server/contact", nil)
+	req := ContactRequest{
+		Website: "bot-filled", FormToken: h.newContactFormToken(time.Now().Add(-4 * time.Second)),
+		Name: "Reporter", Email: "reporter@example.net", Type: "privacy", RequestKind: "access",
+		Subject: "Privacy request", Message: "Export my data", Captcha: strconv.Itoa(answer), CaptchaToken: captchaToken,
+	}
+	first := h.processContactStep(request, req)
+	if first.Kind != "review" || first.Flags != "d" {
+		t.Fatalf("honeypot submit = %+v, want normal review carrying drop flag", first)
+	}
+	_, confirmQuestion, confirmToken := h.newContactCaptcha(request, time.Now())
+	confirmAnswer := 0
+	for _, part := range strings.Fields(strings.TrimSuffix(strings.TrimPrefix(confirmQuestion, "What is "), "?")) {
+		if part == "+" {
+			continue
+		}
+		value, parseErr := strconv.Atoi(part)
+		if parseErr != nil {
+			t.Fatal(parseErr)
+		}
+		confirmAnswer += value
+	}
+	req.Website = ""
+	req.Step, req.Confirmed, req.ReviewToken = "confirm", true, first.ReviewToken
+	req.FormToken = first.FormToken
+	req.Captcha, req.CaptchaToken = strconv.Itoa(confirmAnswer), confirmToken
+	if result := h.processContactStep(request, req); result.Kind != "done" {
+		t.Fatalf("honeypot confirm = %+v, want silent success", result)
 	}
 	var count int
 	if err := conn.QueryRow(`SELECT COUNT(*) FROM security_reports`).Scan(&count); err != nil {
@@ -956,6 +1154,34 @@ func TestSecurityReportHoneypotSilentlyDropsWithoutStoringOrSending(t *testing.T
 	}
 	if count != 0 {
 		t.Fatalf("honeypot stored %d reports, want none", count)
+	}
+}
+
+func TestDispatchContactSubmissionUsesConfiguredFromAndReplyTo(t *testing.T) {
+	host, port, messages := fakeTwoMessageSMTPServer(t)
+	cfg := config.DefaultConfig()
+	cfg.Server.Branding.Title = "Example App"
+	cfg.Server.FQDN = "example.test"
+	cfg.Server.Contact.Abuse.Email = "abuse@example.test"
+	h := newTestPagesHandler()
+	h.Config = cfg
+	h.EmailMgr = email.NewEmailManager(email.SMTPConfig{Enabled: true, Host: host, Port: port, From: "noreply@example.test", TLS: "none"}, "")
+	h.dispatchContactSubmission(httptest.NewRequest(http.MethodPost, "https://example.test/server/contact", nil), ContactRequest{
+		Type: "abuse", Name: "Reporter", Email: "reporter@example.net", Subject: "Terms violation",
+		Message: "Please review this content", ReportedURL: "https://example.test/item/1", Reason: "terms_violation",
+	})
+	select {
+	case message := <-messages:
+		for _, want := range []string{"From: noreply@example.test", "Reply-To: reporter@example.net", "Subject: [Example App contact] Terms violation", "Content-Type: text/plain; charset=UTF-8", "Reported URL: https://example.test/item/1"} {
+			if !strings.Contains(message, want) {
+				t.Errorf("contact email missing %q: %s", want, message)
+			}
+		}
+		if strings.Contains(message, "text/html") {
+			t.Error("contact email contains an HTML MIME part")
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("contact email was not sent")
 	}
 }
 
@@ -1145,7 +1371,7 @@ func TestAPIV1ServerContactHandler_GET(t *testing.T) {
 	if err := json.NewDecoder(w.Body).Decode(&response); err != nil {
 		t.Fatal(err)
 	}
-	if !response.OK || len(response.Data.Fields) != 8 || response.Data.SecurityURL == "" || response.Data.Captcha.Provider == "" || response.Data.FormToken == "" {
+	if !response.OK || len(response.Data.Fields) < 8 || response.Data.SecurityURL == "" || response.Data.Captcha.Provider == "" || response.Data.FormToken == "" {
 		t.Errorf("contact form response is incomplete: %#v", response)
 	}
 	fieldLimits := make(map[string]*int, len(response.Data.Fields))
@@ -1159,7 +1385,7 @@ func TestAPIV1ServerContactHandler_GET(t *testing.T) {
 
 func TestAPIV1ServerContactHandler_RejectsOverlongUnicodeField(t *testing.T) {
 	h := newTestPagesHandler()
-	reqBody, err := json.Marshal(ContactRequest{Name: strings.Repeat("é", 101), Email: "user@example.com", Subject: "Question", Message: "Hello"})
+	reqBody, err := json.Marshal(ContactRequest{Name: strings.Repeat("é", 101), Email: "user@example.com", Subject: "Question", Message: "Hello", FormToken: h.newContactFormToken(time.Now())})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -700,7 +700,7 @@
     "mcp_403_cause": "Origin が無効、またはトークンの権限範囲が不足",
     "mcp_403_fix": "許可された Origin から接続し、必要な権限範囲を持つトークンを使用してください。",
     "mcp_404_cause": "MCP が無効",
-    "mcp_404_fix": "サーバー管理者に server.mcp.enabled の有効化を依頼してください。",
+    "mcp_404_fix": "MCP は常に利用できます。エンドポイントのパスが正しく、到達可能か確認してください。",
     "mcp_405_cause": "MCP エンドポイントで GET または DELETE を使用",
     "mcp_405_fix": "MCP リクエストには POST を使用してください。",
     "mcp_project_tools": "IPGaze ツール"

@@ -17,15 +17,6 @@ func resetGlobals() {
 	mu.Unlock()
 }
 
-func TestDefaultPermissionsPolicyIncludesAdditionalDeniedFeatures(t *testing.T) {
-	policy := DefaultPermissionsPolicy()
-	for _, feature := range []string{"hid", "idle-detection", "serial"} {
-		if got := policy[feature]; got != "()" {
-			t.Errorf("DefaultPermissionsPolicy()[%q] = %q, want ()", feature, got)
-		}
-	}
-}
-
 // writeTempYAML creates a temp file with the given content and returns its path.
 func writeTempYAML(t *testing.T, content string) string {
 	t.Helper()
@@ -60,10 +51,15 @@ func TestDefaultConfig_ServerDefaults(t *testing.T) {
 }
 
 func TestDefaultConfig_ContactAntispamDefaults(t *testing.T) {
-	antispam := DefaultConfig().Pages.Contact.Antispam
+	contact := DefaultConfig().Pages.Contact
+	antispam := contact.Antispam
+	if !contact.Enabled {
+		t.Fatal("contact form should be enabled by default")
+	}
 	if !antispam.Honeypot || antispam.MinFillSeconds != 3 || antispam.MaxAgeSeconds != 43200 ||
 		antispam.PerIP != 5 || antispam.PerEmail != 3 || antispam.Global != 60 || antispam.Window != "1h" ||
-		antispam.MaxLinks != 2 || !antispam.RejectMarkup || antispam.Strikes != 3 || antispam.BanHours != 24 {
+		antispam.MaxLinks != 10 || !antispam.RejectMarkup || antispam.Strikes != 3 || antispam.BanHours != 24 ||
+		antispam.ReviewMinSeconds != 2 || antispam.ReviewMaxSeconds != 900 {
 		t.Fatalf("contact antispam defaults = %+v", antispam)
 	}
 }
@@ -162,8 +158,8 @@ func TestDefaultConfig_MetricsDefaults(t *testing.T) {
 
 func TestDefaultConfig_LoggingDefaults(t *testing.T) {
 	cfg := DefaultConfig()
-	if cfg.Server.Logging.AccessFormat != "apache" {
-		t.Errorf("Logging.AccessFormat: got %q, want %q", cfg.Server.Logging.AccessFormat, "apache")
+	if cfg.Server.Logging.Access.Format != "apache" {
+		t.Errorf("Logging.Access.Format: got %q, want %q", cfg.Server.Logging.Access.Format, "apache")
 	}
 	if cfg.Server.Logging.Level != "warn" {
 		t.Errorf("Logging.Level: got %q, want %q", cfg.Server.Logging.Level, "warn")
@@ -311,9 +307,6 @@ func TestDefaultConfig_RateLimitDefaults(t *testing.T) {
 	cfg := DefaultConfig()
 	rl := cfg.Server.RateLimit
 
-	if !rl.Enabled {
-		t.Error("RateLimit.Enabled: want true")
-	}
 	if rl.Read.Requests != 120 {
 		t.Errorf("RateLimit.Read.Requests: got %d, want 120", rl.Read.Requests)
 	}
@@ -358,13 +351,6 @@ func TestDefaultConfig_CompressionDefaults(t *testing.T) {
 	}
 	if len(comp.Types) == 0 {
 		t.Error("Compression.Types: want non-empty default list")
-	}
-}
-
-func TestDefaultConfig_BrandingDefaults(t *testing.T) {
-	cfg := DefaultConfig()
-	if cfg.Server.Branding.ThemeColor != "#bd93f9" {
-		t.Errorf("Branding.ThemeColor: got %q, want %q", cfg.Server.Branding.ThemeColor, "#bd93f9")
 	}
 }
 
@@ -1087,7 +1073,6 @@ func TestLoadConfigDropInsRejectNullDuplicatesAndUnsafePermissions(t *testing.T)
 		{name: "null", body: "server:\n  branding: null\n", mode: 0o600, want: "server.branding"},
 		{name: "duplicate", body: "server:\n  port: 1\n  port: 2\n", mode: 0o600, want: "duplicate configuration key server.port"},
 		{name: "type", body: "server:\n  rate_limit:\n    global_burst: []\n", mode: 0o600, want: "key server.rate_limit.global_burst"},
-		{name: "writable", body: "server: {}\n", mode: 0o666, want: "group or world writable"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			dir := t.TempDir()
@@ -1112,6 +1097,40 @@ func TestLoadConfigDropInsRejectNullDuplicatesAndUnsafePermissions(t *testing.T)
 			}
 		})
 	}
+
+	t.Run("writable permissions are corrected", func(t *testing.T) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "server.yml")
+		if err := os.WriteFile(path, []byte("server: {}\n"), 0o666); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(path, 0o666); err != nil {
+			t.Fatal(err)
+		}
+		dropinDir := filepath.Join(dir, "yaml.d")
+		if err := os.Mkdir(dropinDir, 0o777); err != nil {
+			t.Fatal(err)
+		}
+		dropin := filepath.Join(dropinDir, "10-writable.yml")
+		if err := os.WriteFile(dropin, []byte("server: {}\n"), 0o666); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(dropin, 0o666); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := LoadConfigFromFile(path); err != nil {
+			t.Fatalf("LoadConfigFromFile: %v", err)
+		}
+		for file, want := range map[string]os.FileMode{path: 0o600, dropinDir: 0o700, dropin: 0o600, dir: 0o700} {
+			info, err := os.Stat(file)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := info.Mode().Perm(); got != want {
+				t.Errorf("%s mode = %#o, want %#o", file, got, want)
+			}
+		}
+	})
 }
 
 func TestLoadConfigDropInValidationErrorNamesSourceLineAndKey(t *testing.T) {
@@ -1346,24 +1365,69 @@ func TestSaveConfigToFile_WritesFile(t *testing.T) {
 	}
 }
 
+func TestRemoveGeneratedSecretValuesKeepsOnlyPrimaryFileSecrets(t *testing.T) {
+	generated := `server:
+  token: generated-token
+  security:
+    encryption_key: generated-key
+  database:
+    token: secret-file-token
+    password: secret-file-password
+  cache:
+    password: secret-file-cache-password
+  contact:
+    general:
+      webhooks:
+        telegram: https://secret-file.example/hook
+        telegram_secret: secret-file-hook-key
+`
+	primary := []byte(`server:
+  database:
+    token: primary-token
+  cache:
+    password: primary-cache-password
+  contact:
+    general:
+      webhooks:
+        telegram: https://primary.example/hook
+`)
+	got, err := removeGeneratedSecretValues(generated, primary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, forbidden := range []string{"generated-token", "generated-key", "secret-file-token", "secret-file-password", "secret-file-cache-password", "secret-file-hook-key", "secret-file.example"} {
+		if strings.Contains(got, forbidden) {
+			t.Errorf("sanitized config leaked %q: %s", forbidden, got)
+		}
+	}
+	for _, preserved := range []string{"primary-token", "primary-cache-password", "https://primary.example/hook"} {
+		if !strings.Contains(got, preserved) {
+			t.Errorf("sanitized config lost primary value %q: %s", preserved, got)
+		}
+	}
+}
+
 func TestSaveConfigToFile_RoundTripsEncryptionKeyAndDNSCredentials(t *testing.T) {
 	resetGlobals()
 	path := writeTempYAML(t, `server:
   port: "5555"
+  security:
+    encryption_key: "dGVzdC1rZXktbWF0ZXJpYWw="
+  ssl:
+    letsencrypt:
+      dns_provider: cloudflare
+      dns_credentials:
+        CF_DNS_API_TOKEN: "plaintext-test-token"
 `)
 	cfg, err := LoadConfigFromFile(path)
 	if err != nil {
 		t.Fatalf("LoadConfigFromFile: %v", err)
 	}
 
-	cfg.Server.Security.EncryptionKey = "dGVzdC1rZXktbWF0ZXJpYWw="
 	cfg.Server.SSL.Cert = "/etc/ipgaze/cert.pem"
 	cfg.Server.SSL.Key = "/etc/ipgaze/key.pem"
 	cfg.Server.SSL.MinVersion = "TLS1.3"
 	cfg.Server.SSL.LetsEncrypt.DNSProvider = "cloudflare"
-	cfg.Server.SSL.LetsEncrypt.DNSCredentials = DNSCredentialsConfig{
-		Values: map[string]string{"CF_DNS_API_TOKEN": "plaintext-test-token"},
-	}
 	if err := SaveConfigToFile(); err != nil {
 		t.Fatalf("SaveConfigToFile: %v", err)
 	}
@@ -1493,12 +1557,34 @@ func TestGenerateConfigYAML_ContainsRequiredKeys(t *testing.T) {
 		"per_email: 3",
 		"global: 60",
 		"reject_markup: true",
+		"enabled: true",
 		"strikes: 3",
 		"ban_hours: 24",
+		"review_min_seconds: 2",
+		"review_max_seconds: 900",
 	}
 	for _, key := range requiredKeys {
 		if !strings.Contains(yaml, key) {
 			t.Errorf("generateConfigYAML: missing key %q in output", key)
+		}
+	}
+	for _, obsolete := range []string{"permissions_policy:", "access_format:", "filename:", "mcp:", "      enabled: true\n      retry_interval:", "    enabled: true\n    read:"} {
+		if strings.Contains(yaml, obsolete) {
+			t.Errorf("generated config contains removed setting %q", obsolete)
+		}
+	}
+	for _, expected := range []string{"defaults:\n      custom: \"\"\n      rotate: \"weekly,50MB\"\n      keep: \"none\"", "      rotate: \"monthly\"", "      rotate: \"daily\"", "    favicon: \"\"", "    logo: \"\""} {
+		if !strings.Contains(yaml, expected) {
+			t.Errorf("generated config missing %q", expected)
+		}
+	}
+	if !strings.HasSuffix(yaml, "\n") || strings.HasSuffix(yaml, "\n\n") {
+		t.Error("generated config must have exactly one trailing newline")
+	}
+	for lineNumber, line := range strings.Split(strings.TrimSuffix(yaml, "\n"), "\n") {
+		indent := len(line) - len(strings.TrimLeft(line, " "))
+		if indent%2 != 0 {
+			t.Errorf("line %d uses %d-space indentation, want multiples of two: %q", lineNumber+1, indent, line)
 		}
 	}
 }
@@ -1550,7 +1636,6 @@ func TestGenerateConfigYAML_RoundTripsNewFields(t *testing.T) {
 	original.Server.TrustedProxies.ClientIPHeader = "cf-connecting-ip"
 	original.Server.TrustedProxies.Additional = []string{"192.168.1.0/24"}
 	original.Server.URLDetection.MinSamples = 7
-	original.Server.Logging.Security.Filename = "security-custom.log"
 	original.Server.Debug.LogBodies = true
 	original.Server.Debug.MaxBodyLogSize = "20KB"
 	original.Server.Compliance.GDPR = true
@@ -1594,8 +1679,8 @@ func TestGenerateConfigYAML_RoundTripsNewFields(t *testing.T) {
 	if loaded.Server.URLDetection.MinSamples != 7 {
 		t.Errorf("Round-trip URLDetection.MinSamples: got %d, want 7", loaded.Server.URLDetection.MinSamples)
 	}
-	if loaded.Server.Logging.Security.Filename != "security-custom.log" {
-		t.Errorf("Round-trip Logging.Security.Filename: got %q, want %q", loaded.Server.Logging.Security.Filename, "security-custom.log")
+	if strings.Contains(yamlContent, "filename:") || loaded.Server.Logging.Security.Filename != "security.log" {
+		t.Errorf("generated log filename should be derived from its kind; got %q", loaded.Server.Logging.Security.Filename)
 	}
 	if !loaded.Server.Debug.LogBodies || loaded.Server.Debug.MaxBodyLogSize != "20KB" {
 		t.Errorf("Round-trip Debug: got LogBodies=%v MaxBodyLogSize=%q", loaded.Server.Debug.LogBodies, loaded.Server.Debug.MaxBodyLogSize)
@@ -1735,8 +1820,6 @@ func TestCategorizeChanges_HotReloadable(t *testing.T) {
 		"web.cors",
 		"branding.title",
 		"server.branding.title",
-		"ratelimit.enabled",
-		"server.rate_limit.enabled",
 	}
 	for _, key := range hotKeys {
 		hotReload, needsRestart := categorizeChanges([]string{key})
@@ -1827,16 +1910,6 @@ func TestCompareConfigs_LoggingLevelChange(t *testing.T) {
 	}
 }
 
-func TestCompareConfigs_RateLimitChange(t *testing.T) {
-	a := DefaultConfig()
-	b := DefaultConfig()
-	b.Server.RateLimit.Enabled = false
-	changes := compareConfigs(a, b)
-	if !contains(changes, "server.rate_limit.enabled") {
-		t.Errorf("compareConfigs: expected server.rate_limit.enabled in %v", changes)
-	}
-}
-
 func TestCompareConfigs_CORSChange(t *testing.T) {
 	a := DefaultConfig()
 	b := DefaultConfig()
@@ -1855,10 +1928,9 @@ func TestCompareConfigs_BrandingChanges(t *testing.T) {
 	b.Server.Branding.Description = "Desc"
 	b.Server.Branding.LogoURL = "https://logo.png"
 	b.Server.Branding.FaviconURL = "https://favicon.ico"
-	b.Server.Branding.ThemeColor = "#ff0000"
 	changes := compareConfigs(a, b)
 
-	for _, key := range []string{"server.branding.title", "server.branding.tagline", "server.branding.description", "server.branding.logo_url", "server.branding.favicon_url", "server.branding.theme_color"} {
+	for _, key := range []string{"server.branding.title", "server.branding.tagline", "server.branding.description", "server.branding.logo", "server.branding.favicon"} {
 		if !contains(changes, key) {
 			t.Errorf("compareConfigs: expected %q in %v", key, changes)
 		}
@@ -2333,16 +2405,16 @@ func TestGetConsentMessage_Sold(t *testing.T) {
 }
 
 func TestGetDataUsageContent_NotSold(t *testing.T) {
-	p := &PrivacyConfig{Data: DataPolicy{Sold: false}, Content: PrivacyContent{DataUsage: "not sold content", DataUsageIfSold: "sold content"}}
-	if got := p.GetDataUsageContent(); got != "not sold content" {
-		t.Errorf("GetDataUsageContent() = %q, want %q", got, "not sold content")
+	p := &PrivacyConfig{Data: DataPolicy{Sold: false}}
+	if got := p.GetDataUsageContent(); got != builtinPrivacy.DataUsage {
+		t.Errorf("GetDataUsageContent() = %q, want built-in text", got)
 	}
 }
 
 func TestGetDataUsageContent_Sold(t *testing.T) {
-	p := &PrivacyConfig{Data: DataPolicy{Sold: true}, Content: PrivacyContent{DataUsage: "not sold content", DataUsageIfSold: "sold content"}}
-	if got := p.GetDataUsageContent(); got != "sold content" {
-		t.Errorf("GetDataUsageContent() = %q, want %q", got, "sold content")
+	p := &PrivacyConfig{Data: DataPolicy{Sold: true}}
+	if got := p.GetDataUsageContent(); got != builtinPrivacy.DataUsageIfSold {
+		t.Errorf("GetDataUsageContent() = %q, want built-in text", got)
 	}
 }
 

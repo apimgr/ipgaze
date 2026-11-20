@@ -11,7 +11,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/apimgr/ipgaze/src/config"
 	applog "github.com/apimgr/ipgaze/src/log"
 	"github.com/apimgr/ipgaze/src/swagger"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -75,12 +74,7 @@ func TestValidMCPOrigin(t *testing.T) {
 	}
 }
 
-func TestMCPHandlerDisabledAndMethodRules(t *testing.T) {
-	path := t.TempDir() + "/server.yml"
-	cfg, err := config.LoadConfigFromFile(path)
-	if err != nil {
-		t.Fatalf("load config: %v", err)
-	}
+func TestMCPHandlerMethodRules(t *testing.T) {
 	handler := (&Server{}).MCPHandler()
 
 	get := httptest.NewRecorder()
@@ -89,29 +83,6 @@ func TestMCPHandlerDisabledAndMethodRules(t *testing.T) {
 		t.Fatalf("enabled GET: status=%d Allow=%q, want 405 and POST", get.Code, get.Header().Get("Allow"))
 	}
 
-	cfg.Server.MCP.Enabled = false
-	for _, route := range []string{"/mcp", "/api/mcp", "/api/v1/server/mcp"} {
-		for _, method := range []string{http.MethodGet, http.MethodPost, http.MethodDelete} {
-			recorder := httptest.NewRecorder()
-			handler.ServeHTTP(recorder, httptest.NewRequest(method, route, nil))
-			if recorder.Code != http.StatusNotFound {
-				t.Errorf("disabled %s %s: status=%d, want 404", method, route, recorder.Code)
-			}
-			if got := recorder.Header().Get("Content-Type"); got != "application/json" {
-				t.Errorf("disabled %s %s: Content-Type=%q, want application/json", method, route, got)
-			}
-			var body struct {
-				OK      bool   `json:"ok"`
-				Error   string `json:"error"`
-				Message string `json:"message"`
-			}
-			if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
-				t.Errorf("disabled %s %s: invalid JSON error body: %v", method, route, err)
-			} else if body.OK || body.Error != "NOT_FOUND" || body.Message == "" {
-				t.Errorf("disabled %s %s: error body=%+v, want canonical NOT_FOUND", method, route, body)
-			}
-		}
-	}
 }
 
 func TestMCPToolSpecUsesOperationIDAndOpenAPISchema(t *testing.T) {

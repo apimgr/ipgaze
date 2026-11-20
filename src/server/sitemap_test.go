@@ -38,6 +38,9 @@ func TestSitemapXML(t *testing.T) {
 	if strings.Contains(out, "/api/") {
 		t.Errorf("sitemap must never list an API path: %s", out)
 	}
+	if strings.Contains(out, "/server/contact") {
+		t.Errorf("sitemap must never list the private report form: %s", out)
+	}
 }
 
 // TestAPITextSuffixForcesPlainText asserts the `.txt` suffix works on an

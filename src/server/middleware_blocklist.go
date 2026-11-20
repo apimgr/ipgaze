@@ -2,7 +2,9 @@ package server
 
 import (
 	"log"
+	"net"
 	"net/http"
+	"strings"
 
 	"github.com/apimgr/ipgaze/src/blocklist"
 	i18n "github.com/apimgr/ipgaze/src/common/i18n"
@@ -41,9 +43,22 @@ func BlocklistMiddleware(lookup *blocklist.Lookup, lm *applog.Manager) func(http
 			// (AI.md PART 31 "Tor Privacy Rules").
 			if lookup != nil && !IsTorRequestContext(r.Context()) {
 				ip := extractIP(r)
-				if ip != nil && !isPrivateIP(ip) && lookup.Contains(ip) {
+				host := r.Host
+				if parsedHost, _, err := net.SplitHostPort(host); err == nil {
+					host = parsedHost
+				}
+				host = strings.Trim(host, "[]")
+				domainBlocked := net.ParseIP(host) == nil && lookup.ContainsDomain(host)
+				if domainBlocked || ip != nil && !isPrivateIP(ip) && lookup.Contains(ip) {
 					log.Printf("blocklist: blocked request from %s %s", ip, sanitizeLogValue(r.URL.Path))
-					lm.WriteSecurity("Blocked request from blocklisted IP", sanitizeLogValue(ip.String()))
+					if domainBlocked {
+						log.Printf("blocklist: blocked host %s", sanitizeLogValue(host))
+						if lm != nil {
+							lm.WriteSecurity("Blocked request from blocklisted domain", sanitizeLogValue(host))
+						}
+					} else if lm != nil {
+						lm.WriteSecurity("Blocked request from blocklisted IP", sanitizeLogValue(ip.String()))
+					}
 					lang := i18n.DetectLocale(r)
 					writeForbidden(w, r, i18n.T(i18n.WithLang(r.Context(), lang), "errors.blocked_by_blocklist"))
 					return

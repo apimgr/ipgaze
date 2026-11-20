@@ -74,6 +74,51 @@ var (
 	OfficialSite = ""
 )
 
+func configuredBlocklistSources(cfg *config.AppConfig) []blocklist.Source {
+	sources := append([]blocklist.Source(nil), blocklist.DefaultSources...)
+	if cfg == nil || !cfg.Server.Security.Blocklists.Enabled {
+		if cfg != nil {
+			return nil
+		}
+		return sources
+	}
+	for _, source := range cfg.Server.Security.Blocklists.ExtraSources {
+		if source.Enabled != nil && !*source.Enabled {
+			continue
+		}
+		sources = append(sources, blocklist.Source{Name: source.ID, Type: source.Type, URL: source.URL, File: source.ID + ".txt"})
+	}
+	return sources
+}
+
+func configuredBlocklistTypes(cfg *config.AppConfig) map[string]string {
+	types := make(map[string]string)
+	if cfg == nil || !cfg.Server.Security.Blocklists.Enabled {
+		return types
+	}
+	types["firehol_level1"] = "ip"
+	for _, source := range cfg.Server.Security.Blocklists.ExtraSources {
+		if source.Enabled == nil || *source.Enabled {
+			types[source.ID] = source.Type
+		}
+	}
+	return types
+}
+
+func configuredBlocklistIDs(cfg *config.AppConfig) []string {
+	if cfg == nil || !cfg.Server.Security.Blocklists.Enabled {
+		return nil
+	}
+	ids := make([]string, 0, len(cfg.Server.Security.Blocklists.ExtraSources)+1)
+	ids = append(ids, "firehol_level1")
+	for _, source := range cfg.Server.Security.Blocklists.ExtraSources {
+		if source.Enabled == nil || *source.Enabled {
+			ids = append(ids, source.ID)
+		}
+	}
+	return ids
+}
+
 // buildEpoch parses the embedded BuildEpoch ldflag; 0 when unset or invalid.
 // Passed to updater.CheckForUpdate so the devel channel's rolling "devel" tag
 // can be compared against this binary's own build time.
@@ -545,6 +590,10 @@ func runMain() {
 			os.Exit(exSoftware)
 		}
 		cfg.Server.Token = newToken
+		if saveErr := config.SaveGeneratedOperatorToken(); saveErr != nil {
+			log.Printf("Failed to persist generated operator token to secrets.yml: %v", saveErr)
+			os.Exit(exSoftware)
+		}
 		if saveErr := config.SaveConfigToFile(); saveErr != nil {
 			log.Printf("Warning: Failed to save generated operator token: %v", saveErr)
 		}
@@ -552,7 +601,7 @@ func runMain() {
 	}
 
 	// Auto-generate the AES-256-GCM at-rest encryption key on first run per AI.md
-	// PART 11/PART 15. 32 raw bytes, base64-encoded, persisted to server.yml. Used
+	// PART 11/PART 15. 32 raw bytes, base64-encoded, persisted to secrets.yml. Used
 	// to encrypt sensitive at-rest data such as DNS-01 provider credentials.
 	if cfg.Server.Security.EncryptionKey == "" {
 		newKey, keyErr := generateEncryptionKey()
@@ -561,6 +610,10 @@ func runMain() {
 			os.Exit(exSoftware)
 		}
 		cfg.Server.Security.EncryptionKey = newKey
+		if saveErr := config.SaveGeneratedEncryptionKey(); saveErr != nil {
+			log.Printf("Failed to persist generated encryption key to secrets.yml: %v", saveErr)
+			os.Exit(exSoftware)
+		}
 		if saveErr := config.SaveConfigToFile(); saveErr != nil {
 			log.Printf("Warning: Failed to save generated encryption key: %v", saveErr)
 		}
@@ -998,7 +1051,6 @@ func runMain() {
 		}
 
 		// blocklist_update: daily 04:00 (configurable)
-		blMgr := blocklist.NewBlocklistManager(filepath.Join(*dataDir, "security", "blocklists"), nil)
 		if err := sched.AddTask(&scheduler.Task{
 			ID:       "blocklist_update",
 			Name:     "IP Blocklist Update",
@@ -1006,9 +1058,18 @@ func runMain() {
 			Enabled:  enabledFor(true, cfg.Server.Schedule.Tasks.BlocklistUpdate),
 			Fn: func() error {
 				log.Println("scheduler: running blocklist_update")
-				err := blMgr.Update()
-				if err == nil && blLookup != nil {
-					err = blLookup.LoadDir(filepath.Join(*dataDir, "security", "blocklists"))
+				currentCfg := config.Get()
+				blDir := filepath.Join(*dataDir, "security", "blocklists")
+				var err error
+				if currentCfg.Server.Security.Blocklists.Enabled {
+					blMgr := blocklist.NewBlocklistManager(blDir, configuredBlocklistSources(currentCfg))
+					err = blMgr.Update()
+				}
+				if blLookup != nil {
+					loadErr := blLookup.LoadDirWithTypes(blDir, configuredBlocklistTypes(currentCfg))
+					if err == nil {
+						err = loadErr
+					}
 				}
 				if srv != nil && srv.HealthHandler != nil {
 					srv.HealthHandler.RefreshHealthChecks()
@@ -1301,11 +1362,6 @@ func runMain() {
 			log.Printf("Warning: start scheduler: %v", err)
 		}
 	}
-
-	// Log the footer custom_html sanitization preview at startup per AI.md
-	// PART 16 "Footer Customization" — raw input, sanitized output, and a
-	// warning if the sanitizer modified the operator-supplied markup.
-	config.LogFooterSanitizationPreview(cfg.Web.Footer.CustomHTML)
 
 	// tor_health per AI.md PART 18 Built-in Tasks: probe the live control
 	// connection every 10 minutes and restart Tor when the probe fails.
@@ -1607,16 +1663,11 @@ func runMain() {
 	// DefaultRateLimitConfig value when the configured requests/window is zero
 	// or rate limiting is disabled entirely.
 	rlCfg := server.DefaultRateLimitConfig()
-	if cfg.Server.RateLimit.Enabled {
-		rlCfg.Read = resolveRateBucket(cfg.Server.RateLimit.Read, rlCfg.Read)
-		rlCfg.Write = resolveRateBucket(cfg.Server.RateLimit.Write, rlCfg.Write)
-		rlCfg.Health = resolveRateBucket(cfg.Server.RateLimit.Health, rlCfg.Health)
-		if cfg.Server.RateLimit.GlobalBurst > 0 {
-			rlCfg.Global = server.RateLimitBucket{
-				Limit:  cfg.Server.RateLimit.GlobalBurst,
-				Window: time.Minute,
-			}
-		}
+	rlCfg.Read = resolveRateBucket(cfg.Server.RateLimit.Read, rlCfg.Read)
+	rlCfg.Write = resolveRateBucket(cfg.Server.RateLimit.Write, rlCfg.Write)
+	rlCfg.Health = resolveRateBucket(cfg.Server.RateLimit.Health, rlCfg.Health)
+	if cfg.Server.RateLimit.GlobalBurst > 0 {
+		rlCfg.Global = server.RateLimitBucket{Limit: cfg.Server.RateLimit.GlobalBurst, Window: time.Minute}
 	}
 	limiter := server.NewRateLimiter(rlCfg, trust)
 	// AI.md PART 11: 429 rejections are security events and belong in security.log.
@@ -1664,15 +1715,16 @@ func runMain() {
 		srv.SetAllowlist(server.NewAllowlistLookup(entries))
 	}
 
-	// Blocklist: load downloaded firehol/spamhaus IP lists from disk
+	// Blocklist: load only the currently enabled configured sources from disk.
 	blDir := filepath.Join(*dataDir, "security", "blocklists")
 	blLookup = &blocklist.Lookup{}
-	if err := blLookup.LoadDir(blDir); err != nil {
+	if err := blLookup.LoadDirWithTypes(blDir, configuredBlocklistTypes(cfg)); err != nil {
 		log.Printf("Warning: failed to load blocklists from %s: %v", blDir, err)
 	} else {
 		srv.SetBlocklistLookup(blLookup)
 	}
-	for _, listID := range []string{"firehol_level1", "spamhaus_drop"} {
+	blocklistHealthIDs := configuredBlocklistIDs(cfg)
+	for _, listID := range blocklistHealthIDs {
 		id := listID
 		srv.HealthHandler.RegisterHealthCheck("blocklist_"+id, false, func() string { return blLookup.HealthStatus(id) })
 	}
@@ -1850,15 +1902,28 @@ func runMain() {
 				break
 			}
 		}
+		if slicesContainPrefix(changed, "server.security.blocklists.") && blLookup != nil {
+			blDir := filepath.Join(*dataDir, "security", "blocklists")
+			if err := blLookup.LoadDirWithTypes(blDir, configuredBlocklistTypes(newCfg)); err != nil {
+				return fmt.Errorf("reload blocklists: %w", err)
+			}
+			for _, id := range blocklistHealthIDs {
+				srv.HealthHandler.UnregisterHealthCheck("blocklist_" + id)
+			}
+			blocklistHealthIDs = configuredBlocklistIDs(newCfg)
+			for _, id := range blocklistHealthIDs {
+				checkID := id
+				srv.HealthHandler.RegisterHealthCheck("blocklist_"+checkID, false, func() string { return blLookup.HealthStatus(checkID) })
+			}
+			srv.HealthHandler.RefreshHealthChecks()
+		}
 		if slicesContainPrefix(changed, "server.rate_limit.") {
 			newRateConfig := server.DefaultRateLimitConfig()
-			if newCfg.Server.RateLimit.Enabled {
-				newRateConfig.Read = resolveRateBucket(newCfg.Server.RateLimit.Read, newRateConfig.Read)
-				newRateConfig.Write = resolveRateBucket(newCfg.Server.RateLimit.Write, newRateConfig.Write)
-				newRateConfig.Health = resolveRateBucket(newCfg.Server.RateLimit.Health, newRateConfig.Health)
-				if newCfg.Server.RateLimit.GlobalBurst > 0 {
-					newRateConfig.Global = server.RateLimitBucket{Limit: newCfg.Server.RateLimit.GlobalBurst, Window: time.Minute}
-				}
+			newRateConfig.Read = resolveRateBucket(newCfg.Server.RateLimit.Read, newRateConfig.Read)
+			newRateConfig.Write = resolveRateBucket(newCfg.Server.RateLimit.Write, newRateConfig.Write)
+			newRateConfig.Health = resolveRateBucket(newCfg.Server.RateLimit.Health, newRateConfig.Health)
+			if newCfg.Server.RateLimit.GlobalBurst > 0 {
+				newRateConfig.Global = server.RateLimitBucket{Limit: newCfg.Server.RateLimit.GlobalBurst, Window: time.Minute}
 			}
 			newLimiter := server.NewRateLimiter(newRateConfig, trust)
 			newLimiter.OnBlocked = onRateLimitBlocked
@@ -2592,76 +2657,107 @@ func slicesContainPrefix(values []string, prefix string) bool {
 // maintenance subcommands (e.g. `--maintenance pgp`) that need their own
 // audit-log manager before the main server's log manager exists.
 func buildLogConfig(cfg *config.AppConfig) applog.LoggerConfig {
+	logging := cfg.Server.Logging
+	resolve := func(name string, file *config.LogFileConfig) {
+		if file.Filename == "" {
+			file.Filename = name + ".log"
+		}
+		if file.Custom == "" {
+			file.Custom = logging.Defaults.Custom
+		}
+		if file.Rotate == "" {
+			file.Rotate = logging.Defaults.Rotate
+		}
+		if file.Keep == "" {
+			file.Keep = logging.Defaults.Keep
+		}
+	}
+	resolve("access", &logging.Access)
+	resolve("server", &logging.Server)
+	resolve("error", &logging.Error)
+	resolve("app", &logging.App)
+	resolve("auth", &logging.Auth)
+	resolve("audit", &logging.Audit.LogFileConfig)
+	resolve("security", &logging.Security)
+	resolve("debug", &logging.Debug)
 	return applog.LoggerConfig{
-		Level: cfg.Server.Logging.Level,
+		Level: logging.Level,
 		// Syslog and CEF lines carry the process identity (AI.md PART 11).
 		Program: projectName,
 		Version: Version,
 		Access: applog.LogFileConfig{
-			Enabled:  cfg.Server.Logging.Access.Enabled,
-			Filename: cfg.Server.Logging.Access.Filename,
-			Format:   cfg.Server.Logging.Access.Format,
-			Rotate:   cfg.Server.Logging.Access.Rotate,
-			Keep:     cfg.Server.Logging.Access.Keep,
+			Enabled:  logging.Access.Enabled,
+			Filename: logging.Access.Filename,
+			Format:   logging.Access.Format,
+			Custom:   logging.Access.Custom,
+			Rotate:   logging.Access.Rotate,
+			Keep:     logging.Access.Keep,
 		},
 		Server: applog.LogFileConfig{
-			Enabled:  cfg.Server.Logging.Server.Enabled,
-			Filename: cfg.Server.Logging.Server.Filename,
-			Format:   cfg.Server.Logging.Server.Format,
-			Rotate:   cfg.Server.Logging.Server.Rotate,
-			Keep:     cfg.Server.Logging.Server.Keep,
+			Enabled:  logging.Server.Enabled,
+			Filename: logging.Server.Filename,
+			Format:   logging.Server.Format,
+			Custom:   logging.Server.Custom,
+			Rotate:   logging.Server.Rotate,
+			Keep:     logging.Server.Keep,
 		},
 		Error: applog.LogFileConfig{
-			Enabled:  cfg.Server.Logging.Error.Enabled,
-			Filename: cfg.Server.Logging.Error.Filename,
-			Format:   cfg.Server.Logging.Error.Format,
-			Rotate:   cfg.Server.Logging.Error.Rotate,
-			Keep:     cfg.Server.Logging.Error.Keep,
+			Enabled:  logging.Error.Enabled,
+			Filename: logging.Error.Filename,
+			Format:   logging.Error.Format,
+			Custom:   logging.Error.Custom,
+			Rotate:   logging.Error.Rotate,
+			Keep:     logging.Error.Keep,
 		},
 		App: applog.LogFileConfig{
-			Enabled:  cfg.Server.Logging.App.Enabled,
-			Filename: cfg.Server.Logging.App.Filename,
-			Format:   cfg.Server.Logging.App.Format,
-			Rotate:   cfg.Server.Logging.App.Rotate,
-			Keep:     cfg.Server.Logging.App.Keep,
+			Enabled:  logging.App.Enabled,
+			Filename: logging.App.Filename,
+			Format:   logging.App.Format,
+			Custom:   logging.App.Custom,
+			Rotate:   logging.App.Rotate,
+			Keep:     logging.App.Keep,
 		},
 		Auth: applog.LogFileConfig{
-			Enabled:  cfg.Server.Logging.Auth.Enabled,
-			Filename: cfg.Server.Logging.Auth.Filename,
-			Format:   cfg.Server.Logging.Auth.Format,
-			Rotate:   cfg.Server.Logging.Auth.Rotate,
-			Keep:     cfg.Server.Logging.Auth.Keep,
+			Enabled:  logging.Auth.Enabled,
+			Filename: logging.Auth.Filename,
+			Format:   logging.Auth.Format,
+			Custom:   logging.Auth.Custom,
+			Rotate:   logging.Auth.Rotate,
+			Keep:     logging.Auth.Keep,
 		},
 		Audit: applog.AuditLogConfig{
 			LogFileConfig: applog.LogFileConfig{
-				Enabled:  cfg.Server.Logging.Audit.Enabled,
-				Filename: cfg.Server.Logging.Audit.Filename,
-				Format:   cfg.Server.Logging.Audit.Format,
-				Rotate:   cfg.Server.Logging.Audit.Rotate,
-				Keep:     cfg.Server.Logging.Audit.Keep,
+				Enabled:  logging.Audit.Enabled,
+				Filename: logging.Audit.Filename,
+				Format:   logging.Audit.Format,
+				Custom:   logging.Audit.Custom,
+				Rotate:   logging.Audit.Rotate,
+				Keep:     logging.Audit.Keep,
 			},
-			Compress:         cfg.Server.Logging.Audit.Compress,
-			IncludeUserAgent: cfg.Server.Logging.Audit.IncludeUserAgent,
+			Compress:         logging.Audit.Compress,
+			IncludeUserAgent: logging.Audit.IncludeUserAgent,
 			Events: applog.AuditEventFilter{
-				Configuration: cfg.Server.Logging.Audit.Events.Configuration,
-				Security:      cfg.Server.Logging.Audit.Events.Security,
-				Backup:        cfg.Server.Logging.Audit.Events.Backup,
-				Server:        cfg.Server.Logging.Audit.Events.Server,
+				Configuration: logging.Audit.Events.Configuration,
+				Security:      logging.Audit.Events.Security,
+				Backup:        logging.Audit.Events.Backup,
+				Server:        logging.Audit.Events.Server,
 			},
 		},
 		Security: applog.LogFileConfig{
-			Enabled:  cfg.Server.Logging.Security.Enabled,
-			Filename: cfg.Server.Logging.Security.Filename,
-			Format:   cfg.Server.Logging.Security.Format,
-			Rotate:   cfg.Server.Logging.Security.Rotate,
-			Keep:     cfg.Server.Logging.Security.Keep,
+			Enabled:  logging.Security.Enabled,
+			Filename: logging.Security.Filename,
+			Format:   logging.Security.Format,
+			Custom:   logging.Security.Custom,
+			Rotate:   logging.Security.Rotate,
+			Keep:     logging.Security.Keep,
 		},
 		Debug: applog.LogFileConfig{
-			Enabled:  cfg.Server.Logging.Debug.Enabled,
-			Filename: cfg.Server.Logging.Debug.Filename,
-			Format:   cfg.Server.Logging.Debug.Format,
-			Rotate:   cfg.Server.Logging.Debug.Rotate,
-			Keep:     cfg.Server.Logging.Debug.Keep,
+			Enabled:  logging.Debug.Enabled,
+			Filename: logging.Debug.Filename,
+			Format:   logging.Debug.Format,
+			Custom:   logging.Debug.Custom,
+			Rotate:   logging.Debug.Rotate,
+			Keep:     logging.Debug.Keep,
 		},
 	}
 }
@@ -3362,12 +3458,21 @@ func rotateEncryptionKey(conn *sql.DB, configDir string, cfg *config.AppConfig, 
 	cfg.Server.Security.PreviousEncryptionKeyUntil = time.Now().Add(30 * 24 * time.Hour).Unix()
 	cfg.Server.Security.EncryptionKey = newKeyB64
 	cfg.Server.SSL.LetsEncrypt.DNSCredentials.Values = reencryptedDNS
+	if err := config.SaveGeneratedEncryptionKey(); err != nil {
+		cfg.Server.Security.EncryptionKey = oldKeyB64
+		cfg.Server.Security.PreviousEncryptionKey = oldPreviousKey
+		cfg.Server.Security.PreviousEncryptionKeyUntil = oldPreviousUntil
+		cfg.Server.SSL.LetsEncrypt.DNSCredentials.Values = oldDNSCredentials
+		log.Printf("secret rotate encryption_key: save secrets: %v", err)
+		os.Exit(exIoErr)
+	}
 
 	if err := config.SaveConfigToFile(); err != nil {
 		cfg.Server.Security.EncryptionKey = oldKeyB64
 		cfg.Server.Security.PreviousEncryptionKey = oldPreviousKey
 		cfg.Server.Security.PreviousEncryptionKeyUntil = oldPreviousUntil
 		cfg.Server.SSL.LetsEncrypt.DNSCredentials.Values = oldDNSCredentials
+		_ = config.SaveGeneratedEncryptionKey()
 		log.Printf("secret rotate encryption_key: save config: %v", err)
 		os.Exit(exIoErr)
 	}

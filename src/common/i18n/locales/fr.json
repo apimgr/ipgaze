@@ -706,7 +706,7 @@
     "mcp_403_cause": "Origin invalide ou portée de jeton insuffisante",
     "mcp_403_fix": "Connectez-vous depuis une origine autorisée et utilisez un jeton doté de la portée requise.",
     "mcp_404_cause": "MCP est désactivé",
-    "mcp_404_fix": "Demandez à l’opérateur du serveur d’activer server.mcp.enabled.",
+    "mcp_404_fix": "MCP est toujours disponible ; vérifiez que le chemin du point de terminaison est correct et accessible.",
     "mcp_405_cause": "GET ou DELETE utilisé sur le point de terminaison MCP",
     "mcp_405_fix": "Utilisez POST pour les requêtes MCP.",
     "mcp_project_tools": "Outils IPGaze"

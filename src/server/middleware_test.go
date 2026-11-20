@@ -35,6 +35,26 @@ func TestContactCaptchaCSPAddsOnlySelectedProviderHosts(t *testing.T) {
 	}
 }
 
+func TestPermissionsPolicyIsFixed(t *testing.T) {
+	policy := permissionsPolicyValue(DefaultSecurityHeaderConfig().PermissionsPolicy)
+	for _, required := range []string{
+		"accelerometer=()", "ambient-light-sensor=()", "battery=()", "camera=()",
+		"display-capture=()", "geolocation=()", "hid=()", "idle-detection=()",
+		"microphone=()", "midi=()", "serial=()", "usb=()", "xr-spatial-tracking=()",
+		"attribution-reporting=()", "browsing-topics=()", "interest-cohort=()",
+		"autoplay=(self)", "publickey-credentials-get=(self)", "web-share=(self)",
+	} {
+		if !strings.Contains(policy, required) {
+			t.Errorf("Permissions-Policy missing %q: %s", required, policy)
+		}
+	}
+	for _, unexpected := range []string{"cross-origin-isolated", "document-domain", "sync-xhr", "keyboard-map"} {
+		if strings.Contains(policy, unexpected) {
+			t.Errorf("Permissions-Policy unexpectedly contains %q: %s", unexpected, policy)
+		}
+	}
+}
+
 func TestSecurityHeadersMiddleware(t *testing.T) {
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)

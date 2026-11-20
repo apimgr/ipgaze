@@ -1,154 +1,162 @@
 {{template "base" .}}
 {{define "title"}}{{t .Lang "contact.title"}} — {{.ProjectName}}{{end}}
+{{define "contact-hidden-fields"}}
+<input type="hidden" name="name" value="{{.ContactForm.Name}}">
+<input type="hidden" name="email" value="{{.ContactForm.Email}}">
+<input type="hidden" name="subject" value="{{.ContactForm.Subject}}">
+<input type="hidden" name="message" value="{{.ContactForm.Message}}">
+<input type="hidden" name="type" value="{{.ContactForm.Type}}">
+<input type="hidden" name="reported_url" value="{{.ContactForm.ReportedURL}}">
+<input type="hidden" name="reason" value="{{.ContactForm.Reason}}">
+<input type="hidden" name="copyrighted_work" value="{{.ContactForm.CopyrightedWork}}">
+<input type="hidden" name="good_faith" value="{{if .ContactForm.GoodFaith}}true{{else}}false{{end}}">
+<input type="hidden" name="accuracy" value="{{if .ContactForm.Accuracy}}true{{else}}false{{end}}">
+<input type="hidden" name="signature" value="{{.ContactForm.Signature}}">
+<input type="hidden" name="request_kind" value="{{.ContactForm.RequestKind}}">
+<input type="hidden" name="security_id" value="{{.ContactForm.SecurityID}}">
+<input type="hidden" name="handle" value="{{.ContactForm.Handle}}">
+<input type="hidden" name="researcher_gpg" value="{{.ContactForm.ResearcherGPG}}">
+<input type="hidden" name="affected_component" value="{{.ContactForm.AffectedComponent}}">
+<input type="hidden" name="affected_endpoint" value="{{.ContactForm.AffectedEndpoint}}">
+<input type="hidden" name="severity" value="{{.ContactForm.Severity}}">
+<input type="hidden" name="summary" value="{{.ContactForm.Summary}}">
+<input type="hidden" name="steps_to_reproduce" value="{{.ContactForm.StepsToReproduce}}">
+<input type="hidden" name="impact" value="{{.ContactForm.Impact}}">
+<input type="hidden" name="suggested_fix" value="{{.ContactForm.SuggestedFix}}">
+<input type="hidden" name="cve_requested" value="{{if .ContactForm.CVERequested}}true{{else}}false{{end}}">
+<input type="hidden" name="disclosure_days" value="{{.ContactForm.DisclosureDays}}">
+<input type="hidden" name="credit_preference" value="{{.ContactForm.CreditPreference}}">
+<input type="hidden" name="coordinated_disclosure_agreement" value="{{if .ContactForm.CoordinatedAgreement}}true{{else}}false{{end}}">
+{{end}}
+{{define "contact-captcha"}}
+{{if eq .CaptchaProvider "simple"}}
+<input type="hidden" name="captcha_token" value="{{.CaptchaToken}}">
+<div class="form-group">
+  <label for="captcha">Captcha</label>
+  <p id="captcha-question">{{.CaptchaQuestion}}</p>
+  <input type="text" id="captcha" name="captcha" class="form-control" required autocomplete="off">
+</div>
+{{else if eq .CaptchaProvider "recaptcha"}}
+<div class="form-group"><div class="g-recaptcha" data-sitekey="{{.CaptchaSiteKey}}"></div></div>
+<script async defer src="https://www.google.com/recaptcha/api.js"></script>
+{{else if eq .CaptchaProvider "hcaptcha"}}
+<div class="form-group"><div class="h-captcha" data-sitekey="{{.CaptchaSiteKey}}"></div></div>
+<script async defer src="https://js.hcaptcha.com/1/api.js"></script>
+{{end}}
+{{end}}
 {{define "content"}}
 <h1>{{t .Lang "contact.title"}}</h1>
-{{if .SecurityReportSubmitted}}
-<section class="section-card">
+<p class="contact-purpose">This form is only for security reports, terms violations at a URL on this site, DMCA notices and privacy requests. It cannot be used for support, bug reports, feature requests or general questions.</p>
+{{if .ContactSubmitted}}
+<section class="section-card" role="status">
+  <h2>Report received</h2>
+  <p>Thank you. Your report has been received.</p>
+</section>
+{{else if .SecurityReportSubmitted}}
+<section class="section-card" role="status">
   <h2>{{t .Lang "contact.report_received"}}</h2>
   <p>{{t .Lang "contact.report_received_body"}}</p>
   <p>{{t .Lang "contact.tracking_id"}}: <code>{{.SecurityReportTrackingID}}</code></p>
 </section>
+{{else if .ContactReview}}
+<div class="contact-review-backdrop">
+  <section class="contact-review-panel" aria-labelledby="contact-review-heading">
+    <h2 id="contact-review-heading">Review your report</h2>
+    {{if .ContactReviewMessage}}<p class="form-error" role="alert">{{.ContactReviewMessage}}</p>{{end}}
+    <p class="contact-review-email">{{.ContactForm.Email}}</p>
+    <p><strong>Type:</strong> {{.ContactForm.Type}}</p>
+    <p><strong>Subject:</strong> {{.ContactForm.Subject}}</p>
+    <form method="POST" action="/server/contact">
+      <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+      <input type="hidden" name="form_token" value="{{.ContactFormToken}}">
+      <input type="hidden" name="website" value="">
+      <input type="hidden" name="step" value="confirm">
+      <input type="hidden" name="review_token" value="{{.ContactReviewToken}}">
+      {{template "contact-hidden-fields" .}}
+      {{template "contact-captcha" .}}
+      <label class="contact-confirm"><input type="checkbox" name="confirmed" value="true" required> This email address is correct, and this is a genuine report, not an advertisement, a solicitation or spam</label>
+      <button type="submit" class="btn btn-primary">Confirm report</button>
+    </form>
+    <form method="POST" action="/server/contact" class="contact-edit-form">
+      <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+      <input type="hidden" name="form_token" value="{{.ContactFormToken}}">
+      <input type="hidden" name="website" value="">
+      <input type="hidden" name="step" value="edit">
+      {{template "contact-hidden-fields" .}}
+      <button type="submit" class="btn btn-secondary">Edit report</button>
+    </form>
+  </section>
+</div>
 {{else if .CSRFToken}}
 <section class="section-card">
-  <p>{{t .Lang "contact.support_intro"}}</p>
-  {{if .ContactError}}
-  <p class="form-error" role="alert">{{.ContactError}}</p>
-  {{end}}
-  <h2>{{t .Lang "contact.form_heading"}}</h2>
+  {{if .ContactError}}<p class="form-error" role="alert">{{.ContactError}}</p>{{end}}
   <form method="POST" action="/server/contact">
     <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
     <input type="hidden" name="form_token" value="{{.ContactFormToken}}">
+    <input type="hidden" name="step" value="submit">
     <div class="sr-only contact-honeypot" aria-hidden="true">
       <label for="website">Leave this field empty</label>
       <input type="text" id="website" name="website" tabindex="-1" autocomplete="off" aria-hidden="true">
     </div>
-    {{if eq .CaptchaProvider "simple"}}<input type="hidden" name="captcha_token" value="{{.CaptchaToken}}">{{end}}
     {{if .SecurityReportMode}}
     <input type="hidden" name="security_id" value="{{.SecurityID}}">
+    <input type="hidden" name="type" value="security">
     <p>{{t .Lang "contact.security_report_intro"}}</p>
+    {{else}}
+    <div class="form-group">
+      <label for="type">Type</label>
+      <select id="type" name="type" class="form-control" required>
+        <option value="abuse" {{if eq .ContactForm.Type "abuse"}}selected{{end}}>Abuse or terms violation</option>
+        <option value="dmca" {{if eq .ContactForm.Type "dmca"}}selected{{end}}>DMCA notice</option>
+        <option value="privacy" {{if eq .ContactForm.Type "privacy"}}selected{{end}}>Privacy request</option>
+      </select>
+    </div>
     {{end}}
-    <div class="form-group">
-      <label for="name">{{t .Lang "contact.name"}}</label>
-      <input type="text" id="name" name="name" class="form-control" required
-             aria-describedby="name-error">
-      <span id="name-error" class="field-error" role="alert">{{t .Lang "errors.required"}}</span>
-    </div>
-    <div class="form-group">
-      <label for="email">{{t .Lang "contact.email"}}</label>
-      <input type="email" id="email" name="email" class="form-control" required
-             aria-describedby="email-error">
-      <span id="email-error" class="field-error" role="alert">{{t .Lang "errors.invalid_email"}}</span>
-    </div>
+    <div class="form-group"><label for="name">Name</label><input type="text" id="name" name="name" class="form-control" maxlength="100" value="{{.ContactForm.Name}}" required></div>
+    <div class="form-group"><label for="email">Email</label><input type="email" id="email" name="email" class="form-control" maxlength="254" value="{{.ContactForm.Email}}" required></div>
+    <div class="form-group"><label for="subject">Subject</label><input type="text" id="subject" name="subject" class="form-control" maxlength="200" value="{{.ContactForm.Subject}}" required></div>
+    <div class="form-group"><label for="message">Message</label><textarea id="message" name="message" class="form-control" maxlength="5000" rows="5" required>{{.ContactForm.Message}}</textarea></div>
     {{if not .SecurityReportMode}}
-    <div class="form-group">
-      <label for="subject">{{t .Lang "contact.subject"}}</label>
-      <input type="text" id="subject" name="subject" class="form-control" required
-             aria-describedby="subject-error">
-      <span id="subject-error" class="field-error" role="alert">{{t .Lang "errors.required"}}</span>
-    </div>
-    <div class="form-group">
-      <label for="message">{{t .Lang "contact.message"}}</label>
-      <textarea id="message" name="message" class="form-control" rows="5" required
-                aria-describedby="message-error"></textarea>
-      <span id="message-error" class="field-error" role="alert">{{t .Lang "errors.required"}}</span>
-    </div>
-    {{end}}
-    {{if eq .CaptchaProvider "simple"}}
-    <div class="form-group">
-      <label for="captcha">{{t .Lang "contact.captcha"}}</label>
-      <input type="text" id="captcha" name="captcha" class="form-control" required
-             aria-describedby="captcha-help">
-      <span id="captcha-help">{{.CaptchaQuestion}}</span>
-    </div>
-    {{else if eq .CaptchaProvider "recaptcha"}}
-    <div class="form-group"><div class="g-recaptcha" data-sitekey="{{.CaptchaSiteKey}}"></div></div>
-    <script async defer src="https://www.google.com/recaptcha/api.js"></script>
-    {{else if eq .CaptchaProvider "hcaptcha"}}
-    <div class="form-group"><div class="h-captcha" data-sitekey="{{.CaptchaSiteKey}}"></div></div>
-    <script async defer src="https://js.hcaptcha.com/1/api.js"></script>
+    <div class="form-group"><label for="reported_url">Reported URL (required for Abuse and DMCA)</label><input type="url" id="reported_url" name="reported_url" class="form-control" maxlength="2048" value="{{.ContactForm.ReportedURL}}"></div>
+    <div class="form-group"><label for="reason">Abuse reason</label><select id="reason" name="reason" class="form-control"><option value="">Choose if reporting Abuse</option><option value="illegal_content">Illegal content</option><option value="terms_violation">Terms violation</option><option value="harassment">Harassment</option><option value="malware_phishing">Malware or phishing</option><option value="other">Other</option></select></div>
+    <div class="form-group"><label for="copyrighted_work">Copyrighted work (DMCA)</label><textarea id="copyrighted_work" name="copyrighted_work" class="form-control" maxlength="2000">{{.ContactForm.CopyrightedWork}}</textarea></div>
+    <div class="form-group"><label><input type="checkbox" name="good_faith" value="true" {{if .ContactForm.GoodFaith}}checked{{end}}> I have a good-faith belief that this use is not authorized by the copyright owner, its agent or the law</label></div>
+    <div class="form-group"><label><input type="checkbox" name="accuracy" value="true" {{if .ContactForm.Accuracy}}checked{{end}}> The information is accurate and, under penalty of perjury, I am the owner or authorized to act for the owner</label></div>
+    <div class="form-group"><label for="signature">Typed full legal name (DMCA signature)</label><input type="text" id="signature" name="signature" class="form-control" maxlength="100" value="{{.ContactForm.Signature}}"></div>
+    <div class="form-group"><label for="request_kind">Privacy request</label><select id="request_kind" name="request_kind" class="form-control"><option value="">Choose a request</option><option value="access">Access</option><option value="export">Export</option><option value="deletion">Deletion</option><option value="correction">Correction</option><option value="opt_out">Opt out</option><option value="other">Other</option></select></div>
     {{end}}
     {{if .SecurityReportMode}}
-    <fieldset class="form-group">
-      <legend>{{t .Lang "contact.report_details"}}</legend>
-      <div class="form-group">
-        <label for="researcher-gpg">{{t .Lang "contact.researcher_key"}}</label>
-        <textarea id="researcher-gpg" name="researcher_gpg" class="form-control" rows="4"></textarea>
-      </div>
-      <div class="form-group">
-        <label for="affected-component">{{t .Lang "contact.affected_component"}}</label>
-        <input type="text" id="affected-component" name="affected_component" class="form-control" required>
-      </div>
-      <div class="form-group">
-        <label for="affected-endpoint">{{t .Lang "contact.affected_endpoint"}}</label>
-        <input type="url" id="affected-endpoint" name="affected_endpoint" class="form-control">
-      </div>
-      <div class="form-group">
-        <label for="severity">{{t .Lang "contact.severity"}}</label>
-        <select id="severity" name="severity" class="form-control" required>
-          <option value="critical">{{t .Lang "contact.severity_critical"}}</option>
-          <option value="high">{{t .Lang "contact.severity_high"}}</option>
-          <option value="medium">{{t .Lang "contact.severity_medium"}}</option>
-          <option value="low">{{t .Lang "contact.severity_low"}}</option>
-          <option value="informational">{{t .Lang "contact.severity_informational"}}</option>
-        </select>
-      </div>
-      <div class="form-group">
-        <label for="summary">{{t .Lang "contact.vulnerability_summary"}}</label>
-        <input type="text" id="summary" name="summary" class="form-control" required>
-      </div>
-      <div class="form-group">
-        <label for="steps-to-reproduce">{{t .Lang "contact.reproduction_steps"}}</label>
-        <textarea id="steps-to-reproduce" name="steps_to_reproduce" class="form-control" rows="6" required></textarea>
-      </div>
-      <div class="form-group">
-        <label for="impact">{{t .Lang "contact.impact"}}</label>
-        <textarea id="impact" name="impact" class="form-control" rows="4" required></textarea>
-      </div>
-      <div class="form-group">
-        <label for="suggested-fix">{{t .Lang "contact.suggested_fix"}}</label>
-        <textarea id="suggested-fix" name="suggested_fix" class="form-control" rows="4"></textarea>
-      </div>
-      <div class="form-group">
-        <label><input type="checkbox" name="cve_requested" value="true"> {{t .Lang "contact.request_cve"}}</label>
-      </div>
-      <div class="form-group">
-        <label for="disclosure-days">{{t .Lang "contact.disclosure_period"}}</label>
-        <input type="number" id="disclosure-days" name="disclosure_days" class="form-control" min="1" max="365">
-      </div>
-      <div class="form-group">
-        <label for="credit-preference">{{t .Lang "contact.credit_preference"}}</label>
-        <select id="credit-preference" name="credit_preference" class="form-control" required>
-          <option value="real_name">{{t .Lang "contact.credit_real_name"}}</option>
-          <option value="handle">{{t .Lang "contact.credit_handle"}}</option>
-          <option value="no">{{t .Lang "contact.credit_no"}}</option>
-          <option value="anonymous">{{t .Lang "contact.credit_anonymous"}}</option>
-        </select>
-      </div>
-      <div class="form-group">
-        <label for="researcher-handle">{{t .Lang "contact.researcher_handle"}}</label>
-        <input type="text" id="researcher-handle" name="handle" class="form-control" maxlength="100" autocomplete="nickname">
-      </div>
-      <div class="form-group">
-        <label><input type="checkbox" name="coordinated_disclosure_agreement" value="true" required> {{t .Lang "contact.coordinated_disclosure_agreement"}}</label>
-      </div>
+    <fieldset class="form-group"><legend>Security report details</legend>
+      <div class="form-group"><label for="handle">Researcher handle</label><input type="text" id="handle" name="handle" class="form-control" maxlength="100" value="{{.ContactForm.Handle}}"></div>
+      <div class="form-group"><label for="researcher-gpg">Researcher public key or HTTPS URL</label><textarea id="researcher-gpg" name="researcher_gpg" class="form-control" maxlength="16384">{{.ContactForm.ResearcherGPG}}</textarea></div>
+      <div class="form-group"><label for="affected-component">Affected component</label><input type="text" id="affected-component" name="affected_component" class="form-control" maxlength="255" value="{{.ContactForm.AffectedComponent}}" required></div>
+      <div class="form-group"><label for="affected-endpoint">Affected endpoint</label><input type="text" id="affected-endpoint" name="affected_endpoint" class="form-control" maxlength="2048" value="{{.ContactForm.AffectedEndpoint}}"></div>
+      <div class="form-group"><label for="severity">Severity</label><select id="severity" name="severity" class="form-control" required><option value="critical">Critical</option><option value="high">High</option><option value="medium">Medium</option><option value="low">Low</option><option value="informational">Informational</option></select></div>
+      <div class="form-group"><label for="summary">Summary</label><input type="text" id="summary" name="summary" class="form-control" maxlength="200" value="{{.ContactForm.Summary}}" required></div>
+      <div class="form-group"><label for="steps-to-reproduce">Steps to reproduce</label><textarea id="steps-to-reproduce" name="steps_to_reproduce" class="form-control" maxlength="10000" required>{{.ContactForm.StepsToReproduce}}</textarea></div>
+      <div class="form-group"><label for="impact">Impact</label><textarea id="impact" name="impact" class="form-control" maxlength="5000" required>{{.ContactForm.Impact}}</textarea></div>
+      <div class="form-group"><label for="suggested-fix">Suggested fix</label><textarea id="suggested-fix" name="suggested_fix" class="form-control" maxlength="5000">{{.ContactForm.SuggestedFix}}</textarea></div>
+      <label><input type="checkbox" name="cve_requested" value="true" {{if .ContactForm.CVERequested}}checked{{end}}> Request a CVE</label>
+      <div class="form-group"><label for="disclosure-days">Preferred disclosure days</label><input type="number" id="disclosure-days" name="disclosure_days" min="1" max="365" value="{{.ContactForm.DisclosureDays}}"></div>
+      <div class="form-group"><label for="credit-preference">Credit preference</label><select id="credit-preference" name="credit_preference" required><option value="real_name">Real name</option><option value="handle">Handle</option><option value="no">No credit</option><option value="anonymous">Anonymous</option></select></div>
+      <label><input type="checkbox" name="coordinated_disclosure_agreement" value="true" {{if .ContactForm.CoordinatedAgreement}}checked{{end}} required> I agree to coordinated disclosure</label>
     </fieldset>
     {{end}}
-    <button type="submit" id="contact-send-btn" class="btn btn-primary" data-loading-text="{{t .Lang "contact.sending"}}">{{t .Lang "contact.send"}}</button>
+    {{template "contact-captcha" .}}
+    <button type="submit" class="btn btn-primary">Review report</button>
   </form>
 </section>
-{{else}}
-<p>{{t .Lang "contact.support_intro"}}</p>
 {{end}}
 <section class="section-card">
-  <h2>{{t .Lang "contact.security_issues"}}</h2>
-  <p>{{t .Lang "contact.security_issues_body"}} <a href="/server/security">{{t .Lang "contact.security_policy_link"}}</a>.</p>
+  <h2>Security Issues</h2>
+  <p>To report a security vulnerability, consult our security policy at <a href="/server/security">/server/security</a>.</p>
 </section>
 <section class="section-card">
-  <h2>{{t .Lang "contact.abuse_reports"}}</h2>
+  <h2>Abuse Reports</h2>
   {{if .AbuseEmail}}
-  <p>{{tf .Lang "contact.abuse_reports_body_email" "email" .AbuseEmail}}</p>
+  <p>To report abusive content or a terms violation, choose the type Abuse above. To send a DMCA notice, choose the type DMCA, or email {{.AbuseEmail}}.</p>
   {{else}}
-  <p>{{t .Lang "contact.abuse_reports_body"}}</p>
+  <p>To report abusive content or a terms violation, choose the type Abuse above. To send a DMCA notice, choose the type DMCA.</p>
   {{end}}
 </section>
 {{end}}

@@ -1,6 +1,9 @@
 {{template "base" .}}
 {{define "title"}}{{t .Lang "terms.title"}} — {{.ProjectName}}{{end}}
 {{define "content"}}
+{{if index .OperatorContents "terms"}}
+{{index .OperatorContents "terms"}}
+{{else}}
 <h1>{{t .Lang "terms.title"}}</h1>
 <p>{{t .Lang "privacy.last_updated"}} {{.BuildDate}}</p>
 <section class="section-card">
@@ -27,4 +30,5 @@
   <h2>{{t .Lang "terms.governing_law"}}</h2>
   <p>{{t .Lang "terms.governing_law_body"}}</p>
 </section>
+{{end}}
 {{end}}

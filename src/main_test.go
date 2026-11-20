@@ -33,6 +33,32 @@ func TestRuntimeLogWriterKeepsNormalActivityOffConsole(t *testing.T) {
 	}
 }
 
+func TestConfiguredBlocklistSourcesHonorEnabledSettings(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Server.Security.Blocklists.ExtraSources = []config.BlocklistSourceConfig{
+		{ID: "enabled_list", Type: "ip", URL: "https://example.com/enabled.txt"},
+		{ID: "disabled_list", Type: "domain", URL: "https://example.com/disabled.txt", Enabled: boolPointer(false)},
+	}
+	sources := configuredBlocklistSources(cfg)
+	if len(sources) != 2 || sources[0].Name != "firehol_level1" || sources[1].Name != "enabled_list" {
+		t.Fatalf("configured sources = %+v, want built-in and enabled source", sources)
+	}
+	if got := configuredBlocklistTypes(cfg); len(got) != 2 || got["enabled_list"] != "ip" {
+		t.Fatalf("configured source types = %+v, want built-in and enabled source", got)
+	}
+	cfg.Server.Security.Blocklists.Enabled = false
+	if got := configuredBlocklistSources(cfg); len(got) != 0 {
+		t.Fatalf("disabled configured sources = %+v, want none", got)
+	}
+	if got := configuredBlocklistTypes(cfg); len(got) != 0 {
+		t.Fatalf("disabled configured source types = %+v, want none", got)
+	}
+}
+
+func boolPointer(value bool) *bool {
+	return &value
+}
+
 func TestResolvePIDFilePathPrecedence(t *testing.T) {
 	t.Setenv("PID_FILE", "/env/ipgaze.pid")
 	if got := resolvePIDFilePath("/flag/ipgaze.pid", "/default/ipgaze.pid"); got != "/flag/ipgaze.pid" {

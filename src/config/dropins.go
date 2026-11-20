@@ -159,6 +159,58 @@ func configDropInPaths(dir string) ([]string, error) {
 	return paths, nil
 }
 
+func secureConfigPermissions(path string) error {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return fmt.Errorf("%s: create config directory: %w", dir, err)
+	}
+	if err := os.Chmod(dir, 0o700); err != nil {
+		return fmt.Errorf("%s: secure config directory: %w", dir, err)
+	}
+	if info, err := os.Lstat(path); err == nil {
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("%s: configuration file must be regular", path)
+		}
+		if err := os.Chmod(path, 0o600); err != nil {
+			return fmt.Errorf("%s: secure configuration file: %w", path, err)
+		}
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("%s: inspect configuration file: %w", path, err)
+	}
+	dropinDir := filepath.Join(dir, "yaml.d")
+	if info, err := os.Lstat(dropinDir); err == nil {
+		if !info.IsDir() {
+			return fmt.Errorf("%s: drop-in path must be a directory", dropinDir)
+		}
+		if err := os.Chmod(dropinDir, 0o700); err != nil {
+			return fmt.Errorf("%s: secure drop-in directory: %w", dropinDir, err)
+		}
+		paths, err := configDropInPaths(dropinDir)
+		if err != nil {
+			return err
+		}
+		for _, dropin := range paths {
+			if err := os.Chmod(dropin, 0o600); err != nil {
+				return fmt.Errorf("%s: secure drop-in: %w", dropin, err)
+			}
+		}
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("%s: inspect drop-in directory: %w", dropinDir, err)
+	}
+	secretPath := filepath.Join(dir, "secrets.yml")
+	if info, err := os.Lstat(secretPath); err == nil {
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("%s: secrets file must be a regular file", secretPath)
+		}
+		if err := os.Chmod(secretPath, 0o600); err != nil {
+			return fmt.Errorf("%s: secure secrets file: %w", secretPath, err)
+		}
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("%s: inspect secrets file: %w", secretPath, err)
+	}
+	return nil
+}
+
 func cloneYAMLNode(node *yaml.Node) *yaml.Node {
 	clone := *node
 	clone.Content = make([]*yaml.Node, len(node.Content))
@@ -279,6 +331,28 @@ func mergeYAMLForConfigFile(path string, data []byte) ([]byte, map[string]string
 		mergeConfigNodes(primaryDoc.Content[0], source.node.Content[0], "", source.path, winners, &overrides)
 		sources = append(sources, source)
 	}
+	secretPath := filepath.Join(filepath.Dir(path), "secrets.yml")
+	if info, statErr := os.Lstat(secretPath); statErr == nil {
+		if !info.Mode().IsRegular() {
+			return nil, nil, nil, fmt.Errorf("%s: secrets file must be a regular file", secretPath)
+		}
+		if info.Mode().Perm() != 0o600 {
+			if chmodErr := os.Chmod(secretPath, 0o600); chmodErr != nil {
+				return nil, nil, nil, fmt.Errorf("%s: secure secrets file: %w", secretPath, chmodErr)
+			}
+		}
+		secret, readErr := readConfigSource(secretPath)
+		if readErr != nil {
+			return nil, nil, nil, readErr
+		}
+		if err := validateSecretKeys(secret.node.Content[0], "", secretPath); err != nil {
+			return nil, nil, nil, err
+		}
+		mergeConfigNodes(primaryDoc.Content[0], secret.node.Content[0], "", secretPath, winners, &overrides)
+		sources = append(sources, secret)
+	} else if !os.IsNotExist(statErr) {
+		return nil, nil, nil, fmt.Errorf("%s: stat secrets: %w", secretPath, statErr)
+	}
 	for _, source := range sources[1:] {
 		log.Printf("config: loaded drop-in %s", source.path)
 	}
@@ -298,6 +372,39 @@ func mergeYAMLForConfigFile(path string, data []byte) ([]byte, map[string]string
 		collectConfigLineKeys(mergedDoc.Content[0], "", lineKeys)
 	}
 	return data, winners, lineKeys, nil
+}
+
+func validateSecretKeys(node *yaml.Node, prefix, path string) error {
+	if node.Kind != yaml.MappingNode {
+		return fmt.Errorf("%s:%d: secrets root must contain only secret keys", path, node.Line)
+	}
+	for i := 0; i+1 < len(node.Content); i += 2 {
+		key, value := node.Content[i].Value, node.Content[i+1]
+		full := key
+		if prefix != "" {
+			full = prefix + "." + key
+		}
+		if value.Kind == yaml.MappingNode {
+			if err := validateSecretKeys(value, full, path); err != nil {
+				return err
+			}
+			continue
+		}
+		allowed := map[string]bool{
+			"server.token": true, "server.security.encryption_key": true,
+			"server.security.encryption_key_version": true, "server.notifications.email.smtp.password": true,
+			"server.cache.password": true, "server.database.password": true, "server.database.token": true,
+			"server.pages.contact.captcha_secret_key": true, "server.ssl.letsencrypt.dns_credentials": true,
+			"data.cve.api_key": true, "server.backup.encryption_password": true,
+		}
+		secret := allowed[full] || strings.HasPrefix(full, "server.ssl.letsencrypt.dns_credentials.") || strings.HasPrefix(full, "server.metrics.auth.tokens.") ||
+			strings.Contains(full, ".webhooks.") && (strings.HasSuffix(full, "_secret") || strings.HasSuffix(full, "telegram") || strings.HasSuffix(full, "discord") || strings.HasSuffix(full, "slack") || strings.HasSuffix(full, "mattermost") || strings.HasSuffix(full, "pushover") || strings.HasSuffix(full, "gotify") || strings.HasSuffix(full, "generic")) ||
+			strings.Contains(full, ".providers.") && (strings.HasSuffix(full, ".bind_password") || strings.HasSuffix(full, ".client_secret"))
+		if !secret {
+			return fmt.Errorf("%s:%d: key %s is not allowed in secrets.yml", path, value.Line, full)
+		}
+	}
+	return nil
 }
 
 func parseMergedConfig(path string, data []byte) (*AppConfig, error) {

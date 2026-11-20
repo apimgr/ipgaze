@@ -187,6 +187,21 @@ func (h *HealthHandler) RegisterHealthCheck(key string, critical bool, check fun
 	h.healthChecks = append(h.healthChecks, registeredHealthCheck{key: key, critical: critical, check: check, status: status})
 }
 
+// UnregisterHealthCheck removes a previously registered dataset check.
+func (h *HealthHandler) UnregisterHealthCheck(key string) {
+	if h == nil || !validHealthCheckKey(key) {
+		return
+	}
+	h.healthChecksMu.Lock()
+	defer h.healthChecksMu.Unlock()
+	for i := range h.healthChecks {
+		if h.healthChecks[i].key == key {
+			h.healthChecks = append(h.healthChecks[:i], h.healthChecks[i+1:]...)
+			return
+		}
+	}
+}
+
 func validHealthCheckKey(key string) bool {
 	if key == "" || strings.Contains(key, "__") || strings.HasPrefix(key, "_") || strings.HasSuffix(key, "_") {
 		return false
