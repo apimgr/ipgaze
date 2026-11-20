@@ -73,12 +73,12 @@ There is exactly one role. ipgaze is a public, anonymous service with no user ac
 - User-agent product/version when parsed
 
 **On-disk data:**
-- Config: `{config_dir}/server.yml` (operator-only, not public)
+- Config: `{config_dir}/server.yml`, ordered `{config_dir}/yaml.d/` drop-ins, and `{config_dir}/secrets.yml`; operator-authored page content lives in `{config_dir}/html/`
 - GeoIP databases: `{data_dir}/security/geoip/` (downloaded at runtime, public data source)
 - Blocklists: `{data_dir}/security/blocklists/` (IP/domain, downloaded daily)
 - Threat lists: `{data_dir}/security/threat/` (VPN/proxy/Tor exit-node CIDRs, downloaded daily)
 - CVE database: `{data_dir}/security/cve/` (downloaded daily)
-- Server-wide operator token: `{config_dir}/server.yml` (`server.token`)
+- Server-wide operator token: `{config_dir}/secrets.yml` (`server.token`)
 - Issued API tokens: `{data_dir}/db/server.db` (expired tokens are cleaned by the `token_cleanup` scheduler task)
 - Backups: `{data_dir}/backups/` (`.tar.gz` archives)
 - TLS certs: `{data_dir}/certs/`
@@ -86,7 +86,7 @@ There is exactly one role. ipgaze is a public, anonymous service with no user ac
 - Logs: `{log_dir}/` (access logs in Apache CLF format, no PII beyond IP)
 
 No user accounts, passwords, or user sessions. Security reports may retain reporter contact details and vulnerability content in encrypted form for coordinated disclosure; plaintext report content is never stored in the database.
-The server-wide operator token is stored in `server.yml`; issued API tokens are stored server-side in the database and cleaned up by the `token_cleanup` scheduler task. The CLI client stores its configured token in `{config_dir}/cli.yml`. Public IP/GeoIP endpoints require no authentication.
+The server-wide operator token is stored in `secrets.yml`; issued API tokens are stored server-side in the database and cleaned up by the `token_cleanup` scheduler task. The CLI client stores its configured token in `{config_dir}/cli.yml`. Public IP/GeoIP endpoints require no authentication. Operators can extend or override the public About, privacy, terms, header, and footer content with files under `{config_dir}/html/`.
 
 ### Trust boundaries & external services
 

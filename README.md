@@ -283,7 +283,7 @@ The CLI is an unauthenticated client to ipgaze's open lookup API by default. A t
 
 ## Configuration
 
-ipgaze uses `server.yml` for all operator configuration — auto-created with sane defaults on first run. It is the sole source of truth for server settings; the database stores operational state, issued API token records, and the audit log.
+ipgaze creates `server.yml` with sane defaults on first run. Ordered YAML files in `yaml.d/` can override settings, and `secrets.yml` is merged last for credentials. Operator-authored page content lives in `html/`. The database stores operational state, issued API token records, and the audit log.
 
 ### Location
 
@@ -292,6 +292,10 @@ ipgaze uses `server.yml` for all operator configuration — auto-created with sa
 | Root | `/etc/apimgr/ipgaze/server.yml` |
 | Regular user | `~/.config/apimgr/ipgaze/server.yml` (`$XDG_CONFIG_HOME` honored) |
 | Docker container | `/config/ipgaze/server.yml` |
+
+The secrets file and page-content directory share the same config directory:
+`secrets.yml` stores generated operator credentials, and `html/` contains
+optional About, privacy, terms, header, and footer content files.
 
 Override the config directory with `--config` or the `CONFIG_DIR` env var (first run only).
 
@@ -348,7 +352,7 @@ server:
 For any value settable by flag, env var, and config file (highest wins):
 
 1. CLI flag (e.g. `--port`, `--address`)
-2. `server.yml` (once a value has been persisted there)
+2. Merged configuration (`server.yml`, ordered `yaml.d/` files, then `secrets.yml`)
 3. Environment variable — for `PORT`/`LISTEN` this only applies on first
    run (Init-Only); Runtime variables are re-checked every start
 4. Built-in default

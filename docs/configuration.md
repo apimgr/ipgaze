@@ -4,10 +4,10 @@ Complete configuration reference for **ipgaze**.
 
 ## Configuration File
 
-ipgaze uses `server.yml` for configuration. The file is auto-created with
-sane defaults on first run. Optional drop-in files in `yaml.d/` can override
-or extend it; the database stores operational state, issued API token records, and the audit log,
-never operator settings.
+ipgaze creates `server.yml` with sane defaults on first run. Ordered files in
+`yaml.d/` override it, and `secrets.yml` is merged last for credentials. The
+database stores operational state, issued API token records, and the audit log,
+never operator settings. Optional public-page content files live in `html/`.
 
 ### Default Location
 
@@ -31,10 +31,21 @@ and drop-ins writable by group or other users are rejected.
 
 Hidden files, backups (`*.bak`, `*~`, `*.orig`), other file extensions, and
 subdirectories are ignored. Symlinks are read only when their target remains
-inside `yaml.d/`. Changes to either `server.yml` or this directory are merged
-and reloaded; an invalid result leaves the last valid configuration active.
-Generated values are written only to `server.yml`. Backups include `yaml.d/`
-when it exists.
+inside `yaml.d/`. Changes to `server.yml`, this directory, or `secrets.yml` are
+merged and reloaded; an invalid result leaves the last valid configuration
+active. Generated settings are written to `server.yml`; generated credentials
+are written only to `secrets.yml`. Backups include `yaml.d/` and `secrets.yml`
+when they exist.
+
+### Operator Page Content
+
+Optional files in `{config_dir}/html/` customize the public site without
+putting page content in YAML. `about.{html,md,txt}` and
+`privacy.{html,md,txt}` extend built-in content; `terms.{html,md,txt}`
+replaces the built-in terms; `header.html` extends the page header; and
+`footer.html` replaces the custom branding block. Files are sanitized, limited
+to 256 KiB, and hot-reloaded. The directory uses mode `0700` and its files use
+mode `0600`.
 
 Startup logs list loaded drop-ins at info level. Debug logs identify the source
 files when a later setting overrides an earlier one; configuration values are
