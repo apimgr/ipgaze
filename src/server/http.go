@@ -994,7 +994,7 @@ func (s *Server) buildHandler() http.Handler {
 	// CSRF protection per AI.md PART 16: double-submit cookie pattern, exempt API webhooks.
 	csrfCfg := DefaultCSRFConfig()
 	if s.config != nil {
-		csrfCfg = csrfConfigFrom(s.config.Web.CSRF)
+		csrfCfg = csrfConfigFrom(s.config.Server.CSRF)
 	}
 	r.Use(CSRFMiddleware(csrfCfg, s.SSLEnabled, s.logManager))
 	if s.config != nil {

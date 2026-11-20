@@ -71,7 +71,7 @@ server:
     root:
       enabled: false
 
-  logging:
+  logs:
     level: warn
 
   geoip:
@@ -244,7 +244,7 @@ server:
 
 GeoIP databases auto-download on first run from
 [sapics/ip-location-db](https://github.com/sapics/ip-location-db) and are
-refreshed on the schedule set by `server.schedule.geoip_update`
+refreshed on the schedule set by `server.scheduler.tasks.geoip_update.schedule`
 (default: `weekly`).
 
 ## Tor
@@ -573,13 +573,13 @@ are managed by editing `server.yml`. See
 
 ## Logging
 
-Logging is configured under `server.logging`, with a global level plus
+Logging is configured under `server.logs`, with a global level plus
 per-file settings for `access`, `server`, `error`, `app`, `auth`,
 `audit`, `security`, and `debug` logs:
 
 ```yaml
 server:
-  logging:
+  logs:
     # level: debug, info, warn, error
     level: warn
     defaults:
@@ -685,7 +685,7 @@ server:
       requests: 10
       window: 60
 
-  logging:
+  logs:
     level: warn
     defaults:
       custom: ""

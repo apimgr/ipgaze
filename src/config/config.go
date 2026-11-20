@@ -123,13 +123,12 @@ type CVEDataConfig struct {
 }
 
 // WebConfig holds all web-layer settings per AI.md PART 16.
-// YAML key: web (nested: web.ui, web.robots, web.cors, web.csrf, web.security).
+// YAML key: web (nested: web.ui, web.robots, web.cors, web.security).
 type WebConfig struct {
 	UI               WebUIConfig       `yaml:"ui"`
 	Robots           WebRobotsConfig   `yaml:"robots"`
 	CORS             string            `yaml:"cors"`
 	AllowCredentials bool              `yaml:"allow_credentials"`
-	CSRF             CSRFConfig        `yaml:"csrf"`
 	Security         WebSecurityConfig `yaml:"security"`
 	// HSTS controls the Strict-Transport-Security header (AI.md PART 11
 	// "Security Header Config").
@@ -361,11 +360,13 @@ type WebSecurityConfig struct {
 // ServerConfig contains server-related settings
 type ServerConfig struct {
 	// Token is the operator token (server.token).
-	// Auto-generated on first run, stored in server.yml.
+	// Auto-generated on first run, stored in secrets.yml.
 	// Never stored in the DB — validated via SHA-256 hash comparison in memory.
 	Token        string           `yaml:"token"`
 	Port         string           `yaml:"port"`
 	CORS         ServerCORSConfig `yaml:"cors"`
+	CSRF         CSRFConfig       `yaml:"csrf"`
+	AdminPath    string           `yaml:"admin_path"`
 	FQDN         string           `yaml:"fqdn"`
 	BaseURL      string           `yaml:"baseurl"`
 	Address      string           `yaml:"address"`
@@ -380,9 +381,9 @@ type ServerConfig struct {
 	// Ignored when started via --service start (service manager controls daemonization).
 	Daemonize      bool                      `yaml:"daemonize"`
 	Database       DatabaseConfig            `yaml:"database"`
-	Schedule       ScheduleConfig            `yaml:"schedule"`
+	Schedule       ScheduleConfig            `yaml:"scheduler"`
 	Metrics        MetricsConfig             `yaml:"metrics"`
-	Logging        LoggingConfig             `yaml:"logging"`
+	Logging        LoggingConfig             `yaml:"logs"`
 	GeoIP          GeoIPConfig               `yaml:"geoip"`
 	Security       SecurityConfig            `yaml:"security"`
 	Tor            TorConfig                 `yaml:"tor"`
@@ -1097,11 +1098,38 @@ type MaintenanceNotifyConfig struct {
 
 // BrandingConfig holds site identity and theme customisation values.
 type BrandingConfig struct {
-	Title       string `yaml:"title"`
-	Tagline     string `yaml:"tagline"`
-	Description string `yaml:"description"`
-	LogoURL     string `yaml:"logo"`
-	FaviconURL  string `yaml:"favicon"`
+	Title       string                           `yaml:"title"`
+	Tagline     string                           `yaml:"tagline"`
+	Description string                           `yaml:"description"`
+	LogoURL     string                           `yaml:"logo"`
+	FaviconURL  string                           `yaml:"favicon"`
+	Content     map[string]BrandingContentConfig `yaml:"content"`
+}
+
+type BrandingContentConfig struct {
+	Format string    `yaml:"format"`
+	Body   yaml.Node `yaml:"body"`
+}
+
+func (content BrandingContentConfig) BodyForLanguage(language string) (string, bool) {
+	if content.Body.Kind == yaml.ScalarNode && content.Body.Tag == "!!str" {
+		return content.Body.Value, true
+	}
+	if content.Body.Kind != yaml.MappingNode {
+		return "", false
+	}
+	for _, key := range []string{language, "default"} {
+		for index := 0; index+1 < len(content.Body.Content); index += 2 {
+			if content.Body.Content[index].Value == key {
+				value := content.Body.Content[index+1]
+				if value.Kind == yaml.ScalarNode && value.Tag == "!!str" {
+					return value.Value, true
+				}
+				return "", false
+			}
+		}
+	}
+	return "", false
 }
 
 // SEOConfig holds search-engine metadata used to build the meta tags,
@@ -1462,9 +1490,8 @@ type MetricsRootConfig struct {
 	Enabled bool `yaml:"enabled"`
 }
 
-// MetricsTokensConfig holds the per-service bearer tokens per AI.md PART 20.
-// An empty value disables that service's endpoints, which then answer 403
-// with an empty body.
+// MetricsTokensConfig holds per-service bearer tokens per AI.md PART 20.
+// Empty tokens are generated on startup and persisted in secrets.yml.
 type MetricsTokensConfig struct {
 	Prometheus string `yaml:"prometheus"`
 	Grafana    string `yaml:"grafana"`
@@ -1641,7 +1668,7 @@ type SecurityConfig struct {
 	Blocklists     BlocklistsConfig     `yaml:"blocklists"`
 	// EncryptionKey is the base64-encoded 32-byte AES-256-GCM key used to encrypt
 	// sensitive at-rest data (e.g. DNS-01 provider credentials), per AI.md PART 11.
-	// Auto-generated via crypto/rand on first run and persisted to server.yml.
+	// Auto-generated via crypto/rand on first run and persisted to secrets.yml.
 	EncryptionKey        string `yaml:"encryption_key"`
 	EncryptionKeyVersion string `yaml:"encryption_key_version"`
 	// PreviousEncryptionKey is the pre-rotation encryption key, kept for the
@@ -2108,6 +2135,10 @@ func DefaultConfig() *AppConfig {
 	return &AppConfig{
 		Server: ServerConfig{
 			Port: "",
+			CSRF: CSRFConfig{
+				Enabled: true, TokenLength: 32, CookieName: "csrf_token", HeaderName: "X-CSRF-Token",
+				Secure: "auto", ExemptPaths: []string{"/api/v1/webhooks/*"},
+			},
 			Restore: RestoreConfig{
 				MaxArchiveSize: "1G", MaxExpandedSize: "4G", MaxFiles: 10000,
 				MaxFileSize: "512M", MaxRatio: 100,
@@ -2415,14 +2446,6 @@ func DefaultConfig() *AppConfig {
 				},
 			},
 			CORS: "*",
-			CSRF: CSRFConfig{
-				Enabled:     true,
-				TokenLength: 32,
-				CookieName:  "csrf_token",
-				HeaderName:  "X-CSRF-Token",
-				Secure:      "auto",
-				ExemptPaths: []string{"/api/v1/webhooks/*"},
-			},
 			Security: WebSecurityConfig{
 				Keyservers:    []string{"keys.openpgp.org", "keyserver.ubuntu.com"},
 				PublishPGPKey: true,
@@ -2511,10 +2534,15 @@ func LoadConfigFromFile(path string) (*AppConfig, error) {
 		if err := saveConfig(cfg, path); err != nil {
 			return nil, fmt.Errorf("failed to create default config: %w", err)
 		}
+		if err := saveInitialBranding(path, cfg.Server.Branding.Title, cfg.Server.Branding.Tagline); err != nil {
+			return nil, fmt.Errorf("failed to persist initial branding: %w", err)
+		}
 		data, err := os.ReadFile(path)
 		if err != nil {
 			return nil, fmt.Errorf("failed to read created config file: %w", err)
 		}
+		data = migrateLegacyKeys(path, data)
+		data = migrateConfigAreas(path, data)
 		cfg, err = parseMergedConfig(path, data)
 		if err != nil {
 			return nil, err
@@ -2541,10 +2569,13 @@ func LoadConfigFromFile(path string) (*AppConfig, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to read config file: %w", err)
 	}
+	data = migrateLegacyKeys(path, data)
 	data, err = migrateLegacySecrets(path, data)
 	if err != nil {
 		return nil, err
 	}
+	data = migrateConfiguredSecrets(path, data)
+	data = migrateConfigAreas(path, data)
 
 	cfg, err := parseMergedConfig(path, data)
 	if err != nil {
@@ -2610,7 +2641,7 @@ func migrateLegacySecrets(configFile string, content []byte) ([]byte, error) {
 	}
 	if migrateKey {
 		secretSecurity["encryption_key"] = legacy.Server.Security.EncryptionKey
-		secretSecurity["encryption_key_version"] = "v1"
+		secretSecurity["encryption_key_version"] = "1"
 	}
 	encodedSecrets, err := yaml.Marshal(secrets)
 	if err != nil {
@@ -2875,7 +2906,7 @@ func validateConfig(cfg *AppConfig) {
 	switch cfg.Server.Logging.Level {
 	case "error", "warn", "info", "debug":
 	default:
-		warnConfigReplaced("server.logging.level", cfg.Server.Logging.Level, def.Server.Logging.Level)
+		warnConfigReplaced("server.logs.level", cfg.Server.Logging.Level, def.Server.Logging.Level)
 		cfg.Server.Logging.Level = def.Server.Logging.Level
 	}
 
@@ -3047,6 +3078,16 @@ func SaveGeneratedEncryptionKey() error {
 	return saveGeneratedSecrets(current, filepath.Join(filepath.Dir(configPath), "secrets.yml"), false, true)
 }
 
+// SaveGeneratedRuntimeSecrets persists generated metrics and webhook secrets.
+func SaveGeneratedRuntimeSecrets() error {
+	mu.RLock()
+	defer mu.RUnlock()
+	if current == nil || configPath == "" {
+		return fmt.Errorf("no configuration loaded")
+	}
+	return saveGeneratedSecrets(current, filepath.Join(filepath.Dir(configPath), "secrets.yml"), false, false)
+}
+
 // reloadConfigFromFile re-reads configuration from the previously loaded path.
 func reloadConfigFromFile() error {
 	mu.Lock()
@@ -3182,6 +3223,7 @@ func saveConfig(cfg *AppConfig, path string) error {
 	if err != nil {
 		return fmt.Errorf("remove generated secrets from server config: %w", err)
 	}
+	content = string(serverConfigOnly([]byte(content)))
 	tmp, err := os.CreateTemp(dir, ".server.yml-*")
 	if err != nil {
 		return fmt.Errorf("create temporary config file: %w", err)
@@ -3235,9 +3277,78 @@ func saveGeneratedSecrets(cfg *AppConfig, path string, saveToken, saveEncryption
 		security["encryption_key"] = cfg.Server.Security.EncryptionKey
 		version := cfg.Server.Security.EncryptionKeyVersion
 		if version == "" {
-			version = "v1"
+			version = "1"
 		}
 		security["encryption_key_version"] = version
+	}
+	metricTokenValues := map[string]string{
+		"prometheus": cfg.Server.Metrics.Auth.Tokens.Prometheus,
+		"grafana":    cfg.Server.Metrics.Auth.Tokens.Grafana,
+		"loki":       cfg.Server.Metrics.Auth.Tokens.Loki,
+	}
+	for _, value := range metricTokenValues {
+		if value != "" {
+			metrics, _ := server["metrics"].(map[string]any)
+			if metrics == nil {
+				metrics = map[string]any{}
+				server["metrics"] = metrics
+			}
+			auth, _ := metrics["auth"].(map[string]any)
+			if auth == nil {
+				auth = map[string]any{}
+				metrics["auth"] = auth
+			}
+			tokens, _ := auth["tokens"].(map[string]any)
+			if tokens == nil {
+				tokens = map[string]any{}
+				auth["tokens"] = tokens
+			}
+			for name, token := range metricTokenValues {
+				if token != "" {
+					tokens[name] = token
+				}
+			}
+			break
+		}
+	}
+	for role, webhooks := range map[string]WebhooksConfig{
+		"admin":    cfg.Server.Contact.Admin.Webhooks,
+		"security": cfg.Server.Contact.Security.Webhooks,
+		"abuse":    cfg.Server.Contact.Abuse.Webhooks,
+		"general":  cfg.Server.Contact.General.Webhooks,
+	} {
+		fields := map[string]string{
+			"telegram_secret":   webhooks.TelegramSecret,
+			"discord_secret":    webhooks.DiscordSecret,
+			"slack_secret":      webhooks.SlackSecret,
+			"mattermost_secret": webhooks.MattermostSecret,
+			"pushover_secret":   webhooks.PushoverSecret,
+			"gotify_secret":     webhooks.GotifySecret,
+			"generic_secret":    webhooks.GenericSecret,
+		}
+		if !hasWebhookSecret(fields) {
+			continue
+		}
+		contact, _ := server["contact"].(map[string]any)
+		if contact == nil {
+			contact = map[string]any{}
+			server["contact"] = contact
+		}
+		roleConfig, _ := contact[role].(map[string]any)
+		if roleConfig == nil {
+			roleConfig = map[string]any{}
+			contact[role] = roleConfig
+		}
+		webhookConfig, _ := roleConfig["webhooks"].(map[string]any)
+		if webhookConfig == nil {
+			webhookConfig = map[string]any{}
+			roleConfig["webhooks"] = webhookConfig
+		}
+		for name, value := range fields {
+			if value != "" {
+				webhookConfig[name] = value
+			}
+		}
 	}
 	if len(server) == 0 {
 		return nil
@@ -3274,6 +3385,15 @@ func saveGeneratedSecrets(cfg *AppConfig, path string, saveToken, saveEncryption
 		return err
 	}
 	return syncDirectory(filepath.Dir(path))
+}
+
+func hasWebhookSecret(values map[string]string) bool {
+	for key, value := range values {
+		if strings.HasSuffix(key, "_secret") && value != "" {
+			return true
+		}
+	}
+	return false
 }
 
 func removeGeneratedSecretValues(content string, original []byte) (string, error) {
@@ -3342,6 +3462,7 @@ func setConfigNode(root *yaml.Node, path string, value *yaml.Node) {
 }
 
 func isSecretConfigKey(path string) bool {
+	path = strings.ReplaceAll(path, "[]", "")
 	if path == "server.token" || path == "server.security.encryption_key" || path == "server.security.encryption_key_version" ||
 		path == "server.notifications.email.smtp.password" || path == "server.cache.password" ||
 		path == "server.database.password" || path == "server.database.token" || path == "server.pages.contact.captcha_secret_key" ||
@@ -3643,7 +3764,7 @@ func formatTaskOverride(name string, t TaskScheduleConfig) string {
 	return b.String()
 }
 
-// formatScheduleTasks renders all per-task scheduler overrides under schedule.tasks.
+// formatScheduleTasks renders all per-task scheduler overrides under scheduler.tasks.
 func formatScheduleTasks(t ScheduleTasksConfig) string {
 	var b strings.Builder
 	b.WriteString(formatTaskOverride("ssl_renewal", t.SSLRenewal))
@@ -3696,7 +3817,7 @@ func formatAuditLogFile(a AuditLogFileConfig, defaults LoggingDefaultsConfig) st
 	return b.String()
 }
 
-// formatLoggingFiles renders all per-file logging blocks under server.logging.
+// formatLoggingFiles renders all per-file logging blocks under server.logs.
 func formatLoggingFiles(l LoggingConfig) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "    defaults:\n      custom: %q\n      rotate: %q\n      keep: %q\n", l.Defaults.Custom, l.Defaults.Rotate, l.Defaults.Keep)
@@ -3745,7 +3866,7 @@ server:
     root:
       enabled: %t
 
-  schedule:
+  scheduler:
     enabled: %t
     geoip_update: "%s"
     timezone: "%s"
@@ -3764,7 +3885,7 @@ server:
       # true skips token checks for ALL metrics services
       # ONLY for firewalled internal networks - never on a public server
       allow_unauthenticated: %t
-      # Per-service bearer tokens; blank disables that service with a 403
+      # Per-service bearer tokens; missing tokens are generated into secrets.yml
       tokens:
         prometheus: "%s"
         grafana: "%s"
@@ -3815,7 +3936,7 @@ server:
     log_changes: %t
     live_reload: %t
 
-  logging:
+  logs:
     level: "%s"
 %s
 

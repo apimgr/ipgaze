@@ -594,6 +594,10 @@ func runMain() {
 			log.Printf("Failed to persist generated operator token to secrets.yml: %v", saveErr)
 			os.Exit(exSoftware)
 		}
+		if auditErr := writeGeneratedSecretAudit(logMgr, "server.token"); auditErr != nil {
+			log.Printf("Failed to audit generated operator token: %v", auditErr)
+			os.Exit(exSoftware)
+		}
 		if saveErr := config.SaveConfigToFile(); saveErr != nil {
 			log.Printf("Warning: Failed to save generated operator token: %v", saveErr)
 		}
@@ -614,10 +618,18 @@ func runMain() {
 			log.Printf("Failed to persist generated encryption key to secrets.yml: %v", saveErr)
 			os.Exit(exSoftware)
 		}
+		if auditErr := writeGeneratedSecretAudit(logMgr, "server.security.encryption_key"); auditErr != nil {
+			log.Printf("Failed to audit generated encryption key: %v", auditErr)
+			os.Exit(exSoftware)
+		}
 		if saveErr := config.SaveConfigToFile(); saveErr != nil {
 			log.Printf("Warning: Failed to save generated encryption key: %v", saveErr)
 		}
 		log.Printf("Generated server encryption key")
+	}
+	if err := generateRuntimeSecrets(cfg, logMgr); err != nil {
+		log.Printf("Failed to generate or persist runtime secrets: %v", err)
+		os.Exit(exSoftware)
 	}
 
 	// Apply config-based daemonize when --daemon flag was not already provided.
@@ -821,6 +833,10 @@ func runMain() {
 		}()
 	}
 	if serverDB != nil {
+		if err := config.ImportLegacyDatabaseSecrets(serverDB, configPath); err != nil {
+			log.Printf("Failed to import legacy database secrets: %v", err)
+			return
+		}
 		creditKey, keyErr := base64.StdEncoding.DecodeString(cfg.Server.Security.EncryptionKey)
 		if keyErr != nil || len(creditKey) != 32 {
 			log.Printf("Failed to initialize researcher-credit encryption key")
@@ -1895,7 +1911,7 @@ func runMain() {
 			}
 		}
 		for _, path := range changed {
-			if strings.HasPrefix(path, "server.logging.") && path != "server.logging.level" && logMgr != nil {
+			if strings.HasPrefix(path, "server.logs.") && path != "server.logs.level" && logMgr != nil {
 				if err := logMgr.Reconfigure(buildLogConfig(newCfg)); err != nil {
 					return err
 				}
@@ -2209,6 +2225,89 @@ func runMain() {
 			return
 		}
 	}
+}
+
+func generateRuntimeSecrets(cfg *config.AppConfig, logMgr *applog.Manager) error {
+	if cfg == nil {
+		return fmt.Errorf("missing configuration")
+	}
+	var generated []string
+	for name, token := range map[string]*string{
+		"prometheus": &cfg.Server.Metrics.Auth.Tokens.Prometheus,
+		"grafana":    &cfg.Server.Metrics.Auth.Tokens.Grafana,
+		"loki":       &cfg.Server.Metrics.Auth.Tokens.Loki,
+	} {
+		if *token != "" {
+			continue
+		}
+		value, err := generateOperatorToken()
+		if err != nil {
+			return fmt.Errorf("generate %s metrics token: %w", name, err)
+		}
+		*token = value
+		generated = append(generated, "server.metrics.auth.tokens."+name)
+	}
+	for _, webhook := range contactWebhookSecrets(cfg) {
+		if webhook.url != "" && webhook.secret == "" {
+			generated = append(generated, webhook.key)
+		}
+	}
+	config.EnsureContactWebhookSecrets(cfg)
+	if len(generated) == 0 {
+		return nil
+	}
+	if err := config.SaveGeneratedRuntimeSecrets(); err != nil {
+		return fmt.Errorf("persist generated metrics tokens: %w", err)
+	}
+	for _, name := range generated {
+		if err := writeGeneratedSecretAudit(logMgr, name); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func writeGeneratedSecretAudit(logMgr *applog.Manager, key string) error {
+	if logMgr == nil {
+		return fmt.Errorf("cannot audit generated secret %s without audit log manager", key)
+	}
+	logMgr.WriteAuditEvent("", "config.secret_generated", "config", "info", "success", "", map[string]any{"key": key})
+	return nil
+}
+
+type contactWebhookSecret struct {
+	key    string
+	url    string
+	secret string
+}
+
+func contactWebhookSecrets(cfg *config.AppConfig) []contactWebhookSecret {
+	roles := []struct {
+		name string
+		cfg  config.ContactEntry
+	}{
+		{"admin", cfg.Server.Contact.Admin},
+		{"security", cfg.Server.Contact.Security},
+		{"abuse", cfg.Server.Contact.Abuse},
+		{"general", cfg.Server.Contact.General},
+	}
+	var secrets []contactWebhookSecret
+	for _, role := range roles {
+		for channel, values := range map[string][2]string{
+			"telegram":   {role.cfg.Webhooks.Telegram, role.cfg.Webhooks.TelegramSecret},
+			"discord":    {role.cfg.Webhooks.Discord, role.cfg.Webhooks.DiscordSecret},
+			"slack":      {role.cfg.Webhooks.Slack, role.cfg.Webhooks.SlackSecret},
+			"mattermost": {role.cfg.Webhooks.Mattermost, role.cfg.Webhooks.MattermostSecret},
+			"pushover":   {role.cfg.Webhooks.Pushover, role.cfg.Webhooks.PushoverSecret},
+			"gotify":     {role.cfg.Webhooks.Gotify, role.cfg.Webhooks.GotifySecret},
+			"generic":    {role.cfg.Webhooks.Generic, role.cfg.Webhooks.GenericSecret},
+		} {
+			secrets = append(secrets, contactWebhookSecret{
+				key: "server.contact." + role.name + ".webhooks." + channel + "_secret", url: values[0], secret: values[1],
+			})
+		}
+	}
+	return secrets
 }
 
 func syncDNSCredentialState(conn *sql.DB, cfg *config.AppConfig) error {

@@ -1,11 +1,15 @@
 package config
 
 import (
+	"database/sql"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v3"
+	_ "modernc.org/sqlite"
 )
 
 // resetGlobals clears the package-level singletons between tests so they don't
@@ -1407,6 +1411,146 @@ func TestRemoveGeneratedSecretValuesKeepsOnlyPrimaryFileSecrets(t *testing.T) {
 	}
 }
 
+func TestSaveGeneratedRuntimeSecrets(t *testing.T) {
+	resetGlobals()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "server.yml")
+	if err := os.WriteFile(path, []byte("server: {}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadConfigFromFile(path)
+	if err != nil {
+		t.Fatalf("LoadConfigFromFile: %v", err)
+	}
+	cfg.Server.Metrics.Auth.Tokens = MetricsTokensConfig{Prometheus: "prom-token", Grafana: "grafana-token", Loki: "loki-token"}
+	cfg.Server.Contact.General.Webhooks = WebhooksConfig{Discord: "https://example.com/hook", DiscordSecret: "hook-secret"}
+	if err := SaveGeneratedRuntimeSecrets(); err != nil {
+		t.Fatalf("SaveGeneratedRuntimeSecrets: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "secrets.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"prom-token", "grafana-token", "loki-token", "hook-secret"} {
+		if !strings.Contains(string(data), want) {
+			t.Errorf("secrets.yml missing generated value %q: %s", want, data)
+		}
+	}
+	if strings.Contains(string(data), "https://example.com/hook") {
+		t.Fatal("webhook URL was written to secrets.yml")
+	}
+}
+
+func TestMigrateLegacyKeysKeepsNewValuesAndBacksUpOriginal(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "server.yml")
+	original := []byte(`server:
+  logging:
+    level: debug
+    access_format: json
+  title: Old title
+  branding:
+    title: New title
+    footer_text: <b>old</b>
+    theme_color: red
+  https_port: 8443
+  metrics:
+    endpoint: /metrics
+`)
+	if err := os.WriteFile(path, original, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	migrated := string(migrateLegacyKeys(path, original))
+	for _, want := range []string{
+		"logs:", "level: debug", "format: json", "title: New title",
+		"format: html", "body: <p>&lt;b&gt;old&lt;/b&gt;</p>", ",8443",
+	} {
+		if !strings.Contains(migrated, want) {
+			t.Errorf("migrated config missing %q: %s", want, migrated)
+		}
+	}
+	for _, forbidden := range []string{"logging:", "access_format:", "title: Old title", "footer_text:", "theme_color:", "https_port:", "endpoint:"} {
+		if strings.Contains(migrated, forbidden) {
+			t.Errorf("migrated config retains %q: %s", forbidden, migrated)
+		}
+	}
+	backup, err := os.ReadFile(path + ".bak")
+	if err != nil {
+		t.Fatalf("read migration backup: %v", err)
+	}
+	if string(backup) != string(original) {
+		t.Fatalf("migration backup = %q, want original %q", backup, original)
+	}
+}
+
+func TestImportLegacyDatabaseSecretsInsertsBeforeRemoving(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "server.yml")
+	if err := os.WriteFile(path, []byte("server:\n  security:\n    installation_secret: legacy-secret\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open("sqlite", filepath.Join(dir, "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := db.Close(); err != nil {
+			t.Errorf("close test database: %v", err)
+		}
+	})
+	if _, err := db.Exec(`CREATE TABLE app_secrets (name TEXT PRIMARY KEY, value TEXT NOT NULL)`); err != nil {
+		t.Fatal(err)
+	}
+	if err := ImportLegacyDatabaseSecrets(db, path); err != nil {
+		t.Fatalf("ImportLegacyDatabaseSecrets: %v", err)
+	}
+	var value string
+	if err := db.QueryRow(`SELECT value FROM app_secrets WHERE name = 'installation_secret'`).Scan(&value); err != nil {
+		t.Fatal(err)
+	}
+	if value != "legacy-secret" {
+		t.Fatalf("imported value = %q, want legacy secret", value)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "legacy-secret") {
+		t.Fatalf("legacy secret remains in config: %s", data)
+	}
+}
+
+func TestMigrateConfiguredSecretsExtractsProviderArrayCredentials(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "server.yml")
+	content := []byte("server:\n  auth:\n    ldap:\n      providers:\n        - name: corporate\n          bind_password: ldap-pass\n    oidc:\n      providers:\n        - name: login\n          client_secret: oidc-pass\n")
+	if err := os.WriteFile(path, content, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cleaned := migrateConfiguredSecrets(path, content)
+	var primary map[string]any
+	if err := yaml.Unmarshal(cleaned, &primary); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(cleaned), "ldap-pass") || strings.Contains(string(cleaned), "oidc-pass") {
+		t.Fatal("provider credentials remain in server configuration")
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "secrets.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var secrets map[string]any
+	if err := yaml.Unmarshal(data, &secrets); err != nil {
+		t.Fatal(err)
+	}
+	encoded := string(data)
+	for _, want := range []string{"bind_password: ldap-pass", "client_secret: oidc-pass"} {
+		if !strings.Contains(encoded, want) {
+			t.Errorf("secrets.yml does not contain %q: %s", want, encoded)
+		}
+	}
+}
+
 func TestSaveConfigToFile_RoundTripsEncryptionKeyAndDNSCredentials(t *testing.T) {
 	resetGlobals()
 	path := writeTempYAML(t, `server:
@@ -1547,7 +1691,7 @@ func TestGenerateConfigYAML_ContainsRequiredKeys(t *testing.T) {
 		"web:",
 		"port:",
 		"metrics:",
-		"logging:",
+		"logs:",
 		"geoip:",
 		"tor:",
 		"cache:",
@@ -1815,7 +1959,7 @@ func TestCategorizeChanges_RestartRequired_WholeSectionPrefixes(t *testing.T) {
 
 func TestCategorizeChanges_HotReloadable(t *testing.T) {
 	hotKeys := []string{
-		"server.logging.level",
+		"server.logs.level",
 		"cors",
 		"web.cors",
 		"branding.title",
@@ -1852,13 +1996,13 @@ func TestCategorizeChanges_Empty(t *testing.T) {
 
 func TestCategorizeReloadChanges(t *testing.T) {
 	hot, graceful, restart := categorizeReloadChanges([]string{
-		"server.logging.level",
-		"server.logging.audit.filename",
+		"server.logs.level",
+		"server.logs.audit.filename",
 		"server.baseurl",
 		"server.limits.read_timeout",
 		"server.port",
 	})
-	if len(hot) != 1 || hot[0] != "server.logging.level" {
+	if len(hot) != 1 || hot[0] != "server.logs.level" {
 		t.Errorf("hot changes = %v", hot)
 	}
 	if len(graceful) != 3 {
@@ -1905,7 +2049,7 @@ func TestCompareConfigs_LoggingLevelChange(t *testing.T) {
 	b := DefaultConfig()
 	b.Server.Logging.Level = "debug"
 	changes := compareConfigs(a, b)
-	if !contains(changes, "server.logging.level") {
+	if !contains(changes, "server.logs.level") {
 		t.Errorf("compareConfigs: expected server.logging.level in %v", changes)
 	}
 }

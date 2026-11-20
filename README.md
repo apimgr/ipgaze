@@ -323,7 +323,7 @@ server:
       requests: 10
       window: 60
 
-  logging:
+  logs:
     level: warn
     defaults:
       custom: ""
@@ -366,7 +366,7 @@ For any value settable by flag, env var, and config file (highest wins):
 | `server.geoip` | GeoIP database enable/disable, country allow/deny lists |
 | `server.rate_limit` | Per-class (read/write/health) request limits |
 | `server.cache` | `none`, `memory` (default), `valkey`, `redis`, or `memcache` |
-| `server.logging` | Global + per-log level, rotation, retention |
+| `server.logs` | Global + per-log level, rotation, retention |
 | `server.ssl` | TLS and Let's Encrypt (DNS-01/HTTP-01) |
 | `server.trusted_proxies` | Additional trusted proxy CIDRs (private ranges always trusted) |
 | `server.cors.allowed_origins` | CORS origin list; `DOMAIN` entries and trusted-proxy hosts are also included |

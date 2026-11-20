@@ -375,6 +375,14 @@ func mergeYAMLForConfigFile(path string, data []byte) ([]byte, map[string]string
 }
 
 func validateSecretKeys(node *yaml.Node, prefix, path string) error {
+	if node.Kind == yaml.SequenceNode {
+		for _, child := range node.Content {
+			if err := validateSecretKeys(child, prefix+"[]", path); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
 	if node.Kind != yaml.MappingNode {
 		return fmt.Errorf("%s:%d: secrets root must contain only secret keys", path, node.Line)
 	}
@@ -390,6 +398,12 @@ func validateSecretKeys(node *yaml.Node, prefix, path string) error {
 			}
 			continue
 		}
+		if value.Kind == yaml.SequenceNode {
+			if err := validateSecretKeys(value, full, path); err != nil {
+				return err
+			}
+			continue
+		}
 		allowed := map[string]bool{
 			"server.token": true, "server.security.encryption_key": true,
 			"server.security.encryption_key_version": true, "server.notifications.email.smtp.password": true,
@@ -397,7 +411,7 @@ func validateSecretKeys(node *yaml.Node, prefix, path string) error {
 			"server.pages.contact.captcha_secret_key": true, "server.ssl.letsencrypt.dns_credentials": true,
 			"data.cve.api_key": true, "server.backup.encryption_password": true,
 		}
-		secret := allowed[full] || strings.HasPrefix(full, "server.ssl.letsencrypt.dns_credentials.") || strings.HasPrefix(full, "server.metrics.auth.tokens.") ||
+		secret := allowed[full] || isSecretConfigKey(full) || strings.HasPrefix(full, "server.ssl.letsencrypt.dns_credentials.") || strings.HasPrefix(full, "server.metrics.auth.tokens.") ||
 			strings.Contains(full, ".webhooks.") && (strings.HasSuffix(full, "_secret") || strings.HasSuffix(full, "telegram") || strings.HasSuffix(full, "discord") || strings.HasSuffix(full, "slack") || strings.HasSuffix(full, "mattermost") || strings.HasSuffix(full, "pushover") || strings.HasSuffix(full, "gotify") || strings.HasSuffix(full, "generic")) ||
 			strings.Contains(full, ".providers.") && (strings.HasSuffix(full, ".bind_password") || strings.HasSuffix(full, ".client_secret"))
 		if !secret {

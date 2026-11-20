@@ -22,11 +22,9 @@ import (
 	"net/mail"
 	"net/url"
 	"os"
-	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	i18n "github.com/apimgr/ipgaze/src/common/i18n"
@@ -511,131 +509,69 @@ func (h *PagesHandler) NewPageData(r *http.Request) PageData {
 	return data
 }
 
-var operatorContentCache = struct {
-	sync.Mutex
-	values map[string]template.HTML
-}{values: make(map[string]template.HTML)}
-
-var operatorSourceCache = struct {
-	sync.Mutex
-	values map[string]operatorContentSource
-}{values: make(map[string]operatorContentSource)}
-
-type operatorContentSource struct {
-	content string
-	format  string
+func operatorHTML(r *http.Request, name string, page PageData) (template.HTML, bool) {
+	source, format, found, usable := configuredOperatorContent(r, name, page)
+	if !found || !usable {
+		return "", false
+	}
+	content, err := renderOperatorContent(name, source, format)
+	if err != nil {
+		log.Printf("operator content %s is invalid; using built-in content: %v", name, err)
+		return "", false
+	}
+	return template.HTML(content), true
 }
 
-func operatorHTML(r *http.Request, name string, page PageData) (template.HTML, bool) {
-	dir := config.ConfigDirectory()
-	if dir == "." || dir == "" {
-		return "", false
+func configuredOperatorContent(r *http.Request, name string, page PageData) (string, string, bool, bool) {
+	cfg := config.Get()
+	if cfg == nil {
+		return "", "", false, false
 	}
-	htmlDir := filepath.Join(dir, "html")
-	if err := os.MkdirAll(htmlDir, 0o700); err != nil {
-		return "", false
+	entry, found := cfg.Server.Branding.Content[name]
+	if !found {
+		return "", "", false, false
 	}
-	_ = os.Chmod(dir, 0o700)
-	_ = os.Chmod(htmlDir, 0o700)
-	lang := i18n.DetectLocale(r)
-	cacheKey := filepath.Join(htmlDir, name+"."+lang)
-	invalid := false
-	for _, candidate := range operatorContentCandidates(htmlDir, name, lang) {
-		info, err := os.Lstat(candidate)
-		if os.IsNotExist(err) {
-			continue
-		}
-		if err != nil {
-			invalid = true
-			break
-		}
-		if info.Mode()&os.ModeSymlink != 0 {
-			resolved, resolveErr := filepath.EvalSymlinks(candidate)
-			if resolveErr != nil {
-				invalid = true
-				break
-			}
-			rel, relErr := filepath.Rel(htmlDir, resolved)
-			if relErr != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
-				invalid = true
-				break
-			}
-			candidate = resolved
-			info, err = os.Stat(candidate)
-		}
-		if err != nil || !info.Mode().IsRegular() || info.Size() > 256*1024 {
-			invalid = true
-			break
-		}
-		if err := os.Chmod(candidate, 0o600); err != nil {
-			invalid = true
-			break
-		}
-		file, err := os.Open(candidate)
-		if err != nil {
-			invalid = true
-			break
-		}
-		data, readErr := io.ReadAll(io.LimitReader(file, 256*1024+1))
-		_ = file.Close()
-		if readErr != nil || len(data) > 256*1024 {
-			invalid = true
-			break
-		}
-		ext := filepath.Ext(candidate)
-		format := map[string]string{".html": "html", ".md": "markdown", ".txt": "text"}[ext]
-		if format == "" {
-			invalid = true
-			break
-		}
-		source := substituteFooterVariables(string(data), page)
-		raw := string(data)
-		if ext == ".md" {
-			var rendered strings.Builder
-			if err := goldmark.Convert(data, &rendered); err != nil {
-				invalid = true
-				break
-			}
-			raw = rendered.String()
-		} else if ext == ".txt" {
-			raw = plainTextHTML(raw)
-		}
-		raw = substituteFooterVariables(raw, page)
-		raw = stripContactFormLinks(raw)
-		var safe string
-		if name == "header" || name == "footer" {
-			if name == "footer" && strings.TrimSpace(raw) == "" {
-				safe = ""
-			} else {
-				safe, err = config.ValidateFooterHTML(raw)
-			}
-		} else {
-			policy := bluemonday.UGCPolicy()
-			policy.AllowElements("table", "thead", "tbody", "tr", "th", "td", "pre", "code", "blockquote", "hr", "dl", "dt", "dd", "sup", "sub")
-			safe = policy.Sanitize(raw)
-		}
-		if err != nil {
-			invalid = true
-			break
-		}
-		content := template.HTML(safe)
-		operatorContentCache.Lock()
-		operatorContentCache.values[cacheKey] = content
-		operatorContentCache.Unlock()
-		operatorSourceCache.Lock()
-		operatorSourceCache.values[cacheKey] = operatorContentSource{content: source, format: format}
-		operatorSourceCache.Unlock()
-		return content, true
+	format := strings.ToLower(strings.TrimSpace(entry.Format))
+	if format == "" {
+		format = "md"
 	}
-	operatorContentCache.Lock()
-	defer operatorContentCache.Unlock()
-	if invalid {
-		log.Printf("operator content %s is invalid or unreadable; using last good content", name)
-		content, exists := operatorContentCache.values[cacheKey]
-		return content, exists
+	if (name == "header" || name == "footer") && format != "html" || format != "md" && format != "html" && format != "txt" {
+		log.Printf("operator content %s has an unsupported format; using built-in content", name)
+		return "", "", true, false
 	}
-	delete(operatorContentCache.values, cacheKey)
-	return "", false
+	source, ok := entry.BodyForLanguage(i18n.DetectLocale(r))
+	if !ok || len(source) > 256*1024 {
+		log.Printf("operator content %s has an unusable body; using built-in content", name)
+		return "", "", true, false
+	}
+	return substituteFooterVariables(source, page), format, true, true
+}
+
+func renderOperatorContent(name, source, format string) (string, error) {
+	raw := source
+	switch format {
+	case "md":
+		var rendered strings.Builder
+		if err := goldmark.Convert([]byte(source), &rendered); err != nil {
+			return "", err
+		}
+		raw = rendered.String()
+	case "txt":
+		raw = plainTextHTML(source)
+	case "html":
+	default:
+		return "", fmt.Errorf("unsupported format %q", format)
+	}
+	raw = stripContactFormLinks(raw)
+	if name == "header" || name == "footer" {
+		if name == "footer" && strings.TrimSpace(raw) == "" {
+			return "", nil
+		}
+		return config.ValidateFooterHTML(raw)
+	}
+	policy := bluemonday.UGCPolicy()
+	policy.AllowElements("table", "thead", "tbody", "tr", "th", "td", "pre", "code", "blockquote", "hr", "dl", "dt", "dd", "sup", "sub")
+	return policy.Sanitize(raw), nil
 }
 
 func stripContactFormLinks(source string) string {
@@ -693,93 +629,9 @@ func plainTextHTML(source string) string {
 	return output.String()
 }
 
-func operatorContentCandidates(dir, name, lang string) []string {
-	var candidates []string
-	if name == "header" || name == "footer" {
-		if lang != "" {
-			candidates = append(candidates, filepath.Join(dir, name+"."+lang+".html"))
-		}
-		candidates = append(candidates, filepath.Join(dir, name+".html"))
-		return candidates
-	}
-	for _, language := range []string{lang, ""} {
-		if language != "" {
-			for _, ext := range []string{"html", "md", "txt"} {
-				candidates = append(candidates, filepath.Join(dir, name+"."+language+"."+ext))
-			}
-		} else {
-			for _, ext := range []string{"html", "md", "txt"} {
-				candidates = append(candidates, filepath.Join(dir, name+"."+ext))
-			}
-		}
-	}
-	return candidates
-}
-
 func readOperatorSource(r *http.Request, name string, page PageData) (string, string, bool) {
-	dir := config.ConfigDirectory()
-	if dir == "." || dir == "" {
-		return "", "", false
-	}
-	cacheKey := filepath.Join(dir, "html", name+"."+i18n.DetectLocale(r))
-	invalid := false
-	for _, candidate := range operatorContentCandidates(filepath.Join(dir, "html"), name, i18n.DetectLocale(r)) {
-		info, err := os.Lstat(candidate)
-		if os.IsNotExist(err) {
-			continue
-		}
-		if err != nil {
-			invalid = true
-			break
-		}
-		if info.Mode()&os.ModeSymlink != 0 {
-			resolved, resolveErr := filepath.EvalSymlinks(candidate)
-			if resolveErr != nil {
-				invalid = true
-				break
-			}
-			rel, relErr := filepath.Rel(filepath.Join(dir, "html"), resolved)
-			if relErr != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
-				invalid = true
-				break
-			}
-			candidate = resolved
-			info, err = os.Stat(candidate)
-		}
-		if err != nil || !info.Mode().IsRegular() || info.Size() > 256*1024 {
-			invalid = true
-			break
-		}
-		data, readErr := os.ReadFile(candidate)
-		if readErr != nil || len(data) > 256*1024 {
-			invalid = true
-			break
-		}
-		extension := filepath.Ext(candidate)
-		format := map[string]string{".html": "html", ".md": "markdown", ".txt": "text"}[extension]
-		if format == "" {
-			invalid = true
-			break
-		}
-		source := substituteFooterVariables(string(data), page)
-		operatorSourceCache.Lock()
-		operatorSourceCache.values[cacheKey] = operatorContentSource{content: source, format: format}
-		operatorSourceCache.Unlock()
-		return source, format, true
-	}
-	if invalid {
-		operatorSourceCache.Lock()
-		cached, exists := operatorSourceCache.values[cacheKey]
-		operatorSourceCache.Unlock()
-		if exists {
-			return cached.content, cached.format, true
-		}
-	} else {
-		operatorSourceCache.Lock()
-		delete(operatorSourceCache.values, cacheKey)
-		operatorSourceCache.Unlock()
-	}
-	return "", "", false
+	source, format, found, usable := configuredOperatorContent(r, name, page)
+	return source, format, found && usable
 }
 
 // substituteFooterVariables replaces the AI.md PART 16 "Available Footer

@@ -448,7 +448,7 @@ func categorizeReloadChanges(changes []string) (hotReload, gracefulReload, needs
 }
 
 func requiresGracefulReload(setting string) bool {
-	if setting == "server.baseurl" || strings.HasPrefix(setting, "server.logging.") && setting != "server.logging.level" {
+	if setting == "server.baseurl" || strings.HasPrefix(setting, "server.logs.") && setting != "server.logs.level" {
 		return true
 	}
 	switch setting {
