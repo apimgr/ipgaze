@@ -283,7 +283,7 @@ The CLI is an unauthenticated client to ipgaze's open lookup API by default. A t
 
 ## Configuration
 
-ipgaze creates `server.yml` with sane defaults on first run. Ordered YAML files in `yaml.d/` can override settings, and `secrets.yml` is merged last for credentials. Operator-authored page content lives in `html/`. The database stores operational state, issued API token records, and the audit log.
+ipgaze creates `server.yml` with node-local settings on first run. Ordered YAML files in `yaml.d/` hold application settings, including branding and operator-authored page content in `branding.yml`; `secrets.yml` is merged last for credentials. The database stores operational state, issued API token records, and the audit log.
 
 ### Location
 
@@ -293,9 +293,8 @@ ipgaze creates `server.yml` with sane defaults on first run. Ordered YAML files 
 | Regular user | `~/.config/apimgr/ipgaze/server.yml` (`$XDG_CONFIG_HOME` honored) |
 | Docker container | `/config/ipgaze/server.yml` |
 
-The secrets file and page-content directory share the same config directory:
-`secrets.yml` stores generated operator credentials, and `html/` contains
-optional About, privacy, terms, header, and footer content files.
+`secrets.yml` stores credentials. `yaml.d/branding.yml` holds optional About,
+privacy, terms, header, and footer content alongside branding settings.
 
 Override the config directory with `--config` or the `CONFIG_DIR` env var (first run only).
 

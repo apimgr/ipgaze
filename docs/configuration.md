@@ -7,7 +7,8 @@ Complete configuration reference for **ipgaze**.
 ipgaze creates `server.yml` with sane defaults on first run. Ordered files in
 `yaml.d/` override it, and `secrets.yml` is merged last for credentials. The
 database stores operational state, issued API token records, and the audit log,
-never operator settings. Optional public-page content files live in `html/`.
+never operator settings. Optional public-page content lives in
+`yaml.d/branding.yml`.
 
 ### Default Location
 
@@ -39,13 +40,11 @@ when they exist.
 
 ### Operator Page Content
 
-Optional files in `{config_dir}/html/` customize the public site without
-putting page content in YAML. `about.{html,md,txt}` and
-`privacy.{html,md,txt}` extend built-in content; `terms.{html,md,txt}`
-replaces the built-in terms; `header.html` extends the page header; and
-`footer.html` replaces the custom branding block. Files are sanitized, limited
-to 256 KiB, and hot-reloaded. The directory uses mode `0700` and its files use
-mode `0600`.
+Optional `server.branding.content` entries in
+`{config_dir}/yaml.d/branding.yml` customize About, privacy, terms, header,
+and footer content. Markdown, HTML, and text are supported where specified;
+HTML output is sanitized, each body is limited to 256 KiB, and edits are
+hot-reloaded.
 
 Startup logs list loaded drop-ins at info level. Debug logs identify the source
 files when a later setting overrides an earlier one; configuration values are
