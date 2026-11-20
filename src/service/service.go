@@ -40,15 +40,27 @@ type Service struct{}
 // NewSystemServiceManager returns a ready-to-use Service.
 func NewSystemServiceManager() *Service { return &Service{} }
 
-// DetectServiceManager detects the active service manager.
-// Container environments are detected first; then init system detection follows the spec order.
+// DetectServiceManager detects init systems before classifying system containers as application containers.
 func DetectServiceManager() ServiceType {
-	// Container detection takes highest priority
+	ppid := os.Getppid()
+	if runtime.GOOS == "linux" {
+		if os.Getenv("INVOCATION_ID") != "" {
+			return ServiceSystemd
+		}
+		if os.Getenv("RC_SVCNAME") != "" {
+			return ServiceOpenRC
+		}
+		if ppid == 1 && isStatOK("/run/systemd/system") {
+			return ServiceSystemd
+		}
+		if ppid == 1 && isStatOK("/run/openrc") {
+			return ServiceOpenRC
+		}
+	}
+
 	if paths.IsRunningInContainer() {
 		return ServiceContainer
 	}
-
-	ppid := os.Getppid()
 
 	switch runtime.GOOS {
 	case "linux":
@@ -955,6 +967,8 @@ Restart=on-failure
 RestartSec=5
 StandardOutput=journal
 StandardError=journal
+# /etc remains writable for account creation and configuration updates.
+# Do not tighten this to full or strict; both make /etc read-only.
 ProtectSystem=true
 ProtectHome=yes
 PrivateTmp=yes

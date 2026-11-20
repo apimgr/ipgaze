@@ -290,12 +290,13 @@ func TestDetectServiceManager_ReturnsValidType(t *testing.T) {
 }
 
 func TestDetectServiceManager_ContainerEnvTakesPriority(t *testing.T) {
-	// When container env var is present the result must be ServiceContainer,
-	// regardless of other environment signals.
+	// Without systemd or OpenRC init markers, generic container detection wins.
 	t.Setenv("container", "docker")
+	t.Setenv("INVOCATION_ID", "")
+	t.Setenv("RC_SVCNAME", "")
 	got := DetectServiceManager()
 	if got != ServiceContainer {
-		t.Logf("DetectServiceManager() = %d (non-container env may hide the signal; accepted)", got)
+		t.Logf("DetectServiceManager() = %d (host init may be detected before container environment)", got)
 	}
 }
 
@@ -306,9 +307,23 @@ func TestDetectServiceManager_InvocationID(t *testing.T) {
 		t.Skip("INVOCATION_ID systemd detection only applies on linux")
 	}
 	t.Setenv("INVOCATION_ID", "abc123")
+	t.Setenv("RC_SVCNAME", "")
+	t.Setenv("container", "lxc")
 	got := DetectServiceManager()
-	if got != ServiceSystemd && got != ServiceContainer {
-		t.Errorf("DetectServiceManager() with INVOCATION_ID set = %d, want ServiceSystemd or ServiceContainer", got)
+	if got != ServiceSystemd {
+		t.Errorf("DetectServiceManager() with INVOCATION_ID set in a system container = %d, want ServiceSystemd", got)
+	}
+}
+
+func TestDetectServiceManagerOpenRCInvocationWinsInContainer(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("OpenRC detection only applies on linux")
+	}
+	t.Setenv("INVOCATION_ID", "")
+	t.Setenv("RC_SVCNAME", "ipgaze")
+	t.Setenv("container", "lxc")
+	if got := DetectServiceManager(); got != ServiceOpenRC {
+		t.Errorf("DetectServiceManager() with RC_SVCNAME in a system container = %d, want ServiceOpenRC", got)
 	}
 }
 

@@ -11,41 +11,53 @@ fi
 
 # Detect project info
 INCUS_PROJECT_NAME=$(basename "$PWD")
-INCUS_CONTAINER_NAME="test-${INCUS_PROJECT_NAME}-$$"
+PROJECT_ORG=$(git remote get-url origin 2>/dev/null | sed -E 's|.*/([^/]+)/[^/]+(\.git)?$|\1|')
+if [[ -z "$PROJECT_ORG" ]]; then
+    PROJECT_ORG=$(basename "$(dirname "$PWD")")
+fi
+INTERNAL_NAME=$(sed -n 's/^internal_name:[[:space:]]*//p' IDEA.md | head -n1)
+if [[ -z "$INTERNAL_NAME" ]]; then
+    INTERNAL_NAME=$INCUS_PROJECT_NAME
+fi
+INCUS_CONTAINER_NAME="${INCUS_PROJECT_NAME}-$(tr -dc 'a-z0-9' </dev/urandom | head -c8)"
+INCUS_TEMP_ROOT="${TMPDIR:-/tmp}/${PROJECT_ORG}"
+mkdir -p "$INCUS_TEMP_ROOT"
+INCUS_TEMP_DIR=$(mktemp -d "$INCUS_TEMP_ROOT/${INTERNAL_NAME}-XXXXXX")
+INCUS_BINARY_DIR="$INCUS_TEMP_DIR/binaries"
+mkdir -p "$INCUS_BINARY_DIR"
 
-# Incus image - use latest Debian stable (update when new stable releases)
-INCUS_IMAGE="images:debian/trixie"
+cleanup() {
+    incus delete "$INCUS_CONTAINER_NAME" --force 2>/dev/null || true
+    if [[ -n "${INCUS_TEMP_DIR:-}" && -d "$INCUS_TEMP_DIR" && ! -L "$INCUS_TEMP_DIR" && "$INCUS_TEMP_DIR" == "$INCUS_TEMP_ROOT/${INTERNAL_NAME}-"* ]]; then
+        rm -rf -- "$INCUS_TEMP_DIR"
+    fi
+}
+trap cleanup EXIT
 
-trap 'incus delete "$INCUS_CONTAINER_NAME" --force 2>/dev/null || true' EXIT
-
-# Build — use Makefile if present (standard for all bootstrapped projects)
-# Output always lands in binaries/
-if [ -f "Makefile" ]; then
-    echo "Building with make build..."
-    make build
-else
-    # No Makefile yet — fallback to direct docker run
-    echo "Building in Docker (no Makefile)..."
-    INCUS_GO_CACHE="${INCUS_GO_CACHE:-$HOME/go/pkg/mod}"
-    INCUS_GO_BUILD="${INCUS_GO_BUILD:-$HOME/.cache/go-build/${INCUS_PROJECT_NAME}}"
-    mkdir -p "$INCUS_GO_CACHE" "$INCUS_GO_BUILD" binaries
+# Build in Docker and keep binaries in the project-scoped OS temp directory.
+INCUS_GO_CACHE="${HOME}/go/pkg/mod"
+INCUS_GO_BUILD="${HOME}/.cache/go-build/${INCUS_PROJECT_NAME}"
+mkdir -p "$INCUS_GO_CACHE" "$INCUS_GO_BUILD"
+docker run --rm \
+  --name "${INCUS_PROJECT_NAME}-$(tr -dc 'a-z0-9' </dev/urandom | head -c8)" \
+  -v "$PWD:/app" \
+  -v "$INCUS_TEMP_DIR:/out" \
+  -v "$INCUS_GO_CACHE:/usr/local/share/go/pkg/mod" \
+  -v "$INCUS_GO_BUILD:/usr/local/share/go/cache" \
+  -w /app -e CGO_ENABLED=0 -e GOFLAGS=-buildvcs=false \
+  casjaysdev/go:latest go build -buildvcs=false -trimpath -ldflags "-s -w" -o "/out/binaries/${INCUS_PROJECT_NAME}" ./src
+if [ -d "src/client" ]; then
     docker run --rm \
       --name "${INCUS_PROJECT_NAME}-$(tr -dc 'a-z0-9' </dev/urandom | head -c8)" \
       -v "$PWD:/app" \
+      -v "$INCUS_TEMP_DIR:/out" \
       -v "$INCUS_GO_CACHE:/usr/local/share/go/pkg/mod" \
       -v "$INCUS_GO_BUILD:/usr/local/share/go/cache" \
       -w /app -e CGO_ENABLED=0 -e GOFLAGS=-buildvcs=false \
-      casjaysdev/go:latest go build -buildvcs=false -trimpath -ldflags "-s -w" -o "/app/binaries/${INCUS_PROJECT_NAME}" ./src
-    if [ -d "src/client" ]; then
-        docker run --rm \
-          --name "${INCUS_PROJECT_NAME}-$(tr -dc 'a-z0-9' </dev/urandom | head -c8)" \
-          -v "$PWD:/app" \
-          -v "$INCUS_GO_CACHE:/usr/local/share/go/pkg/mod" \
-          -v "$INCUS_GO_BUILD:/usr/local/share/go/cache" \
-          -w /app -e CGO_ENABLED=0 -e GOFLAGS=-buildvcs=false \
-          casjaysdev/go:latest go build -buildvcs=false -trimpath -ldflags "-s -w" -o "/app/binaries/${INCUS_PROJECT_NAME}-cli" ./src/client
-    fi
+      casjaysdev/go:latest go build -buildvcs=false -trimpath -ldflags "-s -w" -o "/out/binaries/${INCUS_PROJECT_NAME}-cli" ./src/client
 fi
+
+INCUS_IMAGE="images:debian/trixie"
 
 echo "Launching Incus container (Debian + systemd)..."
 incus launch "$INCUS_IMAGE" "$INCUS_CONTAINER_NAME"
@@ -54,12 +66,12 @@ incus launch "$INCUS_IMAGE" "$INCUS_CONTAINER_NAME"
 sleep 2
 
 echo "Copying binaries to container..."
-incus file push "binaries/${INCUS_PROJECT_NAME}" "$INCUS_CONTAINER_NAME/usr/local/bin/"
+incus file push "$INCUS_BINARY_DIR/${INCUS_PROJECT_NAME}" "$INCUS_CONTAINER_NAME/usr/local/bin/"
 incus exec "$INCUS_CONTAINER_NAME" -- chmod +x "/usr/local/bin/${INCUS_PROJECT_NAME}"
 
 # Copy client if built
-if [ -f "binaries/${INCUS_PROJECT_NAME}-cli" ]; then
-    incus file push "binaries/${INCUS_PROJECT_NAME}-cli" "$INCUS_CONTAINER_NAME/usr/local/bin/"
+if [ -f "$INCUS_BINARY_DIR/${INCUS_PROJECT_NAME}-cli" ]; then
+    incus file push "$INCUS_BINARY_DIR/${INCUS_PROJECT_NAME}-cli" "$INCUS_CONTAINER_NAME/usr/local/bin/"
     incus exec "$INCUS_CONTAINER_NAME" -- chmod +x "/usr/local/bin/${INCUS_PROJECT_NAME}-cli"
 fi
 
@@ -83,34 +95,20 @@ incus exec "$INCUS_CONTAINER_NAME" -- bash -c "
     file /usr/local/bin/${INCUS_PROJECT_NAME}
 
     echo '=== Service Install Test ==='
-    # AI.md PART 8's reference detectServiceManager() returns \"container\" before
-    # any init-system probe, and an Incus system container trips that check via
-    # \$container / /proc/1/cgroup, so service install is refused by design here.
-    # The endpoint suite below is the point of this run, so fall back to starting
-    # the binary directly rather than aborting under set -e.
-    SERVICE_MODE=systemd
-    if ! ${INCUS_PROJECT_NAME} --service --install; then
-        echo 'NOTE: service install refused (container-mode detection) — running binary directly'
-        SERVICE_MODE=direct
-    fi
+    # System containers run a full init and support the ordinary service lifecycle.
+    ${INCUS_PROJECT_NAME} --service --install
+    echo '=== Service Status ==='
+    # inside container — not a host-service mutation
+    systemctl status ${INCUS_PROJECT_NAME} || true
 
-    if [ \"\$SERVICE_MODE\" = systemd ]; then
-        echo '=== Service Status ==='
-        # inside container — not a host-service mutation
-        systemctl status ${INCUS_PROJECT_NAME} || true
-
-        echo '=== Service Start Test ==='
-        # inside container — not a host-service mutation
-        systemctl start ${INCUS_PROJECT_NAME}
-        sleep 2
-        # inside container — not a host-service mutation
-        systemctl status ${INCUS_PROJECT_NAME}
-    else
-        echo '=== Direct Start (no service manager) ==='
-        ${INCUS_PROJECT_NAME} --port 80 >/tmp/server.log 2>&1 &
-        SERVER_PID=\$!
-        sleep 3
-    fi
+    echo '=== Service Start Test ==='
+    # inside container — not a host-service mutation
+    systemctl start ${INCUS_PROJECT_NAME}
+    sleep 2
+    # inside container — not a host-service mutation
+    systemctl status ${INCUS_PROJECT_NAME}
+    getent passwd ${INCUS_PROJECT_NAME}
+    systemctl show -p MainPID --value ${INCUS_PROJECT_NAME} | xargs -r -I{} stat -c %U /proc/{} | grep -qx '${INCUS_PROJECT_NAME}'
 
     echo '=== API Endpoint Tests ==='
     # Test JSON response (default)
@@ -195,13 +193,8 @@ incus exec "$INCUS_CONTAINER_NAME" -- bash -c "
     fi
 
     echo '=== Service Stop Test ==='
-    if [ \"\$SERVICE_MODE\" = systemd ]; then
-        # inside container — not a host-service mutation
-        systemctl stop ${INCUS_PROJECT_NAME}
-    else
-        kill \$SERVER_PID
-        wait \$SERVER_PID 2>/dev/null || true
-    fi
+    # inside container — not a host-service mutation
+    systemctl stop ${INCUS_PROJECT_NAME}
 
     echo '=== All tests passed ==='
 "
