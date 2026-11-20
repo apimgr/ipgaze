@@ -66,7 +66,7 @@ ipgaze/
 ├── tests/                  # Test scripts
 │   ├── run_tests.sh        # Test runner
 │   ├── docker.sh           # Docker tests
-│   └── incus.sh            # Incus container tests
+│   └── incus.sh            # Incus systemd integration and privilege-drop tests
 ├── .github/                # GitHub Actions
 ├── .gitlab-ci.yml          # GitLab CI pipeline
 ├── .gitea/workflows/       # Gitea Actions workflows

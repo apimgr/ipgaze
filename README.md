@@ -627,7 +627,7 @@ pipelines can replace the rolling `devel` release and tag. Go builds run in
 # Run the Go test suite in Docker with coverage enforcement
 make test
 
-# Run integration tests (auto-detects Incus, falls back to Docker)
+# Run integration tests (Incus also verifies the systemd privilege drop)
 ./tests/run_tests.sh
 
 # Run integration tests in Docker directly
