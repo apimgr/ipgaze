@@ -943,7 +943,7 @@ server:
 	}
 }
 
-func TestLoadConfigFromFile_RuntimeDatabaseEnvOverridesPersisted(t *testing.T) {
+func TestLoadConfigFromFile_IgnoresConnectionEnvironmentAfterFirstRun(t *testing.T) {
 	resetGlobals()
 	t.Setenv("DATABASE_DRIVER", "libsql")
 	t.Setenv("DATABASE_URL", "libsql://example.turso.io")
@@ -958,11 +958,11 @@ server:
 	if err != nil {
 		t.Fatalf("LoadConfigFromFile: %v", err)
 	}
-	if cfg.Server.Database.Driver != "libsql" {
-		t.Errorf("Database.Driver: got %q, want %q", cfg.Server.Database.Driver, "libsql")
+	if cfg.Server.Database.Driver != "sqlite" {
+		t.Errorf("Database.Driver: got %q, want saved value %q", cfg.Server.Database.Driver, "sqlite")
 	}
-	if cfg.Server.Database.URL != "libsql://example.turso.io" {
-		t.Errorf("Database.URL: got %q, want %q", cfg.Server.Database.URL, "libsql://example.turso.io")
+	if cfg.Server.Database.URL != "" {
+		t.Errorf("Database.URL: got %q, want saved empty value", cfg.Server.Database.URL)
 	}
 
 	data, err := os.ReadFile(path)
@@ -970,7 +970,55 @@ server:
 		t.Fatalf("ReadFile: %v", err)
 	}
 	if strings.Contains(string(data), "libsql") {
-		t.Error("DATABASE_DRIVER/DATABASE_URL are Runtime env vars and must not be persisted to server.yml")
+		t.Error("DATABASE_DRIVER/DATABASE_URL must not override the saved server.yml connection")
+	}
+}
+
+func TestLoadConfigFromFile_SeedsConnectionEnvironmentIntoSecretsOnFirstRun(t *testing.T) {
+	resetGlobals()
+	databaseURL := "libsql://db.example?authToken=" + strings.Repeat("x", 32)
+	cacheURL := "valkey://:" + strings.Repeat("y", 32) + "@cache.example:6379/0"
+	t.Setenv("DATABASE_URL", databaseURL)
+	t.Setenv("DATABASE_DRIVER", "sqlite")
+	t.Setenv("CACHE_URL", cacheURL)
+	path := filepath.Join(t.TempDir(), "server.yml")
+
+	cfg, err := LoadConfigFromFile(path)
+	if err != nil {
+		t.Fatalf("LoadConfigFromFile: %v", err)
+	}
+	if cfg.Server.Database.Driver != "libsql" || cfg.Server.Database.URL != databaseURL {
+		t.Errorf("first-run database connection was not seeded from its scheme: driver=%q URL=%q", cfg.Server.Database.Driver, cfg.Server.Database.URL)
+	}
+	if cfg.Server.Cache.Type != "valkey" || cfg.Server.Cache.URL != cacheURL {
+		t.Errorf("first-run cache connection was not seeded from its scheme: type=%q URL=%q", cfg.Server.Cache.Type, cfg.Server.Cache.URL)
+	}
+	serverConfig, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile server.yml: %v", err)
+	}
+	secretConfig, err := os.ReadFile(filepath.Join(filepath.Dir(path), "secrets.yml"))
+	if err != nil {
+		t.Fatalf("ReadFile secrets.yml: %v", err)
+	}
+	if strings.Contains(string(serverConfig), databaseURL) || strings.Contains(string(serverConfig), cacheURL) {
+		t.Error("credential-bearing connection URL was written to server.yml")
+	}
+	if !strings.Contains(string(secretConfig), databaseURL) || !strings.Contains(string(secretConfig), cacheURL) {
+		t.Error("credential-bearing connection URL was not written to secrets.yml")
+	}
+
+	t.Setenv("DATABASE_URL", "libsql://changed.example")
+	t.Setenv("CACHE_URL", "valkey://changed.example:6379")
+	reloaded, err := LoadConfigFromFile(path)
+	if err != nil {
+		t.Fatalf("LoadConfigFromFile second start: %v", err)
+	}
+	if reloaded.Server.Database.URL != databaseURL || reloaded.Server.Cache.URL != cacheURL {
+		t.Error("connection environment variables overrode saved first-run values")
+	}
+	if got := reloaded.Sanitized(); strings.Contains(got.Server.Database.URL, strings.Repeat("x", 12)) || strings.Contains(got.Server.Cache.URL, strings.Repeat("y", 12)) {
+		t.Error("sanitized config exposed a connection credential")
 	}
 }
 
@@ -1729,6 +1777,25 @@ func TestGenerateConfigYAML_ContainsRequiredKeys(t *testing.T) {
 		indent := len(line) - len(strings.TrimLeft(line, " "))
 		if indent%2 != 0 {
 			t.Errorf("line %d uses %d-space indentation, want multiples of two: %q", lineNumber+1, indent, line)
+		}
+	}
+}
+
+func TestGenerateConfigYAML_PersistsConnectionTLSFiles(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Server.Database.SSLCA = "db-ca.pem"
+	cfg.Server.Database.SSLCert = "db-client.pem"
+	cfg.Server.Database.SSLKey = "db-client-key.pem"
+	cfg.Server.Cache.TLSCA = "cache-ca.pem"
+	cfg.Server.Cache.TLSCert = "cache-client.pem"
+	cfg.Server.Cache.TLSKey = "cache-client-key.pem"
+	generated := generateConfigYAML(cfg)
+	for _, expected := range []string{
+		`ssl_ca: "db-ca.pem"`, `ssl_cert: "db-client.pem"`, `ssl_key: "db-client-key.pem"`,
+		`tls_ca: "cache-ca.pem"`, `tls_cert: "cache-client.pem"`, `tls_key: "cache-client-key.pem"`,
+	} {
+		if !strings.Contains(generated, expected) {
+			t.Errorf("generated config missing connection TLS setting %q", expected)
 		}
 	}
 }

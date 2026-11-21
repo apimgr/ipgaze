@@ -110,6 +110,9 @@ type service struct {
 // ("No Provider") rather than a plain failure.
 var ErrNoProvider = errors.New("i2p enabled but no provider available")
 
+// ErrI2PDisabled marks the normal opt-out state for direct startup attempts.
+var ErrI2PDisabled = errors.New("i2p disabled (opt-in)")
+
 const i2pdSAMStartupTimeout = 60 * time.Second
 
 func bootstrapTimeout(seconds int) (time.Duration, error) {
@@ -683,7 +686,7 @@ func destinationBytes(priv string) ([]byte, error) {
 // or no provider is available.
 func (m *I2PManager) startDedicated(ctx context.Context) (*service, error) {
 	if !m.cfg.Enabled {
-		return nil, fmt.Errorf("i2p disabled (opt-in) - eepsite not started")
+		return nil, ErrI2PDisabled
 	}
 	if _, err := bootstrapTimeout(m.cfg.BootstrapTimeout); err != nil {
 		return nil, fmt.Errorf("I2P bootstrap_timeout must be between 30 and 600 seconds")

@@ -299,9 +299,11 @@ server:
 
 ## I2P
 
-I2P hosting is disabled by default. Set `server.i2p.enabled` to `true` to
-enable an eepsite. IPGaze manages an `i2pd` process when its binary is
-available; otherwise it connects to an external SAMv3 bridge. Tunnel lengths
+I2P hosting is enabled by default in containers and disabled by default on
+bare metal and in VMs. Set `server.i2p.enabled` to `true` to enable an eepsite
+outside a container or `false` to disable it in a container. IPGaze manages an
+`i2pd` process when its binary is available; otherwise it connects to an
+external SAMv3 bridge. Tunnel lengths
 and quantities apply to the managed `i2pd` provider. `bootstrap_timeout` is
 expressed in seconds and must be between 30 and 600. The managed provider
 uses an isolated `i2pd.conf`, disables unrelated router services, and creates

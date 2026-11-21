@@ -22,6 +22,7 @@ import (
 	"github.com/apimgr/ipgaze/src/config"
 	"golang.org/x/crypto/argon2"
 	"golang.org/x/term"
+	"gopkg.in/yaml.v3"
 )
 
 // Backup encryption per AI.md PART 21:
@@ -226,6 +227,104 @@ func (l backupArchiveLayout) configExcludes() []string {
 	return []string{l.sslDir()}
 }
 
+func (l backupArchiveLayout) connectionTLSFiles() []string {
+	if l.includeSSL {
+		return nil
+	}
+	var candidates []string
+	_ = filepath.Walk(l.configDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil
+		}
+		if info.IsDir() {
+			if path != l.configDir && (info.Mode()&os.ModeSymlink != 0 || filepath.Clean(path) == filepath.Clean(l.sslDir())) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if info.Mode()&os.ModeSymlink != 0 || (filepath.Ext(path) != ".yml" && filepath.Ext(path) != ".yaml") {
+			return nil
+		}
+		data, readErr := os.ReadFile(path)
+		if readErr != nil {
+			return nil
+		}
+		var document yaml.Node
+		if yaml.Unmarshal(data, &document) != nil || len(document.Content) == 0 {
+			return nil
+		}
+		collectConnectionTLSPaths(document.Content[0], "", &candidates)
+		return nil
+	})
+	root, err := filepath.Abs(l.sslDir())
+	if err != nil {
+		return nil
+	}
+	root, err = filepath.EvalSymlinks(root)
+	if err != nil {
+		return nil
+	}
+	seen := make(map[string]bool)
+	files := make([]string, 0, len(candidates))
+	for _, candidate := range candidates {
+		path := candidate
+		if !filepath.IsAbs(path) {
+			path = filepath.Join(root, path)
+		}
+		path, err = filepath.Abs(path)
+		if err != nil {
+			continue
+		}
+		linkInfo, err := os.Lstat(path)
+		if err != nil || linkInfo.Mode()&os.ModeSymlink != 0 {
+			continue
+		}
+		path, err = filepath.EvalSymlinks(path)
+		if err != nil {
+			continue
+		}
+		rel, err := filepath.Rel(root, path)
+		if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || seen[path] {
+			continue
+		}
+		info, err := os.Stat(path)
+		if err != nil || !info.Mode().IsRegular() {
+			continue
+		}
+		seen[path] = true
+		files = append(files, path)
+	}
+	sort.Strings(files)
+	return files
+}
+
+func collectConnectionTLSPaths(node *yaml.Node, prefix string, paths *[]string) {
+	if node == nil {
+		return
+	}
+	if node.Kind == yaml.MappingNode {
+		for index := 0; index+1 < len(node.Content); index += 2 {
+			key, value := node.Content[index].Value, node.Content[index+1]
+			full := key
+			if prefix != "" {
+				full = prefix + "." + key
+			}
+			switch full {
+			case "server.database.ssl_ca", "server.database.ssl_cert", "server.database.ssl_key", "server.cache.tls_ca", "server.cache.tls_cert", "server.cache.tls_key":
+				if value.Kind == yaml.ScalarNode && strings.TrimSpace(value.Value) != "" {
+					*paths = append(*paths, strings.TrimSpace(value.Value))
+				}
+			default:
+				collectConnectionTLSPaths(value, full, paths)
+			}
+		}
+		return
+	}
+	for _, child := range node.Content {
+		collectConnectionTLSPaths(child, prefix, paths)
+	}
+}
+
 // dataExcludes returns subtrees of dataDir to skip when hashing/archiving it:
 // dbDir's subtree, if it happens to be nested under dataDir on this
 // platform, so the db/ archive entry is never duplicated.
@@ -300,6 +399,8 @@ func backupArchiveContents(layout backupArchiveLayout) []string {
 	}
 	if layout.includeSSL && dirExists(layout.sslDir()) {
 		contents = append(contents, "ssl/")
+	} else if len(layout.connectionTLSFiles()) > 0 {
+		contents = append(contents, "connection TLS files")
 	}
 	if layout.includeData && dirExists(layout.dataDir) {
 		contents = append(contents, "data/")
@@ -373,6 +474,28 @@ func collectBackupFiles(layout backupArchiveLayout) ([]backupFileRecord, error) 
 	}
 	if err := walk(layout.configDir, filepath.Base(layout.configDir), layout.configExcludes()...); err != nil {
 		return nil, err
+	}
+	if !layout.includeSSL {
+		for _, path := range layout.connectionTLSFiles() {
+			rel, err := filepath.Rel(layout.configDir, path)
+			if err != nil {
+				return nil, err
+			}
+			data, err := os.ReadFile(path)
+			if err != nil {
+				return nil, fmt.Errorf("read connection TLS file: %w", err)
+			}
+			info, err := os.Stat(path)
+			if err != nil {
+				return nil, fmt.Errorf("stat connection TLS file: %w", err)
+			}
+			digest := sha256.Sum256(data)
+			files = append(files, backupFileRecord{
+				Path: filepath.ToSlash(filepath.Join(filepath.Base(layout.configDir), rel)), Size: int64(len(data)),
+				ModTime: info.ModTime().UTC().Truncate(time.Second).Format(time.RFC3339Nano),
+				SHA256:  hex.EncodeToString(digest[:]), data: data,
+			})
+		}
 	}
 	if err := walk(layout.dbDir, "db"); err != nil {
 		return nil, err

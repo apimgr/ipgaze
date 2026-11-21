@@ -248,10 +248,10 @@ func TestSchema_ApiTokens_UniqueHash(t *testing.T) {
 		return err
 	}
 
-	if err := insert("hash-abc", "tok_abc"); err != nil {
+	if err := insert("hash-abc", "own_abc"); err != nil {
 		t.Fatalf("first insert: %v", err)
 	}
-	if err := insert("hash-abc", "tok_abc"); err == nil {
+	if err := insert("hash-abc", "own_abc"); err == nil {
 		t.Error("duplicate token_hash should have been rejected by UNIQUE constraint")
 	}
 }

@@ -54,7 +54,10 @@ RUN apk add --no-cache \
     curl \
     bash \
     tini \
-    tor
+    tor \
+    i2pd \
+    tzdata \
+    ca-certificates
 
 # Copy binary from builder stage
 COPY --from=builder /app/binary/ipgaze /usr/local/bin/ipgaze

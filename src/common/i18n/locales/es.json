@@ -940,6 +940,7 @@
       "ssl_renewal_failed": "Error en la renovación SSL - {app_name}",
       "update_available": "Actualización disponible - {app_name}",
       "update_installed": "Actualización instalada - {app_name}",
+      "update_failed": "Actualización fallida - {app_name}",
       "test_email": "Correo de prueba - {app_name}"
     },
     "body": {
@@ -955,6 +956,7 @@
       "ssl_renewal_failed_heading": "ERROR EN LA RENOVACIÓN SSL",
       "update_available_heading": "ACTUALIZACIÓN DISPONIBLE",
       "update_installed_heading": "ACTUALIZACIÓN INSTALADA",
+      "update_failed_heading": "ACTUALIZACIÓN FALLIDA",
       "test_heading": "CORREO DE PRUEBA",
       "label_time": "Hora:",
       "label_event": "Evento:",
@@ -982,6 +984,7 @@
       "ssl_renewal_failed_intro": "La renovación automática del certificado ha fallado.",
       "update_available_intro": "Hay una nueva versión de {app_name} disponible.",
       "update_installed_intro": "{app_name} se actualizó a una nueva versión.",
+      "update_failed_intro": "No se pudo aplicar la actualización preparada de {app_name}.",
       "test_intro": "Este es un mensaje de prueba de {app_name}.",
       "security_alert_action": "Revise su configuración de seguridad si esta actividad no era esperada.",
       "backup_completed_action": "El archivo de la copia de seguridad se guarda en el directorio configurado.",
@@ -990,8 +993,9 @@
       "ssl_expiring_action": "La renovación se intenta automáticamente. Renueve manualmente si falla.",
       "ssl_renewed_action": "No se requiere ninguna acción.",
       "ssl_renewal_failed_action": "Investigue el problema y renueve el certificado manualmente si la renovación automática sigue fallando.",
-      "update_available_action": "Consulte las notas de la versión antes de actualizar.",
+      "update_available_action": "Consulte las notas de la versión antes de actualizar. Comando manual: {command}",
       "update_installed_action": "No se requiere ninguna acción.",
+      "update_failed_action": "Revise el error e instale la actualización manualmente.",
       "test_action": "Recibir este mensaje confirma que la configuración de correo saliente es correcta."
     }
   },

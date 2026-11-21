@@ -37,6 +37,10 @@ func replaceBinary(currentPath, newBinaryPath string) error {
 	return nil
 }
 
+func createProtectedReplacementDir(string) (string, error) {
+	return "", fmt.Errorf("automatic updates are disabled on Windows")
+}
+
 // restartSelf starts a new instance of the binary and exits (Windows).
 // Windows does not support exec(2)-style replacement, so the current process
 // spawns a child and then exits.

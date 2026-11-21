@@ -23,8 +23,8 @@ import (
 
 	"github.com/apimgr/ipgaze/src/server/metrics"
 	"github.com/cretz/bine/control"
-	binetorcmd "github.com/cretz/bine/tor"
 	"github.com/pires/go-proxyproto"
+	"golang.org/x/net/proxy"
 )
 
 // TorServiceConfig holds Tor hidden service configuration per AI.md PART 31.1.
@@ -133,7 +133,6 @@ func ApplyOutboundTransport(client *http.Client) error {
 // Tor itself generates and persists the v3 key + hostname under
 // HiddenServiceDir; onionAddress is simply read from that hostname file.
 type service struct {
-	t              *binetorcmd.Tor
 	cmd            *managedTorProcess
 	ctrl           *control.Conn
 	onionAddress   string
@@ -144,7 +143,7 @@ type service struct {
 	// backendSrv serves the app's HTTP handler on backendLn, once attached
 	// via TorManager.ServeBackend.
 	backendSrv *http.Server
-	dialer     *binetorcmd.Dialer
+	dialer     proxy.ContextDialer
 }
 
 // TorManager manages the Tor hidden service via github.com/cretz/bine,
@@ -909,9 +908,7 @@ func (m *TorManager) startDedicated(ctx context.Context) (*service, error) {
 		return nil, fmt.Errorf("wait for Tor hostname: %w", err)
 	}
 
-	t := &binetorcmd.Tor{Control: ctrl}
 	svc := &service{
-		t:              t,
 		cmd:            child,
 		ctrl:           ctrl,
 		onionAddress:   onionAddress,
@@ -920,11 +917,17 @@ func (m *TorManager) startDedicated(ctx context.Context) (*service, error) {
 	}
 
 	if m.cfg.UseNetwork {
-		dialer, dialErr := t.Dialer(ctx, &binetorcmd.DialConf{SkipEnableNetwork: true})
-		if dialErr != nil {
+		socksAddr, dialErr := socksListener(ctrl)
+		if dialErr == nil {
+			var dialer proxy.Dialer
+			dialer, dialErr = proxy.SOCKS5("tcp", socksAddr, nil, proxy.Direct)
+			if contextDialer, ok := dialer.(proxy.ContextDialer); ok && dialErr == nil {
+				svc.dialer = contextDialer
+			}
+		}
+		if svc.dialer == nil {
 			log.Printf("Tor: warning: failed to create dialer: %v", dialErr)
 		} else {
-			svc.dialer = dialer
 			log.Printf("Tor outbound connections enabled")
 		}
 	}
@@ -1115,6 +1118,26 @@ func torAlreadyBootstrapped(ctrl *control.Conn) (bool, error) {
 		}
 	}
 	return false, nil
+}
+
+func socksListener(ctrl *control.Conn) (string, error) {
+	values, err := ctrl.GetInfo("net/listeners/socks")
+	if err != nil {
+		return "", err
+	}
+	for _, value := range values {
+		if value.Key != "net/listeners/socks" {
+			continue
+		}
+		for _, listener := range strings.Fields(strings.Trim(value.Val, "[]\"")) {
+			listener = strings.Trim(listener, "\", ")
+			host, port, splitErr := net.SplitHostPort(listener)
+			if splitErr == nil && net.ParseIP(host) != nil && net.ParseIP(host).IsLoopback() && port != "0" {
+				return listener, nil
+			}
+		}
+	}
+	return "", errors.New("tor did not report a loopback SOCKS listener")
 }
 
 func waitForTorEvent(ctx context.Context, ctrl *control.Conn, conn net.Conn, events <-chan control.Event, match func(control.Event) (bool, error)) error {

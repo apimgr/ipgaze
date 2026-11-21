@@ -940,6 +940,7 @@
       "ssl_renewal_failed": "SSL renewal failed - {app_name}",
       "update_available": "Update available - {app_name}",
       "update_installed": "Update installed - {app_name}",
+      "update_failed": "Update failed - {app_name}",
       "test_email": "Test email - {app_name}"
     },
     "body": {
@@ -955,6 +956,7 @@
       "ssl_renewal_failed_heading": "SSL RENEWAL FAILED",
       "update_available_heading": "UPDATE AVAILABLE",
       "update_installed_heading": "UPDATE INSTALLED",
+      "update_failed_heading": "UPDATE FAILED",
       "test_heading": "TEST EMAIL",
       "label_time": "Time:",
       "label_event": "Event:",
@@ -982,6 +984,7 @@
       "ssl_renewal_failed_intro": "Automatic renewal of the certificate failed.",
       "update_available_intro": "A new version of {app_name} is available.",
       "update_installed_intro": "{app_name} was updated to a new version.",
+      "update_failed_intro": "The staged update for {app_name} could not be applied.",
       "test_intro": "This is a test message from {app_name}.",
       "security_alert_action": "Review your security settings if this activity was unexpected.",
       "backup_completed_action": "The backup archive is stored in the configured backup directory.",
@@ -990,8 +993,9 @@
       "ssl_expiring_action": "Renewal is attempted automatically. Renew manually if renewal fails.",
       "ssl_renewed_action": "No action is required.",
       "ssl_renewal_failed_action": "Investigate and renew the certificate manually if automatic renewal keeps failing.",
-      "update_available_action": "Review the release notes before updating.",
+      "update_available_action": "Review the release notes before updating. Manual command: {command}",
       "update_installed_action": "No action is required.",
+      "update_failed_action": "Review the error and install the update manually.",
       "test_action": "Receiving this message confirms that the outgoing mail settings are correct."
     }
   },

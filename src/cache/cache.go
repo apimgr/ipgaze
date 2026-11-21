@@ -5,9 +5,13 @@ package cache
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"fmt"
 	"net"
+	"net/url"
 	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -37,22 +41,9 @@ type Cache interface {
 // ErrNotFound is returned by Get when the requested key does not exist.
 var ErrNotFound = fmt.Errorf("cache: key not found")
 
-// ApplyEnvOverrides copies CACHE_URL onto cfg in place (AI.md PART 12's
-// `url: ${CACHE_URL}` example). CACHE_URL is a Runtime variable: it always
-// wins over server.yml's `server.cache.url` when set. When cfg.Type is
-// unset, "none", or "memory", it is upgraded to "valkey" so a CACHE_URL
-// alone (e.g. the shipped docker-compose.yml valkey sidecar) is enough to
-// reach the backend without also requiring `type: valkey` in server.yml.
-func ApplyEnvOverrides(cfg *config.CacheConfig) {
-	v := os.Getenv("CACHE_URL")
-	if v == "" {
-		return
-	}
-	cfg.URL = v
-	if cfg.Type == "" || cfg.Type == "none" || cfg.Type == "memory" {
-		cfg.Type = "valkey"
-	}
-}
+// ApplyEnvOverrides is retained for compatibility. Connection environment
+// variables are consumed only during first-run config initialization.
+func ApplyEnvOverrides(_ *config.CacheConfig) {}
 
 // NewCache constructs the appropriate Cache backend from cfg.
 // Supported types: "none", "memory", "valkey", "redis", "memcache".
@@ -69,6 +60,9 @@ func NewCache(cfg config.CacheConfig) (Cache, error) {
 	case "memcache":
 		return newMemcacheCache(cfg, prefix, defaultTTL)
 	default:
+		if cfg.URL != "" {
+			return nil, fmt.Errorf("cache connection URL has an unsupported scheme; use valkey://, valkeys://, redis://, or rediss://")
+		}
 		return newMemoryCache(prefix, defaultTTL), nil
 	}
 }
@@ -242,10 +236,53 @@ func newRedisCache(cfg config.CacheConfig, prefix string, defaultTTL time.Durati
 		WriteTimeout: timeout,
 	}
 
+	urlTLS := false
+	urlSkipVerify := false
+	verifySpecified := false
 	if cfg.URL != "" {
-		parsed, err := redis.ParseURL(cfg.URL)
+		connectionURL := encodeRawUserinfo(cfg.URL)
+		if parsedURL, err := url.Parse(connectionURL); err == nil {
+			query := parsedURL.Query()
+			urlTLS = strings.EqualFold(parsedURL.Scheme, "rediss") || strings.EqualFold(parsedURL.Scheme, "valkeys")
+			for key, values := range query {
+				switch strings.ToLower(key) {
+				case "tls", "encrypt":
+					if len(values) > 0 {
+						urlTLS = strings.EqualFold(values[0], "true") || values[0] == "1"
+					}
+					delete(query, key)
+				case "sslmode":
+					if len(values) > 0 {
+						switch strings.ToLower(values[0]) {
+						case "disable":
+							urlTLS = false
+						case "require", "verify-ca", "verify-full":
+							urlTLS = true
+							verifySpecified = strings.EqualFold(values[0], "verify-ca") || strings.EqualFold(values[0], "verify-full")
+							urlSkipVerify = false
+						}
+					}
+					delete(query, key)
+				case "tls_skip_verify":
+					if len(values) > 0 {
+						verifySpecified = true
+						urlSkipVerify = strings.EqualFold(values[0], "true") || values[0] == "1"
+					}
+					delete(query, key)
+				}
+			}
+			parsedURL.RawQuery = query.Encode()
+			connectionURL = parsedURL.String()
+		}
+		switch {
+		case strings.HasPrefix(strings.ToLower(connectionURL), "valkey://"):
+			connectionURL = "redis://" + connectionURL[len("valkey://"):]
+		case strings.HasPrefix(strings.ToLower(connectionURL), "valkeys://"):
+			connectionURL = "rediss://" + connectionURL[len("valkeys://"):]
+		}
+		parsed, err := redis.ParseURL(connectionURL)
 		if err != nil {
-			return nil, fmt.Errorf("cache: parse redis URL: %w", err)
+			return nil, fmt.Errorf("cache: invalid connection URL (credentials are omitted)")
 		}
 		opts = parsed
 		// Respect pool settings from config even when URL is used.
@@ -267,16 +304,153 @@ func newRedisCache(cfg config.CacheConfig, prefix string, defaultTTL time.Durati
 		opts.Addr = net.JoinHostPort(host, fmt.Sprintf("%d", port))
 	}
 
-	if cfg.TLS {
-		tlsCfg := &tls.Config{
-			InsecureSkipVerify: cfg.TLSSkipVerify, //nolint:gosec
-			MinVersion:         tls.VersionTLS12,
+	requestedTLS := cfg.TLS || opts.TLSConfig != nil || urlTLS || cfg.TLSCA != "" || cfg.TLSCert != "" || cfg.TLSKey != ""
+	if requestedTLS {
+		tlsCfg := &tls.Config{MinVersion: tls.VersionTLS12}
+		if opts.TLSConfig != nil {
+			tlsCfg = opts.TLSConfig.Clone()
+			tlsCfg.MinVersion = tls.VersionTLS12
+		}
+		if cfg.TLS || urlTLS {
+			tlsCfg.InsecureSkipVerify = cfg.TLSSkipVerify //nolint:gosec
+			if urlTLS && !verifySpecified {
+				tlsCfg.InsecureSkipVerify = true //nolint:gosec
+			}
+			if verifySpecified {
+				tlsCfg.InsecureSkipVerify = urlSkipVerify //nolint:gosec
+			}
+		}
+		if caPath := cfg.TLSCA; caPath != "" {
+			resolved, err := resolveTLSFile(caPath)
+			if err != nil {
+				return nil, fmt.Errorf("cache: invalid tls_ca path")
+			}
+			caPEM, err := os.ReadFile(resolved)
+			if err != nil {
+				return nil, fmt.Errorf("cache: cannot read tls_ca file")
+			}
+			pool := x509.NewCertPool()
+			if !pool.AppendCertsFromPEM(caPEM) {
+				return nil, fmt.Errorf("cache: tls_ca contains no certificates")
+			}
+			tlsCfg.RootCAs = pool
+			tlsCfg.InsecureSkipVerify = false
+		}
+		if cfg.TLSCert != "" || cfg.TLSKey != "" {
+			certPath, certErr := resolveTLSFile(cfg.TLSCert)
+			keyPath, keyErr := resolveTLSFile(cfg.TLSKey)
+			if certErr != nil || keyErr != nil {
+				return nil, fmt.Errorf("cache: invalid tls_cert or tls_key path")
+			}
+			certificate, err := tls.LoadX509KeyPair(certPath, keyPath)
+			if err != nil {
+				return nil, fmt.Errorf("cache: cannot load client TLS certificate")
+			}
+			tlsCfg.Certificates = []tls.Certificate{certificate}
 		}
 		opts.TLSConfig = tlsCfg
 	}
 
 	client := redis.NewClient(opts)
 	return &redisCache{client: client, prefix: prefix, defaultTTL: defaultTTL}, nil
+}
+
+func encodeRawUserinfo(raw string) string {
+	schemeEnd := strings.Index(raw, "://")
+	if schemeEnd < 0 {
+		return raw
+	}
+	if parsed, err := url.Parse(raw); err == nil && parsed.User != nil {
+		return raw
+	}
+	authorityStart := schemeEnd + 3
+	searchFrom := authorityStart
+	for {
+		relativeAt := strings.IndexByte(raw[searchFrom:], '@')
+		if relativeAt < 0 {
+			break
+		}
+		at := searchFrom + relativeAt
+		parsed, err := url.Parse("redis://" + raw[at+1:])
+		if err != nil || parsed.Hostname() == "" || parsed.User != nil {
+			searchFrom = at + 1
+			continue
+		}
+		userinfo := raw[authorityStart:at]
+		if !strings.Contains(userinfo, ":") && strings.Contains(userinfo, "=") {
+			return raw
+		}
+		username, password, hasPassword := strings.Cut(userinfo, ":")
+		if !hasPassword {
+			password = username
+			username = ""
+		}
+		encoded := encodeURLUserinfoPart(username)
+		if hasPassword {
+			encoded += ":"
+		}
+		encoded += encodeURLUserinfoPart(password)
+		return raw[:authorityStart] + encoded + raw[at:]
+	}
+	return raw
+}
+
+func encodeURLUserinfoPart(raw string) string {
+	const hexDigits = "0123456789abcdefABCDEF"
+	var encoded strings.Builder
+	for index := 0; index < len(raw); index++ {
+		char := raw[index]
+		if isUnreservedURLByte(char) {
+			encoded.WriteByte(char)
+			continue
+		}
+		if char == '%' && index+2 < len(raw) && strings.ContainsRune(hexDigits, rune(raw[index+1])) && strings.ContainsRune(hexDigits, rune(raw[index+2])) {
+			encoded.WriteString(raw[index : index+3])
+			index += 2
+			continue
+		}
+		const hex = "0123456789ABCDEF"
+		encoded.WriteByte('%')
+		encoded.WriteByte(hex[char>>4])
+		encoded.WriteByte(hex[char&0x0f])
+	}
+	return encoded.String()
+}
+
+func isUnreservedURLByte(value byte) bool {
+	return value >= 'a' && value <= 'z' || value >= 'A' && value <= 'Z' || value >= '0' && value <= '9' || strings.ContainsRune("-._~", rune(value))
+}
+
+func resolveTLSFile(path string) (string, error) {
+	if path == "" {
+		return "", fmt.Errorf("empty TLS path")
+	}
+	sslDir := filepath.Join(config.ConfigDirectory(), "ssl")
+	resolved := path
+	if !filepath.IsAbs(resolved) {
+		resolved = filepath.Join(sslDir, resolved)
+	}
+	resolved, err := filepath.Abs(resolved)
+	if err != nil {
+		return "", err
+	}
+	root, err := filepath.Abs(sslDir)
+	if err != nil {
+		return "", err
+	}
+	resolved, err = filepath.EvalSymlinks(resolved)
+	if err != nil {
+		return "", err
+	}
+	root, err = filepath.EvalSymlinks(root)
+	if err != nil {
+		return "", err
+	}
+	rel, err := filepath.Rel(root, resolved)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("TLS file must be inside config ssl directory")
+	}
+	return resolved, nil
 }
 
 func (r *redisCache) key(k string) string { return r.prefix + k }

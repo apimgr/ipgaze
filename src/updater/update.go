@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -276,6 +277,320 @@ func DoUpdate(ctx context.Context, release *Release) (retErr error) {
 	}
 
 	return replaceBinary(currentPath, tmpPath)
+}
+
+// StageUpdate downloads a verified release into dataDir/update for the root
+// startup phase to install. The running executable is never modified here.
+func StageUpdate(ctx context.Context, release *Release, dataDir string) (string, error) {
+	assetName := getBinaryName()
+	var downloadURL string
+	for _, asset := range release.Assets {
+		if asset.Name == assetName {
+			downloadURL = asset.BrowserDownloadURL
+			break
+		}
+	}
+	if downloadURL == "" {
+		return "", fmt.Errorf("no binary asset found for %s/%s (want %q)", runtime.GOOS, runtime.GOARCH, assetName)
+	}
+	client := tor.NewHTTPClient(binaryDownloadTimeout)
+	expectedSum, err := fetchExpectedChecksum(ctx, client, release, assetName)
+	if err != nil {
+		return "", fmt.Errorf("failed to fetch checksum: %w", err)
+	}
+	tmpDir, err := paths.CreateProjectTempDir()
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = os.RemoveAll(tmpDir) }()
+	tmpBinary := filepath.Join(tmpDir, "ipgaze.new")
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, downloadURL, nil)
+	if err != nil {
+		return "", err
+	}
+	response, err := client.Do(request)
+	if err != nil {
+		return "", fmt.Errorf("download failed: %w", err)
+	}
+	defer func() { _ = response.Body.Close() }()
+	if response.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("download HTTP %d", response.StatusCode)
+	}
+	file, err := os.OpenFile(tmpBinary, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o700)
+	if err != nil {
+		return "", err
+	}
+	hash := sha256.New()
+	_, copyErr := io.Copy(io.MultiWriter(file, hash), response.Body)
+	closeErr := file.Close()
+	if copyErr != nil || closeErr != nil {
+		return "", errors.Join(copyErr, closeErr)
+	}
+	actualSum := hex.EncodeToString(hash.Sum(nil))
+	if actualSum != expectedSum {
+		return "", fmt.Errorf("checksum mismatch: expected %s got %s", expectedSum, actualSum)
+	}
+	if runtime.GOOS != "windows" {
+		if err := os.Chmod(tmpBinary, 0o755); err != nil {
+			return "", err
+		}
+	}
+	updateDir := filepath.Join(dataDir, "update")
+	if info, err := os.Lstat(updateDir); err == nil {
+		if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+			return "", errors.New("update staging path is not a directory")
+		}
+		if err := os.RemoveAll(updateDir); err != nil {
+			return "", err
+		}
+	} else if !os.IsNotExist(err) {
+		return "", err
+	}
+	if err := os.MkdirAll(updateDir, 0o700); err != nil {
+		return "", err
+	}
+	for name, contents := range map[string][]byte{
+		"ipgaze.sha256":  []byte(actualSum + "\n"),
+		"ipgaze.version": []byte(strings.TrimPrefix(release.TagName, "v") + "\n" + release.PublishedAt + "\n"),
+	} {
+		if err := os.WriteFile(filepath.Join(updateDir, name), contents, 0o600); err != nil {
+			_ = os.RemoveAll(updateDir)
+			return "", err
+		}
+	}
+	if err := os.Rename(tmpBinary, filepath.Join(updateDir, "ipgaze.new")); err != nil {
+		_ = os.RemoveAll(updateDir)
+		return "", err
+	}
+	return strings.TrimPrefix(release.TagName, "v"), nil
+}
+
+// ApplyStagedUpdate verifies and installs a staged update. It returns false
+// when no staged binary exists. On success it re-executes the new program.
+func ApplyStagedUpdate(dataDir, currentVersion string, currentBuildEpoch int64) (bool, error) {
+	updateDir := filepath.Join(dataDir, "update")
+	if _, err := os.Lstat(filepath.Join(updateDir, "ipgaze.new")); os.IsNotExist(err) {
+		return false, nil
+	} else if err != nil {
+		return false, err
+	}
+	stagedVersion := StagedVersion(dataDir)
+	_, err := verifyStagedUpdate(dataDir, currentVersion, currentBuildEpoch)
+	if err != nil {
+		return false, err
+	}
+	if stagedVersion == "" || stagedVersion != StagedVersion(dataDir) {
+		return false, errors.New("staged update version changed during verification")
+	}
+	currentPath, err := os.Executable()
+	if err != nil {
+		return false, err
+	}
+	currentPath, err = filepath.EvalSymlinks(currentPath)
+	if err != nil {
+		return false, err
+	}
+	replacementDir, err := createProtectedReplacementDir(currentPath)
+	if err != nil {
+		return false, err
+	}
+	defer func() { _ = os.RemoveAll(replacementDir) }()
+	verifiedBinary, err := copyTrustedStagedBinary(dataDir, stagedVersion, currentVersion, currentBuildEpoch, replacementDir)
+	if err != nil {
+		return false, err
+	}
+	if err := replaceBinary(currentPath, verifiedBinary); err != nil {
+		return false, err
+	}
+	if err := os.RemoveAll(updateDir); err != nil {
+		return false, err
+	}
+	return true, restartSelf()
+}
+
+// copyTrustedStagedBinary copies staged bytes into an owner-only temp directory
+// and validates that exact copy against the checksum published by GitHub.
+func copyTrustedStagedBinary(dataDir, version, currentVersion string, currentBuildEpoch int64, replacementDir string) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), apiRequestTimeout*2)
+	defer cancel()
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, githubReleasesAll, nil)
+	if err != nil {
+		return "", errors.New("cannot verify staged update against published release")
+	}
+	request.Header.Set("Accept", "application/vnd.github.v3+json")
+	client := tor.NewHTTPClient(apiRequestTimeout)
+	response, err := client.Do(request)
+	if err != nil {
+		return "", errors.New("cannot verify staged update against published release")
+	}
+	defer func() { _ = response.Body.Close() }()
+	if response.StatusCode != http.StatusOK {
+		return "", errors.New("cannot verify staged update against published release")
+	}
+	var releases []Release
+	if err := json.NewDecoder(io.LimitReader(response.Body, 4<<20)).Decode(&releases); err != nil {
+		return "", errors.New("cannot verify staged update against published release")
+	}
+	var release *Release
+	for i := range releases {
+		if strings.TrimPrefix(releases[i].TagName, "v") == strings.TrimPrefix(version, "v") {
+			release = &releases[i]
+			break
+		}
+	}
+	if release == nil {
+		return "", errors.New("staged update version is not a published release")
+	}
+	if !isNewerVersion(version, currentVersion, []string{version, release.PublishedAt}, currentBuildEpoch) {
+		return "", errors.New("staged update version is not newer than the running version")
+	}
+	expected, err := fetchExpectedChecksum(ctx, client, release, getBinaryName())
+	if err != nil {
+		return "", errors.New("cannot verify staged update against published release checksum")
+	}
+	source, err := os.Open(filepath.Join(dataDir, "update", "ipgaze.new"))
+	if err != nil {
+		return "", errors.New("cannot read staged update binary")
+	}
+	defer func() { _ = source.Close() }()
+	destinationPath := filepath.Join(replacementDir, "ipgaze.verified")
+	destination, err := os.OpenFile(destinationPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o700)
+	if err != nil {
+		return "", errors.New("cannot create protected update copy")
+	}
+	hash := sha256.New()
+	_, copyErr := io.Copy(io.MultiWriter(destination, hash), source)
+	closeErr := destination.Close()
+	if err := errors.Join(copyErr, closeErr); err != nil {
+		_ = os.Remove(destinationPath)
+		return "", errors.New("cannot copy staged update binary")
+	}
+	actual := hash.Sum(nil)
+	if !strings.EqualFold(expected, hex.EncodeToString(actual[:])) {
+		_ = os.Remove(destinationPath)
+		return "", errors.New("staged update does not match the published release checksum")
+	}
+	return destinationPath, nil
+}
+
+// StagedVersion returns the staged release version when its metadata is a
+// regular file; an empty string means no trustworthy version is available.
+func StagedVersion(dataDir string) string {
+	path := filepath.Join(dataDir, "update", "ipgaze.version")
+	info, err := os.Lstat(path)
+	if err != nil || !info.Mode().IsRegular() {
+		return ""
+	}
+	contents, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	lines := strings.SplitN(strings.TrimSpace(string(contents)), "\n", 2)
+	return strings.TrimSpace(lines[0])
+}
+
+func verifyStagedUpdate(dataDir, currentVersion string, currentBuildEpoch int64) (string, error) {
+	updateDir := filepath.Join(dataDir, "update")
+	newBinary := filepath.Join(updateDir, "ipgaze.new")
+	info, err := os.Lstat(updateDir)
+	if err != nil {
+		return "", err
+	}
+	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return "", errors.New("staged update path is not a directory")
+	}
+	for _, name := range []string{"ipgaze.new", "ipgaze.version", "ipgaze.sha256"} {
+		fileInfo, statErr := os.Lstat(filepath.Join(updateDir, name))
+		if statErr != nil {
+			return "", statErr
+		}
+		if !fileInfo.Mode().IsRegular() {
+			return "", fmt.Errorf("staged update file %s is not regular", name)
+		}
+	}
+	versionBytes, err := os.ReadFile(filepath.Join(updateDir, "ipgaze.version"))
+	if err != nil {
+		return "", err
+	}
+	versionLines := strings.SplitN(strings.TrimSpace(string(versionBytes)), "\n", 2)
+	version := strings.TrimSpace(versionLines[0])
+	if version == "" || !isNewerVersion(version, currentVersion, versionLines, currentBuildEpoch) {
+		return "", fmt.Errorf("staged version %q is not newer than %q", version, currentVersion)
+	}
+	expectedBytes, err := os.ReadFile(filepath.Join(updateDir, "ipgaze.sha256"))
+	if err != nil {
+		return "", err
+	}
+	expected := strings.TrimSpace(string(expectedBytes))
+	contents, err := os.ReadFile(newBinary)
+	if err != nil {
+		return "", err
+	}
+	actual := sha256.Sum256(contents)
+	if !strings.EqualFold(expected, hex.EncodeToString(actual[:])) {
+		return "", errors.New("staged update checksum mismatch")
+	}
+	return newBinary, nil
+}
+
+func isNewerVersion(candidate, current string, versionLines []string, currentBuildEpoch int64) bool {
+	candidate = strings.TrimPrefix(candidate, "v")
+	current = strings.TrimPrefix(current, "v")
+	if current == "devel" {
+		if candidate != "devel" || len(versionLines) != 2 || currentBuildEpoch <= 0 {
+			return false
+		}
+		published, err := time.Parse(time.RFC3339, strings.TrimSpace(versionLines[1]))
+		return err == nil && published.Unix() > currentBuildEpoch
+	}
+	candidate, _, _ = strings.Cut(candidate, "+")
+	current, _, _ = strings.Cut(current, "+")
+	candidateCore, candidatePre, _ := strings.Cut(candidate, "-")
+	currentCore, currentPre, _ := strings.Cut(current, "-")
+	candidateParts := strings.Split(candidateCore, ".")
+	currentParts := strings.Split(currentCore, ".")
+	if len(candidateParts) != 3 || len(currentParts) != 3 {
+		return false
+	}
+	for index := range candidateParts {
+		candidatePart, candidateErr := strconv.ParseUint(candidateParts[index], 10, 64)
+		currentPart, currentErr := strconv.ParseUint(currentParts[index], 10, 64)
+		if candidateErr != nil || currentErr != nil {
+			return false
+		}
+		if candidatePart != currentPart {
+			return candidatePart > currentPart
+		}
+	}
+	if currentPre == "" {
+		return false
+	}
+	if candidatePre == "" {
+		return true
+	}
+	if candidatePre == currentPre {
+		return false
+	}
+	candidateIDs := strings.Split(candidatePre, ".")
+	currentIDs := strings.Split(currentPre, ".")
+	for index := 0; index < len(candidateIDs) && index < len(currentIDs); index++ {
+		candidateID, currentID := candidateIDs[index], currentIDs[index]
+		candidateNumber, candidateErr := strconv.ParseUint(candidateID, 10, 64)
+		currentNumber, currentErr := strconv.ParseUint(currentID, 10, 64)
+		switch {
+		case candidateErr == nil && currentErr == nil:
+			if candidateNumber != currentNumber {
+				return candidateNumber > currentNumber
+			}
+		case candidateErr == nil:
+			return false
+		case currentErr == nil:
+			return true
+		case candidateID != currentID:
+			return candidateID > currentID
+		}
+	}
+	return len(candidateIDs) > len(currentIDs)
 }
 
 // getBinaryName returns the expected release asset name for the current platform.

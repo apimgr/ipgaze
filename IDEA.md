@@ -49,7 +49,7 @@ repository:        https://github.com/apimgr/ipgaze
 - Stateless Streamable HTTP MCP endpoint that exposes the registered public versioned API operations as tools. Example user prompts: “What is my public IP address?”, “Look up 8.8.8.8 and summarize its GeoIP data”, and “Which ASN announces 1.1.1.1?” MCP clients use anonymous public access; results depend on configured GeoIP databases. The endpoint is POST-only, sessionless, rate-limited, audited, and validates `Origin`.
 - CLI client binary (`ipgaze-cli`) for querying any ipgaze-compatible server with token-based auth
 - Tor hidden service (auto-enabled when Tor binary is present) with optional server-originated outbound Tor routing
-- I2P eepsite (opt-in via `server.i2p.enabled`; i2pd process preferred, external SAM bridge as fallback)
+- I2P eepsite (enabled by default in containers and opt-in elsewhere; i2pd process preferred, external SAM bridge as fallback)
 - HOST_IPV4 / HOST_IPV6 env vars: container deployments supply the host's public IPv4/IPv6 for web UI curl examples; invalid values are silently ignored; unset = normal detection
 
 **Non-goals:**
@@ -163,7 +163,7 @@ ipgaze enhancements on top of the echoip-compatible surface:
 - Standard pages: security.txt, robots.txt, privacy, terms, contact
 - Public contact-form metadata and safe operator-token validation for CLI/GUI server setup
 - Contact submissions enforce documented per-field input limits
-- Public abuse, DMCA, privacy, and security reporting with two-step review and confirmation, markup and link filtering, duplicate suppression, strike-based temporary bans, CAPTCHA, single-use signed form timing, honeypot, IP/email/global rate limits, encrypted security reports, private status tracking, and researcher acknowledgments
+- Public abuse, DMCA, privacy, and security reporting through a type chooser and type-specific forms, with two-step review and confirmation, markup and link filtering, duplicate suppression, strike-based temporary bans, CAPTCHA, single-use signed form timing, honeypot, IP/email/global rate limits, encrypted security reports, private status tracking, and researcher acknowledgments
 - Public DPO contact page/API and consent-gated, same-origin analytics loading
 
 ---

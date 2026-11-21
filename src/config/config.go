@@ -21,6 +21,7 @@ import (
 
 	"github.com/apimgr/ipgaze/src/common/i18n"
 	"github.com/apimgr/ipgaze/src/common/updatechannel"
+	"github.com/apimgr/ipgaze/src/paths"
 	"github.com/apimgr/ipgaze/src/security/cryptoutil"
 	"github.com/google/uuid"
 	"gopkg.in/yaml.v3"
@@ -965,9 +966,12 @@ type CacheConfig struct {
 	Username string `yaml:"username"`
 	Password string `yaml:"password"`
 	DB       int    `yaml:"db"`
-	// TLS enables encrypted connections; TLSSkipVerify disables cert verification.
-	TLS           bool `yaml:"tls"`
-	TLSSkipVerify bool `yaml:"tls_skip_verify"`
+	// TLS enables encrypted connections; TLSSkipVerify skips peer verification.
+	TLS           bool   `yaml:"tls"`
+	TLSSkipVerify bool   `yaml:"tls_skip_verify"`
+	TLSCA         string `yaml:"tls_ca"`
+	TLSCert       string `yaml:"tls_cert"`
+	TLSKey        string `yaml:"tls_key"`
 	// PoolSize and MinIdle control the connection pool.
 	PoolSize int `yaml:"pool_size"`
 	MinIdle  int `yaml:"min_idle"`
@@ -1326,8 +1330,7 @@ type TorConfig struct {
 }
 
 // I2PConfig contains I2P eepsite configuration per AI.md PART 31.2.
-// OPT-IN: unlike Tor (auto-enabled when the binary is found), the eepsite
-// is created only when Enabled is true.
+// The eepsite is enabled by default in containers and opt-in elsewhere.
 type I2PConfig struct {
 	// Enabled opts into the I2P eepsite. Default false.
 	Enabled bool `yaml:"enabled"`
@@ -1367,11 +1370,14 @@ type DatabaseConfig struct {
 	// Driver selects the database backend.
 	// Accepted values: "sqlite", "sqlite2", "sqlite3" → sqlite; "libsql", "turso" → libsql.
 	Driver string `yaml:"driver"`
-	// URL is only used when driver is libsql/turso.
+	// URL is the complete connection string; credentials are stored in secrets.yml.
 	// Formats: libsql://your-db.turso.io?authToken=xxx  OR  https://your-db.turso.io
-	URL string `yaml:"url"`
-	// Token is the Turso auth token when URL does not embed authToken.
-	// Never stored in the DB — stays in server.yml only.
+	URL     string `yaml:"url"`
+	SSLCA   string `yaml:"ssl_ca"`
+	SSLCert string `yaml:"ssl_cert"`
+	SSLKey  string `yaml:"ssl_key"`
+	// Token is the libsql auth token when URL does not embed authToken.
+	// It is stored in secrets.yml.
 	Token string `yaml:"token"`
 	// Pool holds the connection pool settings applied by src/db.
 	Pool DatabasePoolConfig `yaml:"pool"`
@@ -1379,6 +1385,34 @@ type DatabaseConfig struct {
 	// string, that triggers a slow-query warning log. Applies regardless of
 	// debug.log_queries. Empty or unparseable falls back to 1s.
 	SlowQueryThreshold string `yaml:"slow_query_threshold"`
+}
+
+func resolveDatabaseDriverFromURL(cfg *AppConfig, root *yaml.Node) {
+	connection := strings.TrimSpace(cfg.Server.Database.URL)
+	if connection == "" {
+		return
+	}
+	selected := "sqlite"
+	if strings.Contains(connection, "://") {
+		scheme := strings.ToLower(strings.SplitN(connection, "://", 2)[0])
+		switch scheme {
+		case "libsql", "turso", "http", "https":
+			selected = "libsql"
+		case "file", "sqlite":
+			selected = "sqlite"
+		default:
+			selected = scheme
+		}
+	} else if strings.HasPrefix(strings.ToLower(connection), "file:") {
+		selected = "sqlite"
+	} else if strings.Contains(connection, "=") || strings.Contains(connection, ";") {
+		selected = "invalid-url"
+	}
+	driverNode := findConfigNode(root, "server.database.driver")
+	if driverNode != nil && cfg.Server.Database.NormalizedDriver() != selected {
+		slog.Warn("server.database.url scheme overrides server.database.driver")
+	}
+	cfg.Server.Database.Driver = selected
 }
 
 // ResolvedSlowQueryThreshold parses SlowQueryThreshold, falling back to the
@@ -2177,8 +2211,7 @@ func DefaultConfig() *AppConfig {
 				VirtualPort:               80,
 			},
 			I2P: I2PConfig{
-				// OPT-IN: default off, unlike Tor (auto-enabled).
-				Enabled:          false,
+				Enabled:          paths.IsRunningInContainer(),
 				SAMAddress:       "127.0.0.1:7656",
 				VirtualPort:      80,
 				InboundLength:    3,
@@ -2300,14 +2333,15 @@ func DefaultConfig() *AppConfig {
 				},
 			},
 			Cache: CacheConfig{
-				Type:     "memory",
-				Host:     "localhost",
-				Port:     6379,
-				PoolSize: 10,
-				MinIdle:  2,
-				Timeout:  "5s",
-				Prefix:   "ipgaze:",
-				TTL:      "1h",
+				Type:          "memory",
+				TLSSkipVerify: true,
+				Host:          "localhost",
+				Port:          6379,
+				PoolSize:      10,
+				MinIdle:       2,
+				Timeout:       "5s",
+				Prefix:        "ipgaze:",
+				TTL:           "1h",
 			},
 			SSL: SSLConfig{
 				Enabled:     false,
@@ -2512,6 +2546,7 @@ func LoadConfigFromFile(path string) (*AppConfig, error) {
 
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		cfg := DefaultConfig()
+		seedConnectionEnvironment(cfg)
 		// APPLICATION_NAME/APPLICATION_TAGLINE/PORT/LISTEN are Init-Only env vars
 		// (PART 5): they seed server.yml on first run only and are never
 		// re-read afterward — once persisted here, only the file (or an
@@ -2542,6 +2577,7 @@ func LoadConfigFromFile(path string) (*AppConfig, error) {
 			return nil, fmt.Errorf("failed to read created config file: %w", err)
 		}
 		data = migrateLegacyKeys(path, data)
+		data = migrateConfiguredSecrets(path, data)
 		data = migrateConfigAreas(path, data)
 		cfg, err = parseMergedConfig(path, data)
 		if err != nil {
@@ -2560,7 +2596,6 @@ func LoadConfigFromFile(path string) (*AppConfig, error) {
 			return nil, configValidationError(path, err)
 		}
 		validateConfig(cfg)
-		applyRuntimeDatabaseEnv(cfg)
 		current = cfg
 		return cfg, nil
 	}
@@ -2595,7 +2630,7 @@ func LoadConfigFromFile(path string) (*AppConfig, error) {
 	}
 
 	validateConfig(cfg)
-	applyRuntimeDatabaseEnv(cfg)
+	warnIgnoredConnectionEnvironment(cfg)
 	current = cfg
 	return cfg, nil
 }
@@ -2744,15 +2779,44 @@ func syncDirectory(path string) error {
 	return directory.Sync()
 }
 
-// applyRuntimeDatabaseEnv re-checks the DATABASE_DRIVER/DATABASE_URL Runtime
-// env vars (PART 12) on every start, overriding the persisted server.yml
-// values in memory only — never written back to disk.
-func applyRuntimeDatabaseEnv(cfg *AppConfig) {
-	if envDriver := os.Getenv("DATABASE_DRIVER"); envDriver != "" {
-		cfg.Server.Database.Driver = envDriver
+func seedConnectionEnvironment(cfg *AppConfig) {
+	if databaseURL := strings.TrimSpace(os.Getenv("DATABASE_URL")); databaseURL != "" {
+		cfg.Server.Database.URL = databaseURL
+		scheme := strings.ToLower(strings.SplitN(databaseURL, ":", 2)[0])
+		switch scheme {
+		case "libsql", "https", "http":
+			cfg.Server.Database.Driver = "libsql"
+		case "sqlite", "file":
+			cfg.Server.Database.Driver = "sqlite"
+		default:
+			if driver := strings.TrimSpace(os.Getenv("DATABASE_DRIVER")); driver != "" {
+				cfg.Server.Database.Driver = driver
+			}
+		}
+	} else if driver := strings.TrimSpace(os.Getenv("DATABASE_DRIVER")); driver != "" {
+		cfg.Server.Database.Driver = driver
 	}
-	if envURL := os.Getenv("DATABASE_URL"); envURL != "" {
-		cfg.Server.Database.URL = envURL
+	if cacheURL := strings.TrimSpace(os.Getenv("CACHE_URL")); cacheURL != "" {
+		cfg.Server.Cache.URL = cacheURL
+		scheme := strings.ToLower(strings.SplitN(cacheURL, ":", 2)[0])
+		switch scheme {
+		case "redis", "rediss":
+			cfg.Server.Cache.Type = "redis"
+		case "valkey", "valkeys":
+			cfg.Server.Cache.Type = "valkey"
+		}
+	}
+}
+
+func warnIgnoredConnectionEnvironment(cfg *AppConfig) {
+	if value := os.Getenv("DATABASE_URL"); value != "" && value != cfg.Server.Database.URL {
+		slog.Warn("DATABASE_URL differs from the saved connection and is ignored; update server.database.url to change it")
+	}
+	if value := os.Getenv("CACHE_URL"); value != "" && value != cfg.Server.Cache.URL {
+		slog.Warn("CACHE_URL differs from the saved connection and is ignored; update server.cache.url to change it")
+	}
+	if value := os.Getenv("DATABASE_DRIVER"); value != "" && value != cfg.Server.Database.Driver {
+		slog.Warn("DATABASE_DRIVER differs from the saved connection and is ignored; update server.database.driver to change it")
 	}
 }
 
@@ -3205,6 +3269,9 @@ func saveConfig(cfg *AppConfig, path string) error {
 	if _, err := normalizeDNSCredentials(cfg); err != nil {
 		return err
 	}
+	if err := persistConnectionURLSecrets(cfg, path); err != nil {
+		return fmt.Errorf("persist connection credentials: %w", err)
+	}
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("failed to create config directory: %w", err)
@@ -3482,6 +3549,143 @@ func isSecretConfigKey(path string) bool {
 	return strings.Contains(path, ".providers.") && (strings.HasSuffix(path, ".bind_password") || strings.HasSuffix(path, ".client_secret"))
 }
 
+func isSecretConfigValue(path string, value *yaml.Node) bool {
+	if isSecretConfigKey(path) {
+		return true
+	}
+	if path != "server.database.url" && path != "server.cache.url" {
+		return false
+	}
+	return connectionURLHasCredential(path, value.Value)
+}
+
+func connectionURLHasCredential(path, raw string) bool {
+	if raw == "" {
+		return false
+	}
+	if parsed, err := url.Parse(raw); err == nil {
+		if parsed.User != nil {
+			if password, ok := parsed.User.Password(); ok && password != "" {
+				return true
+			}
+			if parsed.User.Username() != "" {
+				return true
+			}
+		}
+		for key, values := range parsed.Query() {
+			switch strings.ToLower(key) {
+			case "password", "pwd", "token", "authtoken":
+				for _, value := range values {
+					if value != "" {
+						return true
+					}
+				}
+			}
+		}
+		return false
+	}
+	// Malformed URLs still need secret placement when their raw form contains
+	// a password-shaped userinfo or a credential query parameter.
+	if schemeEnd := strings.Index(raw, "://"); schemeEnd >= 0 {
+		rest := raw[schemeEnd+3:]
+		if at := strings.LastIndex(rest, "@"); at >= 0 {
+			userinfo := rest[:at]
+			if colon := strings.IndexByte(userinfo, ':'); colon >= 0 && colon+1 < len(userinfo) || colon < 0 && userinfo != "" {
+				return true
+			}
+		}
+	}
+	if queryStart := strings.IndexByte(raw, '?'); queryStart >= 0 {
+		for _, part := range strings.Split(raw[queryStart+1:], "&") {
+			key, value, _ := strings.Cut(part, "=")
+			switch strings.ToLower(key) {
+			case "password", "pwd", "token", "authtoken":
+				if value != "" {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+func RedactConnectionURL(raw string) string {
+	if raw == "" {
+		return ""
+	}
+	if parsed, err := url.Parse(raw); err == nil {
+		if parsed.User != nil {
+			username := parsed.User.Username()
+			parsed.User = url.UserPassword(username, "********")
+		}
+		query := parsed.Query()
+		for key := range query {
+			switch strings.ToLower(key) {
+			case "password", "pwd", "token", "authtoken":
+				query[key] = []string{"********"}
+			}
+		}
+		parsed.RawQuery = query.Encode()
+		return parsed.String()
+	}
+	return "********"
+}
+
+func persistConnectionURLSecrets(cfg *AppConfig, configFile string) error {
+	secretPath := filepath.Join(filepath.Dir(configFile), "secrets.yml")
+	doc := &yaml.Node{Kind: yaml.DocumentNode, Content: []*yaml.Node{{Kind: yaml.MappingNode, Tag: "!!map"}}}
+	if content, err := os.ReadFile(secretPath); err == nil {
+		if err := yaml.Unmarshal(content, doc); err != nil {
+			return fmt.Errorf("parse existing secrets file: %w", err)
+		}
+		if len(doc.Content) == 0 || doc.Content[0].Kind != yaml.MappingNode {
+			return fmt.Errorf("existing secrets file root must be a mapping")
+		}
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+	root := doc.Content[0]
+	connections := []struct{ path, value string }{
+		{"server.database.url", cfg.Server.Database.URL},
+		{"server.cache.url", cfg.Server.Cache.URL},
+	}
+	changed := false
+	for _, connection := range connections {
+		if connectionURLHasCredential(connection.path, connection.value) {
+			setConfigNode(root, connection.path, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: connection.value})
+			changed = true
+		} else if removeConfigNode(root, connection.path) {
+			changed = true
+		}
+	}
+	if !changed {
+		return nil
+	}
+	content, err := yaml.Marshal(doc)
+	if err != nil {
+		return err
+	}
+	return atomicPrivateWrite(secretPath, content)
+}
+
+func removeConfigNode(root *yaml.Node, path string) bool {
+	parts := strings.Split(path, ".")
+	parent := root
+	for _, part := range parts[:len(parts)-1] {
+		parent = findConfigNode(parent, part)
+		if parent == nil {
+			return false
+		}
+	}
+	for index := 0; index+1 < len(parent.Content); index += 2 {
+		if parent.Content[index].Value == parts[len(parts)-1] {
+			parent.Content = append(parent.Content[:index], parent.Content[index+2:]...)
+			return true
+		}
+	}
+	return false
+}
+
 func stripSecretConfigNodes(node *yaml.Node, prefix string) {
 	if node.Kind == yaml.MappingNode {
 		for index := 0; index+1 < len(node.Content); {
@@ -3490,7 +3694,7 @@ func stripSecretConfigNodes(node *yaml.Node, prefix string) {
 			if prefix != "" {
 				full = prefix + "." + full
 			}
-			if isSecretConfigKey(full) {
+			if isSecretConfigValue(full, value) {
 				node.Content = append(node.Content[:index], node.Content[index+2:]...)
 				continue
 			}
@@ -3522,7 +3726,13 @@ func restorePrimarySecretConfigNodes(target, source *yaml.Node, prefix string) {
 					break
 				}
 			}
-			if isSecretConfigKey(full) {
+			if isSecretConfigValue(full, value) {
+				if full == "server.database.url" || full == "server.cache.url" {
+					if destinationIndex >= 0 {
+						target.Content = append(target.Content[:destinationIndex-1], target.Content[destinationIndex+1:]...)
+					}
+					continue
+				}
 				if destinationIndex < 0 {
 					target.Content = append(target.Content, key, value)
 				} else {
@@ -3855,6 +4065,9 @@ server:
     driver: "%s"
     url: "%s"
     token: "%s"
+    ssl_ca: "%s"
+    ssl_cert: "%s"
+    ssl_key: "%s"
     # Connection pool (libsql/remote mainly; SQLite uses a single writer)
     pool:
       max_open: %d
@@ -4078,6 +4291,9 @@ server:
     db: %d
     tls: %t
     tls_skip_verify: %t
+    tls_ca: "%s"
+    tls_cert: "%s"
+    tls_key: "%s"
     pool_size: %d
     min_idle: %d
     timeout: "%s"
@@ -4376,6 +4592,9 @@ pages:
 		cfg.Server.Database.Driver,
 		cfg.Server.Database.URL,
 		cfg.Server.Database.Token,
+		cfg.Server.Database.SSLCA,
+		cfg.Server.Database.SSLCert,
+		cfg.Server.Database.SSLKey,
 		cfg.Server.Database.Pool.MaxOpen,
 		cfg.Server.Database.Pool.MaxIdle,
 		cfg.Server.Database.Pool.MaxLifetime,
@@ -4529,6 +4748,9 @@ pages:
 		cfg.Server.Cache.DB,
 		cfg.Server.Cache.TLS,
 		cfg.Server.Cache.TLSSkipVerify,
+		cfg.Server.Cache.TLSCA,
+		cfg.Server.Cache.TLSCert,
+		cfg.Server.Cache.TLSKey,
 		cfg.Server.Cache.PoolSize,
 		cfg.Server.Cache.MinIdle,
 		cfg.Server.Cache.Timeout,
@@ -4932,6 +5154,15 @@ func (c *AppConfig) Sanitized() AppConfig {
 	}
 	if sanitized.Server.Database.Token != "" {
 		sanitized.Server.Database.Token = "xxxxx"
+	}
+	if sanitized.Server.Database.URL != "" {
+		sanitized.Server.Database.URL = RedactConnectionURL(sanitized.Server.Database.URL)
+	}
+	if sanitized.Server.Cache.Password != "" {
+		sanitized.Server.Cache.Password = "xxxxx"
+	}
+	if sanitized.Server.Cache.URL != "" {
+		sanitized.Server.Cache.URL = RedactConnectionURL(sanitized.Server.Cache.URL)
 	}
 	if sanitized.Server.Security.EncryptionKey != "" {
 		sanitized.Server.Security.EncryptionKey = "xxxxx"

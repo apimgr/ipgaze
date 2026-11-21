@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"log/slog"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -411,7 +412,7 @@ func validateSecretKeys(node *yaml.Node, prefix, path string) error {
 			"server.pages.contact.captcha_secret_key": true, "server.ssl.letsencrypt.dns_credentials": true,
 			"data.cve.api_key": true, "server.backup.encryption_password": true,
 		}
-		secret := allowed[full] || isSecretConfigKey(full) || strings.HasPrefix(full, "server.ssl.letsencrypt.dns_credentials.") || strings.HasPrefix(full, "server.metrics.auth.tokens.") ||
+		secret := allowed[full] || isSecretConfigValue(full, value) || strings.HasPrefix(full, "server.ssl.letsencrypt.dns_credentials.") || strings.HasPrefix(full, "server.metrics.auth.tokens.") ||
 			strings.Contains(full, ".webhooks.") && (strings.HasSuffix(full, "_secret") || strings.HasSuffix(full, "telegram") || strings.HasSuffix(full, "discord") || strings.HasSuffix(full, "slack") || strings.HasSuffix(full, "mattermost") || strings.HasSuffix(full, "pushover") || strings.HasSuffix(full, "gotify") || strings.HasSuffix(full, "generic")) ||
 			strings.Contains(full, ".providers.") && (strings.HasSuffix(full, ".bind_password") || strings.HasSuffix(full, ".client_secret"))
 		if !secret {
@@ -448,7 +449,36 @@ func parseMergedConfig(path string, data []byte) (*AppConfig, error) {
 		}
 		return nil, fmt.Errorf("%s: parse merged configuration: %w", path, err)
 	}
+	var mergedDoc yaml.Node
+	if err := yaml.Unmarshal(merged, &mergedDoc); err == nil && len(mergedDoc.Content) > 0 {
+		resolveDatabaseDriverFromURL(cfg, mergedDoc.Content[0])
+		resolveCacheTypeFromURL(cfg, mergedDoc.Content[0])
+	}
 	return cfg, nil
+}
+
+func resolveCacheTypeFromURL(cfg *AppConfig, root *yaml.Node) {
+	connection := strings.TrimSpace(cfg.Server.Cache.URL)
+	if connection == "" {
+		return
+	}
+	parsed, err := url.Parse(connection)
+	selected := "invalid-url"
+	if err == nil {
+		switch strings.ToLower(parsed.Scheme) {
+		case "valkey", "valkeys":
+			selected = "valkey"
+		case "redis", "rediss":
+			selected = "redis"
+		default:
+			selected = strings.ToLower(parsed.Scheme)
+		}
+	}
+	typeNode := findConfigNode(root, "server.cache.type")
+	if typeNode != nil && strings.ToLower(cfg.Server.Cache.Type) != selected {
+		slog.Warn("server.cache.url scheme overrides server.cache.type")
+	}
+	cfg.Server.Cache.Type = selected
 }
 
 func configValidationError(path string, validationErr error) error {

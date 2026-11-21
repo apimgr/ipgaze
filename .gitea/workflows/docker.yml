@@ -122,7 +122,7 @@ jobs:
 
   build-devel:
     runs-on: ubuntu-latest
-    if: gitea.event_name == 'schedule' || gitea.event_name == 'workflow_dispatch' || (gitea.event_name == 'push' && !startsWith(gitea.ref, 'refs/tags/'))
+    if: gitea.event_name == 'schedule' || (gitea.event_name == 'push' && (gitea.ref == 'refs/heads/main' || gitea.ref == 'refs/heads/master')) || (gitea.event_name == 'workflow_dispatch' && (gitea.ref == 'refs/heads/main' || gitea.ref == 'refs/heads/master'))
     permissions:
       contents: read
       packages: write

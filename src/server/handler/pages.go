@@ -190,6 +190,7 @@ type PageData struct {
 	ContactFormToken         string
 	ContactForm              ContactRequest
 	ContactTypes             []string
+	ContactChooser           bool
 	ContactReview            bool
 	ContactReviewToken       string
 	ContactReviewAfter       int
@@ -1190,6 +1191,11 @@ func (h *PagesHandler) ServerContactHandler(w http.ResponseWriter, r *http.Reque
 			return
 		}
 		req := contactRequestFromForm(r, h.contactCaptchaProvider(r))
+		if !validContactFieldsForType(r.Form, req.Type, req.Step) {
+			h.logContactBlock(r, "shape")
+			h.renderContactError(w, r, http.StatusBadRequest)
+			return
+		}
 		result := h.processContactStep(r, req)
 		if result.Status == http.StatusTooManyRequests {
 			w.Header().Set("Retry-After", result.Message)
@@ -1213,11 +1219,24 @@ func (h *PagesHandler) ServerContactHandler(w http.ResponseWriter, r *http.Reque
 	if data.SecurityReportMode {
 		data.ContactTypes = append(data.ContactTypes, "security")
 	}
-	provider, question, captchaToken := h.newContactCaptcha(r, time.Now())
-	contactType := "abuse"
-	if data.SecurityReportMode {
-		contactType = "security"
+	contactType := strings.TrimSpace(r.URL.Query().Get("type"))
+	validContactType := false
+	switch contactType {
+	case "abuse", "dmca", "privacy":
+		validContactType = true
+	case "security":
+		validContactType = data.SecurityReportMode
 	}
+	if !validContactType {
+		data.ContactChooser = true
+		data.ContactTypes = []string{"abuse", "dmca", "privacy"}
+		if data.SecurityReportMode {
+			data.ContactTypes = append(data.ContactTypes, "security")
+		}
+		h.renderNegotiated(w, r, "contact.tmpl", data, buildContactFormResponse())
+		return
+	}
+	provider, question, captchaToken := h.newContactCaptcha(r, time.Now())
 	req := ContactRequest{Type: contactType, Step: "submit", SecurityID: data.SecurityID}
 	data.CaptchaProvider, data.CaptchaQuestion, data.CaptchaToken = provider, question, captchaToken
 	data.ContactFormToken = h.newContactFormToken(time.Now())
@@ -1352,6 +1371,39 @@ func validContactFormFields(values url.Values) bool {
 	}
 	for name := range values {
 		if _, ok := allowed[name]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
+func validContactFieldsForType(values url.Values, reportType, step string) bool {
+	common := map[string]struct{}{"csrf_token": {}, "form_token": {}, "website": {}, "step": {}, "name": {}, "email": {}, "subject": {}, "message": {}, "type": {}}
+	if step == "confirm" {
+		common["review_token"] = struct{}{}
+		common["confirmed"] = struct{}{}
+	} else {
+		common["captcha"] = struct{}{}
+		common["captcha_token"] = struct{}{}
+		common["g-recaptcha-response"] = struct{}{}
+		common["h-captcha-response"] = struct{}{}
+	}
+	switch reportType {
+	case "abuse":
+		common["reported_url"], common["reason"] = struct{}{}, struct{}{}
+	case "dmca":
+		common["reported_url"], common["copyrighted_work"], common["good_faith"], common["accuracy"], common["signature"] = struct{}{}, struct{}{}, struct{}{}, struct{}{}, struct{}{}
+	case "privacy":
+		common["request_kind"] = struct{}{}
+	case "security":
+		for _, field := range []string{"security_id", "handle", "researcher_gpg", "affected_component", "affected_endpoint", "severity", "summary", "steps_to_reproduce", "impact", "suggested_fix", "cve_requested", "disclosure_days", "credit_preference", "coordinated_disclosure_agreement"} {
+			common[field] = struct{}{}
+		}
+	default:
+		return false
+	}
+	for name := range values {
+		if _, ok := common[name]; !ok {
 			return false
 		}
 	}

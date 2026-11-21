@@ -67,6 +67,30 @@ func OpenLibSQLDriver(url string) (*sql.DB, error) {
 	return sql.Open("libsql+logged", url)
 }
 
+func openLibSQLConnector(url string, options ...libsql.Option) (*sql.DB, error) {
+	registerLoggingDrivers()
+	connector, err := libsql.NewConnector(url, options...)
+	if err != nil {
+		return nil, err
+	}
+	return sql.OpenDB(&loggingConnector{inner: connector, driver: &loggingDriver{inner: libsql.Driver{}}}), nil
+}
+
+type loggingConnector struct {
+	inner  driver.Connector
+	driver driver.Driver
+}
+
+func (c *loggingConnector) Connect(ctx context.Context) (driver.Conn, error) {
+	conn, err := c.inner.Connect(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &loggingConn{inner: conn}, nil
+}
+
+func (c *loggingConnector) Driver() driver.Driver { return c.driver }
+
 // logQuery emits a slog.Debug entry for query with args, duration, and
 // error, when queryLogEnabled is true. It also independently emits a
 // slog.Warn slow-query entry when duration meets or exceeds the configured

@@ -15,8 +15,8 @@ ifeq ($(INTERNAL_NAME),)
 $(error IDEA.md must define internal_name)
 endif
 
-# Version precedence: release.txt (wins if it exists) > VERSION env var > "devel" fallback
-VERSION := $(shell cat release.txt 2>/dev/null || echo "$${VERSION:-devel}")
+# Local builds only: VERSION env (user override) > non-empty release.txt > short commit id > devel outside git
+VERSION ?= $(shell v=; [ ! -r release.txt ] || v=$$(tr -d '[:space:]' < release.txt); if [ -n "$$v" ]; then echo "$$v"; else git rev-parse --short=7 HEAD 2>/dev/null || echo devel; fi)
 
 # Build info - BUILD_EPOCH is the Unix timestamp injected via ldflags; the app
 # derives the human-readable build date from it at runtime (never embed a

@@ -8,8 +8,11 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"net"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/apimgr/ipgaze/src/config"
@@ -60,27 +63,36 @@ func NewDB(cfg *config.DatabaseConfig, dbDir string) (*sql.DB, error) {
 	sqliteConn := driver == "sqlite"
 	switch driver {
 	case "sqlite":
-		if err := os.MkdirAll(dbDir, 0o700); err != nil {
-			return nil, fmt.Errorf("db: create db directory: %w", err)
+		dsn, err = sqliteDataSourceName(cfg.URL, dbDir)
+		if err != nil {
+			return nil, err
 		}
-		// Bare path per AI.md PART 10's canonical sql.Open("sqlite", path)
-		// example: modernc.org/sqlite does not recognize the mattn/go-sqlite3
-		// "?_journal=...&_busy_timeout=...&_foreign_keys=..." query-parameter
-		// syntax — those params are silently ignored rather than erroring, so
-		// WAL/busy_timeout/foreign_keys must be applied via explicit PRAGMA
-		// statements below instead (matching main.go's OpenSQLite call sites).
-		dsn = filepath.Join(dbDir, "server.db")
+		if err := os.MkdirAll(filepath.Dir(sqliteFilePath(dsn)), 0o700); err != nil {
+			return nil, fmt.Errorf("db: create SQLite directory: %w", err)
+		}
 		db, err = OpenSQLite(dsn)
 	case "libsql":
 		if verr := cfg.ValidateLibSQL(); verr != nil {
 			return nil, fmt.Errorf("db: invalid libsql config: %w", verr)
 		}
+		if cfg.SSLCA != "" || cfg.SSLCert != "" || cfg.SSLKey != "" {
+			return nil, fmt.Errorf("server.database.ssl_ca/ssl_cert/ssl_key are unsupported by the active libsql driver")
+		}
 		dsn = cfg.URL
-		db, err = OpenLibSQLDriver(dsn)
+		if err := validateLibSQLURL(dsn); err != nil {
+			return nil, err
+		}
+		db, err = OpenLibSQL(dsn, cfg.Token)
 	default:
+		if cfg.URL != "" {
+			return nil, fmt.Errorf("server.database.url has an unsupported scheme; use the URL form")
+		}
 		return nil, fmt.Errorf("db: unsupported driver %q", driver)
 	}
 	if err != nil {
+		if driver == "libsql" {
+			return nil, fmt.Errorf("db: open libsql connection failed (URL credentials are omitted)")
+		}
 		return nil, fmt.Errorf("db: open %s: %w", driver, err)
 	}
 
@@ -89,6 +101,9 @@ func NewDB(cfg *config.DatabaseConfig, dbDir string) (*sql.DB, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := db.PingContext(ctx); err != nil {
+		if driver == "libsql" {
+			return nil, errors.Join(fmt.Errorf("db: ping libsql connection failed (URL credentials are omitted)"), db.Close())
+		}
 		return nil, errors.Join(fmt.Errorf("db: ping %s: %w", driver, err), db.Close())
 	}
 
@@ -114,4 +129,91 @@ func NewDB(cfg *config.DatabaseConfig, dbDir string) (*sql.DB, error) {
 	}
 
 	return db, nil
+}
+
+func sqliteDataSourceName(raw, dbDir string) (string, error) {
+	if raw == "" {
+		return filepath.Join(dbDir, "server.db"), nil
+	}
+	if strings.Contains(raw, ";") || (strings.Contains(raw, "=") && !strings.HasPrefix(strings.ToLower(raw), "file:")) {
+		return "", fmt.Errorf("server.database.url is invalid; use the URL form")
+	}
+	path := raw
+	if strings.HasPrefix(strings.ToLower(raw), "file:") {
+		parsed, err := url.Parse(raw)
+		if err != nil || parsed.Scheme != "file" || (parsed.Host != "" && parsed.Host != "localhost") {
+			return "", fmt.Errorf("server.database.url is invalid; use the URL form")
+		}
+		path = parsed.Path
+		if path == "" {
+			path = parsed.Opaque
+		}
+		if path == "" {
+			return "", fmt.Errorf("server.database.url is invalid; use the URL form")
+		}
+		if !filepath.IsAbs(path) {
+			path = filepath.Join(dbDir, path)
+		}
+		if parsed.RawQuery != "" {
+			return "file:" + filepath.ToSlash(path) + "?" + parsed.RawQuery, nil
+		}
+	} else if strings.Contains(raw, "://") {
+		return "", fmt.Errorf("server.database.url is invalid; use the URL form")
+	} else if !filepath.IsAbs(path) {
+		path = filepath.Join(dbDir, path)
+	}
+	return path, nil
+}
+
+func sqliteFilePath(dsn string) string {
+	if strings.HasPrefix(dsn, "file:") {
+		parsed, err := url.Parse(dsn)
+		if err == nil {
+			if parsed.Path != "" {
+				return parsed.Path
+			}
+			return parsed.Opaque
+		}
+	}
+	return dsn
+}
+
+func validateLibSQLURL(raw string) error {
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.Hostname() == "" {
+		return fmt.Errorf("server.database.url is invalid; use the URL form")
+	}
+	switch strings.ToLower(parsed.Scheme) {
+	case "libsql", "https":
+		return nil
+	case "http":
+		if privateLibSQLHost(parsed.Hostname()) {
+			return nil
+		}
+		return fmt.Errorf("server.database.url must use TLS; use https:// or libsql://")
+	default:
+		return fmt.Errorf("server.database.url has an unsupported scheme; use the URL form")
+	}
+}
+
+func privateLibSQLHost(host string) bool {
+	if ip := net.ParseIP(host); ip != nil {
+		return isPrivateOrLoopback(ip)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	addresses, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+	if err != nil || len(addresses) == 0 {
+		return false
+	}
+	for _, address := range addresses {
+		if !isPrivateOrLoopback(address.IP) {
+			return false
+		}
+	}
+	return true
+}
+
+func isPrivateOrLoopback(ip net.IP) bool {
+	return ip.IsLoopback() || ip.IsPrivate()
 }

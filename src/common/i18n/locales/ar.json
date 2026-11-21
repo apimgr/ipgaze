@@ -961,6 +961,7 @@
       "ssl_renewal_failed": "فشل تجديد SSL - {app_name}",
       "update_available": "يتوفر تحديث - {app_name}",
       "update_installed": "تم تثبيت التحديث - {app_name}",
+      "update_failed": "فشل التحديث - {app_name}",
       "test_email": "رسالة اختبار - {app_name}"
     },
     "body": {
@@ -976,6 +977,7 @@
       "ssl_renewal_failed_heading": "فشل تجديد SSL",
       "update_available_heading": "يتوفر تحديث",
       "update_installed_heading": "تم تثبيت التحديث",
+      "update_failed_heading": "فشل التحديث",
       "test_heading": "رسالة اختبار",
       "label_time": "الوقت:",
       "label_event": "الحدث:",
@@ -1003,6 +1005,7 @@
       "ssl_renewal_failed_intro": "فشل التجديد التلقائي للشهادة.",
       "update_available_intro": "يتوفر إصدار جديد من {app_name}.",
       "update_installed_intro": "تم تحديث {app_name} إلى إصدار جديد.",
+      "update_failed_intro": "تعذر تطبيق التحديث المُجهز لـ {app_name}.",
       "test_intro": "هذه رسالة اختبار من {app_name}.",
       "security_alert_action": "إذا لم يكن هذا النشاط متوقعًا، فراجع إعدادات الأمان لديك.",
       "backup_completed_action": "أرشيف النسخة الاحتياطية محفوظ في دليل النسخ الاحتياطي المُعدّ.",
@@ -1011,8 +1014,9 @@
       "ssl_expiring_action": "سيُحاول التجديد تلقائيًا. جدّد الشهادة يدويًا إذا فشل ذلك.",
       "ssl_renewed_action": "لا حاجة إلى أي إجراء.",
       "ssl_renewal_failed_action": "حقّق في السبب وجدّد الشهادة يدويًا إذا استمر فشل التجديد التلقائي.",
-      "update_available_action": "راجع ملاحظات الإصدار قبل التحديث.",
+      "update_available_action": "راجع ملاحظات الإصدار قبل التحديث. الأمر اليدوي: {command}",
       "update_installed_action": "لا حاجة إلى أي إجراء.",
+      "update_failed_action": "راجع الخطأ وثبّت التحديث يدويًا.",
       "test_action": "استلام هذه الرسالة يؤكد أن إعدادات البريد الصادر صحيحة."
     }
   },

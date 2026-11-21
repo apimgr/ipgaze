@@ -202,14 +202,15 @@ func hasClass(node *html.Node, class string) bool {
 // testPageData builds the minimum PageData needed to render a layout page.
 func testPageData() handler.PageData {
 	return handler.PageData{
-		Lang:        "en",
-		Dir:         "ltr",
-		Theme:       "dark",
-		CurrentYear: 2024,
-		ProjectName: "ipgaze",
-		Version:     "1.0.0",
-		BuildDate:   "2024-01-01",
-		RepoURL:     "https://github.com/apimgr/ipgaze",
+		Lang:           "en",
+		Dir:            "ltr",
+		Theme:          "dark",
+		CurrentYear:    2024,
+		ProjectName:    "ipgaze",
+		Version:        "1.0.0",
+		BuildDate:      "2024-01-01",
+		RepoURL:        "https://github.com/apimgr/ipgaze",
+		ContactChooser: true,
 	}
 }
 

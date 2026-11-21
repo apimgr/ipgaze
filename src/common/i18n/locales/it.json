@@ -913,6 +913,7 @@
       "ssl_renewal_failed": "Rinnovo SSL non riuscito - {app_name}",
       "update_available": "Aggiornamento disponibile - {app_name}",
       "update_installed": "Aggiornamento installato - {app_name}",
+      "update_failed": "Aggiornamento non riuscito - {app_name}",
       "test_email": "Email di prova - {app_name}"
     },
     "body": {
@@ -928,6 +929,7 @@
       "ssl_renewal_failed_heading": "RINNOVO SSL NON FALLITO",
       "update_available_heading": "AGGIORNAMENTO DISPONIBILE",
       "update_installed_heading": "AGGIORNAMENTO INSTALLATO",
+      "update_failed_heading": "AGGIORNAMENTO NON RIUSCITO",
       "test_heading": "E-MAIL DI PROVA",
       "label_time": "Tempo:",
       "label_event": "Evento:",
@@ -955,6 +957,7 @@
       "ssl_renewal_failed_intro": "Il rinnovo automatico del certificato non è riuscito.",
       "update_available_intro": "È disponibile una nuova versione di {app_name}.",
       "update_installed_intro": "{app_name} è stato aggiornato a una nuova versione.",
+      "update_failed_intro": "Non è stato possibile applicare l’aggiornamento preparato di {app_name}.",
       "test_intro": "Questo è un messaggio di prova da {app_name}.",
       "security_alert_action": "Controlla le tue impostazioni di sicurezza se questa attività è stata imprevista.",
       "backup_completed_action": "L'archivio di backup viene salvato nella directory di backup configurata.",
@@ -963,8 +966,9 @@
       "ssl_expiring_action": "Il rinnovo viene tentato automaticamente. Rinnova manualmente se il rinnovo fallisce.",
       "ssl_renewed_action": "Non è richiesta alcuna azione.",
       "ssl_renewal_failed_action": "Esamina e rinnova manualmente il certificato se il rinnovo automatico continua a fallire.",
-      "update_available_action": "Rivedere le note sulla versione prima dell'aggiornamento.",
+      "update_available_action": "Rivedere le note sulla versione prima dell'aggiornamento. Comando manuale: {command}",
       "update_installed_action": "Non è richiesta alcuna azione.",
+      "update_failed_action": "Controllare l’errore e installare manualmente l’aggiornamento.",
       "test_action": "La ricezione di questo messaggio conferma che le impostazioni della posta in uscita sono corrette."
     }
   },

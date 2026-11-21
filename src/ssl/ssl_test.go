@@ -11,14 +11,17 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"math/big"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/apimgr/ipgaze/src/security"
+	"github.com/miekg/dns"
 )
 
 // generateSelfSignedCert writes a self-signed certificate and key pair to the
@@ -1227,6 +1230,252 @@ func TestValidateDNSCredentials_NoDNSProviderFails(t *testing.T) {
 	if err := m.ValidateDNSCredentials(); err == nil {
 		t.Fatal("expected error when no dns_provider is configured")
 	}
+}
+
+func TestRFC2136CredentialAliasesAndDefaultPort(t *testing.T) {
+	for _, variable := range []string{"DNSUPDATE_NAMESERVER", "RFC2136_NAMESERVER"} {
+		t.Run(variable, func(t *testing.T) {
+			credentials := map[string]string{variable: "127.0.0.1"}
+			got, err := normalizeRFC2136Credentials(credentials)
+			if err != nil {
+				t.Fatalf("normalizeRFC2136Credentials: %v", err)
+			}
+			for _, alias := range []string{"DNSUPDATE_NAMESERVER", "RFC2136_NAMESERVER"} {
+				if got[alias] != "127.0.0.1:53" {
+					t.Errorf("%s = %q, want default port 53", alias, got[alias])
+				}
+			}
+		})
+	}
+}
+
+func TestRFC2136CredentialAliasConflictDoesNotExposeValues(t *testing.T) {
+	_, err := normalizeRFC2136Credentials(map[string]string{
+		"DNSUPDATE_TSIG_SECRET": "first-sensitive-value",
+		"RFC2136_TSIG_SECRET":   "second-sensitive-value",
+	})
+	if err == nil {
+		t.Fatal("expected conflicting aliases to fail")
+	}
+	if strings.Contains(err.Error(), "sensitive-value") {
+		t.Fatalf("alias conflict exposed credential material: %v", err)
+	}
+}
+
+func TestRFC2136TSIGFileMustStayUnderSSLDirectory(t *testing.T) {
+	root := t.TempDir()
+	sslDir := filepath.Join(root, "ssl")
+	if err := os.MkdirAll(sslDir, 0700); err != nil {
+		t.Fatalf("create ssl dir: %v", err)
+	}
+	keyFile := filepath.Join(sslDir, "acme.key")
+	if err := os.WriteFile(keyFile, []byte("key \"acme\" { algorithm hmac-sha256; secret \"YWJj\"; };\n"), 0600); err != nil {
+		t.Fatalf("write TSIG key file: %v", err)
+	}
+	resolved, err := resolveRFC2136TSIGFile(sslDir, "acme.key")
+	if err != nil || resolved != keyFile {
+		t.Fatalf("resolve in-directory key = %q, %v; want %q", resolved, err, keyFile)
+	}
+	if _, err := resolveRFC2136TSIGFile(sslDir, keyFile); err == nil {
+		t.Fatal("absolute TSIG key path was accepted")
+	}
+	if _, err := resolveRFC2136TSIGFile(sslDir, "../outside.key"); err == nil {
+		t.Fatal("TSIG key traversal was accepted")
+	}
+	outside := filepath.Join(root, "outside.key")
+	if err := os.WriteFile(outside, []byte("secret"), 0600); err != nil {
+		t.Fatalf("write outside file: %v", err)
+	}
+	link := filepath.Join(sslDir, "outside.key")
+	if err := os.Symlink(outside, link); err == nil {
+		if _, err := resolveRFC2136TSIGFile(sslDir, "outside.key"); err == nil {
+			t.Fatal("symlink escaping ssl directory was accepted")
+		}
+	}
+	keyB64, encrypted := encryptDNSCredentialsForTest(t, map[string]string{
+		"DNSUPDATE_NAMESERVER": "127.0.0.1:53",
+		"DNSUPDATE_TSIG_FILE":  outside,
+	})
+	manager := NewSSLManager(SSLManagerConfig{
+		CertPath:      sslDir,
+		EncryptionKey: keyB64,
+		LetsEncrypt: LetsEncryptConfig{
+			DNSProvider:             "rfc2136",
+			DNSCredentialsEncrypted: encrypted,
+		},
+	})
+	if _, err := manager.dnsProvider(); err == nil || !strings.Contains(err.Error(), "DNSUPDATE_TSIG_FILE") || strings.Contains(err.Error(), outside) {
+		t.Fatalf("absolute TSIG path error = %v, want safe DNSUPDATE_TSIG_FILE validation error", err)
+	}
+}
+
+func TestRFC2136ProviderNamesAreRegistered(t *testing.T) {
+	for _, providerName := range []string{"rfc2136", "dnsupdate"} {
+		t.Run(providerName, func(t *testing.T) {
+			keyB64, encrypted := encryptDNSCredentialsForTest(t, map[string]string{
+				"DNSUPDATE_NAMESERVER": "127.0.0.1:53",
+			})
+			manager := NewSSLManager(SSLManagerConfig{
+				EncryptionKey: keyB64,
+				LetsEncrypt: LetsEncryptConfig{
+					DNSProvider:             providerName,
+					DNSCredentialsEncrypted: encrypted,
+				},
+			})
+			if err := manager.ValidateDNSCredentials(); err != nil {
+				t.Fatalf("ValidateDNSCredentials: %v", err)
+			}
+		})
+	}
+}
+
+func TestRFC2136SignedUpdateInsertsThenRemovesChallengeTXT(t *testing.T) {
+	secret := base64.StdEncoding.EncodeToString([]byte("rfc2136-integration-secret"))
+	updates := make(chan *dns.Msg, 2)
+	address := startRFC2136TestServer(t, map[string]string{"acme.example.test.": secret}, func(request *dns.Msg) {
+		updates <- request.Copy()
+	})
+	provider := newRFC2136TestProvider(t, address, "acme.example.test.", secret)
+	if err := provider.Present("example.test", "token", "authorization-value"); err != nil {
+		t.Fatalf("Present: %v", err)
+	}
+	if err := provider.CleanUp("example.test", "token", "authorization-value"); err != nil {
+		t.Fatalf("CleanUp: %v", err)
+	}
+	insert, remove := <-updates, <-updates
+	if insert.IsTsig() == nil || remove.IsTsig() == nil {
+		t.Fatal("expected both dynamic updates to be TSIG signed")
+	}
+	if insert.Opcode != dns.OpcodeUpdate || remove.Opcode != dns.OpcodeUpdate {
+		t.Fatalf("opcodes = %d, %d; want DNS UPDATE", insert.Opcode, remove.Opcode)
+	}
+	if len(insert.Ns) != 2 || len(remove.Ns) != 1 {
+		t.Fatalf("update sections contain %d insert records and %d remove records, want 2 and 1", len(insert.Ns), len(remove.Ns))
+	}
+	challengeName := "_acme-challenge.example.test."
+	if insert.Ns[0].Header().Name != challengeName || insert.Ns[0].Header().Class != dns.ClassANY || insert.Ns[0].Header().Rrtype != dns.TypeTXT {
+		t.Fatalf("insert cleanup prerequisite = %s, want TXT RRset removal for %s", insert.Ns[0], challengeName)
+	}
+	insertedTXT, ok := insert.Ns[1].(*dns.TXT)
+	if !ok || insertedTXT.Hdr.Name != challengeName || insertedTXT.Hdr.Class != dns.ClassINET || len(insertedTXT.Txt) != 1 {
+		t.Fatalf("inserted record = %v, want one TXT value for %s", insert.Ns[1], challengeName)
+	}
+	removedTXT, ok := remove.Ns[0].(*dns.TXT)
+	if !ok || removedTXT.Hdr.Name != challengeName || removedTXT.Hdr.Class != dns.ClassNONE || len(removedTXT.Txt) != 1 {
+		t.Fatalf("removed record = %v, want one exact TXT value for %s", remove.Ns[0], challengeName)
+	}
+	if insertedTXT.Txt[0] != removedTXT.Txt[0] {
+		t.Fatalf("removed TXT value %q differs from inserted value %q", removedTXT.Txt[0], insertedTXT.Txt[0])
+	}
+}
+
+func TestRFC2136WrongTSIGKeyReturnsBADSIG(t *testing.T) {
+	secret := base64.StdEncoding.EncodeToString([]byte("expected-rfc2136-secret"))
+	address := startRFC2136TestServer(t, map[string]string{"acme.example.test.": secret}, nil)
+	wrongSecret := base64.StdEncoding.EncodeToString([]byte("wrong-rfc2136-secret"))
+	provider := newRFC2136TestProvider(t, address, "acme.example.test.", wrongSecret)
+	err := provider.Present("example.test", "token", "authorization-value")
+	if err == nil || !strings.Contains(err.Error(), "BADSIG") {
+		t.Fatalf("Present error = %v, want sanitized BADSIG", err)
+	}
+	if strings.Contains(err.Error(), wrongSecret) || strings.Contains(err.Error(), secret) {
+		t.Fatalf("BADSIG error exposed a TSIG secret: %v", err)
+	}
+}
+
+func TestRFC2136UnsignedUpdate(t *testing.T) {
+	updates := make(chan *dns.Msg, 1)
+	address := startRFC2136TestServer(t, nil, func(request *dns.Msg) {
+		updates <- request.Copy()
+	})
+	provider := newRFC2136TestProvider(t, address, "", "")
+	if err := provider.Present("example.test", "token", "authorization-value"); err != nil {
+		t.Fatalf("unsigned Present: %v", err)
+	}
+	request := <-updates
+	if request.IsTsig() != nil {
+		t.Fatal("unsigned update unexpectedly contains TSIG")
+	}
+	if request.Opcode != dns.OpcodeUpdate || len(request.Ns) != 2 {
+		t.Fatalf("unsigned request opcode=%d update-records=%d, want DNS UPDATE with two records", request.Opcode, len(request.Ns))
+	}
+}
+
+func startRFC2136TestServer(t *testing.T, tsigSecrets map[string]string, onUpdate func(*dns.Msg)) string {
+	t.Helper()
+	packetConn, err := net.ListenPacket("udp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen for test DNS server: %v", err)
+	}
+	server := &dns.Server{
+		PacketConn: packetConn,
+		TsigSecret: tsigSecrets,
+		MsgAcceptFunc: func(dns.Header) dns.MsgAcceptAction {
+			return dns.MsgAccept
+		},
+		Handler: dns.HandlerFunc(func(writer dns.ResponseWriter, request *dns.Msg) {
+			if request.Opcode == dns.OpcodeUpdate && onUpdate != nil {
+				onUpdate(request)
+			}
+			reply := new(dns.Msg)
+			reply.SetReply(request)
+			reply.Rcode = dns.RcodeSuccess
+			if tsig := request.IsTsig(); tsig != nil && writer.TsigStatus() != nil {
+				reply.Rcode = dns.RcodeNotAuth
+				reply.SetTsig(tsig.Hdr.Name, tsig.Algorithm, tsig.Fudge, time.Now().Unix())
+				reply.IsTsig().Error = dns.RcodeBadSig
+			} else if tsig != nil {
+				reply.SetTsig(tsig.Hdr.Name, tsig.Algorithm, tsig.Fudge, time.Now().Unix())
+			}
+			if request.Opcode == dns.OpcodeQuery && len(request.Question) > 0 {
+				question := request.Question[0]
+				if question.Qtype == dns.TypeSOA {
+					reply.Authoritative = true
+					reply.Answer = append(reply.Answer, &dns.SOA{
+						Hdr: dns.RR_Header{Name: question.Name, Rrtype: dns.TypeSOA, Class: dns.ClassINET, Ttl: 60},
+						Ns:  "ns.example.test.", Mbox: "hostmaster.example.test.", Serial: 1, Refresh: 60, Retry: 60, Expire: 3600, Minttl: 60,
+					})
+				}
+			}
+			_ = writer.WriteMsg(reply)
+		}),
+	}
+	go func() { _ = server.ActivateAndServe() }()
+	t.Cleanup(func() { _ = server.Shutdown() })
+	return packetConn.LocalAddr().String()
+}
+
+type rfc2136TestProvider interface {
+	Present(domain, token, keyAuth string) error
+	CleanUp(domain, token, keyAuth string) error
+}
+
+func newRFC2136TestProvider(t *testing.T, address, key, secret string) rfc2136TestProvider {
+	t.Helper()
+	credentials := map[string]string{
+		"DNSUPDATE_NAMESERVER":  address,
+		"DNSUPDATE_ZONES":       "example.test",
+		"DNSUPDATE_DNS_TIMEOUT": "2",
+		"DNSUPDATE_TTL":         "120",
+	}
+	if key != "" || secret != "" {
+		credentials["DNSUPDATE_TSIG_KEY"] = key
+		credentials["DNSUPDATE_TSIG_SECRET"] = secret
+		credentials["DNSUPDATE_TSIG_ALGORITHM"] = dns.HmacSHA256
+	}
+	keyB64, encrypted := encryptDNSCredentialsForTest(t, credentials)
+	manager := NewSSLManager(SSLManagerConfig{
+		EncryptionKey: keyB64,
+		LetsEncrypt: LetsEncryptConfig{
+			DNSProvider:             "rfc2136",
+			DNSCredentialsEncrypted: encrypted,
+		},
+	})
+	provider, err := manager.dnsProvider()
+	if err != nil {
+		t.Fatalf("construct RFC 2136 provider: %v", err)
+	}
+	return provider.(rfc2136TestProvider)
 }
 
 // --- writeFileAtomic ---

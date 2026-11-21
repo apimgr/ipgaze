@@ -2,6 +2,7 @@ package cache
 
 import (
 	"context"
+	"net/url"
 	"testing"
 	"time"
 
@@ -35,6 +36,65 @@ func TestParseDuration_NegativeFallback(t *testing.T) {
 	d := parseDuration("-1s", time.Minute)
 	if d != time.Minute {
 		t.Errorf("parseDuration(-1s) = %v; want 1m", d)
+	}
+}
+
+func TestApplyEnvOverridesDoesNotOverrideSavedConnection(t *testing.T) {
+	t.Setenv("CACHE_URL", "valkey://changed.example:6379")
+	cfg := &config.CacheConfig{Type: "redis", URL: "redis://saved.example:6379"}
+	ApplyEnvOverrides(cfg)
+	if cfg.URL != "redis://saved.example:6379" || cfg.Type != "redis" {
+		t.Errorf("ApplyEnvOverrides changed saved cache settings: %#v", cfg)
+	}
+}
+
+func TestNewRedisCacheTLSURLDefaultsToUnverifiedTLS(t *testing.T) {
+	backend, err := newRedisCache(config.CacheConfig{URL: "rediss://cache.example:6379"}, "", time.Minute)
+	if err != nil {
+		t.Fatalf("newRedisCache: %v", err)
+	}
+	client := backend.(*redisCache).client
+	t.Cleanup(func() { _ = client.Close() })
+	if client.Options().TLSConfig == nil || !client.Options().TLSConfig.InsecureSkipVerify {
+		t.Fatal("rediss URL should request TLS without certificate verification by default")
+	}
+}
+
+func TestNewRedisCacheTLSURLCanOptIntoVerification(t *testing.T) {
+	backend, err := newRedisCache(config.CacheConfig{URL: "rediss://cache.example:6379?tls_skip_verify=false"}, "", time.Minute)
+	if err != nil {
+		t.Fatalf("newRedisCache: %v", err)
+	}
+	client := backend.(*redisCache).client
+	t.Cleanup(func() { _ = client.Close() })
+	if client.Options().TLSConfig == nil || client.Options().TLSConfig.InsecureSkipVerify {
+		t.Fatal("tls_skip_verify=false should verify the server certificate")
+	}
+}
+
+func TestEncodeRawUserinfoSupportsReservedPasswordCharacters(t *testing.T) {
+	wantPassword := "p@ss:word/path?part#fragment []"
+	raw := "rediss://user:" + wantPassword + "@cache.example:6380/0"
+	encoded := encodeRawUserinfo(raw)
+	parsed, err := url.Parse(encoded)
+	if err != nil {
+		t.Fatalf("url.Parse(encoded URL): %v", err)
+	}
+	password, ok := parsed.User.Password()
+	if !ok || password != wantPassword {
+		t.Errorf("decoded URL password = %q, want %q", password, wantPassword)
+	}
+}
+
+func TestEncodeRawUserinfoPreservesValidEscapesAndEncodesInvalidPercent(t *testing.T) {
+	encoded := encodeRawUserinfo("valkey://:pa%41ss%zz@cache.example:6379/0")
+	parsed, err := url.Parse(encoded)
+	if err != nil {
+		t.Fatalf("url.Parse(encoded URL): %v", err)
+	}
+	password, ok := parsed.User.Password()
+	if !ok || password != "paAss%zz" {
+		t.Errorf("decoded URL password = %q, want %q", password, "paAss%zz")
 	}
 }
 

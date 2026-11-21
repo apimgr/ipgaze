@@ -398,7 +398,7 @@ pipeline {
                                 --name "${PROJECT_NAME}-trufflehog-$(tr -dc 'a-z0-9' </dev/urandom | head -c8)" \
                                 -v ${WORKSPACE}:/repo:ro \
                                 trufflesecurity/trufflehog@sha256:674b2f187620a19df77f44cf9a7d77efcc581a5662accef2f2739cbb46ba4a3a \
-                                git file:///repo --json --results=verified,unknown --no-update --fail-on-scan-errors \
+                                git file:///repo --json --results=verified,unknown --exclude-paths=.github/trufflehog-exclude.txt --no-update --fail-on-scan-errors \
                                 | python3 scripts/trufflehog_scan.py --jsonl-stdin
                         '''
                     }
@@ -547,6 +547,12 @@ pipeline {
                     find . -maxdepth 1 -type f ! -name 'checksums.txt' ! -name 'sha256.txt' ! -name 'sha512.txt' -printf '%f\0' | LC_ALL=C sort -z | xargs -0 sha256sum > checksums.txt
                     cp checksums.txt sha256.txt
                     find . -maxdepth 1 -type f ! -name 'checksums.txt' ! -name 'sha256.txt' ! -name 'sha512.txt' -printf '%f\0' | LC_ALL=C sort -z | xargs -0 sha512sum > sha512.txt
+                '''
+                sh '''
+                    if grep -nE '\$\{|\{\{|\{(project_name|project_org|version)\}' "${RELDIR}/release-notes.txt"; then
+                        echo "ERROR: release-notes.txt contains an unexpanded variable or spec placeholder"
+                        exit 1
+                    fi
                 '''
                 archiveArtifacts artifacts: 'releases/*', fingerprint: true
             }

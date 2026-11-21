@@ -6,6 +6,7 @@ package updater
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"syscall"
 )
 
@@ -27,6 +28,26 @@ func replaceBinary(currentPath, newBinaryPath string) error {
 	}
 
 	return nil
+}
+
+// createProtectedReplacementDir creates the verified update copy beside the
+// installed binary so the final rename stays on one filesystem. Automatic
+// replacement is allowed only in a root-owned, non-writable install directory.
+func createProtectedReplacementDir(currentPath string) (string, error) {
+	installDir := filepath.Dir(currentPath)
+	info, err := os.Stat(installDir)
+	if err != nil {
+		return "", err
+	}
+	owner, ok := info.Sys().(*syscall.Stat_t)
+	if !info.IsDir() || !ok || owner.Uid != 0 || info.Mode().Perm()&0o022 != 0 {
+		return "", fmt.Errorf("automatic update requires a root-owned, non-writable install directory")
+	}
+	tempDir, err := os.MkdirTemp(installDir, ".ipgaze-update-")
+	if err != nil {
+		return "", err
+	}
+	return tempDir, nil
 }
 
 // restartSelf re-executes the current process via syscall.Exec (Unix).

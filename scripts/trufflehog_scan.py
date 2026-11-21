@@ -149,6 +149,7 @@ def run_scan(jsonl_stdin: bool = False) -> int:
         "file:///repo",
         "--json",
         "--results=verified,unknown",
+        "--exclude-paths=.github/trufflehog-exclude.txt",
         "--no-update",
         "--fail-on-scan-errors",
     ]

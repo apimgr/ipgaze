@@ -122,7 +122,7 @@ jobs:
 
   build-devel:
     runs-on: ubuntu-latest
-    if: forgejo.event_name == 'schedule' || forgejo.event_name == 'workflow_dispatch' || (forgejo.event_name == 'push' && !startsWith(forgejo.ref, 'refs/tags/'))
+    if: forgejo.event_name == 'schedule' || (forgejo.event_name == 'push' && (forgejo.ref == 'refs/heads/main' || forgejo.ref == 'refs/heads/master')) || (forgejo.event_name == 'workflow_dispatch' && (forgejo.ref == 'refs/heads/main' || forgejo.ref == 'refs/heads/master'))
     permissions:
       contents: read
       packages: write

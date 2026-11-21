@@ -2,14 +2,136 @@ package updater
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
 	"time"
 )
+
+func TestVerifyStagedUpdate(t *testing.T) {
+	dataDir := t.TempDir()
+	updateDir := filepath.Join(dataDir, "update")
+	if err := os.Mkdir(updateDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	binary := []byte("verified executable")
+	digest := sha256.Sum256(binary)
+	for name, contents := range map[string][]byte{
+		"ipgaze.new":     binary,
+		"ipgaze.version": []byte("2.0.0\n2026-01-01T00:00:00Z\n"),
+		"ipgaze.sha256":  []byte(hex.EncodeToString(digest[:]) + "\n"),
+	} {
+		if err := os.WriteFile(filepath.Join(updateDir, name), contents, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := verifyStagedUpdate(dataDir, "1.0.0", 0)
+	if err != nil {
+		t.Fatalf("verifyStagedUpdate() error = %v", err)
+	}
+	if got != filepath.Join(updateDir, "ipgaze.new") {
+		t.Fatalf("verifyStagedUpdate() = %q", got)
+	}
+	if _, err := verifyStagedUpdate(dataDir, "2.0.0", 0); err == nil {
+		t.Fatal("verifyStagedUpdate() accepted the current version")
+	}
+	if err := os.WriteFile(filepath.Join(updateDir, "ipgaze.sha256"), []byte("invalid\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := verifyStagedUpdate(dataDir, "1.0.0", 0); err == nil {
+		t.Fatal("verifyStagedUpdate() accepted a checksum mismatch")
+	}
+}
+
+func TestVerifyTrustedStagedChecksum(t *testing.T) {
+	binary := []byte("published executable")
+	digest := sha256.Sum256(binary)
+	checksum := hex.EncodeToString(digest[:]) + "  " + getBinaryName() + "\n"
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/releases" {
+			_ = json.NewEncoder(w).Encode([]Release{{
+				TagName:     "v2.0.0",
+				PublishedAt: "2026-01-01T00:00:00Z",
+				Assets:      []Asset{{Name: "sha256.txt", BrowserDownloadURL: server.URL + "/sha256.txt"}},
+			}})
+			return
+		}
+		_, _ = io.WriteString(w, checksum)
+	}))
+	defer server.Close()
+	origAll := githubReleasesAll
+	githubReleasesAll = server.URL + "/releases"
+	defer func() { githubReleasesAll = origAll }()
+
+	dataDir := t.TempDir()
+	updateDir := filepath.Join(dataDir, "update")
+	if err := os.Mkdir(updateDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(updateDir, "ipgaze.new"), binary, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	replacementDir := t.TempDir()
+	verifiedPath, err := copyTrustedStagedBinary(dataDir, "2.0.0", "1.0.0", 0, replacementDir)
+	if err != nil {
+		t.Fatalf("copyTrustedStagedBinary() error = %v", err)
+	}
+	verifiedContents, err := os.ReadFile(verifiedPath)
+	if err != nil {
+		t.Fatalf("read verified copy: %v", err)
+	}
+	if string(verifiedContents) != string(binary) {
+		t.Fatalf("verified copy = %q, want %q", verifiedContents, binary)
+	}
+	if _, err := copyTrustedStagedBinary(dataDir, "2.0.0", "2.0.0", 0, replacementDir); err == nil {
+		t.Fatal("copyTrustedStagedBinary() accepted a release that is not newer than the running version")
+	}
+	if err := os.WriteFile(filepath.Join(updateDir, "ipgaze.new"), []byte("attacker controlled executable"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	verifiedContents, err = os.ReadFile(verifiedPath)
+	if err != nil {
+		t.Fatalf("read protected copy after staged file replacement: %v", err)
+	}
+	if string(verifiedContents) != string(binary) {
+		t.Fatal("protected verified copy changed when the staging file was replaced")
+	}
+}
+
+func TestIsNewerVersion(t *testing.T) {
+	tests := []struct {
+		name      string
+		candidate string
+		current   string
+		metadata  []string
+		epoch     int64
+		want      bool
+	}{
+		{name: "higher patch", candidate: "1.2.4", current: "1.2.3", want: true},
+		{name: "downgrade", candidate: "1.2.2", current: "1.2.3", want: false},
+		{name: "equal", candidate: "1.2.3", current: "1.2.3", want: false},
+		{name: "prerelease numeric ordering", candidate: "1.2.3-beta.10", current: "1.2.3-beta.2", want: true},
+		{name: "higher prerelease number", candidate: "1.2.3-beta.3", current: "1.2.3-beta.2", want: true},
+		{name: "devel newer build", candidate: "devel", current: "devel", metadata: []string{"devel", "2026-01-01T00:00:02Z"}, epoch: 1767225601, want: true},
+		{name: "devel older build", candidate: "devel", current: "devel", metadata: []string{"devel", "2026-01-01T00:00:00Z"}, epoch: 1767225601, want: false},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := isNewerVersion(test.candidate, test.current, test.metadata, test.epoch); got != test.want {
+				t.Fatalf("isNewerVersion() = %t, want %t", got, test.want)
+			}
+		})
+	}
+}
 
 func TestGetBinaryName(t *testing.T) {
 	name := getBinaryName()

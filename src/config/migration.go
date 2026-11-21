@@ -24,6 +24,7 @@ func migrateLegacyKeys(path string, content []byte) []byte {
 	move("server.logging", "server.logs")
 	move("server.logs.access_format", "server.logs.access.format")
 	move("server.schedule", "server.scheduler")
+	remove("server.scheduler.enabled")
 	if node := findConfigNode(root, "server.scheduler.geoip_update"); node != nil && node.Kind == yaml.ScalarNode {
 		remove("server.scheduler.geoip_update")
 	}

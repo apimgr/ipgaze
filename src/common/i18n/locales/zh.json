@@ -934,6 +934,7 @@
       "ssl_renewal_failed": "SSL 续期失败 - {app_name}",
       "update_available": "有可用更新 - {app_name}",
       "update_installed": "更新已安装 - {app_name}",
+      "update_failed": "更新失败 - {app_name}",
       "test_email": "测试邮件 - {app_name}"
     },
     "body": {
@@ -949,6 +950,7 @@
       "ssl_renewal_failed_heading": "SSL 续期失败",
       "update_available_heading": "有可用更新",
       "update_installed_heading": "更新已安装",
+      "update_failed_heading": "更新失败",
       "test_heading": "测试邮件",
       "label_time": "时间：",
       "label_event": "事件：",
@@ -976,6 +978,7 @@
       "ssl_renewal_failed_intro": "证书自动续期失败。",
       "update_available_intro": "{app_name} 有新版本可用。",
       "update_installed_intro": "{app_name} 已更新至新版本。",
+      "update_failed_intro": "无法应用为 {app_name} 准备的更新。",
       "test_intro": "这是一封来自 {app_name} 的测试邮件。",
       "security_alert_action": "如果此活动出乎意料，请检查您的安全设置。",
       "backup_completed_action": "备份存档保存在已配置的备份目录中。",
@@ -984,8 +987,9 @@
       "ssl_expiring_action": "系统会自动尝试续期。如果续期失败，请手动续期。",
       "ssl_renewed_action": "无需任何操作。",
       "ssl_renewal_failed_action": "如果自动续期持续失败，请排查原因并手动续期证书。",
-      "update_available_action": "更新前请先查看发行说明。",
+      "update_available_action": "更新前请先查看发行说明。手动命令：{command}",
       "update_installed_action": "无需任何操作。",
+      "update_failed_action": "检查错误并手动安装更新。",
       "test_action": "收到此邮件表示外发邮件设置正确。"
     }
   },

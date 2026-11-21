@@ -49,11 +49,7 @@ jobs:
 
       - name: Set build info
         run: |
-          if [ -f release.txt ]; then
-            echo "VERSION=$(cat release.txt)" >> $FORGEJO_ENV
-          else
-            echo "VERSION=${FORGEJO_REF_NAME#v}" >> $FORGEJO_ENV
-          fi
+          echo "VERSION=${FORGEJO_REF_NAME#v}" >> $FORGEJO_ENV
           echo "COMMIT_ID=$(git rev-parse --short=7 HEAD)" >> $FORGEJO_ENV
           BUILD_EPOCH=$(date -u +%s)
           echo "BUILD_EPOCH=${BUILD_EPOCH}" >> $FORGEJO_ENV

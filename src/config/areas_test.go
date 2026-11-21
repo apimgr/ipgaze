@@ -93,3 +93,33 @@ func TestMigrateConfigAreasNoOpsWhenServerConfigIsAlreadySplit(t *testing.T) {
 		t.Fatalf("no-op migration created backup: %v", err)
 	}
 }
+
+func TestMigrateConfigAreasMovesUserAndGroupOutOfServerYML(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "server.yml")
+	original := []byte("server:\n  user: ipgaze\n  group: ipgaze\n  port: \"8080\"\n")
+	migrated := migrateConfigAreas(path, original)
+	var primary map[string]any
+	if err := yaml.Unmarshal(migrated, &primary); err != nil {
+		t.Fatalf("parse migrated server.yml: %v", err)
+	}
+	server := primary["server"].(map[string]any)
+	if _, ok := server["user"]; ok {
+		t.Fatal("server.user remained in server.yml")
+	}
+	if _, ok := server["group"]; ok {
+		t.Fatal("server.group remained in server.yml")
+	}
+	appData, err := os.ReadFile(filepath.Join(dir, "yaml.d", "app.yml"))
+	if err != nil {
+		t.Fatalf("read app.yml: %v", err)
+	}
+	var app map[string]any
+	if err := yaml.Unmarshal(appData, &app); err != nil {
+		t.Fatalf("parse app.yml: %v", err)
+	}
+	appServer := app["server"].(map[string]any)
+	if appServer["user"] != "ipgaze" || appServer["group"] != "ipgaze" {
+		t.Fatalf("server.user/group not moved intact: %#v", appServer)
+	}
+}

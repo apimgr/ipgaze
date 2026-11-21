@@ -22,6 +22,8 @@ func TestMigrateLegacyKeysMapsAndRemovesLegacySettings(t *testing.T) {
   schedule:
     geoip_update: weekly
     timezone: UTC
+  scheduler:
+    enabled: false
   web:
     cors: https://old.example
     cookie_consent:
@@ -129,6 +131,9 @@ web:
 		t.Fatalf("parse migrated config: %v", err)
 	}
 	root := document.Content[0]
+	if findConfigNode(root, "server.scheduler.enabled") != nil {
+		t.Fatal("retired server.scheduler.enabled key was retained")
+	}
 	for _, test := range []struct {
 		path string
 		want string

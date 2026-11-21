@@ -934,6 +934,7 @@
       "ssl_renewal_failed": "SSL更新失敗 - {app_name}",
       "update_available": "アップデートがあります - {app_name}",
       "update_installed": "アップデートを適用しました - {app_name}",
+      "update_failed": "アップデートに失敗しました - {app_name}",
       "test_email": "テストメール - {app_name}"
     },
     "body": {
@@ -949,6 +950,7 @@
       "ssl_renewal_failed_heading": "SSL更新失敗",
       "update_available_heading": "アップデートがあります",
       "update_installed_heading": "アップデートを適用しました",
+      "update_failed_heading": "アップデートに失敗しました",
       "test_heading": "テストメール",
       "label_time": "日時:",
       "label_event": "イベント:",
@@ -976,6 +978,7 @@
       "ssl_renewal_failed_intro": "証明書の自動更新に失敗しました。",
       "update_available_intro": "{app_name} の新しいバージョンが利用できます。",
       "update_installed_intro": "{app_name} を新しいバージョンに更新しました。",
+      "update_failed_intro": "{app_name} 用に準備されたアップデートを適用できませんでした。",
       "test_intro": "これは {app_name} からのテストメッセージです。",
       "security_alert_action": "この操作に心当たりがない場合は、セキュリティ設定を確認してください。",
       "backup_completed_action": "バックアップアーカイブは設定されたバックアップディレクトリに保存されています。",
@@ -984,8 +987,9 @@
       "ssl_expiring_action": "更新は自動的に試行されます。失敗した場合は手動で更新してください。",
       "ssl_renewed_action": "対応は不要です。",
       "ssl_renewal_failed_action": "自動更新が失敗し続ける場合は、原因を調査して手動で証明書を更新してください。",
-      "update_available_action": "更新する前にリリースノートを確認してください。",
+      "update_available_action": "更新する前にリリースノートを確認してください。手動コマンド: {command}",
       "update_installed_action": "対応は不要です。",
+      "update_failed_action": "エラーを確認し、アップデートを手動でインストールしてください。",
       "test_action": "このメッセージが届いていれば、送信メールの設定は正しく構成されています。"
     }
   },

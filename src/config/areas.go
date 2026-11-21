@@ -10,7 +10,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-const areaConfigHeader = "# Settings of this node only (listen, identity, database, cache, ssl). Everything else lives in yaml.d/: branding.yml, web.yml, pages.yml, contact.yml, privacy.yml, security.yml, logs.yml, metrics.yml, notifications.yml, tor.yml, i2p.yml, maintenance.yml, accounts.yml, app.yml. Credentials live in secrets.yml.\n"
+const areaConfigHeader = "# Settings of this node only (listen, identity, database, cache, ssl). Everything else lives in yaml.d/: branding.yml, web.yml, pages.yml, contact.yml, privacy.yml, security.yml, logs.yml, metrics.yml, notifications.yml, tor.yml, i2p.yml, maintenance.yml, app.yml. Credentials live in secrets.yml.\n"
 
 type configArea struct {
 	file  string
@@ -36,14 +36,11 @@ var configAreas = []configArea{
 	{file: "maintenance.yml", paths: []string{
 		"server.maintenance", "server.scheduler", "server.update", "server.auto_update", "server.backup", "server.restore",
 	}},
-	{file: "accounts.yml", paths: []string{
-		"server.auth", "server.users", "server.orgs", "server.session", "server.admin", "server.admin_path",
-	}},
 }
 
 var serverLocalKeys = map[string]bool{
 	"token": true, "port": true, "address": true, "fqdn": true, "mode": true, "api_version": true,
-	"baseurl": true, "user": true, "group": true, "pidfile": true, "daemonize": true, "debug": true,
+	"baseurl": true, "pidfile": true, "daemonize": true, "debug": true,
 	"database": true, "cache": true, "ssl": true, "trusted_proxies": true, "cluster": true,
 }
 

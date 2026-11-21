@@ -6,9 +6,11 @@ import (
 	"fmt"
 	"log"
 	"runtime/debug"
+	"sort"
 	"strings"
 	"sync"
 	"time"
+	_ "time/tzdata"
 
 	gocron "github.com/go-co-op/gocron/v2"
 )
@@ -85,9 +87,14 @@ func DefaultConfig() SchedulerRunConfig {
 func NewScheduler(db *sql.DB, cfg SchedulerRunConfig) (*Scheduler, error) {
 	loc, err := time.LoadLocation(cfg.Timezone)
 	if err != nil {
-		// Fall back to UTC if timezone not found
-		loc = time.UTC
-		log.Printf("Scheduler: timezone %q not found, using UTC", cfg.Timezone)
+		defaultZone := DefaultConfig().Timezone
+		loc, err = time.LoadLocation(defaultZone)
+		if err != nil {
+			loc = time.UTC
+			log.Printf("WARN config: invalid server.scheduler.timezone %q; default %q unavailable, using UTC", cfg.Timezone, defaultZone)
+		} else {
+			log.Printf("WARN config: invalid server.scheduler.timezone %q; using default %q", cfg.Timezone, defaultZone)
+		}
 	}
 
 	catchUp := cfg.CatchUpWindow
@@ -188,7 +195,6 @@ func (s *Scheduler) AddTask(task *Task) error {
 		}
 	}
 
-	log.Printf("Scheduler: Added task '%s' (%s) with schedule '%s'", task.Name, task.ID, task.Schedule)
 	return nil
 }
 
@@ -244,7 +250,14 @@ func (s *Scheduler) Start() error {
 	s.sched.Start()
 	s.running = true
 
-	log.Println("Scheduler: Started")
+	registered := make([]string, 0, len(s.tasks))
+	for _, task := range s.tasks {
+		if task.Enabled {
+			registered = append(registered, task.ID)
+		}
+	}
+	sort.Strings(registered)
+	log.Printf("INFO scheduler started; registered tasks: %s", strings.Join(registered, ", "))
 	return nil
 }
 
@@ -350,7 +363,7 @@ WHERE enabled = 1 AND (last_run IS NULL OR last_run < ?)
 // runTask executes a task and records the result in scheduler_history per AI.md PART 10.
 func (s *Scheduler) runTask(task *Task) {
 	startTime := time.Now()
-	log.Printf("Scheduler: Running task '%s' (%s)", task.Name, task.ID)
+	log.Printf("DEBUG scheduler task started: %s", task.ID)
 
 	// Record Prometheus metrics for observability (AI.md PART 18)
 	RecordTaskStart(task.ID)
@@ -380,9 +393,9 @@ func (s *Scheduler) runTask(task *Task) {
 	if err != nil {
 		status = TaskStatusFailed
 		errMsg = err.Error()
-		log.Printf("Scheduler: Task '%s' failed: %v", task.Name, err)
+		log.Printf("WARN scheduler task failed: %s: %v", task.ID, err)
 	} else {
-		log.Printf("Scheduler: Task '%s' completed successfully (took %v)", task.Name, time.Since(startTime))
+		log.Printf("DEBUG scheduler task completed: %s (took %v)", task.ID, time.Since(startTime))
 	}
 
 	if s.db != nil {

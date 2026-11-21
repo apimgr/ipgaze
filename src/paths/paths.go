@@ -40,6 +40,9 @@ type Directories struct {
 // not — see AI.md PART 8 "Directory mode is locked at process start".
 var startedElevated = detectElevated()
 
+// StartedElevated reports the privilege state captured before any privilege drop.
+func StartedElevated() bool { return startedElevated }
+
 // detectElevated reports whether the process started with administrative
 // privileges. Windows has no effective UID, so membership in the machine's own
 // domain is used as the administrative heuristic.

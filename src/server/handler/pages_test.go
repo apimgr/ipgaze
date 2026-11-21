@@ -512,6 +512,29 @@ func TestServerContactHandler_GET(t *testing.T) {
 	}
 }
 
+func TestValidContactFieldsForType(t *testing.T) {
+	tests := []struct {
+		name   string
+		values url.Values
+		typeID string
+		step   string
+		want   bool
+	}{
+		{name: "abuse fields", typeID: "abuse", step: "submit", values: url.Values{"reported_url": {"https://example.test"}, "reason": {"terms_violation"}}, want: true},
+		{name: "reject fields from another form", typeID: "privacy", step: "submit", values: url.Values{"reported_url": {"https://example.test"}}, want: false},
+		{name: "confirm does not require captcha", typeID: "dmca", step: "confirm", values: url.Values{"review_token": {"token"}, "confirmed": {"true"}, "reported_url": {"https://example.test"}}, want: true},
+		{name: "security fields", typeID: "security", step: "submit", values: url.Values{"security_id": {"sec_123"}, "severity": {"high"}}, want: true},
+		{name: "unknown type", typeID: "support", step: "submit", values: url.Values{}, want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := validContactFieldsForType(tt.values, tt.typeID, tt.step); got != tt.want {
+				t.Errorf("validContactFieldsForType() = %t, want %t", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestServerContactHandler_DisabledReturnsNotFound(t *testing.T) {
 	h := newTestPagesHandler()
 	cfg := config.DefaultConfig()

@@ -25,6 +25,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/ProtonMail/go-crypto/openpgp"
@@ -166,6 +167,8 @@ const (
 	exConfig = 78
 	// permission denied (sysexits.h EX_NOPERM convention)
 	exNoPerm = 77
+	// supervisor restart request after staged self-update
+	exTempFail = 75
 	// generic failure for immediate-exit commands (AI.md PART 30: --update and
 	// --status report failure as 1, not a sysexits code)
 	exGeneral = 1
@@ -532,6 +535,25 @@ func runMain() {
 		return
 	}
 
+	// A root-started service applies a staged update before provisioning users,
+	// directories, or any other root-only resources.
+	var startupUpdateErr error
+	if paths.StartedElevated() {
+		stagedVersion := updater.StagedVersion(dataDirPath)
+		applied, applyErr := updater.ApplyStagedUpdate(dataDirPath, Version, buildEpoch())
+		if applyErr != nil {
+			startupUpdateErr = applyErr
+			_ = os.RemoveAll(filepath.Join(dataDirPath, "update"))
+			if stagedVersion != "" {
+				writeUpdateNotifiedVersion(filepath.Join(dataDirPath, "update_failed_version"), stagedVersion)
+			}
+			log.Printf("staged update failed; continuing with current binary: %v", applyErr)
+		}
+		if applied {
+			return
+		}
+	}
+
 	// Ensure directories exist. Nothing downstream works without them — config
 	// and database writes would fail one by one — so this is fatal, not a warning.
 	if err := paths.EnsureDirectories(dirs); err != nil {
@@ -575,12 +597,15 @@ func runMain() {
 	} else {
 		defer logMgr.Close()
 	}
+	if startupUpdateErr != nil && logMgr != nil {
+		logMgr.WriteAuditEvent("", "update.failed", "update", "error", "failure", "", map[string]any{"version": Version, "error": startupUpdateErr.Error()})
+	}
 	log.SetOutput(runtimeLogWriter{manager: logMgr, stderr: os.Stderr})
 	log.Printf("File-based logging active in %s", resolvedLogDir)
 	applyBackupRetention(resolvedBackupDir, cfg.Server.Backup.Retention, logMgr, cfg.Server.Backup.Encryption.EncryptionPassword)
 
 	// Auto-generate operator token on first run per AI.md PART 11.
-	// Format: tok_ prefix + 32 URL-safe random base62 chars.
+	// Format: adm_ prefix + 32 URL-safe random base62 chars.
 	// The raw token is shown once (startup log) and never retrievable again.
 	// The config file is saved immediately so the token persists across restarts.
 	if cfg.Server.Token == "" {
@@ -646,13 +671,9 @@ func runMain() {
 	serverPort := resolveServerPort(*port, cfg)
 	portWasConfigured := serverPort != ""
 	if serverPort == "" {
-		// Per AI.md PART 12: default port is 80 in a container, otherwise a
-		// random unused port in 64000-64999 probed for availability.
-		if paths.IsRunningInContainer() {
-			serverPort = "80"
-		} else {
-			serverPort = randomAvailablePort()
-		}
+		// Per AI.md PART 12, first run selects and persists an unused port in
+		// 64000-64999. Container images seed their explicit PORT separately.
+		serverPort = randomAvailablePort()
 	}
 
 	// Determine address (flag > config). LISTEN is an Init-Only env var
@@ -953,6 +974,16 @@ func runMain() {
 	} else {
 		log.Println("email.configured=false no_smtp")
 	}
+	if startupUpdateErr != nil && emailMgr != nil && emailMgr.IsEnabled() {
+		sendOperatorEmail(cfg, emailMgr, "update_failed", map[string]string{
+			"app_name": projectName, "app_url": cfg.Server.BaseURL,
+			"current_version": Version, "error": startupUpdateErr.Error(),
+		})
+	}
+
+	var updateRestartRequested atomic.Bool
+	sigChan := make(chan os.Signal, 1)
+	notifyServerSignals(sigChan)
 
 	// Initialize the built-in scheduler (AI.md PART 18: always-running, persistent state, catch-up).
 	// Backed by go-co-op/gocron/v2 per AI.md PART 3 and PART 18.
@@ -999,7 +1030,7 @@ func runMain() {
 			Schedule: scheduleFor("0 3 * * 0", cfg.Server.Schedule.Tasks.GeoIPUpdate),
 			Enabled:  enabledFor(true, cfg.Server.Schedule.Tasks.GeoIPUpdate),
 			Fn: func() error {
-				log.Println("scheduler: running geoip_update")
+				log.Println("DEBUG scheduler: running geoip_update")
 				err := geoMgr.Update()
 				if srv != nil && srv.HealthHandler != nil {
 					srv.HealthHandler.RefreshHealthChecks()
@@ -1018,7 +1049,7 @@ func runMain() {
 				if len(sslDomains) == 0 {
 					return nil
 				}
-				log.Println("scheduler: running ssl_renewal")
+				log.Println("DEBUG scheduler: running ssl_renewal")
 				_, preNotAfter, preOK := sslMgr.CertExpiry(sslDomains)
 				wasExpiring := preOK && time.Until(preNotAfter).Hours()/24 <= 7
 				renewErr := sslMgr.RenewIfExpiring(sslDomains, 7)
@@ -1073,7 +1104,7 @@ func runMain() {
 			Schedule: scheduleFor("0 4 * * *", cfg.Server.Schedule.Tasks.BlocklistUpdate),
 			Enabled:  enabledFor(true, cfg.Server.Schedule.Tasks.BlocklistUpdate),
 			Fn: func() error {
-				log.Println("scheduler: running blocklist_update")
+				log.Println("DEBUG scheduler: running blocklist_update")
 				currentCfg := config.Get()
 				blDir := filepath.Join(*dataDir, "security", "blocklists")
 				var err error
@@ -1103,7 +1134,7 @@ func runMain() {
 			Schedule: scheduleFor("30 4 * * *", cfg.Server.Schedule.Tasks.ThreatUpdate),
 			Enabled:  enabledFor(true, cfg.Server.Schedule.Tasks.ThreatUpdate),
 			Fn: func() error {
-				log.Println("scheduler: running threat_update")
+				log.Println("DEBUG scheduler: running threat_update")
 				return threatMgr.Update(threatLookup)
 			},
 		}); err != nil {
@@ -1118,7 +1149,7 @@ func runMain() {
 			Schedule: scheduleFor("0 5 * * *", cfg.Server.Schedule.Tasks.CVEUpdate),
 			Enabled:  enabledFor(true, cfg.Server.Schedule.Tasks.CVEUpdate),
 			Fn: func() error {
-				log.Println("scheduler: running cve_update")
+				log.Println("DEBUG scheduler: running cve_update")
 				return cveMgr.Update()
 			},
 		}); err != nil {
@@ -1133,7 +1164,7 @@ func runMain() {
 			Schedule: scheduleFor("0 6 * * *", cfg.Server.Schedule.Tasks.UpdateCheck),
 			Enabled:  enabledFor(true, cfg.Server.Schedule.Tasks.UpdateCheck),
 			Fn: func() error {
-				log.Println("scheduler: running update_check")
+				log.Println("DEBUG scheduler: running update_check")
 				updateNotifiedPath := filepath.Join(dataDirPath, "update_notified_version")
 				branch := cfg.Server.Update.Branch
 				if branch == "" {
@@ -1147,10 +1178,11 @@ func runMain() {
 					return fmt.Errorf("update_check: %w", err)
 				}
 				if release == nil {
-					log.Println("scheduler: update_check — already up to date")
+					log.Println("DEBUG scheduler: update_check — already up to date")
 					return nil
 				}
 				latestVersion := strings.TrimPrefix(release.TagName, "v")
+				failedVersionPath := filepath.Join(dataDirPath, "update_failed_version")
 				// update_available is a state-change event, not a per-run report.
 				// The last notified version is persisted so a pending update
 				// does not re-notify on every daily run until it is installed.
@@ -1169,37 +1201,47 @@ func runMain() {
 						"current_version": Version,
 						"new_version":     latestVersion,
 						"channel":         branch,
+						"command":         projectName + " --update yes",
 					})
 				}
 				if !alreadyNotified {
 					writeUpdateNotifiedVersion(updateNotifiedPath, latestVersion)
 				}
 				if cfg.Server.Update.AutoInstall {
-					log.Printf("scheduler: update_check — auto_install enabled, updating to %s", latestVersion)
-					previousVersion := Version
-					if err := updater.DoUpdate(context.Background(), release); err != nil {
-						return fmt.Errorf("update_check auto-install: %w", err)
+					if readUpdateNotifiedVersion(failedVersionPath) == latestVersion {
+						log.Printf("scheduler: update_check — %s previously failed; waiting for a newer release", latestVersion)
+						return nil
 					}
-					log.Printf("scheduler: update_check — updated to %s", latestVersion)
-					// Per AI.md PART 22: update_installed fires on self-update completion.
-					if emailMgr != nil && emailMgr.IsEnabled() && cfg.Server.Notifications.Email.Events.UpdateInstalled {
-						sendOperatorEmail(cfg, emailMgr, "update_installed", map[string]string{
-							"app_name":         projectName,
-							"app_url":          cfg.Server.BaseURL,
-							"previous_version": previousVersion,
-							"new_version":      latestVersion,
-							"timestamp":        time.Now().UTC().Format(time.RFC3339),
-						})
-					}
-					restart := updater.RestartSelf
-					if svc.IsRunningAsService() {
-						restart = func() error {
-							return updater.RestartServiceDeferred(svc.IsUserServiceManager())
+					if !paths.StartedElevated() || runtime.GOOS == "windows" && svc.IsRunningAsService() {
+						if logMgr != nil {
+							logMgr.WriteAuditEvent("", "update.install_skipped", "update", "warn", "success", "", map[string]any{"reason": "not_elevated", "version": latestVersion})
 						}
+						log.Printf("scheduler: update_check — auto-install skipped; install manually with %q", projectName+" --update yes")
+						return nil
 					}
-					if err := restart(); err != nil {
-						log.Printf("scheduler: update_check — restart failed: %v; restart manually", err)
+					log.Printf("scheduler: update_check — staging update %s", latestVersion)
+					stagedVersion, stageErr := updater.StageUpdate(context.Background(), release, dataDirPath)
+					if stageErr != nil {
+						writeUpdateNotifiedVersion(failedVersionPath, latestVersion)
+						if logMgr != nil {
+							logMgr.WriteAuditEvent("", "update.failed", "update", "error", "failure", "", map[string]any{"version": latestVersion, "error": stageErr.Error()})
+						}
+						if emailMgr != nil && emailMgr.IsEnabled() {
+							sendOperatorEmail(cfg, emailMgr, "update_failed", map[string]string{"app_name": projectName, "app_url": cfg.Server.BaseURL, "current_version": Version, "new_version": latestVersion, "channel": branch, "error": stageErr.Error()})
+						}
+						return fmt.Errorf("update staging failed: %w", stageErr)
 					}
+					if logMgr != nil {
+						logMgr.WriteAuditEvent("", "update.staged", "update", "info", "success", "", map[string]any{"version": stagedVersion})
+					}
+					_ = os.Remove(failedVersionPath)
+					manager := svc.DetectServiceManager()
+					if !svc.IsRunningAsService() || manager == svc.ServiceOpenRC || manager == svc.ServiceSysVinit || manager == svc.ServiceBSDRC || manager == svc.ServiceContainer || manager == svc.ServiceUnknown {
+						log.Printf("Update staged: restart to apply version %s", stagedVersion)
+						return nil
+					}
+					updateRestartRequested.Store(true)
+					sigChan <- os.Interrupt
 				}
 				return nil
 			},
@@ -1216,7 +1258,7 @@ func runMain() {
 			Schedule: scheduleFor("0 0 * * *", cfg.Server.Schedule.Tasks.LogRotation),
 			Enabled:  enabledFor(true, cfg.Server.Schedule.Tasks.LogRotation),
 			Fn: func() error {
-				log.Println("scheduler: running log_rotation")
+				log.Println("DEBUG scheduler: running log_rotation")
 				return logMgr.Rotate()
 			},
 		}); err != nil {
@@ -1230,7 +1272,7 @@ func runMain() {
 			Schedule: scheduleFor("0 2 * * *", cfg.Server.Schedule.Tasks.BackupDaily),
 			Enabled:  enabledFor(true, cfg.Server.Schedule.Tasks.BackupDaily),
 			Fn: func() error {
-				log.Println("scheduler: running backup_daily")
+				log.Println("DEBUG scheduler: running backup_daily")
 
 				// AI.md PART 21: scheduled backups skip (with an audit log
 				// warning) when compliance mode blocks the encryption
@@ -1330,7 +1372,7 @@ func runMain() {
 			Schedule: scheduleFor("@hourly", cfg.Server.Schedule.Tasks.BackupHourly),
 			Enabled:  enabledFor(false, cfg.Server.Schedule.Tasks.BackupHourly),
 			Fn: func() error {
-				log.Println("scheduler: running backup_hourly")
+				log.Println("DEBUG scheduler: running backup_hourly")
 
 				if _, pwErr := resolveBackupEncryptionPassword(cfg, false); pwErr != nil {
 					log.Printf("scheduler: backup_hourly skipped: %v", pwErr)
@@ -1459,7 +1501,7 @@ func runMain() {
 				}
 			}
 		} else {
-			log.Println("I2P enabled but no provider found (i2pd binary or SAM bridge), eepsite disabled")
+			log.Println("WARN: I2P enabled but no provider found (i2pd binary or SAM bridge), eepsite disabled")
 		}
 	}
 
@@ -1470,9 +1512,6 @@ func runMain() {
 	// Unix) lives behind a build tag per AI.md 11140 — Windows has no SIGHUP,
 	// SIGUSR1, SIGUSR2 or SIGQUIT, so naming those constants here would break
 	// the windows/amd64 and windows/arm64 release builds.
-	sigChan := make(chan os.Signal, 1)
-	notifyServerSignals(sigChan)
-
 	// Watch server.yml for external edits and hot-reload or flag
 	// restart-required settings per AI.md PART 12.
 	configMgr := config.NewConfigManager(configPath)
@@ -1632,7 +1671,7 @@ func runMain() {
 					log.Printf("scheduler: public_ip_refresh failed: %v", err)
 					return err
 				}
-				log.Printf("scheduler: public_ip_refresh: server public IP is %s", srv.PublicIP())
+				log.Printf("DEBUG scheduler: public_ip_refresh: server public IP is %s", srv.PublicIP())
 				return nil
 			},
 		}); err != nil {
@@ -2222,6 +2261,12 @@ func runMain() {
 			if logMgr != nil {
 				logMgr.WriteServer("info", "graceful shutdown complete")
 			}
+			if updateRestartRequested.Load() {
+				if logMgr != nil {
+					logMgr.Close()
+				}
+				os.Exit(exTempFail)
+			}
 			return
 		}
 	}
@@ -2240,7 +2285,7 @@ func generateRuntimeSecrets(cfg *config.AppConfig, logMgr *applog.Manager) error
 		if *token != "" {
 			continue
 		}
-		value, err := generateOperatorToken()
+		value, err := generateTokenWithPrefix("mtr")
 		if err != nil {
 			return fmt.Errorf("generate %s metrics token: %w", name, err)
 		}
@@ -5600,10 +5645,17 @@ func listenAddress(address, port string) string {
 }
 
 // generateOperatorToken generates a new operator token per AI.md PART 11.
-// Format: tok_ prefix + 32 URL-safe random base62 chars.
+// Format: adm_ prefix + 32 URL-safe random base62 chars.
 func generateOperatorToken() (string, error) {
+	return generateTokenWithPrefix("adm")
+}
+
+func generateTokenWithPrefix(prefix string) (string, error) {
 	const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
 	const tokenLen = 32
+	if strings.TrimSpace(prefix) == "" {
+		return "", errors.New("token prefix is required")
+	}
 	b := make([]byte, tokenLen)
 	if _, err := cryptorand.Read(b); err != nil {
 		return "", fmt.Errorf("generating operator token: %w", err)
@@ -5612,7 +5664,7 @@ func generateOperatorToken() (string, error) {
 	for i, v := range b {
 		out[i] = alphabet[int(v)%len(alphabet)]
 	}
-	return "tok_" + string(out), nil
+	return prefix + "_" + string(out), nil
 }
 
 // generateEncryptionKey generates a new 32-byte AES-256-GCM at-rest encryption

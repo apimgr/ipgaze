@@ -940,6 +940,7 @@
       "ssl_renewal_failed": "SSL-Erneuerung fehlgeschlagen – {app_name}",
       "update_available": "Aktualisierung verfügbar – {app_name}",
       "update_installed": "Aktualisierung installiert – {app_name}",
+      "update_failed": "Aktualisierung fehlgeschlagen – {app_name}",
       "test_email": "Test-E-Mail – {app_name}"
     },
     "body": {
@@ -955,6 +956,7 @@
       "ssl_renewal_failed_heading": "SSL-ERNEUERUNG FEHLGESCHLAGEN",
       "update_available_heading": "AKTUALISIERUNG VERFÜGBAR",
       "update_installed_heading": "AKTUALISIERUNG INSTALLIERT",
+      "update_failed_heading": "AKTUALISIERUNG FEHLGESCHLAGEN",
       "test_heading": "TEST-E-MAIL",
       "label_time": "Zeit:",
       "label_event": "Ereignis:",
@@ -982,6 +984,7 @@
       "ssl_renewal_failed_intro": "Die automatische Erneuerung des Zertifikats ist fehlgeschlagen.",
       "update_available_intro": "Eine neue Version von {app_name} ist verfügbar.",
       "update_installed_intro": "{app_name} wurde auf eine neue Version aktualisiert.",
+      "update_failed_intro": "Das bereitgestellte Update für {app_name} konnte nicht angewendet werden.",
       "test_intro": "Dies ist eine Testnachricht von {app_name}.",
       "security_alert_action": "Überprüfen Sie Ihre Sicherheitseinstellungen, falls diese Aktivität unerwartet war.",
       "backup_completed_action": "Das Sicherungsarchiv liegt im konfigurierten Sicherungsverzeichnis.",
@@ -990,8 +993,9 @@
       "ssl_expiring_action": "Die Erneuerung wird automatisch versucht. Erneuern Sie manuell, falls sie fehlschlägt.",
       "ssl_renewed_action": "Es ist keine Aktion erforderlich.",
       "ssl_renewal_failed_action": "Prüfen Sie die Ursache und erneuern Sie das Zertifikat manuell, wenn die automatische Erneuerung weiterhin fehlschlägt.",
-      "update_available_action": "Lesen Sie die Versionshinweise, bevor Sie aktualisieren.",
+      "update_available_action": "Lesen Sie die Versionshinweise, bevor Sie aktualisieren. Manueller Befehl: {command}",
       "update_installed_action": "Es ist keine Aktion erforderlich.",
+      "update_failed_action": "Prüfen Sie den Fehler und installieren Sie das Update manuell.",
       "test_action": "Der Empfang dieser Nachricht bestätigt, dass die Einstellungen für den Postausgang korrekt sind."
     }
   },

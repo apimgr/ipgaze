@@ -477,8 +477,8 @@ func TestGenerateOperatorToken_UniqueAndPrefixed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("generateOperatorToken: %v", err)
 	}
-	if !strings.HasPrefix(tok1, "tok_") {
-		t.Errorf("token %q missing tok_ prefix", tok1)
+	if !strings.HasPrefix(tok1, "adm_") {
+		t.Errorf("token %q missing adm_ prefix", tok1)
 	}
 	tok2, err := generateOperatorToken()
 	if err != nil {
@@ -486,5 +486,12 @@ func TestGenerateOperatorToken_UniqueAndPrefixed(t *testing.T) {
 	}
 	if tok1 == tok2 {
 		t.Error("two generated tokens were identical")
+	}
+	metricsToken, err := generateTokenWithPrefix("mtr")
+	if err != nil {
+		t.Fatalf("generateTokenWithPrefix: %v", err)
+	}
+	if !strings.HasPrefix(metricsToken, "mtr_") {
+		t.Errorf("metrics token %q missing mtr_ prefix", metricsToken)
 	}
 }

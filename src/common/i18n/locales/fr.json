@@ -940,6 +940,7 @@
       "ssl_renewal_failed": "Échec du renouvellement SSL - {app_name}",
       "update_available": "Mise à jour disponible - {app_name}",
       "update_installed": "Mise à jour installée - {app_name}",
+      "update_failed": "Échec de la mise à jour - {app_name}",
       "test_email": "E-mail de test - {app_name}"
     },
     "body": {
@@ -955,6 +956,7 @@
       "ssl_renewal_failed_heading": "ÉCHEC DU RENOUVELLEMENT SSL",
       "update_available_heading": "MISE À JOUR DISPONIBLE",
       "update_installed_heading": "MISE À JOUR INSTALLÉE",
+      "update_failed_heading": "ÉCHEC DE LA MISE À JOUR",
       "test_heading": "E-MAIL DE TEST",
       "label_time": "Heure :",
       "label_event": "Événement :",
@@ -982,6 +984,7 @@
       "ssl_renewal_failed_intro": "Le renouvellement automatique du certificat a échoué.",
       "update_available_intro": "Une nouvelle version de {app_name} est disponible.",
       "update_installed_intro": "{app_name} a été mis à jour vers une nouvelle version.",
+      "update_failed_intro": "La mise à jour préparée de {app_name} n’a pas pu être appliquée.",
       "test_intro": "Ceci est un message de test envoyé par {app_name}.",
       "security_alert_action": "Vérifiez vos paramètres de sécurité si cette activité est inattendue.",
       "backup_completed_action": "L'archive de sauvegarde est enregistrée dans le répertoire de sauvegarde configuré.",
@@ -990,8 +993,9 @@
       "ssl_expiring_action": "Le renouvellement est tenté automatiquement. Renouvelez manuellement en cas d'échec.",
       "ssl_renewed_action": "Aucune action n'est requise.",
       "ssl_renewal_failed_action": "Examinez la cause et renouvelez le certificat manuellement si le renouvellement automatique continue d'échouer.",
-      "update_available_action": "Consultez les notes de version avant de mettre à jour.",
+      "update_available_action": "Consultez les notes de version avant de mettre à jour. Commande manuelle : {command}",
       "update_installed_action": "Aucune action n'est requise.",
+      "update_failed_action": "Examinez l’erreur et installez la mise à jour manuellement.",
       "test_action": "La réception de ce message confirme que les paramètres du courrier sortant sont corrects."
     }
   },

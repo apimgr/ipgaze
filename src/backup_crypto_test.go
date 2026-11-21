@@ -529,6 +529,85 @@ func TestBuildBackupArchive_IncludeSSLOnly(t *testing.T) {
 	}
 }
 
+func TestBuildBackupArchive_IncludesOnlyReferencedConnectionTLSFilesByDefault(t *testing.T) {
+	root := t.TempDir()
+	configDir := filepath.Join(root, "config")
+	sslDir := filepath.Join(configDir, "ssl")
+	dbDir := filepath.Join(root, "db")
+	if err := os.MkdirAll(sslDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(configDir, "yaml.d"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(dbDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	server := `server:
+  database:
+    ssl_ca: db-ca.pem
+    ssl_cert: db-client.pem
+    ssl_key: db-client-key.pem
+`
+	if err := os.WriteFile(filepath.Join(configDir, "server.yml"), []byte(server), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cache := `server:
+  cache:
+    tls_ca: cache-ca.pem
+    tls_cert: cache-client.pem
+    tls_key: cache-client-key.pem
+`
+	if err := os.WriteFile(filepath.Join(configDir, "yaml.d", "cache.yml"), []byte(cache), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	referenced := []string{"db-ca.pem", "db-client.pem", "db-client-key.pem", "cache-ca.pem", "cache-client.pem", "cache-client-key.pem"}
+	for _, name := range append(append([]string{}, referenced...), "unreferenced.pem") {
+		if err := os.WriteFile(filepath.Join(sslDir, name), []byte(name), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	layout := backupArchiveLayout{configDir: configDir, dbDir: dbDir}
+	archive, err := buildBackupArchive(map[string]interface{}{}, layout)
+	if err != nil {
+		t.Fatalf("buildBackupArchive: %v", err)
+	}
+	destDir := t.TempDir()
+	if err := extractBackupArchive(archive, destDir); err != nil {
+		t.Fatalf("extractBackupArchive: %v", err)
+	}
+	for _, name := range referenced {
+		if _, err := os.Stat(filepath.Join(destDir, "config", "ssl", name)); err != nil {
+			t.Errorf("referenced TLS file %q was not backed up: %v", name, err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(destDir, "config", "ssl", "unreferenced.pem")); err == nil {
+		t.Fatal("unreferenced SSL file was included without --include-ssl")
+	}
+	manifestBytes, err := os.ReadFile(filepath.Join(destDir, "manifest.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var manifest map[string]interface{}
+	if err := json.Unmarshal(manifestBytes, &manifest); err != nil {
+		t.Fatal(err)
+	}
+	contents, _ := manifest["contents"].([]interface{})
+	found := false
+	for _, item := range contents {
+		if item == "connection TLS files" {
+			found = true
+		}
+		if item == "ssl/" {
+			t.Fatal("full SSL directory was reported as included")
+		}
+	}
+	if !found {
+		t.Errorf("manifest contents omitted the included connection TLS files: %#v", contents)
+	}
+}
+
 func TestBuildBackupArchive_MissingDirsSkipped(t *testing.T) {
 	tmp := t.TempDir()
 	layout := backupArchiveLayout{

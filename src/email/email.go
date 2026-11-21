@@ -524,6 +524,7 @@ var emailLocaleStem = map[string]string{
 	"scheduler_error":    "task_failed",
 	"update_available":   "update_available",
 	"update_installed":   "update_installed",
+	"update_failed":      "update_failed",
 	"test":               "test",
 }
 

@@ -20,26 +20,25 @@ See the [Configuration](configuration.md) reference for all available settings.
 
 ## server.token
 
-On first run, ipgaze auto-generates a `server.token` value and writes it to `server.yml`:
+On first run, ipgaze auto-generates an `adm_` operator token and writes it to
+`secrets.yml`:
 
 ```yaml
 server:
-  token: tok_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  token: <shown-once-value>
 ```
 
 This is the server-wide operator credential. It authorizes protected server
 operations and permits the operator to manage issued API tokens, including
-tokens associated with resources. The raw value remains in `server.yml`; the
-maintenance token commands do not display it.
+tokens associated with resources. The raw value is shown once at first startup;
+the maintenance token commands do not display it.
 
-To rotate the token: edit `server.yml` and replace the value, then save — the server
-reloads the new token immediately.
+To replace the token, update its value in `secrets.yml` and restart the service.
 
 ## Token Management (CLI)
 
 The maintenance token commands list issued API tokens by prefix and status,
-and revoke an issued token by prefix. They do not rotate `server.token`:
-replace that value in `server.yml` to rotate the operator credential.
+and revoke an issued token by prefix. They do not rotate `server.token`.
 Public IP lookups do not issue owner tokens, so this list is normally empty.
 
 ```bash

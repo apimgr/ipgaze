@@ -124,7 +124,7 @@ func secretConfigSubset(source *yaml.Node, prefix string) (*yaml.Node, bool) {
 	if source == nil {
 		return nil, false
 	}
-	if isSecretConfigKey(prefix) {
+	if isSecretConfigValue(prefix, source) {
 		return cloneYAMLNode(source), true
 	}
 	selected := cloneYAMLNode(source)
@@ -170,7 +170,7 @@ func removeConfigSecrets(source *yaml.Node, prefix string) bool {
 		if prefix != "" {
 			path = prefix + "." + key
 		}
-		if isSecretConfigKey(path) {
+		if isSecretConfigValue(path, source.Content[index+1]) {
 			source.Content = append(source.Content[:index], source.Content[index+2:]...)
 			changed = true
 			continue

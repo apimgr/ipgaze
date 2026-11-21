@@ -52,14 +52,14 @@ func TestNewScheduler_ValidTimezone(t *testing.T) {
 	}
 }
 
-func TestNewScheduler_InvalidTimezone_FallsBackToUTC(t *testing.T) {
+func TestNewScheduler_InvalidTimezone_FallsBackToDefault(t *testing.T) {
 	s, err := NewScheduler(nil, SchedulerRunConfig{Timezone: "Not/AReal/Zone"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	s.Stop()
-	if s.timezone != time.UTC {
-		t.Errorf("expected UTC fallback, got %s", s.timezone)
+	if got, want := s.timezone.String(), DefaultConfig().Timezone; got != want {
+		t.Errorf("timezone fallback = %q, want default %q", got, want)
 	}
 }
 

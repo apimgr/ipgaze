@@ -460,9 +460,29 @@ func (m *SSLManager) dnsProvider() (challenge.Provider, error) {
 	if name == "" {
 		return nil, fmt.Errorf("dns-01 challenge selected but no dns_provider configured")
 	}
+	if strings.EqualFold(name, "dnsupdate") {
+		name = "rfc2136"
+	}
 	creds, err := m.decryptDNSCredentials()
 	if err != nil {
 		return nil, err
+	}
+	if name == "rfc2136" {
+		creds, err = normalizeRFC2136Credentials(creds)
+		if err != nil {
+			return nil, err
+		}
+		if configuredPath := strings.TrimSpace(creds["DNSUPDATE_TSIG_FILE"]); configuredPath != "" {
+			resolvedPath, resolveErr := resolveRFC2136TSIGFile(m.config.CertPath, configuredPath)
+			if resolveErr != nil {
+				return nil, fmt.Errorf("invalid DNSUPDATE_TSIG_FILE")
+			}
+			creds["DNSUPDATE_TSIG_FILE"] = resolvedPath
+			creds["RFC2136_TSIG_FILE"] = resolvedPath
+		}
+		if !rfc2136UsesTSIG(creds) {
+			rfc2136UnsignedWarning.Do(func() { log.Printf("rfc2136: unsigned update") })
+		}
 	}
 	dnsProviderEnvMu.Lock()
 	defer dnsProviderEnvMu.Unlock()
@@ -478,6 +498,9 @@ func (m *SSLManager) dnsProvider() (challenge.Provider, error) {
 	defer restoreDNSProviderEnv(previous)
 	provider, err := dns.NewDNSChallengeProviderByName(name)
 	if err != nil {
+		if name == "rfc2136" {
+			return nil, fmt.Errorf("dns provider %q: invalid or missing RFC 2136 configuration (check DNSUPDATE_NAMESERVER and TSIG variable names)", name)
+		}
 		message := err.Error()
 		for _, value := range creds {
 			if value != "" {
@@ -486,10 +509,129 @@ func (m *SSLManager) dnsProvider() (challenge.Provider, error) {
 		}
 		return nil, fmt.Errorf("dns provider %q: %s", name, message)
 	}
+	if name == "rfc2136" {
+		provider = safeRFC2136Provider{Provider: provider}
+	}
 	return provider, nil
 }
 
+func resolveRFC2136TSIGFile(sslDir, configuredPath string) (string, error) {
+	if strings.TrimSpace(sslDir) == "" || strings.TrimSpace(configuredPath) == "" || filepath.IsAbs(configuredPath) {
+		return "", fmt.Errorf("invalid TSIG file path")
+	}
+	cleanPath := filepath.Clean(configuredPath)
+	for _, part := range strings.Split(cleanPath, string(filepath.Separator)) {
+		if part == ".." {
+			return "", fmt.Errorf("invalid TSIG file path")
+		}
+	}
+	basePath, err := filepath.Abs(sslDir)
+	if err != nil {
+		return "", fmt.Errorf("invalid TSIG directory")
+	}
+	basePath, err = filepath.EvalSymlinks(basePath)
+	if err != nil {
+		return "", fmt.Errorf("invalid TSIG directory")
+	}
+	filePath, err := filepath.EvalSymlinks(filepath.Join(basePath, cleanPath))
+	if err != nil {
+		return "", fmt.Errorf("invalid TSIG file")
+	}
+	relative, err := filepath.Rel(basePath, filePath)
+	if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("invalid TSIG file path")
+	}
+	info, err := os.Stat(filePath)
+	if err != nil || !info.Mode().IsRegular() {
+		return "", fmt.Errorf("invalid TSIG file")
+	}
+	return filePath, nil
+}
+
+// normalizeRFC2136Credentials accepts both the current DNSUPDATE_ names and
+// the legacy RFC2136_ names. Both spellings are installed because lego releases
+// differ in which prefix their RFC 2136 provider reads.
+func normalizeRFC2136Credentials(credentials map[string]string) (map[string]string, error) {
+	normalized := make(map[string]string, len(credentials)*2)
+	for name, value := range credentials {
+		canonical := name
+		if strings.HasPrefix(name, "RFC2136_") {
+			canonical = "DNSUPDATE_" + strings.TrimPrefix(name, "RFC2136_")
+		}
+		if strings.HasPrefix(canonical, "DNSUPDATE_") {
+			legacy := "RFC2136_" + strings.TrimPrefix(canonical, "DNSUPDATE_")
+			if existing, ok := normalized[canonical]; ok && existing != value {
+				return nil, fmt.Errorf("conflicting RFC 2136 credential aliases for %s", canonical)
+			}
+			if existing, ok := normalized[legacy]; ok && existing != value {
+				return nil, fmt.Errorf("conflicting RFC 2136 credential aliases for %s", canonical)
+			}
+			normalized[canonical] = value
+			normalized[legacy] = value
+			continue
+		}
+		normalized[name] = value
+	}
+	if nameserver := strings.TrimSpace(normalized["DNSUPDATE_NAMESERVER"]); nameserver != "" {
+		if _, _, err := net.SplitHostPort(nameserver); err != nil {
+			if strings.HasPrefix(nameserver, "[") && strings.HasSuffix(nameserver, "]") {
+				nameserver = net.JoinHostPort(strings.Trim(nameserver, "[]"), "53")
+			} else if strings.Count(nameserver, ":") == 0 {
+				nameserver = net.JoinHostPort(nameserver, "53")
+			} else {
+				return nil, fmt.Errorf("invalid DNSUPDATE_NAMESERVER address")
+			}
+			normalized["DNSUPDATE_NAMESERVER"] = nameserver
+			normalized["RFC2136_NAMESERVER"] = nameserver
+		}
+	}
+	return normalized, nil
+}
+
+// safeRFC2136Provider prevents DNS library errors from including request
+// packet contents or TSIG secrets in the surfaced error text.
+type safeRFC2136Provider struct{ challenge.Provider }
+
+func (p safeRFC2136Provider) Present(domain, token, keyAuth string) error {
+	if err := p.Provider.Present(domain, token, keyAuth); err != nil {
+		return safeRFC2136Error(err)
+	}
+	return nil
+}
+
+func (p safeRFC2136Provider) CleanUp(domain, token, keyAuth string) error {
+	if err := p.Provider.CleanUp(domain, token, keyAuth); err != nil {
+		return safeRFC2136Error(err)
+	}
+	return nil
+}
+
+func safeRFC2136Error(err error) error {
+	message := strings.ToUpper(err.Error())
+	if strings.Contains(message, "BAD SIGNATURE") || strings.Contains(message, "BAD AUTHENTICATION") || strings.Contains(message, "TSIG: BAD") {
+		return fmt.Errorf("rfc2136: DNS update failed: BADSIG")
+	}
+	for _, code := range []string{"BADSIG", "BADKEY", "BADTIME", "REFUSED", "NOTAUTH", "NOTZONE", "TIMEOUT"} {
+		if strings.Contains(message, code) {
+			return fmt.Errorf("rfc2136: DNS update failed: %s", code)
+		}
+	}
+	return fmt.Errorf("rfc2136: DNS update failed")
+}
+
 var dnsProviderEnvMu sync.Mutex
+var rfc2136UnsignedWarning sync.Once
+
+func rfc2136UsesTSIG(credentials map[string]string) bool {
+	if credentials["DNSUPDATE_TSIG_FILE"] != "" {
+		return true
+	}
+	if credentials["DNSUPDATE_TSIG_KEY"] != "" && credentials["DNSUPDATE_TSIG_SECRET"] != "" {
+		return true
+	}
+	return strings.EqualFold(strings.TrimSpace(credentials["DNSUPDATE_TSIG_ALGORITHM"]), "gss-tsig.") &&
+		(credentials["DNSUPDATE_TSIG_GSS_PASSWORD"] != "" || credentials["DNSUPDATE_TSIG_GSS_KEYTAB_FILE"] != "")
+}
 
 type envValue struct {
 	value  string
