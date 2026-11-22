@@ -54,6 +54,7 @@ The following endpoints are accessible without authentication:
 | `GET /server/security/thanks` | Public researcher acknowledgments |
 | `GET /server/security/report/{tracking_id}` | Researcher report status using the one-shot token in the private acknowledgment link |
 | `GET /server/preferences` | Guest preferences hub |
+| `GET /server/preferences/tokens` | Public token page; token lists/actions require the primary owner cookie |
 | `POST /server/preferences` | Update guest preference cookies; CSRF-protected browser form |
 | `GET /server/preferences/sync` | Export guest preferences |
 | `POST /server/preferences/sync` | Import guest preferences; CSRF-protected browser form |

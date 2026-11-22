@@ -42,7 +42,9 @@ To replace the token, update its value in `secrets.yml` and restart the service.
 
 The maintenance token commands support listing and revoking issued API tokens
 by prefix. They do not rotate `server.token`. Owner tokens are issued by
-visitors; linked tokens can be created and revoked from the tokens page.
+visitors; linked tokens can be created, revealed, rotated, renamed, expired,
+and revoked from the tokens page. Token-management API mirrors require the
+primary owner Bearer token.
 
 ```bash
 ipgaze --maintenance token list

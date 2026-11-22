@@ -93,6 +93,21 @@ Health endpoints are the exception and return the bare health document.
 | `GET /api/v1/server/auth/check` | Validate an operator Bearer token; returns `data.kind = "operator"` or 401 |
 | `GET /server/security/report/{tracking_id}` | Researcher status page; requires the one-shot token when an acknowledgment email was delivered |
 | `GET /api/v1/server/preferences` | Current guest preferences |
+| `GET /server/preferences/tokens` | Public owner-token management page; lists tokens only with a valid owner cookie |
+| `POST /server/preferences/token/create` | Issue an owner token without creating a resource; sets the owner cookie |
+| `POST /server/preferences/token/restore` | Restore a primary owner token into this browser |
+| `POST /server/preferences/token/reveal` | Reveal the primary token; requires the owner cookie and CSRF token |
+| `POST /server/preferences/token/rotate` | Rotate the primary token; requires the owner cookie and CSRF token |
+| `POST /server/preferences/token/forget` | Clear this browser's saved owner token without revoking it |
+| `GET /api/v1/server/preferences/tokens` | List masked owner and linked token metadata; requires the primary Bearer token |
+| `POST /api/v1/server/preferences/tokens/primary` | Issue a primary owner token without other credentials |
+| `POST /api/v1/server/preferences/tokens/primary/reveal` | Reveal the primary token; requires the primary Bearer token |
+| `POST /api/v1/server/preferences/tokens/primary/rotate` | Rotate the primary token; requires the primary Bearer token |
+| `POST /api/v1/server/preferences/tokens` | Create a linked token; requires the primary Bearer token |
+| `POST /api/v1/server/preferences/tokens/{id}/reveal` | Reveal a linked token; requires the primary Bearer token |
+| `POST /api/v1/server/preferences/tokens/{id}/rotate` | Rotate a linked token; requires the primary Bearer token |
+| `PATCH /api/v1/server/preferences/tokens/{id}` | Rename or change linked-token expiry; requires the primary Bearer token |
+| `DELETE /api/v1/server/preferences/tokens/{id}` | Revoke a linked token; requires the primary Bearer token |
 | `POST /api/v1/server/preferences` | Update guest preferences |
 | `GET /server/preferences/sync` | Export guest preferences as a URL and base64url code; negotiates HTML, text, and JSON. Consent and credentials are excluded |
 | `POST /server/preferences/sync` | Import guest preferences from the form's `code` field |
