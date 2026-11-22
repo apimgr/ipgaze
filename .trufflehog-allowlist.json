@@ -24,6 +24,14 @@
       "file": "src/security/report_test.go",
       "line": 33,
       "reason": "Synthetic fixed-key test fixture used to test key rotation; never an application credential."
+    },
+    {
+      "fingerprint": "541d2986c5f3f0f3fff3086410514d6cdaac07af109c16243021b2e24757034a",
+      "detector": "URI",
+      "commit": "a29f70d5f770b252a025a1fab46a4d0a33f36e4e",
+      "file": "src/blocklist/blocklist_test.go",
+      "line": 562,
+      "reason": "Synthetic URL userinfo fixture used only to test hostname normalization; contains no application credential."
     }
   ]
 }

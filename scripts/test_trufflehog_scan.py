@@ -1,7 +1,7 @@
 import json
 import unittest
 
-from scripts.trufflehog_scan import evaluate_findings, finding_fingerprint
+from scripts.trufflehog_scan import evaluate_findings, finding_fingerprint, load_allowlist
 
 
 def make_finding(raw="test-only synthetic candidate", verified=False):
@@ -62,6 +62,15 @@ class TruffleHogScanTests(unittest.TestCase):
         rejected, matched = evaluate_findings(["not-json"], self.allowlist)
         self.assertEqual(rejected[0]["reason"], "invalid finding record")
         self.assertEqual(matched, set())
+
+    def test_historical_blocklist_url_fixture_is_exactly_allowlisted(self):
+        fingerprint = "541d2986c5f3f0f3fff3086410514d6cdaac07af109c16243021b2e24757034a"
+        allowed = load_allowlist()
+        entry = allowed[fingerprint]
+        self.assertEqual(entry["detector"], "URI")
+        self.assertEqual(entry["commit"], "a29f70d5f770b252a025a1fab46a4d0a33f36e4e")
+        self.assertEqual(entry["file"], "src/blocklist/blocklist_test.go")
+        self.assertEqual(str(entry["line"]), "562")
 
 
 if __name__ == "__main__":

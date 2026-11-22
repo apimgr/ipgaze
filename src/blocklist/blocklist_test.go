@@ -559,7 +559,7 @@ func TestNormalizeDomain(t *testing.T) {
 		want  string
 		ok    bool
 	}{
-		{input: "  https://User:pass@ExAmPle.com.:8443/path ", want: "example.com", ok: true},
+		{input: "  https://User@ExAmPle.com.:8443/path ", want: "example.com", ok: true},
 		{input: "münich.example", want: "xn--mnich-kva.example", ok: true},
 		{input: "person@example.com", want: "example.com", ok: true},
 		{input: "[2001:db8::1]:443", ok: false},
