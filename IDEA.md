@@ -14,6 +14,7 @@ project_name:      ipgaze
 project_org:       apimgr
 internal_org:      apimgr
 internal_name:     ipgaze
+owner_token:       ipgaze_owner_token_YtrYCFPg
 app_name:          IPGaze
 official_site:     https://ifcfg.us
 maintainer_name:   apimgr
