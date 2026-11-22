@@ -384,6 +384,7 @@ type ServerConfig struct {
 	Database       DatabaseConfig            `yaml:"database"`
 	Schedule       ScheduleConfig            `yaml:"scheduler"`
 	Metrics        MetricsConfig             `yaml:"metrics"`
+	Tokens         OwnerTokensConfig         `yaml:"tokens"`
 	Logging        LoggingConfig             `yaml:"logs"`
 	GeoIP          GeoIPConfig               `yaml:"geoip"`
 	Security       SecurityConfig            `yaml:"security"`
@@ -1756,11 +1757,6 @@ type RequestFloodConfig struct {
 type AllowlistEntry struct {
 	CIDR        string `yaml:"cidr"`
 	Description string `yaml:"description"`
-	// Confirmed must be true for an overly broad range (/0-/7 IPv4, /0-/15
-	// IPv6) to be accepted; per AI.md PART 12 "Validation", broad ranges are
-	// otherwise rejected (dropped, with a WARN log) since they defeat the
-	// purpose of an allowlist. Ignored for narrower ranges.
-	Confirmed bool `yaml:"confirmed,omitempty"`
 }
 
 // RateLimitBucketConfig defines requests and window for one rate-limit bucket.
@@ -1771,6 +1767,13 @@ type RateLimitBucketConfig struct {
 	Window int `yaml:"window"`
 }
 
+// OwnerTokensConfig controls anonymous owner identity lifetime and linked-token limits.
+type OwnerTokensConfig struct {
+	MaxLinked     int    `yaml:"max_linked"`
+	CookieMaxAge  string `yaml:"cookie_max_age"`
+	IdlePurgeDays int    `yaml:"idle_purge_days"`
+}
+
 // RateLimitConfig holds per-class rate limiting settings per AI.md PART 12.
 type RateLimitConfig struct {
 	// Read applies to GET and HEAD requests.
@@ -1779,6 +1782,10 @@ type RateLimitConfig struct {
 	Write RateLimitBucketConfig `yaml:"write"`
 	// Health applies to /healthz, /readyz, /livez endpoints.
 	Health RateLimitBucketConfig `yaml:"health"`
+	// Strict applies to token reveal, rotate, and restore attempts.
+	Strict RateLimitBucketConfig `yaml:"strict"`
+	// AuthFailures limits failed authentication attempts per client IP.
+	AuthFailures RateLimitBucketConfig `yaml:"auth_failures"`
 	// GlobalBurst is the absolute ceiling per IP across all classes (req/min).
 	GlobalBurst int `yaml:"global_burst"`
 }
@@ -2241,6 +2248,7 @@ func DefaultConfig() *AppConfig {
 				DurationBuckets: []float64{0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10},
 				SizeBuckets:     []float64{100, 1000, 10000, 100000, 1000000, 10000000},
 			},
+			Tokens: OwnerTokensConfig{MaxLinked: 25, CookieMaxAge: "1y", IdlePurgeDays: 0},
 			Logging: LoggingConfig{
 				Level:    "warn",
 				Defaults: LoggingDefaultsConfig{Rotate: "weekly,50MB", Keep: "none"},
@@ -2378,10 +2386,12 @@ func DefaultConfig() *AppConfig {
 			},
 			SEO: DefaultSEOConfig(),
 			RateLimit: RateLimitConfig{
-				Read:        RateLimitBucketConfig{Requests: 120, Window: 60},
-				Write:       RateLimitBucketConfig{Requests: 10, Window: 60},
-				Health:      RateLimitBucketConfig{Requests: 120, Window: 60},
-				GlobalBurst: 240,
+				Read:         RateLimitBucketConfig{Requests: 120, Window: 60},
+				Write:        RateLimitBucketConfig{Requests: 10, Window: 60},
+				Health:       RateLimitBucketConfig{Requests: 120, Window: 60},
+				Strict:       RateLimitBucketConfig{Requests: 10, Window: 900},
+				AuthFailures: RateLimitBucketConfig{Requests: 5, Window: 900},
+				GlobalBurst:  240,
 			},
 			Limits: LimitsConfig{
 				MaxBodySize:  "10MB",
@@ -3044,7 +3054,7 @@ func validateConfig(cfg *AppConfig) {
 		cfg.Web.Reports.RateLimitPerIPBurst = def.Web.Reports.RateLimitPerIPBurst
 	}
 
-	// Overly broad allowlist ranges are rejected unless explicitly confirmed.
+	// Invalid and overly broad allowlist entries are skipped with warnings.
 	cfg.Server.Security.Allowlist = validateAllowlist(cfg.Server.Security.Allowlist)
 }
 
@@ -3079,24 +3089,50 @@ func isOverlyBroadAllowlistRange(rawCIDR string) bool {
 	return ones <= 15
 }
 
-// validateAllowlist drops overly broad allowlist entries that are not
-// explicitly confirmed, logging a WARN for each so the operator can add
-// `confirmed: true` if the broad range is intentional. Per AI.md PART 12
-// "Validation": "Reject overly broad ranges with confirmation."
+// validateAllowlist canonicalizes valid entries and skips invalid or overly
+// broad ranges without failing startup or configuration reload.
 func validateAllowlist(entries []AllowlistEntry) []AllowlistEntry {
 	if len(entries) == 0 {
 		return entries
 	}
 	kept := make([]AllowlistEntry, 0, len(entries))
-	for _, e := range entries {
-		if isOverlyBroadAllowlistRange(e.CIDR) && !e.Confirmed {
-			slog.Warn("allowlist entry rejected: overly broad range requires confirmed: true to accept",
-				"cidr", e.CIDR, "description", e.Description)
+	for index, e := range entries {
+		cidr, err := normalizeSecurityCIDR(e.CIDR)
+		if err != nil {
+			slog.Warn("invalid config entry skipped", "key", "server.security.allowlist", "index", index, "field", "cidr")
+			continue
+		}
+		e.CIDR = cidr
+		if isOverlyBroadAllowlistRange(cidr) {
+			slog.Warn("overly broad allowlist entry skipped", "key", "server.security.allowlist", "index", index, "field", "cidr")
 			continue
 		}
 		kept = append(kept, e)
 	}
 	return kept
+}
+
+func normalizeSecurityCIDR(value string) (string, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "", fmt.Errorf("empty CIDR")
+	}
+	if !strings.Contains(value, "/") {
+		ip := net.ParseIP(value)
+		if ip == nil {
+			return "", fmt.Errorf("invalid IP")
+		}
+		if v4 := ip.To4(); v4 != nil {
+			value = v4.String() + "/32"
+		} else {
+			value = ip.String() + "/128"
+		}
+	}
+	ip, network, err := net.ParseCIDR(value)
+	if err != nil {
+		return "", err
+	}
+	return ip.Mask(network.Mask).String() + "/" + strconv.Itoa(prefixLength(network.Mask)), nil
 }
 
 // getCurrentConfig returns the current in-memory configuration.
@@ -3234,32 +3270,17 @@ func ValidateContactCaptcha(cfg ContactPageConfig) error {
 	}
 }
 
-// NormalizeBlockedIPs validates and canonicalizes permanent operator blocks.
-// Bare addresses become host CIDRs; a malformed entry rejects the full config
-// so a hot reload cannot silently discard an intended security rule.
+// NormalizeBlockedIPs canonicalizes permanent operator blocks and skips
+// malformed entries with warnings so a bad entry cannot reject the full config.
 func NormalizeBlockedIPs(entries []BlockedIPEntry) ([]BlockedIPEntry, error) {
 	result := make([]BlockedIPEntry, 0, len(entries))
 	for index, entry := range entries {
-		value := strings.TrimSpace(entry.CIDR)
-		if value == "" {
-			return nil, fmt.Errorf("server.security.blocked_ips[%d].cidr is required", index)
-		}
-		if !strings.Contains(value, "/") {
-			ip := net.ParseIP(value)
-			if ip == nil {
-				return nil, fmt.Errorf("server.security.blocked_ips[%d].cidr is invalid: %q", index, value)
-			}
-			if v4 := ip.To4(); v4 != nil {
-				value = v4.String() + "/32"
-			} else {
-				value = ip.String() + "/128"
-			}
-		}
-		ip, network, err := net.ParseCIDR(value)
+		value, err := normalizeSecurityCIDR(entry.CIDR)
 		if err != nil {
-			return nil, fmt.Errorf("server.security.blocked_ips[%d].cidr is invalid: %q", index, entry.CIDR)
+			slog.Warn("invalid config entry skipped", "key", "server.security.blocked_ips", "index", index, "field", "cidr")
+			continue
 		}
-		entry.CIDR = ip.Mask(network.Mask).String() + "/" + strconv.Itoa(prefixLength(network.Mask))
+		entry.CIDR = value
 		entry.Reason = strings.TrimSpace(entry.Reason)
 		result = append(result, entry)
 	}
@@ -4117,7 +4138,12 @@ server:
       max_entries: %d
       max_age: "%s"
 
-  # Per-class request rate limiting (read/write/health buckets + global ceiling)
+  tokens:
+    max_linked: %d
+    cookie_max_age: "%s"
+    idle_purge_days: %d
+
+  # Per-class request rate limiting
   rate_limit:
     read:
       requests: %d
@@ -4126,6 +4152,12 @@ server:
       requests: %d
       window: %d
     health:
+      requests: %d
+      window: %d
+    strict:
+      requests: %d
+      window: %d
+    auth_failures:
       requests: %d
       window: %d
     global_burst: %d
@@ -4623,12 +4655,19 @@ pages:
 		cfg.Server.Metrics.IncludeRuntime,
 		cfg.Server.Metrics.Loki.MaxEntries,
 		cfg.Server.Metrics.Loki.MaxAge,
+		cfg.Server.Tokens.MaxLinked,
+		cfg.Server.Tokens.CookieMaxAge,
+		cfg.Server.Tokens.IdlePurgeDays,
 		cfg.Server.RateLimit.Read.Requests,
 		cfg.Server.RateLimit.Read.Window,
 		cfg.Server.RateLimit.Write.Requests,
 		cfg.Server.RateLimit.Write.Window,
 		cfg.Server.RateLimit.Health.Requests,
 		cfg.Server.RateLimit.Health.Window,
+		cfg.Server.RateLimit.Strict.Requests,
+		cfg.Server.RateLimit.Strict.Window,
+		cfg.Server.RateLimit.AuthFailures.Requests,
+		cfg.Server.RateLimit.AuthFailures.Window,
 		cfg.Server.RateLimit.GlobalBurst,
 		cfg.Server.Limits.MaxBodySize,
 		cfg.Server.Limits.ReadTimeout,

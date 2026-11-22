@@ -2,7 +2,7 @@
 
 ⚠️ **These rules are NON-NEGOTIABLE. Violations are bugs.** ⚠️
 
-> Synced against AI.md revision `7ac307b1a0b` (2026-11-21). AI.md remains authoritative for complete requirements.
+> Synced against AI.md revision `eb41fb200153` (2026-11-22). AI.md remains authoritative for complete requirements.
 
 ## CRITICAL - NEVER DO
 - **PART 17:** *Display Note:** Detected SMTP `{host}:{port}` is shown in console/logs (exempt from "never show localhost" rules - users need to see the actual detected server for troubleshooting).
@@ -117,6 +117,11 @@
 
 ## Key Rules Summary
 
+## AI.md 2026-11-22 Updates
+
+- **PART 11:** `/.well-known/llms.txt` is always served; there is no `web.llms.enabled` switch.
+- **PART 11 / PART 16:** Contact-form entry points are restricted to the security.txt Contact line and `/server/security`; other public pages link to `/server/security` instead of directly to the form.
+
 ### PART 17 — EMAIL & NOTIFICATIONS
 - Overview
 - Template Storage
@@ -179,4 +184,4 @@
 
 For complete details, see AI.md PART 17, PART 18, PART 19, PART 20, PART 21, PART 22.
 
-<!-- AI.md source: 03cc45ec58df -->
+<!-- AI.md source: eb41fb200153 -->

@@ -6,7 +6,6 @@
     "direction": "ltr",
     "version": "1.0.0"
   },
-
   "common": {
     "select_language": "言語を選択",
     "save": "保存",
@@ -77,7 +76,6 @@
     "boot_recovery_title": "ページを復元できませんでした",
     "boot_recovery_message": "ブラウザーのキャッシュを消去した後もページの読み込みが完了しませんでした。このサイトの他のタブを閉じてから、ページを再読み込みしてください。"
   },
-
   "theme": {
     "light": "ライト",
     "dark": "ダーク",
@@ -86,7 +84,6 @@
     "toast_prefix": "Theme: ",
     "toggle_aria": "テーマを切り替える (現在: {theme})"
   },
-
   "auth": {
     "login": "ログイン",
     "logout": "ログアウト",
@@ -118,7 +115,6 @@
     "session_timeout": "セッションタイムアウト",
     "extend_on_activity": "アクティビティで延長"
   },
-
   "nav": {
     "home": "ホーム",
     "about": "About",
@@ -136,7 +132,6 @@
     "toggle_navigation": "ナビゲーションを切り替え",
     "home_aria": "{app} ホーム"
   },
-
   "health": {
     "title": "システム状態",
     "all_operational": "すべてのシステムが正常稼働中",
@@ -167,7 +162,6 @@
     "production": "本番",
     "development": "開発"
   },
-
   "status_values": {
     "online": "オンライン",
     "offline": "オフライン",
@@ -177,7 +171,6 @@
     "good": "良好",
     "warn": "警告"
   },
-
   "contact": {
     "title": "お問い合わせ",
     "name": "お名前",
@@ -226,8 +219,9 @@
     "researcher_handle": "公開時のハンドル名（ハンドル名での記載を選ぶ場合は必須）",
     "coordinated_disclosure_agreement": "協調的な情報公開に同意します。"
   },
-
   "help": {
+    "more_heading": "その他のヘルプ",
+    "mcp_description": "公開 MCP エンドポイントを通じて AI クライアントを IPGaze に接続します。",
     "title": "ヘルプ",
     "getting_started": "はじめに",
     "features": "機能",
@@ -256,7 +250,6 @@
     "troubleshooting_route_title": "ルートが見つかりません",
     "troubleshooting_route_body": "パスを確認し、/ip、/json、/country、/{ip} などの対応エンドポイントを使用してください。"
   },
-
   "privacy": {
     "title": "プライバシーポリシー",
     "last_updated": "最終更新：",
@@ -310,7 +303,6 @@
     "dpo_contact_unavailable": "データ保護に関する連絡先は設定されていません。",
     "dpo_contact_form": "お問い合わせフォーム"
   },
-
   "terms": {
     "title": "利用規約",
     "acceptance": "同意",
@@ -330,7 +322,6 @@
     "changes_body": "これらの規約はいつでも変更される可能性があります。本サービスの継続利用は、更新された規約への同意とみなされます。",
     "governing_law_body": "これらの規約は、サービス運営者が所在する法域の法律に準拠し、法の抵触に関する原則は適用されません。"
   },
-
   "security": {
     "title": "セキュリティポリシー",
     "intro": "ipgazeでは、セキュリティを重視しています。セキュリティ上の脆弱性を発見した場合は、責任を持ってご報告ください。",
@@ -384,7 +375,6 @@
     "report_notification_subject": "暗号化されたセキュリティ報告 {tracking_id}",
     "report_notification_body": "AES-256-GCM で暗号化されたセキュリティ報告を添付しました。server.security.encryption_key で復号してください。"
   },
-
   "cookie_consent": {
     "message": "EU GDPR 法に基づき、このメッセージが表示されています。",
     "accept": "同意する",
@@ -398,7 +388,6 @@
     "accepted_toast": "Cookies accepted",
     "declined_toast": "Cookies declined"
   },
-
   "about": {
     "title": "About",
     "features": "機能",
@@ -421,7 +410,6 @@
     "api_description_post": "完全なドキュメントは次の場所で利用できます：",
     "attribution_heading": "クレジット表記"
   },
-
   "preferences": {
     "title": "Preferences",
     "heading": "Preferences",
@@ -429,6 +417,7 @@
     "intro": "Your theme and language choices are stored in cookies on this device only. Use the link below to carry them and your default command example to another browser or device.",
     "current_theme_label": "Current theme",
     "current_lang_label": "Current language",
+    "language_automatic": "自動",
     "default_widget_label": "既定のコマンド例",
     "save": "保存",
     "consent_heading": "Cookie の同意",
@@ -439,21 +428,74 @@
     "ccpa_heading": "データ販売のオプトアウト",
     "ccpa_intro": "カリフォルニア州の居住者は個人情報の販売を拒否できます。",
     "export_heading": "Export",
-    "export_intro": "Open this link on another device to apply the same theme and language, or copy the short code and paste it there instead.",
     "export_url_label": "Import link",
     "export_code_label": "Short code",
     "copy_url_aria": "Copy import link",
     "copy_code_aria": "Copy short code",
-    "import_heading": "Import",
     "import_intro": "Paste a short code (or a full import link) from another device below.",
     "import_paste_label": "Code or link",
     "import_submit": "適用",
+    "more_heading": "その他の設定",
+    "sync_title": "設定の同期",
+    "sync_heading": "設定を同期",
+    "sync_intro": "設定を別のブラウザーにエクスポートするか、リンクまたはコードからインポートします。",
+    "sync_link": "設定を同期",
+    "back_to_preferences": "設定に戻る",
+    "sync_description": "エクスポートリンクまたはコードで設定を別のブラウザーに移します。",
     "reset": "リセット",
     "reset_title": "このブラウザーのデータを消去しますか？",
-    "reset_warning": "このサイトの Cookie とブラウザー内の保存データ（設定と同意内容を含む）を消去します。この操作は元に戻せません。",
-    "erase_everything": "すべて消去"
+    "reset_warning": "この操作では、設定、同意の選択、非表示にしたお知らせ、ビルド識別子、オフラインデータを含む、すべての IPGaze Cookie とサイトストレージを消去します。セキュリティ認証情報は保持されます。この操作は取り消せません。",
+    "erase_everything": "すべて消去",
+    "tokens_title": "所有者トークン",
+    "tokens_link": "所有者トークン",
+    "tokens_description": "このブラウザー用のプライマリ所有者トークンを復元します。",
+    "tokens_back": "設定に戻る",
+    "tokens_restore_heading": "ID を復元",
+    "tokens_restore_intro": "このブラウザーを復元するにはプライマリトークンを貼り付けてください。",
+    "tokens_primary_label": "プライマリトークン",
+    "tokens_restore_submit": "ID を復元",
+    "tokens_restore_invalid": "このプライマリトークンは無効か、利用できません。",
+    "tokens_new_heading": "新しいトークン",
+    "tokens_new_intro": "リソースを作成せずに所有者トークンを作成します。安全に保存してください。このブラウザーを復元すれば再表示できます。",
+    "tokens_create": "トークンを作成",
+    "tokens_created": "新しいトークン：",
+    "tokens_primary_heading": "プライマリトークン",
+    "tokens_active": "有効",
+    "tokens_primary_help": "{resources}への完全なアクセス権です。安全に保管してください。",
+    "tokens_shown_once": "このページの読み込み中に一度だけ表示されます",
+    "tokens_reveal": "表示",
+    "tokens_rotate": "ローテーション",
+    "tokens_linked_heading": "リンク済みトークン",
+    "tokens_linked_create_heading": "リンク済みトークンを作成",
+    "tokens_name": "名前",
+    "tokens_name_example": "例：MCP クライアント",
+    "tokens_expiry": "有効期限",
+    "tokens_never": "無期限",
+    "tokens_7_days": "7日",
+    "tokens_30_days": "30日",
+    "tokens_90_days": "90日",
+    "tokens_1_year": "1年",
+    "tokens_this_browser": "このブラウザー",
+    "tokens_saved_browser": "このブラウザーに保存されています。忘れても{resources}は削除されません。",
+    "tokens_forget": "保存したトークンを忘れる",
+    "tokens_created_linked": "トークン：",
+    "tokens_created_primary": "トークン：",
+    "tokens_no_linked": "リンク済みトークンはありません。MCP クライアントなど、アプリごとに作成してください。",
+    "tokens_created_at": "作成日",
+    "tokens_last_used": "最終使用",
+    "tokens_expires": "有効期限",
+    "tokens_edit": "編集",
+    "tokens_save": "保存",
+    "tokens_revoke": "取り消す",
+    "tokens_custom_date": "カスタム日付",
+    "tokens_expires_on": "有効期限日",
+    "tokens_status_active": "有効",
+    "tokens_status_expired": "期限切れ",
+    "tokens_status_revoked": "取り消し済み",
+    "tokens_forget_confirm": "このブラウザーのトークンを忘れることを確認",
+    "tokens_rotate_confirm": "トークンのローテーションを確認",
+    "tokens_revoke_confirm": "トークンの取り消しを確認"
   },
-
   "announcements": {
     "warning": "警告",
     "info": "情報",
@@ -462,7 +504,6 @@
     "scheduled_maintenance": "定期メンテナンス",
     "dismiss_aria": "お知らせを閉じる"
   },
-
   "pwa": {
     "install": "アプリをインストール",
     "installed": "アプリがインストールされました",
@@ -478,7 +519,6 @@
     "update_later": "後で",
     "update_now": "今すぐ更新"
   },
-
   "errors": {
     "required": "このフィールドは必須です",
     "invalid_email": "メールアドレスの形式が正しくありません",
@@ -506,7 +546,6 @@
     "maintenance_mode": "サービスは利用できません",
     "request_id_label": "リクエストID"
   },
-
   "plurals": {
     "items": {
       "other": "{count} 件",
@@ -530,14 +569,12 @@
       "other": "{count} 分"
     }
   },
-
   "app": {
     "name": "IPGaze",
     "tagline": "IP アドレス検索サービス",
     "description": "高速かつ正確な IP ジオロケーションとネットワーク情報",
     "cache_resized": "キャッシュ容量が更新されました"
   },
-
   "ip": {
     "your": "あなたの IP アドレス",
     "lookup": "IP 検索",
@@ -548,7 +585,6 @@
     "is_eu": "EU 加盟国",
     "enter_ip": "検索する IP アドレスを入力してください"
   },
-
   "location": {
     "country": "国",
     "country_code": "国コード",
@@ -562,13 +598,11 @@
     "metro_code": "都市圏コード",
     "zip_code": "郵便番号"
   },
-
   "network": {
     "asn": "ASN",
     "org": "組織",
     "isp": "ISP"
   },
-
   "admin": {
     "title": "管理パネル",
     "dashboard": "ダッシュボード",
@@ -583,7 +617,6 @@
     "update": "更新",
     "reload": "設定を再読み込み"
   },
-
   "cli": {
     "requires_privileges": "この操作には昇格した権限が必要です：{action}",
     "escalate_prompt": "sudo またはルートとして再実行してください。",
@@ -606,7 +639,6 @@
     "service_flag": "サービス管理",
     "maintenance_flag": "メンテナンス操作"
   },
-
   "accessibility": {
     "skip_to_content": "コンテンツへスキップ",
     "menu": "メニュー",
@@ -617,7 +649,6 @@
     "loading": "読み込み中、お待ちください",
     "required_field": "必須フィールド"
   },
-
   "api_help": {
     "title": "ヘルプとAPIリファレンス",
     "basic_heading": "基本的な使い方",
@@ -674,21 +705,19 @@
     "mcp_endpoint_body": "正規エンドポイントまたは 2 つの直接エイリアスのいずれかを使用してください:",
     "mcp_select_url": "上記のエンドポイント URL は JavaScript なしで全体を選択できます。",
     "mcp_authentication": "認証",
-    "mcp_authentication_body": "MCP は REST API と同じ Authorization: Bearer トークンを使用し、MCP 専用トークンはありません。IPGaze は公開検索ツールを匿名で提供し、リンク済みクライアントトークンを発行しません。プライマリトークンやオペレータートークン（server.token）は絶対に使用しないでください。他の環境でリンク済みクライアントトークンがある場合、保護された操作にはそのトークンのみを使用してください。",
     "mcp_connect": "クライアントの接続",
     "mcp_claude_code": "Claude Code",
-    "mcp_token_body": "IPGaze はトークンなしで接続します。リンク済みクライアントトークンに対応する別の環境では、/server/preferences/tokens ページでトークンを作成し、ヘッダーとして指定してください:",
     "mcp_generic_config": "汎用クライアント設定",
     "mcp_verify": "initialize で確認",
-    "mcp_omit_auth": "IPGaze の公開ツールに接続する場合、Authorization ヘッダーは省略してください。",
     "mcp_tools": "利用可能なツール",
     "mcp_tools_body": "この一覧は登録済みのバージョン付き API 操作から生成されます。",
+    "mcp_tools_operator_note": "オペレータートークンでは追加のツールが表示される場合があります。",
     "mcp_no_tools": "現在、公開 API ツールは登録されていません。",
     "mcp_behavior_limits": "動作と制限",
     "mcp_post_stateless": "リクエストには POST を使用します。このエンドポイントはステートレスで、セッションを作成しません。",
     "mcp_rate_audit": "API のレート制限とリクエスト監査が適用されます。",
     "mcp_origin_rejected": "無効な Origin を含むリクエストは拒否されます。",
-    "mcp_protocol_versions": "サポートされるプロトコルバージョンには 2025-03-26 が含まれます。",
+    "mcp_protocol_versions": "サポートされるプロトコルバージョンには 2026-07-28 が含まれます。",
     "mcp_troubleshooting": "トラブルシューティング",
     "mcp_status": "状態",
     "mcp_cause": "原因",
@@ -696,16 +725,17 @@
     "mcp_400_cause": "プロトコルバージョンまたは必須ヘッダーの不一致",
     "mcp_400_fix": "上記のプロトコルバージョンと JSON/stream Accept ヘッダーを送信してください。",
     "mcp_401_cause": "トークンがない、無効、または期限切れ",
-    "mcp_401_fix": "IPGaze の公開ツールにトークンは不要です。リンク済みトークンのある環境では、有効なリンク済み Bearer トークンを使用してください。応答には WWW-Authenticate: Bearer が含まれます。",
     "mcp_403_cause": "Origin が無効、またはトークンの権限範囲が不足",
     "mcp_403_fix": "許可された Origin から接続し、必要な権限範囲を持つトークンを使用してください。",
     "mcp_404_cause": "MCP が無効",
     "mcp_404_fix": "MCP は常に利用できます。エンドポイントのパスが正しく、到達可能か確認してください。",
     "mcp_405_cause": "MCP エンドポイントで GET または DELETE を使用",
     "mcp_405_fix": "MCP リクエストには POST を使用してください。",
-    "mcp_project_tools": "IPGaze ツール"
+    "mcp_project_tools": "IPGaze ツール",
+    "mcp_authentication_body": "すべての MCP リクエストには Authorization ヘッダーの Bearer トークンが必要です。/server/preferences/tokens または API でオーナートークンを作成し、MCP クライアントごとに別の連携トークンを使用してください。オーナートークンと連携トークンはオーナー用ツールに、オペレータートークンは管理用ツールにアクセスできます。",
+    "mcp_token_body": "/server/preferences/tokens でオーナートークンを作成し、MCP クライアントごとに連携トークンを作成して Bearer ヘッダーで送信します:",
+    "mcp_401_fix": "有効なオーナー、連携、またはオペレーターの Bearer トークンを送信してください。応答には WWW-Authenticate: Bearer が含まれます。"
   },
-
   "index": {
     "title": "私のIPアドレスは？ — {host}",
     "meta_description": "{host} • 私のIPアドレスは？ — 自分のIPアドレスとその情報を調べるための最適なツール。IPv4とIPv6を完全にサポート。",
@@ -754,7 +784,6 @@
     "faq_rate_limit_guarantee": "この制限を超えるリクエストについては保証されません。",
     "faq_rate_limit_consequence": "レート制限され429ステータスコードが返される場合や、完全に破棄される場合があります。"
   },
-
   "healthz": {
     "page_title": "ヘルスステータス",
     "degraded_performance": "パフォーマンス低下",
@@ -777,7 +806,6 @@
     "refreshing_in_prefix": "更新まで",
     "provider_label": "プロバイダー"
   },
-
   "client": {
     "help_flag": "このヘルプを表示して終了します",
     "version_flag": "バージョン情報を表示して終了します",
@@ -827,7 +855,6 @@
     "err_unsupported_shell": "サポートされていないシェル「{shell}」です。サポートされるシェル: {shells}",
     "err_tui_unavailable": "対話型端末が検出されないため、TUI モードを利用できません。"
   },
-
   "tui": {
     "title": "IP アドレス情報",
     "loading": "IP アドレスを検索しています…",
@@ -875,7 +902,6 @@
     "status_yes": "はい",
     "status_no": "いいえ"
   },
-
   "setup": {
     "title": "{app} CLI セットアップ",
     "intro": "サーバーが設定されていません。設定しましょう。",
@@ -891,7 +917,6 @@
     "hint": "tab: 次の項目 │ space: 切り替え │ enter: テストして保存 │ esc: 中止",
     "saved": "設定を {path} に保存しました"
   },
-
   "notifications": {
     "title": "通知",
     "mark_all_read": "すべて既読にする",
@@ -922,7 +947,6 @@
       "other_admins": "他の管理者"
     }
   },
-
   "email": {
     "subjects": {
       "security_alert": "セキュリティ警告 - {app_name}",
@@ -993,7 +1017,6 @@
       "test_action": "このメッセージが届いていれば、送信メールの設定は正しく構成されています。"
     }
   },
-
   "swagger": {
     "bodies": {
       "ccpa": "CCPAオプトアウトの選択",
@@ -1001,8 +1024,10 @@
       "contact": "お問い合わせフォームの送信内容",
       "dismiss": "非表示にするお知らせの識別子",
       "graphql": "GraphQLのクエリ、変数、操作名",
-      "preferences": "テーマと言語の設定の更新",
-      "report": "ブラウザーが生成したレポートのデータ"
+      "preferences": "設定項目と同意コントロール",
+      "preferences_sync": "インポートする設定コードまたはリンク",
+      "report": "ブラウザーが生成したレポートのデータ",
+      "linked_token_update": "リンク済みトークンの新しい名前と有効期限"
     },
     "common": {
       "api_mirror": "対応するウェブページのJSON版です。ウェブルートとAPIルートの対応規則に従います。",
@@ -1016,14 +1041,16 @@
     },
     "params": {
       "asset_path": "/static/ 配下のアセットのパス",
-      "code_query": "エクスポートエンドポイントで発行された base64url エンコードの設定コード",
+      "code_query": "設定同期ページが返す base64url 設定コード",
       "filename_path": "コマンドラインクライアントのファイル名 (例: ipgaze-linux-amd64)",
       "ip_path": "照会するIPアドレス (IPv4 または IPv6)",
       "ip_query": "照会するIPアドレス (省略可能)。既定では呼び出し元のIPを使用します",
       "lang_path": "BCP 47 の言語コード (例: en、fr、ja)",
       "lang_query": "適用する言語 (BCP 47 コード)",
       "port_path": "確認するポート番号 (1-65535)",
-      "theme_query": "適用するテーマ: dark、light、auto"
+      "ipgaze_pref_widget_query": "既定の検索例: ip、country、country-iso、city、asn、json、port",
+      "theme_query": "適用するテーマ: dark、light、auto",
+      "token_id": "リンク済み所有者トークンの数値 ID"
     },
     "paths": {
       "announcements_dismiss": {
@@ -1225,17 +1252,21 @@
         "description": "テーマと言語を選択する設定ページを配信します。",
         "summary": "設定ページ"
       },
-      "server_preferences_export": {
-        "description": "現在のテーマと言語を、完全なインポートURLと短い base64url コードの両方の形式で返します。別のブラウザーへ設定を引き継ぐために使用します。",
-        "summary": "設定をエクスポート"
-      },
-      "server_preferences_import": {
-        "description": "渡された設定値をデコードして検証し、対応するCookieを設定したうえでリダイレクトします。コードが表示中のURLに残らないようにします。",
-        "summary": "設定をインポート"
-      },
       "server_preferences_post": {
         "description": "送信されたテーマと言語を検証し、ブラウザーのCookieとして保存します。",
         "summary": "設定を更新"
+      },
+      "server_preferences_sync": {
+        "description": "エクスポート可能な設定を表示し、設定コードをインポートします。",
+        "summary": "設定を同期"
+      },
+      "server_preferences_sync_post": {
+        "description": "送信されたコードの有効な設定を適用してリダイレクトします。",
+        "summary": "設定をインポート"
+      },
+      "server_preferences_sync_import": {
+        "description": "有効な設定を適用し、URLにコードを残さずリダイレクトします。",
+        "summary": "設定をインポート"
       },
       "server_privacy": {
         "description": "記録されるデータ、その保存期間、利用できるオプトアウト手段を含むプライバシーポリシーを配信します。",
@@ -1308,13 +1339,13 @@
         "description": "呼び出し元のCookieに現在保存されているテーマと言語を返します。",
         "summary": "設定を取得 (API v1)"
       },
-      "v1_preferences_export": {
-        "description": "現在のテーマと言語を、完全なインポートURLと短い base64url コードで返します。",
-        "summary": "設定をエクスポート (API v1)"
+      "v1_preferences_sync": {
+        "description": "現在の設定をインポートURLとbase64urlコードで返します。",
+        "summary": "設定を同期（API v1）"
       },
-      "v1_preferences_import": {
-        "description": "渡された設定値をデコードして検証し、対応するCookieを設定します。",
-        "summary": "設定をインポート (API v1)"
+      "v1_preferences_sync_import": {
+        "description": "設定を検証し、対応するCookieを設定します。",
+        "summary": "設定をインポート（API v1）"
       },
       "v1_privacy": {
         "summary": "プライバシーポリシー (API v1)"
@@ -1342,6 +1373,42 @@
       },
       "wk_security_txt": {
         "summary": "セキュリティ連絡先ポリシー (well-known)"
+      },
+      "v1_tokens_list": {
+        "summary": "所有者トークン一覧",
+        "description": "認証済み所有者のプライマリおよびリンク済みトークンのマスク済みメタデータを返します。一覧操作ではトークン値を返しません。"
+      },
+      "v1_tokens_issue": {
+        "summary": "プライマリ所有者トークンを発行",
+        "description": "有効なトークンを持たない呼び出し元に新しい所有者とプライマリトークンを作成します。トークン値はこの応答でのみ返されます。"
+      },
+      "v1_tokens_primary_reveal": {
+        "summary": "プライマリ所有者トークンを表示",
+        "description": "認証済み所有者のプライマリトークンを復号して返します。プライマリトークンが必要です。"
+      },
+      "v1_tokens_primary_rotate": {
+        "summary": "プライマリ所有者トークンをローテーション",
+        "description": "認証済み所有者のプライマリトークンを置き換えます。リンク済みトークンは有効なままです。"
+      },
+      "v1_tokens_linked_create": {
+        "summary": "リンク済み所有者トークンを作成",
+        "description": "指定した名前と任意の有効期限で、認証済み所有者のリンク済みトークンを作成します。"
+      },
+      "v1_tokens_linked_reveal": {
+        "summary": "リンク済み所有者トークンを表示",
+        "description": "選択したリンク済みトークンを復号して返します。所有者のプライマリトークンが必要です。"
+      },
+      "v1_tokens_linked_rotate": {
+        "summary": "リンク済み所有者トークンをローテーション",
+        "description": "他の所有者トークンに影響を与えず、選択したリンク済みトークンを置き換えます。"
+      },
+      "v1_tokens_linked_update": {
+        "summary": "リンク済み所有者トークンを更新",
+        "description": "選択したリンク済みトークンの名前と有効期限を変更します。"
+      },
+      "v1_tokens_linked_revoke": {
+        "summary": "リンク済み所有者トークンを取り消す",
+        "description": "選択したリンク済みトークンを直ちに永久に取り消します。"
       }
     },
     "responses": {
@@ -1349,6 +1416,7 @@
       "asset": "静的アセットの内容",
       "bad_request": "不正なリクエスト",
       "binary": "バイナリファイルのストリーム",
+      "forbidden": "アクセスが拒否されました",
       "graphql": "GraphQLの実行結果",
       "health": "サーバーの稼働状態",
       "html_page": "HTMLページ",
@@ -1366,7 +1434,8 @@
       "text_value": "プレーンテキストの値",
       "too_many_requests": "レート制限を超えました",
       "unavailable": "サーバーが異常状態、メンテナンス中、または停止処理中です",
-      "version": "ビルドバージョンの情報"
+      "version": "ビルドバージョンの情報",
+      "conflict": "現在のトークン状態と競合するリクエストです"
     },
     "tags": {
       "api_v1": "API v1",
@@ -1384,7 +1453,6 @@
       "title": "IPGaze API - Swagger UI"
     }
   },
-
   "graphql": {
     "args": {
       "checkPort": {
@@ -1539,27 +1607,23 @@
       "variables": "変数 (JSON)"
     }
   },
-
   "version": {
     "name_version": "{project_name} {project_version}",
     "built": "ビルド日時: {build_date}",
     "go": "Go: {go_version}",
     "os_arch": "OS/アーキテクチャ: {goos}/{goarch}"
   },
-
   "confirm": {
     "delete_title": "削除の確認",
     "delete_message": "この項目を削除してもよろしいですか？",
     "action_irreversible": "この操作は元に戻せません。"
   },
-
   "form": {
     "required_field": "(必須)",
     "optional_field": "(任意)",
     "hint_email": "メールアドレスを第三者と共有することはありません。",
     "errors_count": "フォームに {count} 件のエラーがあります"
   },
-
   "gui": {
     "title": "IPGaze",
     "subtitle": "IP アドレスを検索してネットワーク情報を確認します。",

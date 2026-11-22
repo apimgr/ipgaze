@@ -2,7 +2,7 @@
 
 ⚠️ **These rules are NON-NEGOTIABLE. Violations are bugs.** ⚠️
 
-> Synced against AI.md revision `7ac307b1a0b` (2026-11-21). AI.md remains authoritative for complete requirements.
+> Synced against AI.md revision `eb41fb200153` (2026-11-22). AI.md remains authoritative for complete requirements.
 
 ## CRITICAL - NEVER DO
 - **PART 23:** Never prompts if user cannot escalate → shows informative error instead
@@ -35,4 +35,4 @@
 
 For complete details, see AI.md PART 23, PART 24.
 
-<!-- AI.md source: 03cc45ec58df -->
+<!-- AI.md source: eb41fb200153 -->

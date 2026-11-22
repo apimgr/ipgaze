@@ -2,7 +2,7 @@
 
 ⚠️ **These rules are NON-NEGOTIABLE. Violations are bugs.** ⚠️
 
-> Synced against AI.md revision `7ac307b1a0b` (2026-11-21). AI.md remains authoritative for complete requirements.
+> Synced against AI.md revision `eb41fb200153` (2026-11-22). AI.md remains authoritative for complete requirements.
 
 ## CRITICAL - NEVER DO
 - **PART 0:** | **AI.md (PARTS 0-33 + PART 33 reference)** | Implementation patterns, standards, rules, and reference material | **NEVER** |
@@ -290,4 +290,4 @@
 
 For complete details, see AI.md PART 0, PART 1.
 
-<!-- AI.md source: 03cc45ec58df -->
+<!-- AI.md source: eb41fb200153 -->

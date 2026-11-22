@@ -6,7 +6,6 @@
     "direction": "ltr",
     "version": "1.0.0"
   },
-
   "common": {
     "select_language": "选择语言",
     "save": "保存",
@@ -77,7 +76,6 @@
     "boot_recovery_title": "页面恢复失败",
     "boot_recovery_message": "清除浏览器缓存后，页面仍未能完成加载。请关闭此网站的其他标签页，然后重新加载页面。"
   },
-
   "theme": {
     "light": "浅色",
     "dark": "深色",
@@ -86,7 +84,6 @@
     "toast_prefix": "Theme: ",
     "toggle_aria": "切换主题（当前：{theme}）"
   },
-
   "auth": {
     "login": "登录",
     "logout": "登出",
@@ -118,7 +115,6 @@
     "session_timeout": "会话超时",
     "extend_on_activity": "活动时延长"
   },
-
   "nav": {
     "home": "首页",
     "about": "关于",
@@ -136,7 +132,6 @@
     "toggle_navigation": "切换导航",
     "home_aria": "{app} 首页"
   },
-
   "health": {
     "title": "系统状态",
     "all_operational": "所有系统正常运行",
@@ -167,7 +162,6 @@
     "production": "生产",
     "development": "开发"
   },
-
   "status_values": {
     "online": "在线",
     "offline": "离线",
@@ -177,7 +171,6 @@
     "good": "良好",
     "warn": "警告"
   },
-
   "contact": {
     "title": "联系我们",
     "name": "姓名",
@@ -226,8 +219,9 @@
     "researcher_handle": "公开署名昵称（选择使用昵称时必填）",
     "coordinated_disclosure_agreement": "我同意协调披露。"
   },
-
   "help": {
+    "more_heading": "更多帮助",
+    "mcp_description": "通过公共 MCP 端点将 AI 客户端连接到 IPGaze。",
     "title": "帮助",
     "getting_started": "入门指南",
     "features": "功能",
@@ -256,7 +250,6 @@
     "troubleshooting_route_title": "未找到路由",
     "troubleshooting_route_body": "检查路径并使用受支持的端点，例如 /ip、/json、/country 或 /{ip}。"
   },
-
   "privacy": {
     "title": "隐私政策",
     "last_updated": "最后更新：",
@@ -310,7 +303,6 @@
     "dpo_contact_unavailable": "尚未配置数据保护联系信息。",
     "dpo_contact_form": "联系表单"
   },
-
   "terms": {
     "title": "服务条款",
     "acceptance": "接受",
@@ -330,7 +322,6 @@
     "changes_body": "这些条款可能随时更改。继续使用本服务即表示接受更新后的条款。",
     "governing_law_body": "本条款受服务运营方所在司法管辖区的法律管辖，不适用法律冲突原则。"
   },
-
   "security": {
     "title": "安全政策",
     "intro": "我们非常重视 ipgaze 的安全。如果您发现安全漏洞，请负责任地报告。",
@@ -384,7 +375,6 @@
     "report_notification_subject": "已加密的安全报告 {tracking_id}",
     "report_notification_body": "已附上使用 AES-256-GCM 加密的安全报告。请使用 server.security.encryption_key 解密。"
   },
-
   "cookie_consent": {
     "message": "根据欧盟 GDPR 法律，显示此消息。",
     "accept": "我接受",
@@ -398,7 +388,6 @@
     "accepted_toast": "Cookies accepted",
     "declined_toast": "Cookies declined"
   },
-
   "about": {
     "title": "关于",
     "features": "功能",
@@ -421,7 +410,6 @@
     "api_description_post": "完整文档请访问：",
     "attribution_heading": "署名"
   },
-
   "preferences": {
     "title": "Preferences",
     "heading": "Preferences",
@@ -429,6 +417,7 @@
     "intro": "Your theme and language choices are stored in cookies on this device only. Use the link below to carry them and your default command example to another browser or device.",
     "current_theme_label": "Current theme",
     "current_lang_label": "Current language",
+    "language_automatic": "自动",
     "default_widget_label": "默认命令示例",
     "save": "保存",
     "consent_heading": "Cookie 同意",
@@ -439,21 +428,74 @@
     "ccpa_heading": "拒绝出售数据",
     "ccpa_intro": "加利福尼亚州居民可以拒绝出售其个人信息。",
     "export_heading": "Export",
-    "export_intro": "Open this link on another device to apply the same theme and language, or copy the short code and paste it there instead.",
     "export_url_label": "Import link",
     "export_code_label": "Short code",
     "copy_url_aria": "Copy import link",
     "copy_code_aria": "Copy short code",
-    "import_heading": "Import",
     "import_intro": "Paste a short code (or a full import link) from another device below.",
     "import_paste_label": "Code or link",
     "import_submit": "应用",
+    "more_heading": "更多偏好设置",
+    "sync_title": "偏好设置同步",
+    "sync_heading": "同步偏好设置",
+    "sync_intro": "将偏好设置导出到其他浏览器，或通过链接或代码导入。",
+    "sync_link": "同步偏好设置",
+    "back_to_preferences": "返回偏好设置",
+    "sync_description": "使用导出链接或代码将偏好设置移至其他浏览器。",
     "reset": "重置",
     "reset_title": "清除此浏览器的数据？",
-    "reset_warning": "这会清除此网站的 Cookie 和浏览器存储，包括偏好设置和同意选项。此操作无法撤销。",
-    "erase_everything": "全部清除"
+    "reset_warning": "此操作会清除所有 IPGaze Cookie 和站点存储，包括偏好设置、同意记录、已关闭的公告、构建标记和离线数据。安全凭据会保留。此操作无法撤销。",
+    "erase_everything": "全部清除",
+    "tokens_title": "所有者令牌",
+    "tokens_link": "所有者令牌",
+    "tokens_description": "为此浏览器恢复主所有者令牌。",
+    "tokens_back": "返回偏好设置",
+    "tokens_restore_heading": "恢复身份",
+    "tokens_restore_intro": "粘贴主令牌以恢复此浏览器。",
+    "tokens_primary_label": "主令牌",
+    "tokens_restore_submit": "恢复身份",
+    "tokens_restore_invalid": "此主令牌无效或不可用。",
+    "tokens_new_heading": "新建令牌",
+    "tokens_new_intro": "创建所有者令牌，而不创建资源。请安全保存；恢复此浏览器后仍可再次查看。",
+    "tokens_create": "创建令牌",
+    "tokens_created": "你的新令牌：",
+    "tokens_primary_heading": "主令牌",
+    "tokens_active": "有效",
+    "tokens_primary_help": "完全访问你的{resources}。请妥善保管。",
+    "tokens_shown_once": "仅在此页面加载时显示一次",
+    "tokens_reveal": "显示",
+    "tokens_rotate": "轮换",
+    "tokens_linked_heading": "关联令牌",
+    "tokens_linked_create_heading": "创建关联令牌",
+    "tokens_name": "名称",
+    "tokens_name_example": "例如：MCP 客户端",
+    "tokens_expiry": "有效期",
+    "tokens_never": "永不过期",
+    "tokens_7_days": "7 天",
+    "tokens_30_days": "30 天",
+    "tokens_90_days": "90 天",
+    "tokens_1_year": "1 年",
+    "tokens_this_browser": "此浏览器",
+    "tokens_saved_browser": "已保存在此浏览器。忘记它不会删除你的{resources}。",
+    "tokens_forget": "忘记已保存的令牌",
+    "tokens_created_linked": "你的令牌：",
+    "tokens_created_primary": "你的令牌：",
+    "tokens_no_linked": "尚无关联令牌。请为每个应用创建一个，例如 MCP 客户端。",
+    "tokens_created_at": "创建时间",
+    "tokens_last_used": "上次使用",
+    "tokens_expires": "到期时间",
+    "tokens_edit": "编辑",
+    "tokens_save": "保存",
+    "tokens_revoke": "撤销",
+    "tokens_custom_date": "自定义日期",
+    "tokens_expires_on": "到期日期",
+    "tokens_status_active": "有效",
+    "tokens_status_expired": "已过期",
+    "tokens_status_revoked": "已撤销",
+    "tokens_forget_confirm": "确认忘记此浏览器令牌",
+    "tokens_rotate_confirm": "确认轮换令牌",
+    "tokens_revoke_confirm": "确认撤销令牌"
   },
-
   "announcements": {
     "warning": "警告",
     "info": "信息",
@@ -462,7 +504,6 @@
     "scheduled_maintenance": "计划维护",
     "dismiss_aria": "关闭公告"
   },
-
   "pwa": {
     "install": "安装应用",
     "installed": "应用已安装",
@@ -478,7 +519,6 @@
     "update_later": "稍后",
     "update_now": "立即更新"
   },
-
   "errors": {
     "required": "此字段为必填项",
     "invalid_email": "无效的电子邮件地址",
@@ -506,7 +546,6 @@
     "maintenance_mode": "服务不可用",
     "request_id_label": "请求 ID"
   },
-
   "plurals": {
     "items": {
       "other": "{count} 个项目",
@@ -530,14 +569,12 @@
       "other": "{count} 分钟"
     }
   },
-
   "app": {
     "name": "IPGaze",
     "tagline": "IP 地址查询服务",
     "description": "快速、精准的 IP 地理位置和网络信息查询",
     "cache_resized": "缓存容量已更新"
   },
-
   "ip": {
     "your": "您的 IP 地址",
     "lookup": "IP 查询",
@@ -548,7 +585,6 @@
     "is_eu": "欧盟成员",
     "enter_ip": "输入要查询的 IP 地址"
   },
-
   "location": {
     "country": "国家",
     "country_code": "国家代码",
@@ -562,13 +598,11 @@
     "metro_code": "都市区代码",
     "zip_code": "邮政编码"
   },
-
   "network": {
     "asn": "ASN",
     "org": "组织",
     "isp": "互联网服务提供商"
   },
-
   "admin": {
     "title": "管理面板",
     "dashboard": "仪表盘",
@@ -583,7 +617,6 @@
     "update": "更新",
     "reload": "重新加载配置"
   },
-
   "cli": {
     "requires_privileges": "此操作需要提升的权限：{action}",
     "escalate_prompt": "请以 sudo 或 root 身份重新运行。",
@@ -606,7 +639,6 @@
     "service_flag": "服务管理",
     "maintenance_flag": "维护操作"
   },
-
   "accessibility": {
     "skip_to_content": "跳转到内容",
     "menu": "菜单",
@@ -617,7 +649,6 @@
     "loading": "加载中，请稍候",
     "required_field": "必填字段"
   },
-
   "api_help": {
     "title": "帮助与 API 参考",
     "basic_heading": "基本用法",
@@ -674,21 +705,19 @@
     "mcp_endpoint_body": "请使用规范端点或任一直接别名：",
     "mcp_select_url": "无需 JavaScript 即可完整选中上方端点 URL。",
     "mcp_authentication": "身份验证",
-    "mcp_authentication_body": "MCP 使用与 REST API 相同的 Authorization: Bearer 令牌；没有 MCP 专用令牌。IPGaze 匿名提供公开查询工具，不签发关联客户端令牌。切勿使用主令牌或操作员令牌 (server.token)。如果其他部署提供关联客户端令牌，受保护操作只能使用其关联令牌。",
     "mcp_connect": "连接客户端",
     "mcp_claude_code": "Claude Code",
-    "mcp_token_body": "IPGaze 无需令牌即可连接。对于支持关联客户端令牌的其他部署，请在其 /server/preferences/tokens 页面创建令牌并作为标头提供：",
     "mcp_generic_config": "通用客户端配置",
     "mcp_verify": "使用 initialize 验证",
-    "mcp_omit_auth": "连接 IPGaze 公开工具时，请省略授权标头。",
     "mcp_tools": "可用工具",
     "mcp_tools_body": "此实时列表由已注册的版本化 API 操作生成。",
+    "mcp_tools_operator_note": "操作员令牌可能会看到其他工具。",
     "mcp_no_tools": "目前未注册公开 API 工具。",
     "mcp_behavior_limits": "行为与限制",
     "mcp_post_stateless": "请求使用 POST；此端点无状态且不会创建会话。",
     "mcp_rate_audit": "适用 API 速率限制和请求审计。",
     "mcp_origin_rejected": "Origin 无效的请求将被拒绝。",
-    "mcp_protocol_versions": "支持的协议版本包括 2025-03-26。",
+    "mcp_protocol_versions": "支持的协议版本包括 2026-07-28。",
     "mcp_troubleshooting": "故障排除",
     "mcp_status": "状态",
     "mcp_cause": "原因",
@@ -696,16 +725,17 @@
     "mcp_400_cause": "协议版本或必需标头不匹配",
     "mcp_400_fix": "发送上方所示的协议版本和 JSON/stream Accept 标头。",
     "mcp_401_cause": "令牌缺失、无效或已过期",
-    "mcp_401_fix": "IPGaze 公开工具无需令牌。对于支持关联令牌的部署，请使用有效的关联 Bearer 令牌；响应包含 WWW-Authenticate: Bearer。",
     "mcp_403_cause": "Origin 无效或令牌权限范围不足",
     "mcp_403_fix": "请从允许的 Origin 连接，并使用具有所需权限范围的令牌。",
     "mcp_404_cause": "MCP 已禁用",
     "mcp_404_fix": "MCP 始终可用；请检查端点路径是否正确且可访问。",
     "mcp_405_cause": "在 MCP 端点上使用了 GET 或 DELETE",
     "mcp_405_fix": "MCP 请求请使用 POST。",
-    "mcp_project_tools": "IPGaze 工具"
+    "mcp_project_tools": "IPGaze 工具",
+    "mcp_authentication_body": "每个 MCP 请求都必须在 Authorization 标头中提供 Bearer 令牌。请在 /server/preferences/tokens 或通过 API 创建所有者令牌，并为每个 MCP 客户端使用单独的关联令牌。所有者令牌和关联令牌可访问所有者工具；操作员令牌可访问管理工具。",
+    "mcp_token_body": "请在 /server/preferences/tokens 创建所有者令牌，然后为每个 MCP 客户端创建关联令牌，并通过 Bearer 标头发送：",
+    "mcp_401_fix": "请提供有效的所有者、关联或操作员 Bearer 令牌。响应包含 WWW-Authenticate: Bearer。"
   },
-
   "index": {
     "title": "我的 IP 地址是什么？— {host}",
     "meta_description": "{host} • 我的 IP 地址是什么？— 查找您自己的 IP 地址及相关信息的最佳工具。完整支持 IPv4 和 IPv6。",
@@ -754,7 +784,6 @@
     "faq_rate_limit_guarantee": "超出此限制的请求不作任何保证。",
     "faq_rate_limit_consequence": "这些请求可能会被限速并返回 429 状态码，或被完全丢弃。"
   },
-
   "healthz": {
     "page_title": "健康状态",
     "degraded_performance": "性能下降",
@@ -777,7 +806,6 @@
     "refreshing_in_prefix": "将在以下时间后刷新",
     "provider_label": "提供方"
   },
-
   "client": {
     "help_flag": "显示此帮助信息并退出",
     "version_flag": "显示版本信息并退出",
@@ -827,7 +855,6 @@
     "err_unsupported_shell": "不支持的 shell“{shell}”。支持的 shell：{shells}",
     "err_tui_unavailable": "未检测到交互式终端，因此无法使用 TUI 模式。"
   },
-
   "tui": {
     "title": "IP 地址信息",
     "loading": "正在查询 IP 地址…",
@@ -875,7 +902,6 @@
     "status_yes": "是",
     "status_no": "否"
   },
-
   "setup": {
     "title": "{app} CLI 设置",
     "intro": "尚未配置服务器，现在来设置一个吧！",
@@ -891,7 +917,6 @@
     "hint": "tab: 下一个字段 │ space: 切换 │ enter: 测试并保存 │ esc: 取消",
     "saved": "配置已保存到 {path}"
   },
-
   "notifications": {
     "title": "通知",
     "mark_all_read": "全部标记为已读",
@@ -922,7 +947,6 @@
       "other_admins": "其他管理员"
     }
   },
-
   "email": {
     "subjects": {
       "security_alert": "安全警报 - {app_name}",
@@ -993,7 +1017,6 @@
       "test_action": "收到此邮件表示外发邮件设置正确。"
     }
   },
-
   "swagger": {
     "bodies": {
       "ccpa": "CCPA 退出选择",
@@ -1001,8 +1024,10 @@
       "contact": "联系表单提交内容",
       "dismiss": "要关闭的公告标识符",
       "graphql": "GraphQL 查询、变量和操作名称",
-      "preferences": "主题与语言偏好设置的更新",
-      "report": "浏览器生成的报告数据"
+      "preferences": "偏好设置字段和同意控件",
+      "preferences_sync": "要导入的偏好设置代码或链接",
+      "report": "浏览器生成的报告数据",
+      "linked_token_update": "关联令牌的新名称和有效期"
     },
     "common": {
       "api_mirror": "对应网页的 JSON 版本，遵循网页路由与 API 路由一一对应的规则。",
@@ -1016,14 +1041,16 @@
     },
     "params": {
       "asset_path": "/static/ 下的资源路径",
-      "code_query": "来自导出端点的 base64url 编码偏好设置代码",
+      "code_query": "偏好设置同步页面返回的 base64url 代码",
       "filename_path": "命令行客户端的文件名，例如 ipgaze-linux-amd64",
       "ip_path": "要查询的 IP 地址（IPv4 或 IPv6）",
       "ip_query": "可选的待查询 IP 地址；默认为调用方的 IP",
       "lang_path": "BCP 47 语言代码，例如 en、fr 或 ja",
       "lang_query": "要应用的语言，使用 BCP 47 代码",
       "port_path": "要检测的端口号（1-65535）",
-      "theme_query": "要应用的主题：dark、light 或 auto"
+      "ipgaze_pref_widget_query": "默认查询示例：ip、country、country-iso、city、asn、json 或 port",
+      "theme_query": "要应用的主题：dark、light 或 auto",
+      "token_id": "关联所有者令牌的数字标识"
     },
     "paths": {
       "announcements_dismiss": {
@@ -1225,17 +1252,21 @@
         "description": "提供用于选择主题和语言的偏好设置页面。",
         "summary": "偏好设置页面"
       },
-      "server_preferences_export": {
-        "description": "以完整导入 URL 和简短 base64url 代码两种形式返回当前主题和语言，便于将偏好设置迁移到另一个浏览器。",
-        "summary": "导出偏好设置"
-      },
-      "server_preferences_import": {
-        "description": "解码并校验所提供的偏好设置值，设置相应 Cookie 后重定向，使代码不会留在可见的 URL 中。",
-        "summary": "导入偏好设置"
-      },
       "server_preferences_post": {
         "description": "校验提交的主题和语言，并保存为浏览器 Cookie。",
         "summary": "更新偏好设置"
+      },
+      "server_preferences_sync": {
+        "description": "显示可导出的偏好设置并导入偏好代码。",
+        "summary": "同步偏好设置"
+      },
+      "server_preferences_sync_post": {
+        "description": "应用提交代码中的有效偏好设置并重定向。",
+        "summary": "导入偏好设置"
+      },
+      "server_preferences_sync_import": {
+        "description": "应用有效偏好设置并重定向，不在网址中保留代码。",
+        "summary": "导入偏好设置"
       },
       "server_privacy": {
         "description": "提供隐私政策，说明记录哪些数据、保留多久，以及可用的退出方式。",
@@ -1308,12 +1339,12 @@
         "description": "返回当前保存在调用方 Cookie 中的主题和语言。",
         "summary": "获取偏好设置（API v1）"
       },
-      "v1_preferences_export": {
-        "description": "以完整导入 URL 和简短 base64url 代码返回当前主题和语言。",
-        "summary": "导出偏好设置（API v1）"
+      "v1_preferences_sync": {
+        "description": "以导入网址和 base64url 代码返回当前偏好设置。",
+        "summary": "同步偏好设置（API v1）"
       },
-      "v1_preferences_import": {
-        "description": "解码并校验所提供的偏好设置值，并设置相应的 Cookie。",
+      "v1_preferences_sync_import": {
+        "description": "验证偏好设置并写入相应 Cookie。",
         "summary": "导入偏好设置（API v1）"
       },
       "v1_privacy": {
@@ -1342,6 +1373,42 @@
       },
       "wk_security_txt": {
         "summary": "安全联系策略（well-known）"
+      },
+      "v1_tokens_list": {
+        "summary": "列出所有者令牌",
+        "description": "返回已验证所有者的主令牌和关联令牌的脱敏元数据。列表操作绝不返回令牌值。"
+      },
+      "v1_tokens_issue": {
+        "summary": "签发主所有者令牌",
+        "description": "当调用方没有有效令牌时创建新的所有者和主令牌。原始令牌仅在此响应中返回。"
+      },
+      "v1_tokens_primary_reveal": {
+        "summary": "显示主所有者令牌",
+        "description": "解密并返回已验证所有者的主令牌。需要主令牌。"
+      },
+      "v1_tokens_primary_rotate": {
+        "summary": "轮换主所有者令牌",
+        "description": "就地替换已验证所有者的主令牌；关联令牌保持有效。"
+      },
+      "v1_tokens_linked_create": {
+        "summary": "创建关联所有者令牌",
+        "description": "为已验证所有者创建关联令牌，并设置指定名称和可选有效期。"
+      },
+      "v1_tokens_linked_reveal": {
+        "summary": "显示关联所有者令牌",
+        "description": "解密并返回所选关联令牌。需要所有者主令牌。"
+      },
+      "v1_tokens_linked_rotate": {
+        "summary": "轮换关联所有者令牌",
+        "description": "就地替换所选关联令牌，不影响其他所有者令牌。"
+      },
+      "v1_tokens_linked_update": {
+        "summary": "更新关联所有者令牌",
+        "description": "更改所选关联令牌的名称和有效期。"
+      },
+      "v1_tokens_linked_revoke": {
+        "summary": "撤销关联所有者令牌",
+        "description": "立即并永久撤销所选关联令牌。"
       }
     },
     "responses": {
@@ -1349,6 +1416,7 @@
       "asset": "静态资源内容",
       "bad_request": "请求无效",
       "binary": "二进制文件流",
+      "forbidden": "权限被拒绝",
       "graphql": "GraphQL 执行结果",
       "health": "服务器健康状况",
       "html_page": "HTML 页面",
@@ -1366,7 +1434,8 @@
       "text_value": "纯文本值",
       "too_many_requests": "超出速率限制",
       "unavailable": "服务器处于异常、维护或正在关闭状态",
-      "version": "构建版本信息"
+      "version": "构建版本信息",
+      "conflict": "请求与当前令牌状态冲突"
     },
     "tags": {
       "api_v1": "API v1",
@@ -1384,7 +1453,6 @@
       "title": "IPGaze API - Swagger 界面"
     }
   },
-
   "graphql": {
     "args": {
       "checkPort": {
@@ -1539,27 +1607,23 @@
       "variables": "变量（JSON）"
     }
   },
-
   "version": {
     "name_version": "{project_name} {project_version}",
     "built": "构建时间：{build_date}",
     "go": "Go：{go_version}",
     "os_arch": "操作系统/架构：{goos}/{goarch}"
   },
-
   "confirm": {
     "delete_title": "确认删除",
     "delete_message": "确定要删除此项吗？",
     "action_irreversible": "此操作无法撤销。"
   },
-
   "form": {
     "required_field": "（必填）",
     "optional_field": "（选填）",
     "hint_email": "我们绝不会分享您的电子邮件地址。",
     "errors_count": "表单中有 {count} 处错误"
   },
-
   "gui": {
     "title": "IPGaze",
     "subtitle": "查询 IP 地址并查看网络详情。",

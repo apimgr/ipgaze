@@ -2,7 +2,7 @@
 
 ⚠️ **These rules are NON-NEGOTIABLE. Violations are bugs.** ⚠️
 
-> Synced against AI.md revision `7ac307b1a0b` (2026-11-21). AI.md remains authoritative for complete requirements.
+> Synced against AI.md revision `eb41fb200153` (2026-11-22). AI.md remains authoritative for complete requirements.
 
 ## CRITICAL - NEVER DO
 - **PART 9:** | **No stack traces** | Never expose stack traces in production responses |
@@ -81,9 +81,9 @@
 - **PART 11:** | Route class | All three paths, including the root `/mcp` alias, are API-class: never content-negotiated, no User-Agent detection, never HTML or plain text. Every response, including `400`, `403`, `404` and `405`, is JSON (a JSON-RPC error object when the request parsed, otherwise the canonical error body); success is `application/json` or `text/event-stream` according to the client's `Accept` |
 - **PART 11:** | Responses | A single `application/json` object per request; an SSE stream only when a tool needs to stream progress. Server-initiated requests are never sent |
 - **PART 11:** | Sessions | None. An `Mcp-Session-Id` header, if sent by an older client, is ignored — never minted, never echoed |
-- **PART 11:** | MCP clients | Give each MCP client its own linked token (never the primary, never `server.token` — that is full operator access). A project without owner tokens exposes only its public endpoints to MCP clients; there is no non-operator credential to issue there |
+- **PART 11:** | MCP clients | Every MCP request requires a valid Bearer token. Give each MCP client its own linked token (never the primary, never `server.token` — that is full operator access). Owner tokens are available in every API project. |
 - **PART 11:** | Token management | **Never exposed as tools.** Reveal, rotate, create, revoke and restore of tokens exist only on `/server/preferences/tokens` and its API mirror, never over MCP |
-- **PART 11:** | Creation by an anonymous client | **Not allowed over MCP.** A tool that would issue a new owner (and its token) requires an existing token; without one it fails with the API's `401`, and such tools are absent from `tools/list` for anonymous callers. Owner tokens are issued only by the REST API or the web form, never inside a tool result — tool results enter the model's context and the provider's logs. A caller that already has a token passes it and no new owner is created |
+- **PART 11:** MCP always requires a valid Bearer token. Owner tokens are available in every API project; issue them only through REST or the web form, never in a tool result. Token management routes are never tools.
 - **PART 11:** **One tool per public API operation** (`{api_version}` routes), generated from the same route definitions that feed Swagger and `llms.txt` — never a hand-maintained second list.
 - **PART 11:** Handler errors map to the MCP tool result with `isError: true` and the API's normal error body (`ok: false`, `error`, `message`); secrets are never included in a tool result any more than in an API response.
 - **PART 11:** | Behavior note | Read-only help text | `/healthz` maps directly to `/server/healthz` using the same handler; never redirects |
@@ -110,9 +110,10 @@
 - **PART 11:** *CCPA "Do Not Sell" Implementation (based on `server.privacy.data.sold`):**
 - **PART 11:** | `false` (default) | Display notice: "We do not sell your personal information" - no opt-out needed |
 - **PART 11:** | `true` | Display "Do Not Sell My Personal Information" opt-out toggle on `/server/privacy#ccpa-opt-out` |
-- **PART 11:** *DPO contact source:** `server.contact.dpo.email` (with optional `server.contact.dpo.name`), part of the Contact Configuration tree (PART 12). When `dpo.email` is empty the page shows `server.contact.general.email`; when that is empty too it renders only a link to the contact form (`/server/contact`). It never invents an address and never shows the admin address. The JSON mirror is `GET /api/{api_version}/server/dpo` (`name`, `email`, `privacy_url`) and follows the same fallback chain for `email`; when no address resolves it still answers `200` with `email` = `""` (and `name` = `""` when unset), never `404`; `privacy_url` is always present and is an absolute URL: the request's resolved base URL (PART 8 → "Resolution Order", never a cached value) + `/server/privacy`, so on an onion or I2P request it carries that address; the HTML page itself links with the root-relative path `/server/privacy`. The HTML page shows the DPO name when set, the address as a `mailto:` link when one resolves, and always links to `/server/privacy` and `/server/contact`.
+- **PART 11:** DPO contact comes from `server.contact.dpo.email`, falling back to `server.contact.general.email`; never invent an address or show the admin address. The JSON mirror always returns `200`, including an empty email when none resolves, and gives the request-resolved absolute privacy URL. The HTML page links to `/server/privacy` and, when no address resolves, points to `/server/security` for contact guidance. PART 16 restricts contact-form links to the security page and security.txt.
 - **PART 11:** **Action:** an automatic temporary block of `block_duration`, an `abuse.request_flood` audit event and (with `auto_alert`) an email. Allowlisted IPs are never counted or blocked.
 - **PART 11:** *Persistence:** automatic temporary blocks are stored in `server.db` (table `ip_blocks`, with `expires_at`), so they survive restarts; expired rows are dropped on load. Permanent blocks are never stored in the database — they exist only as `server.security.blocked_ips` config entries.
+- **PART 11:** IP block and allowlist entries are file-backed in `server.security.blocked_ips` and `server.security.allowlist`; there is no allowlist API. Invalid entries are warned and skipped without failing startup or reload. Allowlisted IPs bypass IP blocklists, rate limiting, GeoIP country blocking and automatic blocks, but not CSRF, path security or TLS; authentication still applies.
 - **PART 11:** | Auto IP blocking | Yes | Never auto-block trusted IPs |
 - **PART 31:** **Hidden service maps to a dedicated Tor backend port** - `.onion:80` → `localhost:{tor_backend_port}` (a random-unused loopback port bound just for Tor, never the clearnet port)
 - **PART 31:** **NEVER use default Tor ports** (9050, 9051, etc.)
@@ -292,6 +293,12 @@
 
 ## Key Rules Summary
 
+## AI.md 2026-11-22 Updates
+
+- **PART 8 / PART 11:** Owner and linked credentials use `own_`; the operator credential uses `adm_` in `secrets.yml`. Owner-token suffixes are stored in `token_last4`, and list/page loads never decrypt token values.
+- **PART 11:** MCP requires Bearer authentication on every request. Every API project supports owner-token issuance; token-management operations are not MCP tools.
+- **PART 11:** Allowlist entries are file-only. They bypass blocklists, rate limiting, GeoIP country blocking and automatic IP blocks, while authentication, CSRF, path security and TLS remain enforced.
+
 ### PART 9 — ERROR HANDLING & CACHING
 - Error Handling
 - Caching
@@ -349,4 +356,4 @@
 
 For complete details, see AI.md PART 9, PART 10, PART 11, PART 31.
 
-<!-- AI.md source: 03cc45ec58df -->
+<!-- AI.md source: eb41fb200153 -->

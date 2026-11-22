@@ -1,11 +1,13 @@
 {{template "base" .}}
 {{define "title"}}{{t .Lang "api_help.title"}} — {{.ProjectName}}{{end}}
 {{define "content"}}
-<h1>{{t .Lang "api_help.title"}}</h1>
+<header class="page-header">
+  <h1 class="page-title">{{t .Lang "api_help.title"}}</h1>
+  <p class="page-lead">{{t .Lang "api_help.basic_intro"}}</p>
+</header>
 
 <section class="section-card" aria-labelledby="h-basic">
   <h2 id="h-basic">{{t .Lang "api_help.basic_heading"}}</h2>
-  <p>{{t .Lang "api_help.basic_intro"}}</p>
   <div class="code-block"><code>curl -q -LSsf {{.BaseURL}}/ip</code></div>
   <p>{{t .Lang "api_help.force_ip_version"}}</p>
   <div class="code-block"><code>curl -q -LSsf -4 {{.Host}}</code></div>
@@ -118,7 +120,6 @@
   <ul>
     <li><a href="/server/docs/swagger">{{t .Lang "swagger.swagger_description"}}</a></li>
     <li><a href="/server/docs/graphql">{{t .Lang "swagger.graphql_description"}}</a></li>
-    <li><a href="/server/help/mcp">{{t .Lang "api_help.mcp_guide"}}</a></li>
   </ul>
 </section>
 
@@ -143,5 +144,11 @@
   <p>{{t .Lang "help.troubleshooting_rate_body"}}</p>
   <h3><code>404</code> {{t .Lang "help.troubleshooting_route_title"}}</h3>
   <p>{{t .Lang "help.troubleshooting_route_body"}}</p>
+</section>
+<section class="section-card" aria-labelledby="more-help">
+  <h2 id="more-help">{{t .Lang "help.more_heading"}}</h2>
+  <ul class="hub-list">
+    {{range .HelpPages}}<li class="hub-item"><a class="hub-link" href="{{.Path}}"><span class="hub-title">{{.Title}}</span><span class="hub-desc">{{.Description}}</span></a></li>{{end}}
+  </ul>
 </section>
 {{end}}

@@ -141,10 +141,10 @@ func TestNoJSPreferencesImportFormAppliesThemeAndLanguage(t *testing.T) {
 
 	var htmlClass, langAttr, heading string
 	if err := chromedp.Run(ctx,
-		chromedp.Navigate(baseURL+"/server/preferences"),
+		chromedp.Navigate(baseURL+"/server/preferences/sync"),
 		chromedp.WaitVisible("#preferences-import-code", chromedp.ByQuery),
 		chromedp.SendKeys("#preferences-import-code", code, chromedp.ByQuery),
-		chromedp.Click(`form[action="/server/preferences/import"] button[type=submit]`, chromedp.ByQuery),
+		chromedp.Click(`form[action="/server/preferences/sync"] button[type=submit]`, chromedp.ByQuery),
 		chromedp.WaitVisible("#preferences-export-code", chromedp.ByQuery),
 		chromedp.AttributeValue("html", "class", &htmlClass, nil, chromedp.ByQuery),
 		chromedp.AttributeValue("html", "lang", &langAttr, nil, chromedp.ByQuery),

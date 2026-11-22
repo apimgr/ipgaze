@@ -192,7 +192,7 @@ type LanguageOption struct {
 }
 
 // AvailableLanguages returns every compiled-in locale with its native name,
-// in SupportedLocales order, for rendering the language selector.
+// in SupportedLocales order, for rendering the preferences language selector.
 func AvailableLanguages() []LanguageOption {
 	opts := make([]LanguageOption, 0, len(SupportedLocales))
 	for _, locale := range localeRegistry {

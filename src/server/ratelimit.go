@@ -2,15 +2,22 @@ package server
 
 import (
 	"container/list"
+	"context"
+	"database/sql"
 	"encoding/json"
+	"errors"
+	"fmt"
+	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
 	i18n "github.com/apimgr/ipgaze/src/common/i18n"
 	applog "github.com/apimgr/ipgaze/src/log"
 	"github.com/apimgr/ipgaze/src/netutil"
+	"github.com/apimgr/ipgaze/src/server/handler"
 	"golang.org/x/time/rate"
 )
 
@@ -22,6 +29,7 @@ const (
 	rateClassRead   rateClass = "read"
 	rateClassWrite  rateClass = "write"
 	rateClassHealth rateClass = "health"
+	rateClassStrict rateClass = "strict"
 	// rateClassGlobal is the absolute per-IP ceiling across all classes.
 	rateClassGlobal rateClass = "global"
 )
@@ -71,6 +79,10 @@ type RateLimitConfig struct {
 	Write RateLimitBucket
 	// Health applies to the health-check endpoints.
 	Health RateLimitBucket
+	// Strict applies to token reveal, rotate, and restore attempts.
+	Strict RateLimitBucket
+	// AuthFailures controls the per-IP failed-authentication lockout.
+	AuthFailures RateLimitBucket
 	// Global is the absolute per-IP ceiling across all classes.
 	Global RateLimitBucket
 }
@@ -79,10 +91,12 @@ type RateLimitConfig struct {
 // read 120/min, write 10/min, health 120/min, global ceiling 240/min.
 func DefaultRateLimitConfig() RateLimitConfig {
 	return RateLimitConfig{
-		Read:   RateLimitBucket{Limit: 120, Window: time.Minute},
-		Write:  RateLimitBucket{Limit: 10, Window: time.Minute},
-		Health: RateLimitBucket{Limit: 120, Window: time.Minute},
-		Global: RateLimitBucket{Limit: 240, Window: time.Minute},
+		Read:         RateLimitBucket{Limit: 120, Window: time.Minute},
+		Write:        RateLimitBucket{Limit: 10, Window: time.Minute},
+		Health:       RateLimitBucket{Limit: 120, Window: time.Minute},
+		Strict:       RateLimitBucket{Limit: 10, Window: 15 * time.Minute},
+		AuthFailures: RateLimitBucket{Limit: 5, Window: 15 * time.Minute},
+		Global:       RateLimitBucket{Limit: 240, Window: time.Minute},
 	}
 }
 
@@ -93,6 +107,8 @@ func (c RateLimitConfig) bucketFor(class rateClass) RateLimitBucket {
 		return c.Write
 	case rateClassHealth:
 		return c.Health
+	case rateClassStrict:
+		return c.Strict
 	case rateClassGlobal:
 		return c.Global
 	default:
@@ -102,13 +118,17 @@ func (c RateLimitConfig) bucketFor(class rateClass) RateLimitBucket {
 
 // RateLimiter manages per-IP, per-class rate limiting with trusted proxy support.
 type RateLimiter struct {
-	limiters        map[string]*clientLimiter
-	lru             *list.List
-	config          RateLimitConfig
-	trust           *netutil.TrustResolver
-	mu              sync.RWMutex
-	cleanupInterval time.Duration
-	stopCleanup     chan struct{}
+	limiters         map[string]*clientLimiter
+	lru              *list.List
+	config           RateLimitConfig
+	db               *sql.DB
+	windowCounter    rateLimitWindowCounter
+	identityForToken func(string, bool) (string, bool)
+	authFailures     map[string][]time.Time
+	trust            *netutil.TrustResolver
+	mu               sync.RWMutex
+	cleanupInterval  time.Duration
+	stopCleanup      chan struct{}
 	// logManager receives a security.log entry for every rejection so
 	// Fail2ban can ban a sustained offender (AI.md PART 11).
 	logManager *applog.Manager
@@ -117,6 +137,11 @@ type RateLimiter struct {
 	// direct dependency so this package stays decoupled from the notification
 	// subsystem (AI.md PART 17/18's security_alert event).
 	OnBlocked func(clientIP string)
+}
+
+type rateLimitWindowCounter interface {
+	SupportsRateLimitWindow() bool
+	RateLimitWindow(context.Context, string, time.Time, time.Duration, int, bool) (int64, time.Time, error)
 }
 
 type clientLimiter struct {
@@ -143,6 +168,12 @@ func NewRateLimiter(cfg RateLimitConfig, trust *netutil.TrustResolver) *RateLimi
 	if !cfg.Health.configured() {
 		cfg.Health = defaults.Health
 	}
+	if !cfg.Strict.configured() {
+		cfg.Strict = defaults.Strict
+	}
+	if !cfg.AuthFailures.configured() {
+		cfg.AuthFailures = defaults.AuthFailures
+	}
 	if !cfg.Global.configured() {
 		cfg.Global = defaults.Global
 	}
@@ -151,6 +182,7 @@ func NewRateLimiter(cfg RateLimitConfig, trust *netutil.TrustResolver) *RateLimi
 		limiters:        make(map[string]*clientLimiter),
 		lru:             list.New(),
 		config:          cfg,
+		authFailures:    make(map[string][]time.Time),
 		trust:           trust,
 		cleanupInterval: 10 * time.Minute,
 		stopCleanup:     make(chan struct{}),
@@ -161,10 +193,266 @@ func NewRateLimiter(cfg RateLimitConfig, trust *netutil.TrustResolver) *RateLimi
 	return rl
 }
 
+// AuthFailureBlocked reports whether an IP has reached its failed-auth limit.
+func (rl *RateLimiter) AuthFailureBlocked(clientIP string) (bool, time.Duration) {
+	if rl.windowCounter != nil {
+		now := time.Now()
+		count, oldest, err := rl.windowCounter.RateLimitWindow(context.Background(), "auth_failures|ip:"+clientIP, now, rl.config.AuthFailures.effectiveWindow(), rl.config.AuthFailures.Limit, false)
+		if err != nil {
+			return true, rl.config.AuthFailures.effectiveWindow()
+		}
+		if count >= int64(rl.config.AuthFailures.Limit) {
+			return true, rateLimitRetryAfter(oldest, rl.config.AuthFailures.effectiveWindow(), now)
+		}
+		return false, 0
+	}
+	if rl.db != nil {
+		window := int64(rl.config.AuthFailures.effectiveWindow().Seconds())
+		now := time.Now().Unix()
+		var count int
+		if err := rl.db.QueryRow(`SELECT COUNT(*) FROM rate_limit_events WHERE bucket_key = ? AND occurred_at > ?`, "auth_failures|ip:"+clientIP, now-window).Scan(&count); err == nil && count >= rl.config.AuthFailures.Limit {
+			if count == 0 {
+				return false, 0
+			}
+			var oldest int64
+			if err := rl.db.QueryRow(`SELECT occurred_at FROM rate_limit_events WHERE bucket_key = ? AND occurred_at > ? ORDER BY occurred_at LIMIT 1 OFFSET ?`, "auth_failures|ip:"+clientIP, now-window, count-rl.config.AuthFailures.Limit).Scan(&oldest); err != nil {
+				return true, rl.config.AuthFailures.effectiveWindow()
+			}
+			retry := time.Duration(oldest+window-now) * time.Second
+			if retry < time.Second {
+				retry = time.Second
+			}
+			return true, retry
+		}
+	}
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+	now := time.Now()
+	window := rl.config.AuthFailures.effectiveWindow()
+	cutoff := now.Add(-window)
+	failures := rl.authFailures[clientIP]
+	first := 0
+	for first < len(failures) && failures[first].Before(cutoff) {
+		first++
+	}
+	failures = failures[first:]
+	if len(failures) == 0 {
+		delete(rl.authFailures, clientIP)
+		return false, 0
+	}
+	rl.authFailures[clientIP] = failures
+	if len(failures) < rl.config.AuthFailures.Limit {
+		return false, 0
+	}
+	return true, time.Until(failures[0].Add(window))
+}
+
+// RecordAuthFailure adds one failed authentication to the per-IP window.
+func (rl *RateLimiter) RecordAuthFailure(clientIP string) {
+	if rl.windowCounter != nil {
+		_, _, _ = rl.windowCounter.RateLimitWindow(context.Background(), "auth_failures|ip:"+clientIP, time.Now(), rl.config.AuthFailures.effectiveWindow(), rl.config.AuthFailures.Limit+1, true)
+		return
+	}
+	if rl.db != nil {
+		_, _ = rl.db.Exec(`INSERT INTO rate_limit_events(bucket_key, occurred_at) VALUES(?, ?)`, "auth_failures|ip:"+clientIP, time.Now().Unix())
+		return
+	}
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+	if len(rl.authFailures) >= maxPerIPRateLimiters {
+		for ip := range rl.authFailures {
+			delete(rl.authFailures, ip)
+			break
+		}
+	}
+	rl.authFailures[clientIP] = append(rl.authFailures[clientIP], time.Now())
+}
+
 // SetLogManager attaches the log manager used to record rejections in
 // security.log. Safe to leave unset; writes to a nil manager are no-ops.
 func (rl *RateLimiter) SetLogManager(lm *applog.Manager) {
 	rl.logManager = lm
+}
+
+// SetDB enables persisted sliding-window counters in the application database.
+func (rl *RateLimiter) SetDB(db *sql.DB) {
+	rl.db = db
+}
+
+func (rl *RateLimiter) SetWindowCounter(counter rateLimitWindowCounter) {
+	if counter != nil && counter.SupportsRateLimitWindow() {
+		rl.windowCounter = counter
+		return
+	}
+	rl.windowCounter = nil
+}
+
+// SetTokenIdentityResolver maps a validated Bearer token to its rate-limit subject.
+// The boolean indicates whether the token was valid; invalid credentials remain per-IP.
+func (rl *RateLimiter) SetTokenIdentityResolver(resolve func(string, bool) (string, bool)) {
+	rl.identityForToken = resolve
+}
+
+func (rl *RateLimiter) requestSubject(r *http.Request, class rateClass) string {
+	clientIP := rl.getClientIP(r)
+	parts := strings.Fields(r.Header.Get("Authorization"))
+	if len(parts) == 2 && strings.EqualFold(parts[0], "Bearer") && rl.identityForToken != nil {
+		if subject, ok := rl.identityForToken(parts[1], class == rateClassStrict); ok {
+			return subject
+		}
+	} else if class == rateClassStrict && rl.identityForToken != nil {
+		if cookie, err := r.Cookie(handler.OwnerTokenCookieName); err == nil {
+			if subject, ok := rl.identityForToken(cookie.Value, true); ok {
+				return subject
+			}
+		}
+	}
+	return "ip:" + clientIP
+}
+
+func (rl *RateLimiter) allowPersisted(class rateClass, subject string) bool {
+	if rl.windowCounter != nil {
+		now := time.Now()
+		keys := []struct {
+			name   string
+			bucket RateLimitBucket
+		}{{string(class), rl.config.bucketFor(class)}}
+		if class != rateClassGlobal {
+			keys = append(keys, struct {
+				name   string
+				bucket RateLimitBucket
+			}{string(rateClassGlobal), rl.config.Global})
+		}
+		for _, key := range keys {
+			count, _, err := rl.windowCounter.RateLimitWindow(context.Background(), key.name+"|"+subject, now, key.bucket.effectiveWindow(), key.bucket.Limit+1, true)
+			if err != nil || count > int64(key.bucket.Limit) {
+				return false
+			}
+		}
+		return true
+	}
+	if rl.db == nil {
+		return false
+	}
+	tx, err := rl.db.Begin()
+	if err != nil {
+		return false
+	}
+	defer func() {
+		if rollbackErr := tx.Rollback(); rollbackErr != nil && !errors.Is(rollbackErr, sql.ErrTxDone) {
+			slog.Warn("rate limit transaction rollback failed", "error", rollbackErr)
+		}
+	}()
+	now := time.Now().Unix()
+	keys := []struct {
+		name   string
+		bucket RateLimitBucket
+	}{{string(class), rl.config.bucketFor(class)}}
+	if class != rateClassGlobal {
+		keys = append(keys, struct {
+			name   string
+			bucket RateLimitBucket
+		}{string(rateClassGlobal), rl.config.Global})
+	}
+	allowed := true
+	for _, key := range keys {
+		bucketKey := key.name + "|" + subject
+		window := int64(key.bucket.effectiveWindow().Seconds())
+		var count int
+		if err := tx.QueryRow(`SELECT COUNT(*) FROM rate_limit_events WHERE bucket_key = ? AND occurred_at > ?`, bucketKey, now-window).Scan(&count); err != nil {
+			return false
+		}
+		if count >= key.bucket.Limit {
+			allowed = false
+			if class == rateClassStrict && key.name == string(rateClassStrict) {
+				if _, err := tx.Exec(`INSERT INTO rate_limit_events(bucket_key, occurred_at) VALUES(?, ?)`, bucketKey, now); err != nil {
+					return false
+				}
+			}
+			break
+		}
+		if _, err := tx.Exec(`INSERT INTO rate_limit_events(bucket_key, occurred_at) VALUES(?, ?)`, bucketKey, now); err != nil {
+			return false
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return false
+	}
+	return allowed
+}
+
+func (rl *RateLimiter) retryAfter(class rateClass, subject string) time.Duration {
+	if rl.windowCounter != nil {
+		now := time.Now()
+		windows := []struct {
+			class  rateClass
+			bucket RateLimitBucket
+		}{{class, rl.config.bucketFor(class)}}
+		if class != rateClassGlobal {
+			windows = append(windows, struct {
+				class  rateClass
+				bucket RateLimitBucket
+			}{rateClassGlobal, rl.config.Global})
+		}
+		var retry time.Duration
+		for _, item := range windows {
+			_, oldest, err := rl.windowCounter.RateLimitWindow(context.Background(), fmt.Sprintf("%s|%s", item.class, subject), now, item.bucket.effectiveWindow(), item.bucket.Limit+1, false)
+			if err == nil && !oldest.IsZero() {
+				if remaining := time.Until(oldest.Add(item.bucket.effectiveWindow())); remaining > retry {
+					retry = remaining
+				}
+			}
+		}
+		if retry < time.Second {
+			return time.Second
+		}
+		return retry
+	}
+	if rl.db == nil {
+		return rl.config.bucketFor(class).effectiveWindow()
+	}
+	now := time.Now().Unix()
+	windows := []struct {
+		class  rateClass
+		bucket RateLimitBucket
+	}{{class, rl.config.bucketFor(class)}}
+	if class != rateClassGlobal {
+		windows = append(windows, struct {
+			class  rateClass
+			bucket RateLimitBucket
+		}{rateClassGlobal, rl.config.Global})
+	}
+	var retry time.Duration
+	for _, item := range windows {
+		var count int
+		if err := rl.db.QueryRow(`SELECT COUNT(*) FROM rate_limit_events WHERE bucket_key = ?`, fmt.Sprintf("%s|%s", item.class, subject)).Scan(&count); err != nil || count < item.bucket.Limit {
+			continue
+		}
+		var oldest int64
+		window := int64(item.bucket.effectiveWindow().Seconds())
+		if err := rl.db.QueryRow(`SELECT occurred_at FROM rate_limit_events WHERE bucket_key = ? ORDER BY occurred_at LIMIT 1 OFFSET ?`, fmt.Sprintf("%s|%s", item.class, subject), count-item.bucket.Limit).Scan(&oldest); err != nil {
+			continue
+		}
+		remaining := time.Duration(oldest+window-now) * time.Second
+		if remaining > retry {
+			retry = remaining
+		}
+	}
+	if retry < time.Second {
+		return time.Second
+	}
+	return retry
+}
+
+func rateLimitRetryAfter(oldest time.Time, window time.Duration, now time.Time) time.Duration {
+	if oldest.IsZero() {
+		return window
+	}
+	retry := oldest.Add(window).Sub(now)
+	if retry < time.Second {
+		return time.Second
+	}
+	return retry
 }
 
 // cleanupLoop periodically removes stale rate limiters
@@ -194,11 +482,15 @@ func (rl *RateLimiter) cleanup() {
 			rl.lru.Remove(cl.entry)
 		}
 	}
+	if rl.db != nil {
+		cutoffUnix := time.Now().Add(-rl.retentionDuration()).Unix()
+		_, _ = rl.db.Exec(`DELETE FROM rate_limit_events WHERE occurred_at <= ?`, cutoffUnix)
+	}
 }
 
 func (rl *RateLimiter) retentionDuration() time.Duration {
 	retention := time.Minute
-	for _, bucket := range []RateLimitBucket{rl.config.Read, rl.config.Write, rl.config.Health, rl.config.Global} {
+	for _, bucket := range []RateLimitBucket{rl.config.Read, rl.config.Write, rl.config.Health, rl.config.Strict, rl.config.AuthFailures, rl.config.Global} {
 		window := bucket.effectiveWindow()
 		burst := time.Duration(bucket.effectiveBurst()) * window / time.Duration(maxInt(bucket.Limit, 1))
 		if window > retention {
@@ -399,6 +691,19 @@ func classifyRequest(r *http.Request) rateClass {
 	if healthCheckPaths[r.URL.Path] {
 		return rateClassHealth
 	}
+	switch r.URL.Path {
+	case "/server/preferences/token/reveal", "/server/preferences/token/rotate", "/server/preferences/token/restore", "/server/preferences/token/create",
+		"/api/v1/server/preferences/tokens/primary", "/api/v1/server/preferences/tokens/primary/reveal", "/api/v1/server/preferences/tokens/primary/rotate":
+		return rateClassStrict
+	}
+	if strings.HasPrefix(r.URL.Path, "/api/v1/server/preferences/tokens/") &&
+		(strings.HasSuffix(r.URL.Path, "/reveal") || strings.HasSuffix(r.URL.Path, "/rotate")) {
+		return rateClassStrict
+	}
+	if strings.HasPrefix(r.URL.Path, "/server/preferences/tokens/") &&
+		(strings.HasSuffix(r.URL.Path, "/reveal") || strings.HasSuffix(r.URL.Path, "/rotate")) {
+		return rateClassStrict
+	}
 	if r.Method == http.MethodGet || r.Method == http.MethodHead {
 		return rateClassRead
 	}
@@ -409,11 +714,15 @@ func classifyRequest(r *http.Request) rateClass {
 func RateLimitMiddleware(rl *RateLimiter) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			clientIP := rl.getClientIP(r)
+			if blocked, retryAfter := rl.AuthFailureBlocked(clientIP); blocked {
+				writeRateLimitResponse(w, r, retryAfter)
+				return
+			}
 			if IsAllowlisted(r.Context()) {
 				next.ServeHTTP(w, r)
 				return
 			}
-			clientIP := rl.getClientIP(r)
 			class := classifyRequest(r)
 			isI2P := netutil.IsI2PRequest(r, rl.trust)
 			if isI2P {
@@ -425,6 +734,8 @@ func RateLimitMiddleware(rl *RateLimiter) func(http.Handler) http.Handler {
 			var allowed bool
 			if isI2P {
 				allowed = rl.getLimiter(clientIP, rateClassGlobal).Allow()
+			} else if rl.db != nil || rl.windowCounter != nil {
+				allowed = rl.allowPersisted(class, rl.requestSubject(r, class))
 			} else {
 				allowed = rl.AllowClass(clientIP, class)
 			}
@@ -435,24 +746,28 @@ func RateLimitMiddleware(rl *RateLimiter) func(http.Handler) http.Handler {
 				// Fail2ban-consumable record of the rejection (AI.md PART 11).
 				rl.logManager.WriteSecurity("Rate limit exceeded", sanitizeLogValue(clientIP))
 
-				bucket := rl.config.bucketFor(class)
-				retryAfter := int(bucket.effectiveWindow().Seconds())
-				w.Header().Set("Retry-After", strconv.Itoa(retryAfter))
-				w.Header().Set("X-RateLimit-Limit", strconv.Itoa(bucket.Limit))
-				w.Header().Set("X-RateLimit-Remaining", "0")
-				lang := i18n.DetectLocale(r)
-				msg := i18n.T(i18n.WithLang(r.Context(), lang), "errors.rate_limited")
-				// Per AI.md PART 12: the 429 body carries only ok/error/message —
-				// the wait time is conveyed by the Retry-After header alone.
-				w.Header().Set("Content-Type", "application/json")
-				w.WriteHeader(http.StatusTooManyRequests)
-				writeRateLimitedBody(w, msg)
+				subject := "ip:" + clientIP
+				if !isI2P {
+					subject = rl.requestSubject(r, class)
+				}
+				writeRateLimitResponse(w, r, rl.retryAfter(class, subject))
 				return
 			}
 
 			next.ServeHTTP(w, r)
 		})
 	}
+}
+
+func writeRateLimitResponse(w http.ResponseWriter, r *http.Request, retryAfter time.Duration) {
+	seconds := int((retryAfter + time.Second - 1) / time.Second)
+	if seconds < 1 {
+		seconds = 1
+	}
+	w.Header().Set("Retry-After", strconv.Itoa(seconds))
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusTooManyRequests)
+	writeRateLimitedBody(w, i18n.T(i18n.WithLang(r.Context(), i18n.DetectLocale(r)), "errors.rate_limited"))
 }
 
 // writeRateLimitedBody writes the canonical 429 JSON body. The message is

@@ -26,6 +26,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	i18n "github.com/apimgr/ipgaze/src/common/i18n"
 	"github.com/apimgr/ipgaze/src/common/urlutil"
@@ -97,14 +98,17 @@ type PagesHandler struct {
 	// itself never carried it) — same import-cycle rationale as DetectTheme.
 	// Falls back to the request cookie when unset (e.g. tests constructing
 	// PagesHandler directly).
-	CSRFToken        func(*http.Request) string
-	MCPTools         func(*http.Request) []MCPToolDescription
-	PGPKeyAvailable  func() bool
-	PGPFingerprint   func() string
-	DB               *sql.DB
-	PGPPublicKeyPath string
-	SecurityLogger   func(message, ip string)
-	CommitID         string
+	CSRFToken           func(*http.Request) string
+	MCPTools            func(*http.Request) []MCPToolDescription
+	PGPKeyAvailable     func() bool
+	PGPFingerprint      func() string
+	DB                  *sql.DB
+	PGPPublicKeyPath    string
+	SecurityLogger      func(message, ip string)
+	TokenAuditLogger    func(event, source, ownerID, tokenPrefix string)
+	TokenRestoreFailed  func(r *http.Request)
+	ValidateBearerToken func(string) bool
+	CommitID            string
 }
 
 // MCPToolDescription is the public name and description of a registered MCP tool.
@@ -171,6 +175,9 @@ type PageData struct {
 	// (AI.md PART 16 project.name); used in nav/footer/titles instead of a
 	// hardcoded literal. Falls back to the app default when unset.
 	ProjectName string
+	// ResourceLabelPlural comes from IDEA.md ## Project variables (default: items).
+	ResourceLabelPlural string
+	ContainerWidthClass string
 	// Host is the request host, used to build the curl/API example commands
 	// shown on help.tmpl (mirrors the Host field DefaultHandler already sets
 	// from r.Host for index.tmpl). Was previously missing from this struct
@@ -407,21 +414,23 @@ func (h *PagesHandler) NewPageData(r *http.Request) PageData {
 		csrfToken = h.CSRFToken(r)
 	}
 	data := PageData{
-		Lang:          lang,
-		Dir:           dir,
-		RequestPath:   r.URL.Path,
-		Theme:         theme,
-		DefaultWidget: lookupWidgetPreference(r),
-		CanonicalURL:  canonicalURL,
-		Robots:        ResolveRobotsDirective(r.URL.Path),
-		CSRFToken:     csrfToken,
-		CurrentYear:   time.Now().Year(),
-		Version:       h.Version,
-		BuildDate:     formatUserTimestamp(h.BuildDate),
-		ProjectName:   "IPGaze",
-		RepoURL:       "https://github.com/apimgr/ipgaze",
-		Host:          r.Host,
-		BaseURL:       strings.TrimSuffix(netutil.BuildURL(r, h.Trust, ""), "/"),
+		Lang:                lang,
+		Dir:                 dir,
+		RequestPath:         r.URL.Path,
+		Theme:               theme,
+		DefaultWidget:       lookupWidgetPreference(r),
+		CanonicalURL:        canonicalURL,
+		Robots:              ResolveRobotsDirective(r.URL.Path),
+		CSRFToken:           csrfToken,
+		CurrentYear:         time.Now().Year(),
+		Version:             h.Version,
+		BuildDate:           formatUserTimestamp(h.BuildDate),
+		ProjectName:         "IPGaze",
+		ResourceLabelPlural: "items",
+		ContainerWidthClass: pageContainerWidthClass(r.URL.Path),
+		RepoURL:             "https://github.com/apimgr/ipgaze",
+		Host:                r.Host,
+		BaseURL:             strings.TrimSuffix(netutil.BuildURL(r, h.Trust, ""), "/"),
 	}
 	if h.PGPKeyAvailable != nil {
 		data.PGPKeyAvailable = h.PGPKeyAvailable()
@@ -508,6 +517,17 @@ func (h *PagesHandler) NewPageData(r *http.Request) PageData {
 		data.FooterShowDefaultBranding = false
 	}
 	return data
+}
+
+func pageContainerWidthClass(path string) string {
+	switch path {
+	case "/server/contact", "/server/preferences", "/server/preferences/sync":
+		return "container-sm"
+	case "/server/preferences/tokens", "/server/help/mcp", "/server/api", "/server/openapi":
+		return "container-lg"
+	default:
+		return "container-md"
+	}
 }
 
 func operatorHTML(r *http.Request, name string, page PageData) (template.HTML, bool) {
@@ -773,7 +793,12 @@ func (h *PagesHandler) APIV1ServerAboutHandler(w http.ResponseWriter, r *http.Re
 
 // ServerHelpHandler serves /server/help under the PART 14 frontend dispatch.
 func (h *PagesHandler) ServerHelpHandler(w http.ResponseWriter, r *http.Request) {
-	h.renderNegotiated(w, r, "help.tmpl", h.NewPageData(r), buildHelpResponse())
+	response := buildHelpResponse(r.Context())
+	data := struct {
+		PageData
+		HelpPages []HubPage
+	}{PageData: h.NewPageData(r), HelpPages: response.Pages}
+	h.renderNegotiated(w, r, "help.tmpl", data, response)
 }
 
 // ServerMCPHelpHandler serves the MCP connection guide.
@@ -811,6 +836,51 @@ func (h *PagesHandler) buildMCPHelpResponse(r *http.Request) MCPHelpResponse {
 // HelpResponse for JSON API
 type HelpResponse struct {
 	Sections []HelpSection `json:"sections"`
+	Pages    []HubPage     `json:"pages"`
+}
+
+type HubPage struct {
+	Path        string `json:"path"`
+	Title       string `json:"title"`
+	Description string `json:"description"`
+	Order       int    `json:"-"`
+}
+
+type hubPageDefinition struct {
+	path        string
+	titleKey    string
+	description string
+	order       int
+	enabled     func() bool
+}
+
+var helpPageRegistry = []hubPageDefinition{{path: "/server/help/mcp", titleKey: "api_help.mcp_title", description: "help.mcp_description", order: 10}}
+
+var preferencesPageRegistryDefinitions = []hubPageDefinition{
+	{path: "/server/preferences/tokens", titleKey: "preferences.tokens_link", description: "preferences.tokens_description", order: 10},
+	{path: "/server/preferences/sync", titleKey: "preferences.sync_link", description: "preferences.sync_description", order: 20},
+}
+
+func registeredHubPages(ctx context.Context, definitions []hubPageDefinition) []HubPage {
+	pages := make([]HubPage, 0, len(definitions))
+	for _, definition := range definitions {
+		if definition.enabled != nil && !definition.enabled() {
+			continue
+		}
+		pages = append(pages, HubPage{Path: definition.path, Title: i18n.T(ctx, definition.titleKey), Description: i18n.T(ctx, definition.description), Order: definition.order})
+	}
+	sort.SliceStable(pages, func(i, j int) bool {
+		return pages[i].Order < pages[j].Order
+	})
+	return pages
+}
+
+func RegisteredHubPagePaths() []string {
+	paths := make([]string, 0, len(helpPageRegistry)+len(preferencesPageRegistryDefinitions))
+	for _, definition := range append(append([]hubPageDefinition(nil), helpPageRegistry...), preferencesPageRegistryDefinitions...) {
+		paths = append(paths, definition.path)
+	}
+	return paths
 }
 
 // HelpSection represents a help section
@@ -822,8 +892,9 @@ type HelpSection struct {
 
 // buildHelpResponse returns the help sections shared by the /server/help page
 // dispatch and its /api/{api_version}/server/help JSON twin.
-func buildHelpResponse() HelpResponse {
+func buildHelpResponse(ctx context.Context) HelpResponse {
 	return HelpResponse{
+		Pages: registeredHubPages(ctx, helpPageRegistry),
 		Sections: []HelpSection{
 			{ID: "getting-started", Title: "Getting Started", Content: "Get your public IP with: curl -q -LSsf https://ifcfg.us"},
 			{ID: "features", Title: "Features", Content: "Look up the requesting IP at /ip or /json, choose IPv4 or IPv6 with curl -q -LSsf -4 or curl -q -LSsf -6, and look up a specific address with /8.8.8.8/json. GeoIP fields are included when the server has its optional GeoIP databases."},
@@ -837,7 +908,7 @@ func buildHelpResponse() HelpResponse {
 
 // APIV1ServerHelpHandler serves /api/v1/server/help (JSON)
 func (h *PagesHandler) APIV1ServerHelpHandler(w http.ResponseWriter, r *http.Request) {
-	help := buildHelpResponse()
+	help := buildHelpResponse(r.Context())
 	SendAPIResponseOK(w, help, nil)
 }
 
@@ -2711,7 +2782,7 @@ func validPreferencesRedirect(target string) (string, bool) {
 	if err != nil || u.IsAbs() || u.Host != "" {
 		return "", false
 	}
-	if u.Path == "/server/preferences" || u.Path == "/server/preferences/import" || u.Path == "/server/preferences/export" {
+	if u.Path == "/server/preferences" || u.Path == "/server/preferences/sync" || u.Path == "/server/preferences/sync/import" {
 		return "", false
 	}
 	path := u.EscapedPath()
@@ -2850,8 +2921,7 @@ func (h *PagesHandler) ServerPreferencesUpdateHandler(w http.ResponseWriter, r *
 	}
 	if r.FormValue("action") == "reset" {
 		for _, cookie := range r.Cookies() {
-			name := strings.ToLower(cookie.Name)
-			if strings.Contains(name, "csrf") || strings.Contains(name, "session") || strings.Contains(name, "token") || strings.Contains(name, "auth") {
+			if isCredentialPreferenceCookie(cookie.Name) {
 				continue
 			}
 			http.SetCookie(w, &http.Cookie{Name: cookie.Name, Value: "", Path: "/", MaxAge: -1, SameSite: http.SameSiteLaxMode, Secure: isSecurePreferenceRequest(r, h.Trust)})
@@ -2862,32 +2932,13 @@ func (h *PagesHandler) ServerPreferencesUpdateHandler(w http.ResponseWriter, r *
 		w.WriteHeader(http.StatusSeeOther)
 		return
 	}
-	// A pasted export code intentionally overrides form values with the same
-	// key. Decode it through the import validator so save and shared-link
-	// imports apply the same allowlists.
-	if code := strings.TrimSpace(r.FormValue("code")); code != "" && len(code) <= 2048 {
-		codeReq := r.Clone(r.Context())
-		codeURL := *r.URL
-		codeURL.RawQuery = "code=" + url.QueryEscape(code)
-		codeReq.URL = &codeURL
-		codeReq.Form = nil
-		codeReq.PostForm = nil
-		theme, lang, prefs, applied, _ := h.resolvePreferencesImport(codeReq)
-		if containsPreference(applied, "theme") {
-			r.Form.Set("theme", theme)
-		}
-		if containsPreference(applied, "lang") {
-			r.Form.Set("lang", lang)
-		}
-		if containsPreference(applied, lookupWidgetPreferenceCookie) {
-			r.Form.Set(lookupWidgetPreferenceCookie, prefs["widget"])
-		}
-	}
 	if submitted := r.FormValue("theme"); isValidTheme(submitted) {
 		setThemeCookie(w, r, h.Trust, normalizeThemeValue(submitted))
 	}
 	if submitted := r.FormValue("lang"); submitted != "" {
-		if canonical := canonicalPreferenceLanguage(submitted); canonical != "" {
+		if submitted == "auto" {
+			clearLangPreferenceCookie(w, r, h.Trust)
+		} else if canonical := canonicalPreferenceLanguage(submitted); canonical != "" {
 			setLangPreferenceCookie(w, r, h.Trust, canonical)
 		}
 	}
@@ -2906,6 +2957,13 @@ func (h *PagesHandler) ServerPreferencesUpdateHandler(w http.ResponseWriter, r *
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Location", ref)
 	w.WriteHeader(http.StatusSeeOther)
+}
+
+func isCredentialPreferenceCookie(name string) bool {
+	name = strings.ToLower(name)
+	return strings.Contains(name, "csrf") || strings.Contains(name, "session") ||
+		strings.Contains(name, "owner_token") || strings.Contains(name, "access_token") ||
+		strings.Contains(name, "auth_token") || name == "token"
 }
 
 func writeConsentPreferenceCookie(w http.ResponseWriter, r *http.Request, trust *netutil.TrustResolver, preferences, analytics bool) {
@@ -2967,6 +3025,22 @@ func setLangPreferenceCookie(w http.ResponseWriter, r *http.Request, trust *netu
 	})
 }
 
+func clearLangPreferenceCookie(w http.ResponseWriter, r *http.Request, trust *netutil.TrustResolver) {
+	http.SetCookie(w, &http.Cookie{
+		Name: "lang", Value: "", Path: "/", MaxAge: -1,
+		SameSite: http.SameSiteLaxMode, Secure: isSecurePreferenceRequest(r, trust),
+	})
+}
+
+func nativeLanguageName(code string) string {
+	for _, language := range i18n.AvailableLanguages() {
+		if language.Code == code {
+			return language.NativeName
+		}
+	}
+	return code
+}
+
 // =============================================================================
 // Client-side preference export/import (AI.md PART 16 "Client-Side
 // Preferences" -> "Cross-device preference sync"). Stateless: only the
@@ -2986,15 +3060,16 @@ func (h *PagesHandler) currentTheme(r *http.Request) string {
 	return "dark"
 }
 
-// PreferencesPageData extends PageData with the export link/code for
-// preferences.tmpl. The visitor's current theme/lang are already available
-// via the embedded PageData.Theme/.Lang (same values NewPageData resolves
-// them to), so this only adds what PageData doesn't already carry.
+// PreferencesPageData adds the registered sub-pages and consent controls used
+// by the preferences hub and the export values used by its sync sub-page.
 type PreferencesPageData struct {
 	PageData
-	PreferencesExportURL  string
-	PreferencesExportCode string
-	CancelURL             string
+	PreferencesExportURL       string
+	PreferencesExportCode      string
+	PreferencePages            []HubPage
+	CancelURL                  string
+	LanguageAutomatic          bool
+	DetectedLanguageNativeName string
 	// ConsentPreferences and ConsentAnalytics are the visitor's current
 	// cookie-consent category choices, so the page can render them as
 	// pre-checked toggles the visitor can change here rather than only from
@@ -3038,28 +3113,155 @@ func consentCategories(r *http.Request) (preferences, analytics bool) {
 	return stored.Preferences, stored.Analytics
 }
 
-// ServerPreferencesHandler serves GET /server/preferences — a minimal
-// server-rendered page showing the visitor's current theme/lang and a link
-// to the export action (No-JS-first: the export link/copy button works
-// without JavaScript; JS only adds copy-to-clipboard convenience).
+// ServerPreferencesHandler serves the guest preferences hub and save form.
 func (h *PagesHandler) ServerPreferencesHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	base := h.NewPageData(r)
 	export := h.buildPreferencesExport(r)
 	consentPreferences, consentAnalytics := consentCategories(r)
+	languageAutomatic := true
+	if cookie, err := r.Cookie("lang"); err == nil && canonicalPreferenceLanguage(cookie.Value) != "" {
+		languageAutomatic = false
+	}
 	data := PreferencesPageData{
-		PageData:              base,
-		PreferencesExportURL:  export.URL,
-		PreferencesExportCode: export.Code,
-		CancelURL:             preferencesRedirectTarget(r, h.Trust),
-		ConsentPreferences:    consentPreferences,
-		ConsentAnalytics:      consentAnalytics,
+		PageData:                   base,
+		PreferencePages:            preferencePageRegistry(r.Context()),
+		CancelURL:                  preferencesRedirectTarget(r, h.Trust),
+		LanguageAutomatic:          languageAutomatic,
+		DetectedLanguageNativeName: nativeLanguageName(base.Lang),
+		ConsentPreferences:         consentPreferences,
+		ConsentAnalytics:           consentAnalytics,
 	}
 	h.renderNegotiated(w, r, "preferences.tmpl", data, PreferencesResponse{
 		Theme: export.Theme,
 		Lang:  export.Lang,
 		Prefs: export.Prefs,
 	})
+}
+
+type OwnerTokensPageData struct {
+	PageData
+	RestoreError  bool
+	HasOwner      bool
+	PrimaryMasked string
+	RevealToken   string
+	RevealTokenID int64
+	NewToken      string
+	NewTokenID    int64
+	ActionTokenID int64
+	LinkedTokens  []OwnerLinkedTokenView
+	TokenAction   string
+}
+
+func (h *PagesHandler) ServerPreferencesTokensHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	flash := h.consumeOwnerTokenFlash(w, r)
+	if flash.Token != "" {
+		if flash.Action == "revealed" {
+			h.renderOwnerTokensPageState(w, r, flash.Token, "", flash.Action, flash.ID, 0, flash.ID)
+			return
+		}
+		h.renderOwnerTokensPageState(w, r, "", flash.Token, flash.Action, 0, flash.ID, flash.ID)
+		return
+	}
+	h.renderOwnerTokensPage(w, r, "", "", "")
+}
+
+func (h *PagesHandler) ServerPreferencesTokenRestoreHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	if err := r.ParseForm(); err != nil {
+		http.Redirect(w, r, "/server/preferences/tokens?status=invalid", http.StatusSeeOther)
+		return
+	}
+	token := strings.TrimSpace(r.FormValue("token"))
+	if !validOwnerPrimaryToken(token) || h.DB == nil {
+		if !validOwnerPrimaryToken(token) && h.TokenRestoreFailed != nil {
+			h.TokenRestoreFailed(r)
+		}
+		http.Redirect(w, r, "/server/preferences/tokens?status=invalid", http.StatusSeeOther)
+		return
+	}
+	tokenHash := sha256.Sum256([]byte(token))
+	var ownerID, prefix string
+	err := h.DB.QueryRowContext(r.Context(), `SELECT owner_id, token_prefix FROM api_tokens
+		WHERE token_hash = ? AND kind = 'primary' AND revoked_at IS NULL
+		AND (expires_at IS NULL OR expires_at > strftime('%s', 'now'))`, hex.EncodeToString(tokenHash[:])).Scan(&ownerID, &prefix)
+	if errors.Is(err, sql.ErrNoRows) && h.TokenRestoreFailed != nil {
+		h.TokenRestoreFailed(r)
+	}
+	if err != nil {
+		http.Redirect(w, r, "/server/preferences/tokens?status=invalid", http.StatusSeeOther)
+		return
+	}
+	tx, err := h.DB.BeginTx(r.Context(), nil)
+	if err != nil {
+		http.Redirect(w, r, "/server/preferences/tokens?status=invalid", http.StatusSeeOther)
+		return
+	}
+	if _, err = tx.ExecContext(r.Context(), `UPDATE api_tokens SET last_used_at = strftime('%s', 'now')
+		WHERE token_hash = ? AND (last_used_at IS NULL OR last_used_at < strftime('%s', 'now') - 60)`, hex.EncodeToString(tokenHash[:])); err == nil {
+		_, err = tx.ExecContext(r.Context(), `UPDATE owners SET last_seen_at = strftime('%s', 'now') WHERE id = ?`, ownerID)
+	}
+	if err == nil {
+		err = tx.Commit()
+	} else {
+		_ = tx.Rollback()
+	}
+	if err != nil {
+		http.Redirect(w, r, "/server/preferences/tokens?status=invalid", http.StatusSeeOther)
+		return
+	}
+	if h.TokenAuditLogger != nil {
+		h.TokenAuditLogger("token.restored", "web", ownerID, prefix)
+	}
+	h.setOwnerTokenCookie(w, r, token)
+	http.Redirect(w, r, "/server/preferences/tokens", http.StatusSeeOther)
+}
+
+func ownerTokenCookieMaxAge(cfg *config.AppConfig) int {
+	maxAge := 365 * 24 * time.Hour
+	if cfg != nil && strings.TrimSpace(cfg.Server.Tokens.CookieMaxAge) != "" {
+		configured := strings.TrimSpace(cfg.Server.Tokens.CookieMaxAge)
+		unit := time.Duration(1)
+		if strings.HasSuffix(configured, "y") {
+			configured = strings.TrimSuffix(configured, "y")
+			unit = 365 * 24 * time.Hour
+		} else if strings.HasSuffix(configured, "d") {
+			configured = strings.TrimSuffix(configured, "d")
+			unit = 24 * time.Hour
+		} else if duration, err := time.ParseDuration(configured); err == nil && duration > 0 {
+			maxAge = duration
+		}
+		if unit > 1 {
+			if count, err := strconv.Atoi(configured); err == nil && count > 0 {
+				maxAge = time.Duration(count) * unit
+			}
+		}
+	}
+	return int(maxAge.Seconds())
+}
+
+const OwnerTokenCookieName = "ipgaze_owner_token_YtrYCFPg"
+
+const ownerTokenCookieName = OwnerTokenCookieName
+
+func validOwnerPrimaryToken(token string) bool {
+	if len(token) != len("own_")+32 || !strings.HasPrefix(token, "own_") {
+		return false
+	}
+	for _, char := range token[len("own_"):] {
+		isLower := char >= 'a' && char <= 'z'
+		isUpper := char >= 'A' && char <= 'Z'
+		isDigit := char >= '0' && char <= '9'
+		if !isLower && !isUpper && !isDigit {
+			return false
+		}
+	}
+	return true
+}
+
+func preferencePageRegistry(ctx context.Context) []HubPage {
+	return registeredHubPages(ctx, preferencesPageRegistryDefinitions)
 }
 
 // PreferencesResponse is the JSON shape for GET
@@ -3188,38 +3390,9 @@ func (h *PagesHandler) buildPreferencesExportFor(r *http.Request, theme, lang st
 		}
 	}
 	query := values.Encode()
-	fullURL := netutil.BuildURL(r, h.Trust, "/server/preferences/import?"+query)
+	fullURL := netutil.BuildURL(r, h.Trust, "/server/preferences/sync/import?"+query)
 	code := base64.RawURLEncoding.EncodeToString([]byte(query))
 	return preferencesExport{Theme: theme, Lang: lang, Prefs: prefs, URL: fullURL, Code: code}
-}
-
-// ServerPreferencesExportHandler serves GET /server/preferences/export — the
-// same preferences.tmpl page as ServerPreferencesHandler (it already shows
-// the export URL/code), so a direct link to the export sub-route lands on
-// working, No-JS-first content rather than a JSON-only response (AI.md PART
-// 16 "Cross-device preference sync" -> "Export").
-func (h *PagesHandler) ServerPreferencesExportHandler(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Cache-Control", "no-store")
-	export := h.buildPreferencesExport(r)
-	accept := r.Header.Get("Accept")
-	if strings.Contains(accept, "application/json") {
-		SendAPIResponseOK(w, PreferencesExportResponse(export), nil)
-		return
-	}
-	if strings.Contains(accept, "text/plain") && !strings.Contains(accept, "text/html") {
-		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		_, _ = fmt.Fprintf(w, "URL: %s\nCode: %s\n", export.URL, export.Code)
-		return
-	}
-	h.ServerPreferencesHandler(w, r)
-}
-
-// APIV1ServerPreferencesExportHandler serves
-// /api/{api_version}/server/preferences/export (JSON).
-func (h *PagesHandler) APIV1ServerPreferencesExportHandler(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Cache-Control", "no-store")
-	export := h.buildPreferencesExport(r)
-	SendAPIResponseOK(w, PreferencesExportResponse(export), nil)
 }
 
 type PreferencesExportResponse struct {
@@ -3268,7 +3441,7 @@ func decodePreferencesCode(code string) url.Values {
 func (h *PagesHandler) resolvePreferencesImport(r *http.Request) (theme, lang string, prefs map[string]string, applied, ignored []string) {
 	q := r.URL.Query()
 	if code := strings.TrimSpace(q.Get("code")); code != "" {
-		if len(code) <= 2048 {
+		if utf8.RuneCountInString(code) <= 2048 {
 			if idx := strings.Index(code, "?"); idx >= 0 {
 				code = code[idx+1:]
 			}
@@ -3289,7 +3462,10 @@ func (h *PagesHandler) resolvePreferencesImport(r *http.Request) (theme, lang st
 	}
 	keys := make([]string, 0, len(q))
 	for key := range q {
-		if key != "code" && key != "redirect" {
+		switch key {
+		case "code", "redirect", "action", "csrf_token", "consent_form", "consent_preferences", "consent_analytics", "ccpa_opt_out":
+			continue
+		default:
 			keys = append(keys, key)
 		}
 	}
@@ -3307,7 +3483,7 @@ func (h *PagesHandler) resolvePreferencesImport(r *http.Request) (theme, lang st
 			continue
 		}
 		value := values[0]
-		if len(value) > 64 {
+		if utf8.RuneCountInString(value) > 64 {
 			ignored = append(ignored, key)
 			continue
 		}
@@ -3372,15 +3548,46 @@ func containsPreference(values []string, target string) bool {
 	return false
 }
 
-// ServerPreferencesImportHandler handles GET /server/preferences/import —
-// decodes/validates the theme/lang query params (or a "code" short code),
-// sets the matching first-party cookies for whichever values validated, and
-// 303-redirects to referrer or "/" so the values never linger in the
-// visible URL/history (AI.md PART 16 "Cross-device preference sync" ->
-// "Import"). Invalid/unknown values are silently dropped, never a hard
-// error — an untrusted query param is not grounds for a 400 on a plain link
-// click.
-func (h *PagesHandler) ServerPreferencesImportHandler(w http.ResponseWriter, r *http.Request) {
+func (h *PagesHandler) ServerPreferencesSyncHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	export := h.buildPreferencesExport(r)
+	accept := r.Header.Get("Accept")
+	if r.Method == http.MethodGet && strings.Contains(accept, "text/plain") && !strings.Contains(accept, "text/html") && !strings.Contains(accept, "application/json") {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		_, _ = fmt.Fprintf(w, "URL: %s\nCode: %s\n", export.URL, export.Code)
+		return
+	}
+	if r.Method == http.MethodPost {
+		if err := r.ParseForm(); err == nil {
+			query := r.URL.Query()
+			if code := strings.TrimSpace(r.FormValue("code")); code != "" {
+				query.Set("code", code)
+			}
+			r.URL.RawQuery = query.Encode()
+			theme, lang, prefs, applied, _ := h.resolvePreferencesImport(r)
+			if containsPreference(applied, "theme") {
+				setThemeCookie(w, r, h.Trust, theme)
+			}
+			if containsPreference(applied, "lang") {
+				setLangPreferenceCookie(w, r, h.Trust, lang)
+			}
+			if containsPreference(applied, lookupWidgetPreferenceCookie) {
+				setLookupWidgetPreference(w, r, h.Trust, prefs["widget"])
+			}
+		}
+		target := preferencesRedirectTarget(r, h.Trust)
+		if target == "/" {
+			target = "/server/preferences/sync"
+		}
+		w.Header().Set("Location", target)
+		w.WriteHeader(http.StatusSeeOther)
+		return
+	}
+	data := PreferencesPageData{PageData: h.NewPageData(r), PreferencesExportURL: export.URL, PreferencesExportCode: export.Code, CancelURL: "/server/preferences"}
+	h.renderNegotiated(w, r, "preferences_sync.tmpl", data, PreferencesExportResponse(export))
+}
+
+func (h *PagesHandler) ServerPreferencesSyncImportHandler(w http.ResponseWriter, r *http.Request) {
 	theme, lang, prefs, applied, _ := h.resolvePreferencesImport(r)
 	secure := isSecurePreferenceRequest(r, h.Trust)
 	if containsPreference(applied, "theme") {
@@ -3409,7 +3616,7 @@ func (h *PagesHandler) ServerPreferencesImportHandler(w http.ResponseWriter, r *
 }
 
 // PreferencesImportResponse is the JSON shape for GET
-// /api/{api_version}/server/preferences/import — confirms which values were
+// /api/{api_version}/server/preferences/sync/import — confirms which values were
 // actually applied (empty string means the corresponding param was missing,
 // unknown, or malformed and was dropped).
 type PreferencesImportResponse struct {
@@ -3420,11 +3627,9 @@ type PreferencesImportResponse struct {
 	Ignored []string          `json:"ignored"`
 }
 
-// APIV1ServerPreferencesImportHandler serves
-// /api/{api_version}/server/preferences/import (JSON). Unlike the web path
-// it does not redirect — it sets whichever cookies validated and returns a
-// JSON confirmation of what was applied.
-func (h *PagesHandler) APIV1ServerPreferencesImportHandler(w http.ResponseWriter, r *http.Request) {
+// APIV1ServerPreferencesSyncImportHandler applies a validated import and
+// returns the resulting guest preference state as JSON.
+func (h *PagesHandler) APIV1ServerPreferencesSyncImportHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	theme, lang, prefs, applied, ignored := h.resolvePreferencesImport(r)
 	secure := isSecurePreferenceRequest(r, h.Trust)
@@ -3448,6 +3653,11 @@ func (h *PagesHandler) APIV1ServerPreferencesImportHandler(w http.ResponseWriter
 		}
 	}
 	SendAPIResponseOK(w, PreferencesImportResponse{Theme: theme, Lang: lang, Prefs: prefs, Applied: applied, Ignored: ignored}, nil)
+}
+
+func (h *PagesHandler) APIV1ServerPreferencesSyncHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	SendAPIResponseOK(w, PreferencesExportResponse(h.buildPreferencesExport(r)), nil)
 }
 
 // DismissAnnouncementHandler handles POST /announcements/dismiss.

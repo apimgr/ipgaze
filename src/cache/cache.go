@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -36,6 +37,13 @@ type Cache interface {
 	Ping(ctx context.Context) error
 	// Close releases any connections held by the backend.
 	Close() error
+}
+
+// SlidingWindowCounter is implemented by external caches that can atomically
+// track rate-limit events across server instances.
+type SlidingWindowCounter interface {
+	SupportsRateLimitWindow() bool
+	RateLimitWindow(ctx context.Context, key string, now time.Time, window time.Duration, threshold int, add bool) (int64, time.Time, error)
 }
 
 // ErrNotFound is returned by Get when the requested key does not exist.
@@ -498,6 +506,80 @@ func (r *redisCache) Ping(ctx context.Context) error {
 }
 
 func (r *redisCache) Close() error { return r.client.Close() }
+
+func (r *redisCache) SupportsRateLimitWindow() bool { return true }
+
+func (r *redisCache) RateLimitWindow(ctx context.Context, key string, now time.Time, window time.Duration, threshold int, add bool) (int64, time.Time, error) {
+	const script = `
+local key = KEYS[1]
+local sequence = KEYS[2]
+local now = tonumber(ARGV[1])
+local window = tonumber(ARGV[2])
+local threshold = tonumber(ARGV[3])
+local add = tonumber(ARGV[4])
+redis.call('ZREMRANGEBYSCORE', key, '-inf', now - window)
+if add == 1 then
+  local id = redis.call('INCR', sequence)
+  redis.call('ZADD', key, now, tostring(now) .. ':' .. tostring(id))
+  redis.call('PEXPIRE', key, window + 1000)
+  redis.call('PEXPIRE', sequence, window + 1000)
+end
+local count = redis.call('ZCARD', key)
+local oldest = 0
+if count >= threshold then
+  local offset = count - threshold
+  local entry = redis.call('ZRANGE', key, offset, offset, 'WITHSCORES')
+  if entry[2] then oldest = tonumber(entry[2]) end
+end
+return {count, oldest}
+`
+	windowMillis := window.Milliseconds()
+	if windowMillis < 1 {
+		windowMillis = 1
+	}
+	result, err := r.client.Eval(ctx, script, []string{r.key("rate_limit:" + key), r.key("rate_limit:" + key + ":sequence")}, now.UnixMilli(), windowMillis, threshold, boolToInt(add)).Result()
+	if err != nil {
+		return 0, time.Time{}, fmt.Errorf("cache: redis rate-limit window: %w", err)
+	}
+	values, ok := result.([]interface{})
+	if !ok || len(values) != 2 {
+		return 0, time.Time{}, fmt.Errorf("cache: invalid redis rate-limit response")
+	}
+	count, err := redisInt64(values[0])
+	if err != nil {
+		return 0, time.Time{}, err
+	}
+	oldestMillis, err := redisInt64(values[1])
+	if err != nil {
+		return 0, time.Time{}, err
+	}
+	if oldestMillis == 0 {
+		return count, time.Time{}, nil
+	}
+	return count, time.UnixMilli(oldestMillis), nil
+}
+
+func boolToInt(value bool) int {
+	if value {
+		return 1
+	}
+	return 0
+}
+
+func redisInt64(value interface{}) (int64, error) {
+	switch number := value.(type) {
+	case int64:
+		return number, nil
+	case string:
+		parsed, err := strconv.ParseInt(number, 10, 64)
+		return parsed, err
+	case []byte:
+		parsed, err := strconv.ParseInt(string(number), 10, 64)
+		return parsed, err
+	default:
+		return 0, fmt.Errorf("cache: invalid redis integer response")
+	}
+}
 
 // ---------- Memcache backend ----------
 

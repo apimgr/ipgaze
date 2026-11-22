@@ -86,8 +86,8 @@ build: clean
 
 	# Build for local OS/ARCH
 	@echo "Building local binary..."
-	@$(GO_DOCKER) sh -c "GOOS=$$(go env GOOS) GOARCH=$$(go env GOARCH) \
-		go build -buildvcs=false -trimpath -ldflags \"$(LDFLAGS)\" -o $(BINDIR)/$(PROJECT_NAME) ./src"
+	@$(GO_DOCKER) sh -c 'GOOS=$$(go env GOOS) GOARCH=$$(go env GOARCH) \
+		go build -buildvcs=false -trimpath -ldflags "$(LDFLAGS)" -o $(BINDIR)/$(PROJECT_NAME) ./src'
 
 	# Build server for all platforms
 	@for platform in $(PLATFORMS); do \
@@ -133,14 +133,14 @@ local: clean
 
 	# Build server binary
 	@echo "Building $(PROJECT_NAME)..."
-	@$(GO_DOCKER) sh -c "GOOS=$$(go env GOOS) GOARCH=$$(go env GOARCH) \
-		go build -buildvcs=false -trimpath -ldflags \"$(LDFLAGS)\" -o $(BINDIR)/$(PROJECT_NAME) ./src"
+	@$(GO_DOCKER) sh -c 'GOOS=$$(go env GOOS) GOARCH=$$(go env GOARCH) \
+		go build -buildvcs=false -trimpath -ldflags "$(LDFLAGS)" -o $(BINDIR)/$(PROJECT_NAME) ./src'
 
 	# Build CLI binary (if exists)
 	@if [ -d "src/client" ]; then \
 		echo "Building $(PROJECT_NAME)-cli..."; \
-		$(GO_DOCKER) sh -c "GOOS=$$(go env GOOS) GOARCH=$$(go env GOARCH) \
-			go build -tags gui -buildvcs=false -trimpath -ldflags \"$(LDFLAGS)\" -o $(BINDIR)/$(PROJECT_NAME)-cli ./src/client"; \
+		$(GO_DOCKER) sh -c 'GOOS=$$(go env GOOS) GOARCH=$$(go env GOARCH) \
+			go build -tags gui -buildvcs=false -trimpath -ldflags "$(LDFLAGS)" -o $(BINDIR)/$(PROJECT_NAME)-cli ./src/client'; \
 	fi
 
 	@echo "Local build complete: $(BINDIR)/"
@@ -158,11 +158,11 @@ dev:
 		BUILD_DIR=$$(mktemp -d "$${TMPDIR:-/tmp}/$(PROJECT_ORG)/$(INTERNAL_NAME)-XXXXXX") && \
 		echo "Quick dev build to $$BUILD_DIR..." && \
 		$(GO_DOCKER_RUN) -v $$BUILD_DIR:/build casjaysdev/go:latest \
-			go build -buildvcs=false -o /build/$(PROJECT_NAME) ./src && \
+			sh -c 'GOOS=$$(go env GOOS) GOARCH=$$(go env GOARCH) go build -buildvcs=false -o /build/$(PROJECT_NAME) ./src' && \
 		echo "Built: $$BUILD_DIR/$(PROJECT_NAME)" && \
 		if [ -d "src/client" ]; then \
 			$(GO_DOCKER_RUN) -v $$BUILD_DIR:/build casjaysdev/go:latest \
-				go build -tags gui -buildvcs=false -o /build/$(PROJECT_NAME)-cli ./src/client && \
+				sh -c 'GOOS=$$(go env GOOS) GOARCH=$$(go env GOARCH) go build -tags gui -buildvcs=false -o /build/$(PROJECT_NAME)-cli ./src/client' && \
 			echo "Built: $$BUILD_DIR/$(PROJECT_NAME)-cli"; \
 		fi && \
 		echo "Test:  docker run --rm --name $(PROJECT_NAME)-test -v $$BUILD_DIR:/app alpine:latest /app/$(PROJECT_NAME) --help"

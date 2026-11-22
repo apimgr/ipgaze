@@ -279,12 +279,13 @@ func TestNormalizeBlockedIPs(t *testing.T) {
 	if got[0].CIDR != "192.0.2.4/32" || got[0].Reason != "test" || got[1].CIDR != "2001:db8::/32" {
 		t.Fatalf("normalized entries = %+v", got)
 	}
-	if _, err := NormalizeBlockedIPs([]BlockedIPEntry{{CIDR: "not-an-ip"}}); err == nil {
-		t.Fatal("invalid blocked IP accepted")
+	got, err = NormalizeBlockedIPs([]BlockedIPEntry{{CIDR: "not-an-ip"}, {CIDR: "198.51.100.0/24"}})
+	if err != nil || len(got) != 1 || got[0].CIDR != "198.51.100.0/24" {
+		t.Fatalf("invalid block filtering = %+v, %v; want only the valid entry", got, err)
 	}
 }
 
-func TestReloadConfigFromFileRejectsInvalidBlockedIPWithoutReplacingActive(t *testing.T) {
+func TestReloadConfigFromFileSkipsInvalidBlockedIP(t *testing.T) {
 	resetGlobals()
 	path := writeTempYAML(t, "server:\n  port: '1234'\n")
 	active, err := LoadConfigFromFile(path)
@@ -294,11 +295,11 @@ func TestReloadConfigFromFileRejectsInvalidBlockedIPWithoutReplacingActive(t *te
 	if err := os.WriteFile(path, []byte("server:\n  security:\n    blocked_ips:\n      - cidr: invalid\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	if err := reloadConfigFromFile(); err == nil {
-		t.Fatal("reload accepted invalid permanent block")
+	if err := reloadConfigFromFile(); err != nil {
+		t.Fatalf("reload rejected invalid permanent block: %v", err)
 	}
-	if getCurrentConfig() != active {
-		t.Fatal("rejected reload replaced active configuration")
+	if getCurrentConfig() == active || len(getCurrentConfig().Server.Security.BlockedIPs) != 0 {
+		t.Fatal("reload did not apply config with invalid permanent block skipped")
 	}
 }
 
@@ -334,6 +335,12 @@ func TestDefaultConfig_RateLimitDefaults(t *testing.T) {
 	}
 	if rl.Write.Requests != 10 {
 		t.Errorf("RateLimit.Write.Requests: got %d, want 10", rl.Write.Requests)
+	}
+	if rl.Strict.Requests != 10 || rl.Strict.Window != 900 {
+		t.Errorf("RateLimit.Strict = %#v, want 10 requests per 900 seconds", rl.Strict)
+	}
+	if rl.AuthFailures.Requests != 5 || rl.AuthFailures.Window != 900 {
+		t.Errorf("RateLimit.AuthFailures = %#v, want 5 failures per 900 seconds", rl.AuthFailures)
 	}
 	if rl.GlobalBurst != 240 {
 		t.Errorf("RateLimit.GlobalBurst: got %d, want 240", rl.GlobalBurst)
@@ -2703,7 +2710,7 @@ func TestTrackingConfig_TypeName_Empty(t *testing.T) {
 
 // ─────────────────────────── validateAllowlist ────────────────────────────────
 
-func TestValidateAllowlist_RejectsOverlyBroadUnconfirmed(t *testing.T) {
+func TestValidateAllowlistSkipsInvalidAndOverlyBroadEntries(t *testing.T) {
 	entries := []AllowlistEntry{
 		{CIDR: "10.0.0.0/8", Description: "narrow v4, kept"},
 		{CIDR: "0.0.0.0/0", Description: "broad v4, unconfirmed, dropped"},
@@ -2713,9 +2720,10 @@ func TestValidateAllowlist_RejectsOverlyBroadUnconfirmed(t *testing.T) {
 		{CIDR: "2001:db8::/16", Description: "narrow v6 boundary, kept"},
 		{CIDR: "2001:db8::/48", Description: "narrow v6, kept"},
 		{CIDR: "203.0.113.50", Description: "bare v4 IP, kept"},
+		{CIDR: "invalid", Description: "invalid, skipped"},
 	}
 	got := validateAllowlist(entries)
-	want := []string{"10.0.0.0/8", "2001:db8::/16", "2001:db8::/48", "203.0.113.50"}
+	want := []string{"10.0.0.0/8", "2001::/16", "2001:db8::/48", "203.0.113.50/32"}
 	if len(got) != len(want) {
 		t.Fatalf("validateAllowlist() kept %d entries, want %d: %+v", len(got), len(want), got)
 	}
@@ -2723,17 +2731,6 @@ func TestValidateAllowlist_RejectsOverlyBroadUnconfirmed(t *testing.T) {
 		if got[i].CIDR != w {
 			t.Errorf("entry %d: CIDR = %q, want %q", i, got[i].CIDR, w)
 		}
-	}
-}
-
-func TestValidateAllowlist_KeepsBroadWhenConfirmed(t *testing.T) {
-	entries := []AllowlistEntry{
-		{CIDR: "0.0.0.0/0", Description: "broad v4, confirmed", Confirmed: true},
-		{CIDR: "::/0", Description: "broad v6, confirmed", Confirmed: true},
-	}
-	got := validateAllowlist(entries)
-	if len(got) != 2 {
-		t.Fatalf("validateAllowlist() kept %d entries, want 2: %+v", len(got), got)
 	}
 }
 

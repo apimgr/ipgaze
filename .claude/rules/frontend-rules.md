@@ -2,7 +2,7 @@
 
 ⚠️ **These rules are NON-NEGOTIABLE. Violations are bugs.** ⚠️
 
-> Preference and help hub rules synced against AI.md blob `eda2eab7bdb4` (2026-11-22). AI.md remains authoritative for complete requirements.
+> Synced against AI.md revision `eb41fb200153` (2026-11-22). AI.md remains authoritative for complete requirements.
 
 ## CRITICAL - NEVER DO
 - **PART 16:** Routes are registered on the router in `main.go`/`routes.go`. All frontend routes are public; there is no admin web UI or user account system. Guest preferences live at `/server/preferences`, with registered sub-pages such as `/server/preferences/sync` and, in API projects, `/server/preferences/tokens`. Bearer-token auth applies to `/api/` routes. The tokens page is public but credential-gated: it always offers the restore form and lists/manages tokens only with a valid owner cookie. The owner cookie is the only cookie credential, used only by token-management forms.
@@ -125,17 +125,15 @@
 - **PART 16:** *DO NOT use:**
 - **PART 16:** *GeoIP attribution content above is canonical — see PART 19: GEOIP → "License & Attribution" for the source of these notices; do not let this copy drift if that section is ever updated.**
 - **PART 16:** | **CCPA Opt-Out** | Conditional | **Only shown when `data.sold = true`** - Do Not Sell toggle |
-- **PART 16:** *Below the form, the page MUST render exactly two informational sections — the content is spec'd here; never improvise it:**
-- **PART 16:** | Security Issues | "To report a security vulnerability, consult our security policy at `/server/security`." — rendered as a link to `/server/security`. Never point users at the raw `/.well-known/security.txt` file from this page. |
-- **PART 16:** | Abuse Reports | "To report abusive content or policy violations, use this contact form." — append " or email {abuse_email}" where `{abuse_email}` resolves to `server.contact.abuse.email` if set, else `server.contact.general.email` if set; omit the email clause entirely when neither is set. NEVER render `server.contact.admin.email` here (it is never public). |
+- **PART 16:** The `/server/contact` chooser has no form fields; it lists links for offered report types and one security-vulnerability pointer to `/server/security`. A selected type renders only its own form. Below a type form, render only the security pointer; do not add the chooser's separate abuse-report explanation.
 - **PART 16:** | `recaptcha` | Google reCAPTCHA v2 checkbox. Needs `pages.contact.captcha_site_key` (public, rendered in the page) and `pages.contact.captcha_secret_key` (server-side only, kept in `server.yml` like other secrets, never returned in a response or written to a log). The server verifies by POSTing `secret`, `response` and `remoteip` to `https://www.google.com/recaptcha/api/siteverify` and accepts only `"success": true` |
 - **PART 16:** **Fail closed:** if the provider cannot be reached, the submission is rejected with a retryable error — never accepted unverified
 - **PART 16:** **Tor and I2P:** requests served through the onion or I2P address always use `simple`, whatever `captcha` is set to — clearnet providers are never called from there (PART 16 → Tor). The same challenge protects the security-report form
 - **PART 16:** *⚠️ CRITICAL: Content MUST reflect the ACTUAL project - NEVER use generic placeholders.**
 - **PART 16:** *MCP help page — how to connect an AI assistant to this application. The base content below is defined here and rendered by every project; a project expands it and never removes or contradicts it.**
 - **PART 16:** | `#endpoint` | Endpoint | The full MCP URL resolved for this request (PART 8 → "Resolution Order", never hardcoded) with the two aliases (`/api/mcp`, `/mcp`) and a copy control; the URL text uses CSS `user-select: all` so it works without JS |
-- **PART 16:** | `#authentication` | Authentication | Requests authenticate with `Authorization: Bearer {token}` — the same tokens as the REST API, no MCP-specific token. Anonymous access works for public tools. Use a **linked token** created for this client on `/server/preferences/tokens` (named for the client, revocable alone). Never the primary token and never the operator token (`server.token`). A project without owner tokens has no client credential to issue: MCP clients get its public tools anonymously. |
-- **PART 16:** | `#tools` | Tools | The live tool list for an anonymous caller (name and description from the same registry that backs `tools/list`) — never hand-written. When authenticated callers see more tools, say so |
+- **PART 16:** | `#authentication` | Authentication | Every MCP request requires `Authorization: Bearer {token}` using the same tokens as the REST API. Use a **linked token** created for this client on `/server/preferences/tokens`; never the primary or operator token. |
+- **PART 16:** | `#tools` | Tools | The live tool list a standard, non-operator token sees, generated from the same registry that backs `tools/list`. Say when the operator token sees additional tools. |
 - **PART 16:** *Project expansion (required content):** the project appends its own section, `#project`, after the base sections. The text comes from IDEA.md `## Business logic` and is stored as Markdown in `pages.help.mcp` (canonical storage is `server.yml` `pages.help.mcp`, edited there by the operator and applied on config reload; a project that has an admin panel also exposes it in Pages → Help. API projects have no admin panel or web editor, so `server.yml` is the only editing path). It MUST use the project's real tool names and real data — example prompts a user can paste into an assistant, per-tool tips and limits, and documentation of any MCP resources or prompts the project exposes. It never repeats or contradicts the base sections, and generic placeholder text is forbidden (same rule as `/server/help`).
 
 ## CRITICAL - ALWAYS DO
@@ -289,4 +287,4 @@
 
 For complete details, see AI.md PART 16.
 
-<!-- AI.md source: 03cc45ec58df -->
+<!-- AI.md source: eb41fb200153 -->

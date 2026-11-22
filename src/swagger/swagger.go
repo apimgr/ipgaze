@@ -91,11 +91,12 @@ type MediaType struct {
 
 // Schema holds a JSON schema definition
 type Schema struct {
-	Type       string            `json:"type,omitempty"`
-	Properties map[string]Schema `json:"properties,omitempty"`
-	Items      *Schema           `json:"items,omitempty"`
-	Example    interface{}       `json:"example,omitempty"`
-	Ref        string            `json:"$ref,omitempty"`
+	Type                 string            `json:"type,omitempty"`
+	Properties           map[string]Schema `json:"properties,omitempty"`
+	AdditionalProperties *Schema           `json:"additionalProperties,omitempty"`
+	Items                *Schema           `json:"items,omitempty"`
+	Example              interface{}       `json:"example,omitempty"`
+	Ref                  string            `json:"$ref,omitempty"`
 }
 
 // Components holds reusable OpenAPI component definitions

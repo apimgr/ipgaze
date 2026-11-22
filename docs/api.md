@@ -7,7 +7,9 @@ deployment may apply rate limits and block abusive traffic.
 The REST API is public. MCP uses the same API but requires an `Authorization:
 Bearer` token. Visitors can issue an owner token from the tokens page or
 `POST /api/v1/server/preferences/tokens/primary`; use a linked token for each
-MCP client.
+MCP client. Every MCP request must carry a valid owner, linked, or operator
+Bearer token; cookies are not accepted by MCP. The public lookup API does not
+require authentication.
 
 When deployed behind a trusted proxy, caller identity uses the configured
 `server.trusted_proxies.client_ip_header` selection and validates forwarded
@@ -99,6 +101,11 @@ Health endpoints are the exception and return the bare health document.
 | `POST /server/preferences/token/reveal` | Reveal the primary token; requires the owner cookie and CSRF token |
 | `POST /server/preferences/token/rotate` | Rotate the primary token; requires the owner cookie and CSRF token |
 | `POST /server/preferences/token/forget` | Clear this browser's saved owner token without revoking it |
+| `POST /server/preferences/tokens` | Create a linked token; requires the primary owner cookie and CSRF token |
+| `POST /server/preferences/tokens/{id}/reveal` | Reveal one linked token; requires the primary owner cookie and CSRF token |
+| `POST /server/preferences/tokens/{id}/rotate` | Rotate one linked token; requires the primary owner cookie and CSRF token |
+| `POST /server/preferences/tokens/{id}/update` | Rename a linked token or change its expiry; requires the primary owner cookie and CSRF token |
+| `POST /server/preferences/tokens/{id}/revoke` | Revoke a linked token; requires the primary owner cookie and CSRF token |
 | `GET /api/v1/server/preferences/tokens` | List masked owner and linked token metadata; requires the primary Bearer token |
 | `POST /api/v1/server/preferences/tokens/primary` | Issue a primary owner token without other credentials |
 | `POST /api/v1/server/preferences/tokens/primary/reveal` | Reveal the primary token; requires the primary Bearer token |
@@ -128,6 +135,12 @@ Health endpoints are the exception and return the bare health document.
 | `GET /api/v1/server/swagger` | OpenAPI document |
 | `GET` or `POST /api/v1/server/graphql` | GraphQL endpoint |
 | `POST /api/v1/server/mcp` | MCP Streamable HTTP endpoint |
+
+Token list responses contain masked values and metadata only. The raw value is
+returned only by a token issuance or reveal action; reveal responses disable
+caching. Token-management APIs accept the primary owner's Bearer token, while
+linked tokens cannot manage other tokens. Token-management routes are not
+exposed as MCP tools.
 
 Contact submissions enforce the `max_length` values returned by the form
 definition, counting Unicode characters after trimming. Over-limit requests

@@ -241,7 +241,7 @@ func TestBrowserEveryThemeRendersDistinctly(t *testing.T) {
 	for _, theme := range []string{"dark", "light", "auto"} {
 		var htmlClass, color string
 		if err := chromedp.Run(ctx,
-			chromedp.Navigate(fmt.Sprintf("%s/server/preferences/import?theme=%s", baseURL, theme)),
+			chromedp.Navigate(fmt.Sprintf("%s/server/preferences/sync/import?theme=%s", baseURL, theme)),
 			chromedp.WaitVisible("main", chromedp.ByQuery),
 			chromedp.AttributeValue("html", "class", &htmlClass, nil, chromedp.ByQuery),
 			chromedp.Evaluate(`getComputedStyle(document.body).backgroundColor`, &color),
@@ -266,11 +266,11 @@ func TestBrowserLanguageSwitchingChangesRenderedStrings(t *testing.T) {
 
 	var english, spanish, langAttr string
 	if err := chromedp.Run(ctx,
-		chromedp.Navigate(baseURL+"/server/preferences/import?lang=en"),
+		chromedp.Navigate(baseURL+"/server/preferences/sync/import?lang=en"),
 		chromedp.Navigate(baseURL+"/"),
 		chromedp.WaitVisible("h1", chromedp.ByQuery),
 		chromedp.Text("h1", &english, chromedp.ByQuery),
-		chromedp.Navigate(baseURL+"/server/preferences/import?lang=es"),
+		chromedp.Navigate(baseURL+"/server/preferences/sync/import?lang=es"),
 		chromedp.Navigate(baseURL+"/"),
 		chromedp.WaitVisible("h1", chromedp.ByQuery),
 		chromedp.Text("h1", &spanish, chromedp.ByQuery),

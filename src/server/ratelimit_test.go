@@ -1,15 +1,75 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"sort"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/apimgr/ipgaze/src/config"
 	"github.com/apimgr/ipgaze/src/netutil"
 )
+
+type testRateLimitWindowCounter struct {
+	mu     sync.Mutex
+	events map[string][]time.Time
+}
+
+func (c *testRateLimitWindowCounter) SupportsRateLimitWindow() bool { return true }
+
+func (c *testRateLimitWindowCounter) RateLimitWindow(_ context.Context, key string, now time.Time, window time.Duration, threshold int, add bool) (int64, time.Time, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.events == nil {
+		c.events = make(map[string][]time.Time)
+	}
+	cutoff := now.Add(-window)
+	active := c.events[key][:0]
+	for _, event := range c.events[key] {
+		if event.After(cutoff) {
+			active = append(active, event)
+		}
+	}
+	if add {
+		active = append(active, now)
+	}
+	sort.Slice(active, func(i, j int) bool { return active[i].Before(active[j]) })
+	c.events[key] = active
+	count := int64(len(active))
+	if threshold > 0 && len(active) >= threshold {
+		return count, active[len(active)-threshold], nil
+	}
+	return count, time.Time{}, nil
+}
+
+func TestRateLimiterUsesExternalSlidingWindowCounter(t *testing.T) {
+	cfg := DefaultRateLimitConfig()
+	cfg.Read = RateLimitBucket{Limit: 1, Window: time.Minute}
+	cfg.Global = RateLimitBucket{Limit: 5, Window: time.Minute}
+	cfg.AuthFailures = RateLimitBucket{Limit: 2, Window: time.Minute}
+	limiter := NewRateLimiter(cfg, netutil.NewTrustResolver(config.TrustedProxiesConfig{}, ""))
+	defer limiter.Stop()
+	limiter.SetWindowCounter(&testRateLimitWindowCounter{})
+
+	if !limiter.allowPersisted(rateClassRead, "token:client") {
+		t.Fatal("first external-cache request should be allowed")
+	}
+	if limiter.allowPersisted(rateClassRead, "token:client") {
+		t.Fatal("second external-cache request should be blocked")
+	}
+	limiter.RecordAuthFailure("192.0.2.20")
+	if blocked, _ := limiter.AuthFailureBlocked("192.0.2.20"); blocked {
+		t.Fatal("one failed authentication should not trigger lockout")
+	}
+	limiter.RecordAuthFailure("192.0.2.20")
+	if blocked, retry := limiter.AuthFailureBlocked("192.0.2.20"); !blocked || retry <= 0 {
+		t.Fatalf("external-cache auth lockout = %v, retry=%v; want blocked with positive retry", blocked, retry)
+	}
+}
 
 func TestDefaultRateLimitConfig(t *testing.T) {
 	cfg := DefaultRateLimitConfig()
@@ -23,6 +83,12 @@ func TestDefaultRateLimitConfig(t *testing.T) {
 		{"health", cfg.Health, 120},
 		{"global", cfg.Global, 240},
 	}
+	if cfg.Strict.Limit != 10 || cfg.Strict.Window != 15*time.Minute {
+		t.Errorf("strict bucket = %#v, want 10 requests per 15 minutes", cfg.Strict)
+	}
+	if cfg.AuthFailures.Limit != 5 || cfg.AuthFailures.Window != 15*time.Minute {
+		t.Errorf("auth-failure bucket = %#v, want 5 failures per 15 minutes", cfg.AuthFailures)
+	}
 	for _, c := range cases {
 		if c.got.Limit != c.limit {
 			t.Errorf("%s limit = %d, want %d", c.name, c.got.Limit, c.limit)
@@ -30,6 +96,53 @@ func TestDefaultRateLimitConfig(t *testing.T) {
 		if c.got.Window != time.Minute {
 			t.Errorf("%s window = %v, want 1m", c.name, c.got.Window)
 		}
+	}
+}
+
+func TestAuthFailureLockoutUsesConfiguredSlidingWindow(t *testing.T) {
+	rateConfig := DefaultRateLimitConfig()
+	rateConfig.AuthFailures = RateLimitBucket{Limit: 2, Window: time.Hour}
+	limiter := NewRateLimiter(rateConfig, netutil.NewTrustResolver(config.TrustedProxiesConfig{}, ""))
+	defer limiter.Stop()
+	if blocked, _ := limiter.AuthFailureBlocked("192.0.2.5"); blocked {
+		t.Fatal("new client is unexpectedly locked out")
+	}
+	limiter.RecordAuthFailure("192.0.2.5")
+	if blocked, _ := limiter.AuthFailureBlocked("192.0.2.5"); blocked {
+		t.Fatal("one failure should not lock out a client")
+	}
+	limiter.RecordAuthFailure("192.0.2.5")
+	blocked, retry := limiter.AuthFailureBlocked("192.0.2.5")
+	if !blocked || retry <= 0 || retry > time.Hour {
+		t.Fatalf("lockout = %v, retry=%v; want locked with a positive window", blocked, retry)
+	}
+}
+
+func TestPersistedRateLimitUsesSlidingWindowPerToken(t *testing.T) {
+	cfg := DefaultRateLimitConfig()
+	cfg.Read = RateLimitBucket{Limit: 1, Window: time.Minute}
+	cfg.Global = RateLimitBucket{Limit: 10, Window: time.Minute}
+	limiter := NewRateLimiter(cfg, netutil.NewTrustResolver(config.TrustedProxiesConfig{}, ""))
+	defer limiter.Stop()
+	limiter.SetDB(newAbuseTestDB(t))
+	limiter.SetTokenIdentityResolver(func(token string, _ bool) (string, bool) { return "token:" + token, true })
+	handler := RateLimitMiddleware(limiter)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) }))
+	request := func(token string) int {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/ip", nil)
+		req.RemoteAddr = "192.0.2.10:1234"
+		req.Header.Set("Authorization", "Bearer "+token)
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		return rec.Code
+	}
+	if got := request("client-a"); got != http.StatusNoContent {
+		t.Fatalf("first token-a request = %d", got)
+	}
+	if got := request("client-b"); got != http.StatusNoContent {
+		t.Fatalf("first token-b request = %d; token limits should be isolated", got)
+	}
+	if got := request("client-a"); got != http.StatusTooManyRequests {
+		t.Fatalf("second token-a request = %d, want 429", got)
 	}
 }
 
@@ -313,6 +426,8 @@ func TestClassifyRequest(t *testing.T) {
 		{http.MethodDelete, "/api/v1/ip", rateClassWrite},
 		{http.MethodGet, "/healthz", rateClassHealth},
 		{http.MethodGet, "/api/v1/server/healthz", rateClassHealth},
+		{http.MethodPost, "/server/preferences/token/restore", rateClassStrict},
+		{http.MethodPost, "/api/v1/server/preferences/tokens/primary/rotate", rateClassStrict},
 	}
 	for _, tt := range tests {
 		req := httptest.NewRequest(tt.method, tt.path, nil)

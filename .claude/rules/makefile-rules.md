@@ -2,7 +2,7 @@
 
 ⚠️ **These rules are NON-NEGOTIABLE. Violations are bugs.** ⚠️
 
-> Synced against AI.md revision `7ac307b1a0b` (2026-11-21). AI.md remains authoritative for complete requirements.
+> Synced against AI.md revision `eb41fb200153` (2026-11-22). AI.md remains authoritative for complete requirements.
 
 ## CRITICAL - NEVER DO
 - **PART 25:** *Six core targets. DO NOT ADD MORE.** The only other permitted target is `clean`, a housekeeping target that removes `binaries/` and `releases/` and builds nothing. There is no `all` target and none is required.
@@ -50,4 +50,4 @@
 
 For complete details, see AI.md PART 25.
 
-<!-- AI.md source: 03cc45ec58df -->
+<!-- AI.md source: eb41fb200153 -->

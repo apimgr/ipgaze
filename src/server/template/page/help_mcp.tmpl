@@ -1,7 +1,11 @@
 {{template "base" .}}
 {{define "title"}}{{t .Lang "api_help.mcp_title"}} — {{.ProjectName}}{{end}}
 {{define "content"}}
-<h1>{{t .Lang "api_help.mcp_title"}}</h1>
+<header class="page-header">
+  <nav class="breadcrumb" aria-label="{{t .Lang "nav.help"}}"><a href="/server/help">← {{t .Lang "nav.help"}}</a></nav>
+  <h1 class="page-title">{{t .Lang "api_help.mcp_title"}}</h1>
+  <p class="page-lead">{{t .Lang "api_help.mcp_overview_body"}}</p>
+</header>
 <section class="section-card" aria-labelledby="overview">
   <h2 id="overview">{{t .Lang "api_help.mcp_overview"}}</h2>
   <p>{{t .Lang "api_help.mcp_overview_body"}}</p>
@@ -9,30 +13,35 @@
 <section class="section-card" aria-labelledby="endpoint">
   <h2 id="endpoint">{{t .Lang "api_help.mcp_endpoint"}}</h2>
   <p>{{t .Lang "api_help.mcp_endpoint_body"}}</p>
-  <div class="onion-address-row">
-    <code class="select-all">{{.URL}}</code>
-    <button type="button" class="copy-btn" data-copy="{{.URL}}" data-copied-label="{{t .Lang "common.copied"}}" aria-label="{{t .Lang "common.copy"}}">
-      <span class="copy-icon" aria-hidden="true">⧉</span>
-      <span class="copy-text">{{t .Lang "common.copy"}}</span>
-    </button>
+  <div class="code-block">
+    <pre><code class="copy-value">{{.URL}}</code></pre>
+    <button type="button" class="copy-btn" data-copy="{{.URL}}" data-copied-label="{{t .Lang "common.copied"}}" aria-label="{{t .Lang "common.copy"}}">{{t .Lang "common.copy"}}</button>
   </div>
-  <ul>{{range .Aliases}}<li><code class="select-all">{{.}}</code></li>{{end}}</ul>
+  {{range .Aliases}}
+  <div class="code-block">
+    <pre><code class="copy-value">{{.}}</code></pre>
+    <button type="button" class="copy-btn" data-copy="{{.}}" data-copied-label="{{t $.Lang "common.copied"}}" aria-label="{{t $.Lang "common.copy"}}">{{t $.Lang "common.copy"}}</button>
+  </div>
+  {{end}}
   <p>{{t .Lang "api_help.mcp_select_url"}}</p>
 </section>
 <section class="section-card" aria-labelledby="authentication">
   <h2 id="authentication">{{t .Lang "api_help.mcp_authentication"}}</h2>
   <p>{{t .Lang "api_help.mcp_authentication_body"}}</p>
+  <p>{{t .Lang "api_help.mcp_token_body"}}</p>
 </section>
 <section class="section-card" aria-labelledby="connect">
   <h2 id="connect">{{t .Lang "api_help.mcp_connect"}}</h2>
   <h3>{{t .Lang "api_help.mcp_claude_code"}}</h3>
-  <pre><code>claude mcp add --transport http ipgaze {{.URL}}</code></pre>
-  <p>{{t .Lang "api_help.mcp_token_body"}}</p>
-  <pre><code>claude mcp add --transport http ipgaze {{.URL}} --header "Authorization: Bearer $MCP_TOKEN"</code></pre>
+  <div class="code-block">
+    <pre><code>claude mcp add --transport http {{.ProjectName}} {{.URL}} --header "Authorization: Bearer $MCP_TOKEN"</code></pre>
+    <button type="button" class="copy-btn" data-copy="claude mcp add --transport http {{.ProjectName}} {{.URL}} --header &quot;Authorization: Bearer $MCP_TOKEN&quot;" data-copied-label="{{t .Lang "common.copied"}}" aria-label="{{t .Lang "common.copy"}}">{{t .Lang "common.copy"}}</button>
+  </div>
   <h3>{{t .Lang "api_help.mcp_generic_config"}}</h3>
-  <pre><code>{
+  <div class="code-block">
+    <pre><code>{
   "mcpServers": {
-    "ipgaze": {
+    "{{.ProjectName}}": {
       "type": "http",
       "url": "{{.URL}}",
       "headers": {
@@ -41,19 +50,37 @@
     }
   }
 }</code></pre>
+    <button type="button" class="copy-btn" data-copy="{&#34;mcpServers&#34;:{&#34;{{.ProjectName}}&#34;:{&#34;type&#34;:&#34;http&#34;,&#34;url&#34;:&#34;{{.URL}}&#34;,&#34;headers&#34;:{&#34;Authorization&#34;:&#34;Bearer $MCP_TOKEN&#34;}}}}" data-copied-label="{{t .Lang "common.copied"}}" aria-label="{{t .Lang "common.copy"}}">{{t .Lang "common.copy"}}</button>
+  </div>
   <h3>{{t .Lang "api_help.mcp_verify"}}</h3>
-  <pre><code>curl -q -LSsf -X POST '{{.URL}}' \
+  <div class="code-block">
+    <pre><code>curl -q -LSsf -X POST '{{.URL}}' \
   -H 'Content-Type: application/json' \
   -H 'Accept: application/json, text/event-stream' \
-  -H 'MCP-Protocol-Version: 2025-03-26' \
   -H "Authorization: Bearer $MCP_TOKEN" \
-  --data '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"curl","version":"1.0"}}}'</code></pre>
-  <p>{{t .Lang "api_help.mcp_omit_auth"}}</p>
+  -H 'MCP-Protocol-Version: 2026-07-28' \
+  -H 'Mcp-Method: initialize' \
+  --data '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2026-07-28","capabilities":{},"clientInfo":{"name":"ipgaze-check","version":"1.0.0"}}}'</code></pre>
+    <button type="button" class="copy-btn" data-copy="curl -q -LSsf -X POST '{{.URL}}' -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' -H &quot;Authorization: Bearer $MCP_TOKEN&quot; -H 'MCP-Protocol-Version: 2026-07-28' -H 'Mcp-Method: initialize' --data '{&quot;jsonrpc&quot;:&quot;2.0&quot;,&quot;id&quot;:1,&quot;method&quot;:&quot;initialize&quot;,&quot;params&quot;:{&quot;protocolVersion&quot;:&quot;2026-07-28&quot;,&quot;capabilities&quot;:{},&quot;clientInfo&quot;:{&quot;name&quot;:&quot;ipgaze-check&quot;,&quot;version&quot;:&quot;1.0.0&quot;}}}'" data-copied-label="{{t .Lang "common.copied"}}" aria-label="{{t .Lang "common.copy"}}">{{t .Lang "common.copy"}}</button>
+  </div>
 </section>
 <section class="section-card" aria-labelledby="tools">
   <h2 id="tools">{{t .Lang "api_help.mcp_tools"}}</h2>
   <p>{{t .Lang "api_help.mcp_tools_body"}}</p>
-  <ul>{{range .Tools}}<li><code>{{.Name}}</code> — {{.Description}}</li>{{else}}<li>{{t .Lang "api_help.mcp_no_tools"}}</li>{{end}}</ul>
+  <div class="table-wrapper">
+    <table class="data-table">
+      <caption>{{t .Lang "api_help.mcp_tools"}}</caption>
+      <thead><tr><th scope="col">{{t .Lang "preferences.tokens_name"}}</th><th scope="col">{{t .Lang "common.details"}}</th></tr></thead>
+      <tbody>
+        {{range .Tools}}
+        <tr><td><code>{{.Name}}</code></td><td>{{markdownToHTML .Description}}</td></tr>
+        {{else}}
+        <tr><td colspan="2">{{t $.Lang "api_help.mcp_no_tools"}}</td></tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+  <p>{{t .Lang "api_help.mcp_tools_operator_note"}}</p>
 </section>
 <section class="section-card" aria-labelledby="limits">
   <h2 id="limits">{{t .Lang "api_help.mcp_behavior_limits"}}</h2>
@@ -61,13 +88,18 @@
 </section>
 <section class="section-card" aria-labelledby="troubleshooting">
   <h2 id="troubleshooting">{{t .Lang "api_help.mcp_troubleshooting"}}</h2>
-  <table><thead><tr><th>{{t .Lang "api_help.mcp_status"}}</th><th>{{t .Lang "api_help.mcp_cause"}}</th><th>{{t .Lang "api_help.mcp_fix"}}</th></tr></thead><tbody>
-    <tr><td>400</td><td>{{t .Lang "api_help.mcp_400_cause"}}</td><td>{{t .Lang "api_help.mcp_400_fix"}}</td></tr>
-    <tr><td>401</td><td>{{t .Lang "api_help.mcp_401_cause"}}</td><td>{{t .Lang "api_help.mcp_401_fix"}}</td></tr>
-    <tr><td>403</td><td>{{t .Lang "api_help.mcp_403_cause"}}</td><td>{{t .Lang "api_help.mcp_403_fix"}}</td></tr>
-    <tr><td>404</td><td>{{t .Lang "api_help.mcp_404_cause"}}</td><td>{{t .Lang "api_help.mcp_404_fix"}}</td></tr>
-    <tr><td>405</td><td>{{t .Lang "api_help.mcp_405_cause"}}</td><td>{{t .Lang "api_help.mcp_405_fix"}}</td></tr>
-  </tbody></table>
+  <div class="table-wrapper">
+    <table class="data-table">
+      <caption>{{t .Lang "api_help.mcp_troubleshooting"}}</caption>
+      <thead><tr><th scope="col">{{t .Lang "api_help.mcp_status"}}</th><th scope="col">{{t .Lang "api_help.mcp_cause"}}</th><th scope="col">{{t .Lang "api_help.mcp_fix"}}</th></tr></thead>
+      <tbody>
+        <tr><td>400</td><td>{{t .Lang "api_help.mcp_400_cause"}}</td><td>{{t .Lang "api_help.mcp_400_fix"}}</td></tr>
+        <tr><td>401</td><td>{{t .Lang "api_help.mcp_401_cause"}}</td><td>{{t .Lang "api_help.mcp_401_fix"}}</td></tr>
+        <tr><td>403</td><td>{{t .Lang "api_help.mcp_403_cause"}}</td><td>{{t .Lang "api_help.mcp_403_fix"}}</td></tr>
+        <tr><td>405</td><td>{{t .Lang "api_help.mcp_405_cause"}}</td><td>{{t .Lang "api_help.mcp_405_fix"}}</td></tr>
+      </tbody>
+    </table>
+  </div>
 </section>
 <section class="section-card" aria-labelledby="project">
   <h2 id="project">{{t .Lang "api_help.mcp_project_tools"}}</h2>

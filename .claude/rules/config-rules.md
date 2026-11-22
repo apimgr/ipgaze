@@ -2,13 +2,12 @@
 
 ⚠️ **These rules are NON-NEGOTIABLE. Violations are bugs.** ⚠️
 
-> Synced against AI.md revision `7ac307b1a0b` (2026-11-21). AI.md remains authoritative for complete requirements.
+> Synced against AI.md revision `eb41fb200153` (2026-11-22). AI.md remains authoritative for complete requirements.
 
 ## CRITICAL - NEVER DO
 - **PART 5:** *CRITICAL: ALL comments in YAML files MUST go ABOVE the setting, NEVER inline.**
 - **PART 5:** *Exception:** GitHub Actions SHA-pin version annotations stay inline — `uses: owner/action@{40-char-sha}  # vX.Y.Z` — Renovate reads and rewrites the same-line comment when bumping pins; never move it above the `uses:` line.
-- **PART 5:** *Configuration is stored in `server.yml` only; the database never holds operator-editable configuration.**
-- **PART 5:** `server.yml` is the sole source of truth for configuration. The SQLite (or remote libsql/Turso) database stores resource state, owner tokens, audit log entries, etc. — never user accounts or operator-editable configuration.
+- **PART 5:** Configuration is file-backed in `server.yml`, ordered `yaml.d/` area files and `secrets.yml`, merged as the source of truth; the database never holds operator-editable configuration.
 - **PART 5:** *All write operations return HTTP `503 Service Unavailable` with the canonical error body (see PART 14 → "Error Response"). Maintenance-specific context goes in `details` and in response headers — never in ad-hoc top-level fields.**
 - **PART 5:** *`mode` always reports the configured MODE (`production`/`development`/`debug`) — maintenance is a state carried by `status`, never a mode. HTTP code: `503 Service Unavailable`.**
 - **PART 5:** | `sure` | `never` |
@@ -103,6 +102,10 @@
 
 ## Key Rules Summary
 
+## AI.md 2026-11-22 Updates
+
+- **PART 5:** Configuration is merged from `server.yml`, ordered `yaml.d/` area files and `secrets.yml`; generated secrets are written only to `secrets.yml`.
+
 ### PART 5 — CONFIGURATION
 - YAML Comment Style
 - Path Normalization & Validation
@@ -139,4 +142,4 @@
 
 For complete details, see AI.md PART 5, PART 6, PART 12.
 
-<!-- AI.md source: 03cc45ec58df -->
+<!-- AI.md source: eb41fb200153 -->

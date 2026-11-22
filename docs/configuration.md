@@ -288,9 +288,16 @@ In the standard Docker layout, Tor stores the onion hostname at
 Flood detection counts every request, including `429` responses, by client IP
 and endpoint class. Defaults detect a count greater than 10 times the class
 limit in a rolling 60-second window, block the IP for one hour, and send a
-security alert. Allowlisted addresses bypass blocking and flood counting.
-Temporary blocks persist in the database and expire automatically. Permanent
-blocks accept IPv4/IPv6 addresses or CIDRs; an allowlist entry takes precedence.
+security alert. Allowlisted addresses bypass IP blocklists, request rate
+limits, GeoIP country blocking, and automatic flood blocks. Authentication,
+CSRF, path-security, and TLS checks still apply. Temporary blocks persist in
+the database and expire automatically. Permanent blocks and allowlists accept
+IPv4/IPv6 addresses or CIDRs; a bare address is treated as `/32` or `/128`.
+Invalid entries and overly broad allowlist ranges (IPv4 `/0` through `/7`, IPv6
+`/0` through `/15`) are skipped with a warning, without failing startup or
+config reload. Allowlist entries are managed through the configuration files;
+there is no allowlist API. If a block overlaps an allowlist entry, the
+allowlist takes precedence.
 
 ```yaml
 server:
@@ -307,6 +314,11 @@ server:
         reason: "Abusive network"
       - cidr: "2001:db8::/32"
         reason: "Abusive IPv6 range"
+    allowlist:
+      - cidr: 192.0.2.10
+        description: "Monitoring host"
+      - cidr: "2001:db8:1::/48"
+        description: "Trusted monitoring network"
 ```
 
 ## I2P
@@ -477,10 +489,13 @@ server:
     global_burst: 240
 ```
 
-Counters use sliding windows persisted in `server.db`. Anonymous requests use
-the normalized client IP; authenticated requests use the validated token, and
-strict token actions use the owner identity. Authentication failures are
-counted per IP and do not reset after a successful request.
+Counters use sliding windows persisted in `server.db` by default. When
+`server.cache.type` is `valkey` or `redis`, the counters use that external
+cache instead, so rate limits are shared across server instances. Anonymous
+requests use the normalized client IP; authenticated requests use the
+validated token, and strict token actions use the owner identity.
+Authentication failures are counted per IP and do not reset after a
+successful request.
 
 ## Owner and Linked Token Settings
 

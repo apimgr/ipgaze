@@ -73,7 +73,7 @@ func TestRequiredServerPageContracts(t *testing.T) {
 			need: []string{
 				`id="overview"`, `id="endpoint"`, `id="authentication"`, `id="connect"`,
 				`id="tools"`, `id="limits"`, `id="troubleshooting"`,
-				`class="select-all"`, `class="copy-btn"`,
+				`class="copy-value"`, `class="copy-btn"`,
 			},
 		},
 	}

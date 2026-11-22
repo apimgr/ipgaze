@@ -6,7 +6,6 @@
     "direction": "ltr",
     "version": "1.0.0"
   },
-
   "common": {
     "select_language": "Seleccionar idioma",
     "save": "Guardar",
@@ -77,7 +76,6 @@
     "boot_recovery_title": "No se pudo recuperar la página",
     "boot_recovery_message": "La página no terminó de cargarse después de borrar la caché del navegador. Cierra las otras pestañas de este sitio y vuelve a cargar la página."
   },
-
   "theme": {
     "light": "Claro",
     "dark": "Oscuro",
@@ -86,7 +84,6 @@
     "toast_prefix": "Theme: ",
     "toggle_aria": "Cambiar tema (actualmente {theme})"
   },
-
   "auth": {
     "login": "Iniciar sesión",
     "logout": "Cerrar sesión",
@@ -118,7 +115,6 @@
     "session_timeout": "Tiempo de espera de sesión",
     "extend_on_activity": "Extender con actividad"
   },
-
   "nav": {
     "home": "Inicio",
     "about": "Acerca de",
@@ -136,7 +132,6 @@
     "toggle_navigation": "Alternar navegación",
     "home_aria": "Inicio de {app}"
   },
-
   "health": {
     "title": "Estado del sistema",
     "all_operational": "Todos los sistemas operativos",
@@ -167,7 +162,6 @@
     "production": "Producción",
     "development": "Desarrollo"
   },
-
   "status_values": {
     "online": "En línea",
     "offline": "Fuera de línea",
@@ -177,7 +171,6 @@
     "good": "Bien",
     "warn": "Advertencia"
   },
-
   "contact": {
     "title": "Contacto",
     "name": "Nombre",
@@ -226,8 +219,9 @@
     "researcher_handle": "Alias para el reconocimiento público (obligatorio si elige usar un alias)",
     "coordinated_disclosure_agreement": "Acepto la divulgación coordinada."
   },
-
   "help": {
+    "more_heading": "Más ayuda",
+    "mcp_description": "Conecta clientes de IA con IPGaze mediante el endpoint MCP público.",
     "title": "Ayuda",
     "getting_started": "Primeros pasos",
     "features": "Características",
@@ -256,7 +250,6 @@
     "troubleshooting_route_title": "Ruta no encontrada",
     "troubleshooting_route_body": "Compruebe la ruta y use un endpoint compatible, como /ip, /json, /country o /{ip}."
   },
-
   "privacy": {
     "title": "Política de privacidad",
     "last_updated": "Última actualización:",
@@ -310,7 +303,6 @@
     "dpo_contact_unavailable": "No hay un contacto de protección de datos configurado.",
     "dpo_contact_form": "Formulario de contacto"
   },
-
   "terms": {
     "title": "Términos de servicio",
     "acceptance": "Aceptación",
@@ -330,7 +322,6 @@
     "changes_body": "Estos términos pueden cambiar en cualquier momento. El uso continuado del servicio constituye la aceptación de los términos actualizados.",
     "governing_law_body": "Estos términos se rigen por las leyes de la jurisdicción en la que reside el operador del servicio, sin tener en cuenta los principios de conflicto de leyes."
   },
-
   "security": {
     "title": "Política de seguridad",
     "intro": "Nos tomamos en serio la seguridad de ipgaze. Si descubre una vulnerabilidad de seguridad, repórtela de manera responsable.",
@@ -384,7 +375,6 @@
     "report_notification_subject": "Informe de seguridad cifrado {tracking_id}",
     "report_notification_body": "Se adjunta el informe de seguridad cifrado con AES-256-GCM. Descífrelo con server.security.encryption_key."
   },
-
   "cookie_consent": {
     "message": "De acuerdo con la ley GDPR de la UE, se muestra este mensaje.",
     "accept": "Acepto",
@@ -398,7 +388,6 @@
     "accepted_toast": "Cookies accepted",
     "declined_toast": "Cookies declined"
   },
-
   "about": {
     "title": "Acerca de",
     "features": "Características",
@@ -421,7 +410,6 @@
     "api_description_post": "La documentación completa está disponible en",
     "attribution_heading": "Atribución"
   },
-
   "preferences": {
     "title": "Preferences",
     "heading": "Preferences",
@@ -429,6 +417,7 @@
     "intro": "Your theme and language choices are stored in cookies on this device only. Use the link below to carry them and your default command example to another browser or device.",
     "current_theme_label": "Current theme",
     "current_lang_label": "Current language",
+    "language_automatic": "Automático",
     "default_widget_label": "Ejemplo de comando predeterminado",
     "save": "Guardar",
     "consent_heading": "Consentimiento de cookies",
@@ -439,21 +428,74 @@
     "ccpa_heading": "Exclusión de la venta de datos",
     "ccpa_intro": "Los residentes de California pueden excluirse de la venta de su información personal.",
     "export_heading": "Export",
-    "export_intro": "Open this link on another device to apply the same theme and language, or copy the short code and paste it there instead.",
     "export_url_label": "Import link",
     "export_code_label": "Short code",
     "copy_url_aria": "Copy import link",
     "copy_code_aria": "Copy short code",
-    "import_heading": "Import",
     "import_intro": "Paste a short code (or a full import link) from another device below.",
     "import_paste_label": "Code or link",
     "import_submit": "Aplicar",
+    "more_heading": "Más preferencias",
+    "sync_title": "Sincronización de preferencias",
+    "sync_heading": "Sincronizar preferencias",
+    "sync_intro": "Exporta preferencias a otro navegador o impórtalas desde un enlace o código.",
+    "sync_link": "Sincronizar preferencias",
+    "back_to_preferences": "Volver a preferencias",
+    "sync_description": "Transfiere las preferencias a otro navegador mediante un enlace o código.",
     "reset": "Restablecer",
     "reset_title": "¿Olvidar este navegador?",
-    "reset_warning": "Esto borra las cookies y el almacenamiento del sitio, incluidas tus preferencias y elecciones de consentimiento. No se puede deshacer.",
-    "erase_everything": "Borrar todo"
+    "reset_warning": "Esto elimina todas las cookies de IPGaze y el almacenamiento del sitio, incluidas las preferencias, el consentimiento, los avisos descartados, la marca de compilación y los datos sin conexión. Se conservan tus credenciales de seguridad. Esta acción no se puede deshacer.",
+    "erase_everything": "Borrar todo",
+    "tokens_title": "Tokens de propietario",
+    "tokens_link": "Tokens de propietario",
+    "tokens_description": "Restaura un token principal de propietario para este navegador.",
+    "tokens_back": "Volver a preferencias",
+    "tokens_restore_heading": "Restaurar identidad",
+    "tokens_restore_intro": "Pega tu token principal para restaurar este navegador.",
+    "tokens_primary_label": "Token principal",
+    "tokens_restore_submit": "Restaurar identidad",
+    "tokens_restore_invalid": "Este token principal no es válido o no está disponible.",
+    "tokens_new_heading": "Nuevo token",
+    "tokens_new_intro": "Crea un token de propietario sin crear un recurso. Guárdalo de forma segura; puedes volver a verlo después de restaurar este navegador.",
+    "tokens_create": "Crear token",
+    "tokens_created": "Tu nuevo token:",
+    "tokens_primary_heading": "Token principal",
+    "tokens_active": "Activo",
+    "tokens_primary_help": "Acceso completo a tus {resources}. Guárdalo de forma segura.",
+    "tokens_shown_once": "Se muestra una vez en esta carga de página",
+    "tokens_reveal": "Mostrar",
+    "tokens_rotate": "Rotar",
+    "tokens_linked_heading": "Tokens vinculados",
+    "tokens_linked_create_heading": "Crear token vinculado",
+    "tokens_name": "Nombre",
+    "tokens_name_example": "Por ejemplo: cliente MCP",
+    "tokens_expiry": "Caducidad",
+    "tokens_never": "Nunca",
+    "tokens_7_days": "7 días",
+    "tokens_30_days": "30 días",
+    "tokens_90_days": "90 días",
+    "tokens_1_year": "1 año",
+    "tokens_this_browser": "Este navegador",
+    "tokens_saved_browser": "Guardado en este navegador. Olvidarlo no elimina tus {resources}.",
+    "tokens_forget": "Olvidar token guardado",
+    "tokens_created_linked": "Tu token:",
+    "tokens_created_primary": "Tu token:",
+    "tokens_no_linked": "Aún no hay tokens vinculados. Crea uno por aplicación, por ejemplo para tu cliente MCP.",
+    "tokens_created_at": "Creado",
+    "tokens_last_used": "Último uso",
+    "tokens_expires": "Caduca",
+    "tokens_edit": "Editar",
+    "tokens_save": "Guardar",
+    "tokens_revoke": "Revocar",
+    "tokens_custom_date": "Fecha personalizada",
+    "tokens_expires_on": "Caduca el",
+    "tokens_status_active": "Activo",
+    "tokens_status_expired": "Caducado",
+    "tokens_status_revoked": "Revocado",
+    "tokens_forget_confirm": "Confirmar que quieres olvidar el token de este navegador",
+    "tokens_rotate_confirm": "Confirmar rotación del token",
+    "tokens_revoke_confirm": "Confirmar revocación del token"
   },
-
   "announcements": {
     "warning": "Advertencia",
     "info": "Información",
@@ -462,7 +504,6 @@
     "scheduled_maintenance": "Mantenimiento programado",
     "dismiss_aria": "Descartar anuncio"
   },
-
   "pwa": {
     "install": "Instalar aplicación",
     "installed": "Aplicación instalada",
@@ -478,7 +519,6 @@
     "update_later": "Más tarde",
     "update_now": "Actualizar ahora"
   },
-
   "errors": {
     "required": "Este campo es obligatorio",
     "invalid_email": "Dirección de correo electrónico no válida",
@@ -506,7 +546,6 @@
     "maintenance_mode": "Servicio no disponible",
     "request_id_label": "ID de solicitud"
   },
-
   "plurals": {
     "items": {
       "zero": "Sin elementos",
@@ -536,14 +575,12 @@
       "other": "{count} minutos"
     }
   },
-
   "app": {
     "name": "IPGaze",
     "tagline": "Servicio de búsqueda de direcciones IP",
     "description": "Geolocalización IP rápida y precisa e información de red",
     "cache_resized": "Capacidad de caché actualizada"
   },
-
   "ip": {
     "your": "Su dirección IP",
     "lookup": "Búsqueda de IP",
@@ -554,7 +591,6 @@
     "is_eu": "Miembro de la UE",
     "enter_ip": "Ingrese una dirección IP para buscar"
   },
-
   "location": {
     "country": "País",
     "country_code": "Código de país",
@@ -568,13 +604,11 @@
     "metro_code": "Código de metro",
     "zip_code": "Código postal"
   },
-
   "network": {
     "asn": "ASN",
     "org": "Organización",
     "isp": "ISP"
   },
-
   "admin": {
     "title": "Panel de administración",
     "dashboard": "Panel",
@@ -589,7 +623,6 @@
     "update": "Actualizar",
     "reload": "Recargar configuración"
   },
-
   "cli": {
     "requires_privileges": "Esta operación requiere privilegios elevados: {action}",
     "escalate_prompt": "Por favor, vuelva a ejecutar con sudo o como root.",
@@ -612,7 +645,6 @@
     "service_flag": "Gestión de servicios",
     "maintenance_flag": "Operaciones de mantenimiento"
   },
-
   "accessibility": {
     "skip_to_content": "Ir al contenido",
     "menu": "Menú",
@@ -623,7 +655,6 @@
     "loading": "Cargando, por favor espere",
     "required_field": "Campo obligatorio"
   },
-
   "api_help": {
     "title": "Ayuda y referencia de la API",
     "basic_heading": "Uso básico",
@@ -680,21 +711,19 @@
     "mcp_endpoint_body": "Use el endpoint canónico o cualquiera de los alias directos:",
     "mcp_select_url": "Puede seleccionar la URL del endpoint completa sin JavaScript.",
     "mcp_authentication": "Autenticación",
-    "mcp_authentication_body": "MCP usa los mismos tokens Authorization: Bearer que la API REST; no hay un token específico de MCP. IPGaze ofrece herramientas públicas de consulta anónimas y no emite tokens de cliente vinculados. Nunca use el token principal ni el token del operador (server.token). Si otra implementación añade tokens de cliente vinculados, use solo su token vinculado para operaciones protegidas.",
     "mcp_connect": "Conectar un cliente",
     "mcp_claude_code": "Claude Code",
-    "mcp_token_body": "IPGaze se conecta sin token. Para otra implementación que admita tokens de cliente vinculados, cree un token en su página /server/preferences/tokens y envíelo como encabezado:",
     "mcp_generic_config": "Configuración genérica del cliente",
     "mcp_verify": "Verificar con initialize",
-    "mcp_omit_auth": "Omita el encabezado de autorización al conectarse a las herramientas públicas de IPGaze.",
     "mcp_tools": "Herramientas disponibles",
     "mcp_tools_body": "Esta lista actual se genera a partir de las operaciones API versionadas registradas.",
+    "mcp_tools_operator_note": "El token del operador puede ver herramientas adicionales.",
     "mcp_no_tools": "Actualmente no hay herramientas API públicas registradas.",
     "mcp_behavior_limits": "Comportamiento y límites",
     "mcp_post_stateless": "Las solicitudes usan POST; este endpoint no mantiene estado ni crea sesiones.",
     "mcp_rate_audit": "Se aplican los límites de frecuencia de la API y la auditoría de solicitudes.",
     "mcp_origin_rejected": "Se rechazan las solicitudes con un Origin no válido.",
-    "mcp_protocol_versions": "Entre las versiones de protocolo admitidas se incluye 2025-03-26.",
+    "mcp_protocol_versions": "Entre las versiones de protocolo admitidas se incluye 2026-07-28.",
     "mcp_troubleshooting": "Solución de problemas",
     "mcp_status": "Estado",
     "mcp_cause": "Causa",
@@ -702,16 +731,17 @@
     "mcp_400_cause": "Versión de protocolo o encabezado requerido incorrectos",
     "mcp_400_fix": "Envíe la versión del protocolo y los encabezados Accept de JSON/stream indicados arriba.",
     "mcp_401_cause": "Falta el token, no es válido o ha caducado",
-    "mcp_401_fix": "Las herramientas públicas de IPGaze no requieren token. En implementaciones con tokens vinculados, use un token Bearer vinculado válido; la respuesta incluye WWW-Authenticate: Bearer.",
     "mcp_403_cause": "Origin no válido o alcance insuficiente del token",
     "mcp_403_fix": "Conéctese desde un origen permitido y use un token con el alcance requerido.",
     "mcp_404_cause": "MCP está desactivado",
     "mcp_404_fix": "MCP siempre está disponible; compruebe que la ruta del endpoint sea correcta y accesible.",
     "mcp_405_cause": "Se usó GET o DELETE en el endpoint MCP",
     "mcp_405_fix": "Use POST para las solicitudes MCP.",
-    "mcp_project_tools": "Herramientas de IPGaze"
+    "mcp_project_tools": "Herramientas de IPGaze",
+    "mcp_authentication_body": "Cada solicitud MCP requiere un token Bearer en la cabecera Authorization. Cree un token de propietario en /server/preferences/tokens o mediante la API y use un token vinculado distinto para cada cliente MCP. Los tokens de propietario y vinculados acceden a las herramientas del propietario; los tokens de operador acceden a las herramientas administrativas.",
+    "mcp_token_body": "Cree un token de propietario en /server/preferences/tokens y después uno vinculado para cada cliente MCP. Envíelo como cabecera Bearer:",
+    "mcp_401_fix": "Envíe un token Bearer válido de propietario, vinculado u operador. La respuesta incluye WWW-Authenticate: Bearer."
   },
-
   "index": {
     "title": "¿Cuál es mi dirección IP? — {host}",
     "meta_description": "{host} • ¿Cuál es mi dirección IP? — La mejor herramienta para encontrar tu propia dirección IP e información sobre ella. Compatible con IPv4 e IPv6.",
@@ -760,7 +790,6 @@
     "faq_rate_limit_guarantee": "No se garantiza nada para las solicitudes que superen este límite.",
     "faq_rate_limit_consequence": "Pueden ser limitadas con un código de estado 429, o descartadas por completo."
   },
-
   "healthz": {
     "page_title": "Estado de salud",
     "degraded_performance": "Rendimiento degradado",
@@ -783,7 +812,6 @@
     "refreshing_in_prefix": "Actualizando en",
     "provider_label": "Proveedor"
   },
-
   "client": {
     "help_flag": "Muestra esta ayuda y sale",
     "version_flag": "Muestra la información de versión y sale",
@@ -833,7 +861,6 @@
     "err_unsupported_shell": "Shell no compatible \"{shell}\". Shells compatibles: {shells}",
     "err_tui_unavailable": "El modo TUI no está disponible porque no se detectó un terminal interactivo."
   },
-
   "tui": {
     "title": "Información de la dirección IP",
     "loading": "Buscando la dirección IP…",
@@ -881,7 +908,6 @@
     "status_yes": "Sí",
     "status_no": "No"
   },
-
   "setup": {
     "title": "Configuración de {app} CLI",
     "intro": "No hay ningún servidor configurado. ¡Vamos a configurar uno!",
@@ -897,7 +923,6 @@
     "hint": "tab: siguiente campo │ espacio: alternar │ enter: probar y guardar │ esc: cancelar",
     "saved": "Configuración guardada en {path}"
   },
-
   "notifications": {
     "title": "Notificaciones",
     "mark_all_read": "Marcar todo como leído",
@@ -928,7 +953,6 @@
       "other_admins": "Otros administradores"
     }
   },
-
   "email": {
     "subjects": {
       "security_alert": "Alerta de seguridad - {app_name}",
@@ -999,7 +1023,6 @@
       "test_action": "Recibir este mensaje confirma que la configuración de correo saliente es correcta."
     }
   },
-
   "swagger": {
     "bodies": {
       "ccpa": "Selección de exclusión CCPA",
@@ -1007,8 +1030,10 @@
       "contact": "Envío del formulario de contacto",
       "dismiss": "Identificador del anuncio que se va a descartar",
       "graphql": "Consulta, variables y nombre de operación de GraphQL",
-      "preferences": "Actualización de las preferencias de tema e idioma",
-      "report": "Datos del informe generado por el navegador"
+      "preferences": "Campos de preferencias y controles de consentimiento",
+      "preferences_sync": "Código o enlace de preferencias para importar",
+      "report": "Datos del informe generado por el navegador",
+      "linked_token_update": "Nuevo nombre y caducidad del token vinculado"
     },
     "common": {
       "api_mirror": "Equivalente JSON de la página web correspondiente, según la regla de paridad entre rutas web y de API.",
@@ -1022,14 +1047,16 @@
     },
     "params": {
       "asset_path": "Ruta del recurso dentro de /static/",
-      "code_query": "Código de preferencias codificado en base64url procedente del endpoint de exportación",
+      "code_query": "Código de preferencias base64url devuelto por la página de sincronización",
       "filename_path": "Nombre del archivo del cliente de línea de comandos, por ejemplo ipgaze-linux-amd64",
       "ip_path": "Dirección IP que se va a consultar (IPv4 o IPv6)",
       "ip_query": "Dirección IP opcional que se va a consultar; de forma predeterminada, la IP del solicitante",
       "lang_path": "Código de idioma BCP 47, por ejemplo en, fr o ja",
       "lang_query": "Idioma que se va a aplicar, como código BCP 47",
       "port_path": "Número de puerto que se va a comprobar (1-65535)",
-      "theme_query": "Tema que se va a aplicar: dark, light o auto"
+      "ipgaze_pref_widget_query": "Ejemplo de búsqueda predeterminado: ip, country, country-iso, city, asn, json o port",
+      "theme_query": "Tema que se va a aplicar: dark, light o auto",
+      "token_id": "Identificador numérico del token de propietario vinculado"
     },
     "paths": {
       "announcements_dismiss": {
@@ -1231,17 +1258,21 @@
         "description": "Sirve la página de preferencias para elegir el tema y el idioma.",
         "summary": "Página de preferencias"
       },
-      "server_preferences_export": {
-        "description": "Devuelve el tema y el idioma actuales como URL de importación completa y como código base64url corto, para trasladar las preferencias a otro navegador.",
-        "summary": "Exportar preferencias"
-      },
-      "server_preferences_import": {
-        "description": "Descodifica y valida los valores de preferencias facilitados, establece las cookies correspondientes y redirige, de modo que el código no permanezca en la URL visible.",
-        "summary": "Importar preferencias"
-      },
       "server_preferences_post": {
         "description": "Valida el tema y el idioma enviados y los guarda como cookies del navegador.",
         "summary": "Actualizar preferencias"
+      },
+      "server_preferences_sync": {
+        "description": "Muestra preferencias portátiles e importa un código de preferencias.",
+        "summary": "Sincronizar preferencias"
+      },
+      "server_preferences_sync_post": {
+        "description": "Aplica las preferencias válidas del código enviado y redirige.",
+        "summary": "Importar preferencias"
+      },
+      "server_preferences_sync_import": {
+        "description": "Aplica preferencias válidas y redirige sin conservar el código en la URL.",
+        "summary": "Importar preferencias"
       },
       "server_privacy": {
         "description": "Sirve la política de privacidad, incluidos los datos que se registran, durante cuánto tiempo se conservan y las opciones de exclusión disponibles.",
@@ -1314,12 +1345,12 @@
         "description": "Devuelve el tema y el idioma almacenados actualmente en las cookies del solicitante.",
         "summary": "Obtener las preferencias (API v1)"
       },
-      "v1_preferences_export": {
-        "description": "Devuelve el tema y el idioma actuales como URL de importación completa y como código base64url corto.",
-        "summary": "Exportar preferencias (API v1)"
+      "v1_preferences_sync": {
+        "description": "Devuelve preferencias como URL de importación y código base64url.",
+        "summary": "Sincronizar preferencias (API v1)"
       },
-      "v1_preferences_import": {
-        "description": "Descodifica y valida los valores de preferencias facilitados y establece las cookies correspondientes.",
+      "v1_preferences_sync_import": {
+        "description": "Valida preferencias y establece las cookies correspondientes.",
         "summary": "Importar preferencias (API v1)"
       },
       "v1_privacy": {
@@ -1348,6 +1379,42 @@
       },
       "wk_security_txt": {
         "summary": "Política de contacto de seguridad (well-known)"
+      },
+      "v1_tokens_list": {
+        "summary": "Listar tokens de propietario",
+        "description": "Devuelve metadatos enmascarados de los tokens principal y vinculados del propietario autenticado. Las listas nunca incluyen valores de tokens."
+      },
+      "v1_tokens_issue": {
+        "summary": "Emitir token principal de propietario",
+        "description": "Crea un propietario y un token principal si quien llama no tiene un token válido. El valor solo se devuelve en esta respuesta."
+      },
+      "v1_tokens_primary_reveal": {
+        "summary": "Mostrar token principal de propietario",
+        "description": "Descifra y devuelve el token principal del propietario autenticado. Requiere el token principal."
+      },
+      "v1_tokens_primary_rotate": {
+        "summary": "Rotar token principal de propietario",
+        "description": "Reemplaza el token principal del propietario autenticado; los tokens vinculados siguen siendo válidos."
+      },
+      "v1_tokens_linked_create": {
+        "summary": "Crear token de propietario vinculado",
+        "description": "Crea un token vinculado para el propietario autenticado con el nombre y la caducidad opcional indicados."
+      },
+      "v1_tokens_linked_reveal": {
+        "summary": "Mostrar token de propietario vinculado",
+        "description": "Descifra y devuelve el token vinculado seleccionado. Requiere el token principal del propietario."
+      },
+      "v1_tokens_linked_rotate": {
+        "summary": "Rotar token de propietario vinculado",
+        "description": "Reemplaza el token vinculado seleccionado sin afectar a los demás tokens."
+      },
+      "v1_tokens_linked_update": {
+        "summary": "Actualizar token de propietario vinculado",
+        "description": "Cambia el nombre y la caducidad del token vinculado seleccionado."
+      },
+      "v1_tokens_linked_revoke": {
+        "summary": "Revocar token de propietario vinculado",
+        "description": "Revoca el token vinculado seleccionado de forma inmediata y permanente."
       }
     },
     "responses": {
@@ -1355,6 +1422,7 @@
       "asset": "Contenido del recurso estático",
       "bad_request": "Solicitud incorrecta",
       "binary": "Flujo de archivo binario",
+      "forbidden": "Permiso denegado",
       "graphql": "Resultado de la ejecución de GraphQL",
       "health": "Estado del servidor",
       "html_page": "Página HTML",
@@ -1372,7 +1440,8 @@
       "text_value": "Valor en texto plano",
       "too_many_requests": "Límite de solicitudes superado",
       "unavailable": "El servidor está en mal estado, en mantenimiento o apagándose",
-      "version": "Información de la versión de compilación"
+      "version": "Información de la versión de compilación",
+      "conflict": "La solicitud entra en conflicto con el estado actual del token"
     },
     "tags": {
       "api_v1": "API v1",
@@ -1390,7 +1459,6 @@
       "title": "API de IPGaze - Interfaz de Swagger"
     }
   },
-
   "graphql": {
     "args": {
       "checkPort": {
@@ -1545,27 +1613,23 @@
       "variables": "Variables (JSON)"
     }
   },
-
   "version": {
     "name_version": "{project_name} {project_version}",
     "built": "Compilado: {build_date}",
     "go": "Go: {go_version}",
     "os_arch": "SO/Arq.: {goos}/{goarch}"
   },
-
   "confirm": {
     "delete_title": "Confirmar eliminación",
     "delete_message": "¿Seguro que quieres eliminar este elemento?",
     "action_irreversible": "Esta acción no se puede deshacer."
   },
-
   "form": {
     "required_field": "(obligatorio)",
     "optional_field": "(opcional)",
     "hint_email": "Nunca compartiremos tu dirección de correo electrónico.",
     "errors_count": "El formulario tiene {count} errores"
   },
-
   "gui": {
     "title": "IPGaze",
     "subtitle": "Consulta una dirección IP y revisa los detalles de red.",

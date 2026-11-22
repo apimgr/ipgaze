@@ -38,10 +38,12 @@ func TestEnsureSchema_CreatesAllTables(t *testing.T) {
 		"config",
 		"config_meta",
 		"rate_limits",
+		"rate_limit_events",
 		"audit_log",
 		"scheduler_tasks",
 		"scheduler_history",
 		"backups",
+		"owners",
 		"api_tokens",
 	}
 	for _, tbl := range expected {
@@ -123,6 +125,7 @@ func TestEnsureSchema_CreatesIndexes(t *testing.T) {
 	expected := []string{
 		"idx_config_key_prefix",
 		"idx_rate_limits_window",
+		"idx_rate_limit_events_bucket_time",
 		"idx_audit_timestamp",
 		"idx_audit_category",
 		"idx_audit_actor_ip",
@@ -132,8 +135,12 @@ func TestEnsureSchema_CreatesIndexes(t *testing.T) {
 		"idx_scheduler_history_task",
 		"idx_scheduler_history_started",
 		"idx_backups_created",
+		"idx_api_tokens_primary",
+		"idx_api_tokens_linked_name",
 		"idx_api_tokens_hash",
 		"idx_api_tokens_prefix",
+		"idx_api_tokens_owner",
+		"idx_api_tokens_active",
 	}
 	for _, idx := range expected {
 		var name string
@@ -243,9 +250,12 @@ func TestSchema_ApiTokens_UniqueHash(t *testing.T) {
 
 	insert := func(hash, prefix string) error {
 		_, err := db.Exec(
-			`INSERT INTO api_tokens(token_hash, token_prefix, resource_type, resource_id) VALUES(?,?,?,?)`,
-			hash, prefix, "user", "u1")
+			`INSERT INTO api_tokens(owner_id, kind, token_hash, token_prefix, token_last4, token_enc) VALUES(?,?,?,?,?,?)`,
+			"owner-1", "primary", hash, prefix, "last", "encrypted")
 		return err
+	}
+	if _, err := db.Exec(`INSERT INTO owners(id) VALUES(?)`, "owner-1"); err != nil {
+		t.Fatalf("insert owner: %v", err)
 	}
 
 	if err := insert("hash-abc", "own_abc"); err != nil {
@@ -253,6 +263,40 @@ func TestSchema_ApiTokens_UniqueHash(t *testing.T) {
 	}
 	if err := insert("hash-abc", "own_abc"); err == nil {
 		t.Error("duplicate token_hash should have been rejected by UNIQUE constraint")
+	}
+}
+
+func TestEnsureSchema_MigratesLegacyResourceTokensWithoutDiscardingRows(t *testing.T) {
+	db := openMemDB(t)
+	if _, err := db.Exec(`CREATE TABLE api_tokens (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    token_hash TEXT NOT NULL UNIQUE,
+    token_prefix TEXT NOT NULL,
+    resource_type TEXT NOT NULL,
+    resource_id TEXT NOT NULL,
+    created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+    expires_at INTEGER,
+    last_used_at INTEGER,
+    revoked_at INTEGER,
+    revoked_reason TEXT
+)`); err != nil {
+		t.Fatalf("create legacy token table: %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO api_tokens(token_hash, token_prefix, resource_type, resource_id) VALUES(?,?,?,?)`, "legacy-hash", "own_legacy", "lookup", "8.8.8.8"); err != nil {
+		t.Fatalf("insert legacy token: %v", err)
+	}
+	if err := EnsureSchema(db); err != nil {
+		t.Fatalf("EnsureSchema: %v", err)
+	}
+	var got string
+	if err := db.QueryRow(`SELECT token_hash FROM api_tokens_legacy WHERE token_hash=?`, "legacy-hash").Scan(&got); err != nil {
+		t.Fatalf("read preserved legacy token: %v", err)
+	}
+	if got != "legacy-hash" {
+		t.Fatalf("preserved token hash = %q, want legacy-hash", got)
+	}
+	if err := EnsureSchema(db); err != nil {
+		t.Fatalf("second EnsureSchema: %v", err)
 	}
 }
 

@@ -247,6 +247,10 @@ func TestAPIV1ServerHelpHandler(t *testing.T) {
 		t.Error("success envelope has no help sections")
 		return
 	}
+	pages, ok := data["pages"].([]interface{})
+	if !ok || len(pages) != 1 || pages[0].(map[string]interface{})["path"] != "/server/help/mcp" {
+		t.Errorf("help pages = %#v, want the registered MCP page", data["pages"])
+	}
 	sections := data["sections"].([]interface{})
 	ids := make(map[string]bool, len(sections))
 	for _, sectionValue := range sections {
@@ -2021,7 +2025,97 @@ func TestServerPreferencesHandler_RendersCurrentValues(t *testing.T) {
 	}
 }
 
-func TestServerPreferencesUpdateHandler_CodeOverridesFormAndWritesConsent(t *testing.T) {
+func TestServerPreferencesHandlerMarksAutomaticLanguage(t *testing.T) {
+	h := newTestPagesHandler()
+	var got PreferencesPageData
+	h.Render = func(_ http.ResponseWriter, _ *http.Request, _ string, data interface{}) error {
+		got = data.(PreferencesPageData)
+		return nil
+	}
+	req := newBrowserRequest("/server/preferences")
+	req.Header.Set("Accept-Language", "es-MX,es;q=0.9,en;q=0.8")
+	w := httptest.NewRecorder()
+	h.ServerPreferencesHandler(w, req)
+	if !got.LanguageAutomatic || got.Lang != "es" || got.DetectedLanguageNativeName != "Español" {
+		t.Fatalf("automatic language state = automatic:%t lang:%q native:%q", got.LanguageAutomatic, got.Lang, got.DetectedLanguageNativeName)
+	}
+
+	req = newBrowserRequest("/server/preferences")
+	req.AddCookie(&http.Cookie{Name: "lang", Value: "fr"})
+	w = httptest.NewRecorder()
+	h.ServerPreferencesHandler(w, req)
+	if got.LanguageAutomatic || got.Lang != "fr" || got.DetectedLanguageNativeName != "Français" {
+		t.Fatalf("explicit language state = automatic:%t lang:%q native:%q", got.LanguageAutomatic, got.Lang, got.DetectedLanguageNativeName)
+	}
+}
+
+func TestServerPreferencesUpdateHandlerClearsLanguageForAutomatic(t *testing.T) {
+	h := newTestPagesHandler()
+	req := httptest.NewRequest(http.MethodPost, "/server/preferences", strings.NewReader("lang=auto"))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(&http.Cookie{Name: "lang", Value: "fr"})
+	w := httptest.NewRecorder()
+	h.ServerPreferencesUpdateHandler(w, req)
+	for _, cookie := range w.Result().Cookies() {
+		if cookie.Name == "lang" {
+			if cookie.MaxAge != -1 || cookie.Value != "" || cookie.Path != "/" || cookie.SameSite != http.SameSiteLaxMode {
+				t.Fatalf("automatic language cookie = %#v, want expired lang cookie", cookie)
+			}
+			return
+		}
+	}
+	t.Fatal("automatic language selection did not clear the lang cookie")
+}
+
+func TestServerPreferencesSyncPostImportsCodeAndRedirects(t *testing.T) {
+	h := newTestPagesHandler()
+	code := base64.RawURLEncoding.EncodeToString([]byte("theme=light&lang=fr&ipgaze_pref_widget=city"))
+	req := httptest.NewRequest(http.MethodPost, "/server/preferences/sync", strings.NewReader("code="+url.QueryEscape(code)))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Referer", "https://example.com/server/preferences/sync")
+	w := httptest.NewRecorder()
+	h.ServerPreferencesSyncHandler(w, req)
+	if w.Code != http.StatusSeeOther || w.Header().Get("Location") != "/server/preferences/sync" {
+		t.Fatalf("response = %d %q, want 303 to sync page", w.Code, w.Header().Get("Location"))
+	}
+	got := map[string]string{}
+	for _, cookie := range w.Result().Cookies() {
+		got[cookie.Name] = cookie.Value
+	}
+	if got["theme"] != "light" || got["lang"] != "fr" || got[lookupWidgetPreferenceCookie] != "city" {
+		t.Fatalf("imported cookies = %#v, want decoded preferences", got)
+	}
+}
+
+func TestServerPreferencesSyncPostInvalidOrEmptyInputStillRedirects(t *testing.T) {
+	for _, body := range []string{"", "code=%%%bad%%%", "theme=invalid"} {
+		h := newTestPagesHandler()
+		req := httptest.NewRequest(http.MethodPost, "/server/preferences/sync", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		w := httptest.NewRecorder()
+		h.ServerPreferencesSyncHandler(w, req)
+		if w.Code != http.StatusSeeOther || w.Body.Len() != 0 || w.Header().Get("Cache-Control") != "no-store" {
+			t.Errorf("body %q => status=%d body=%q cache=%q", body, w.Code, w.Body.String(), w.Header().Get("Cache-Control"))
+		}
+	}
+}
+
+func TestServerPreferencesSyncTextNegotiation(t *testing.T) {
+	h := newTestPagesHandler()
+	req := httptest.NewRequest(http.MethodGet, "/server/preferences/sync", nil)
+	req.Header.Set("Accept", "text/plain")
+	w := httptest.NewRecorder()
+	h.ServerPreferencesSyncHandler(w, req)
+	if w.Code != http.StatusOK || w.Header().Get("Content-Type") != "text/plain; charset=utf-8" {
+		t.Fatalf("response = %d %q", w.Code, w.Header().Get("Content-Type"))
+	}
+	lines := strings.Split(strings.TrimSuffix(w.Body.String(), "\n"), "\n")
+	if len(lines) != 2 || !strings.HasPrefix(lines[0], "URL: http://") || !strings.HasPrefix(lines[1], "Code: ") {
+		t.Fatalf("text response = %q, want exactly URL and Code lines", w.Body.String())
+	}
+}
+
+func TestServerPreferencesUpdateHandler_IgnoresSyncCodeAndWritesConsent(t *testing.T) {
 	h := newTestPagesHandler()
 	code := base64.RawURLEncoding.EncodeToString([]byte("theme=light&ipgaze_pref_widget=city"))
 	body := "theme=dark&ipgaze_pref_widget=asn&consent_form=1&consent_preferences=1&ccpa_opt_out=0&ccpa_opt_out=1&code=" + url.QueryEscape(code) + "&redirect=%2Fabout"
@@ -2037,8 +2131,8 @@ func TestServerPreferencesUpdateHandler_CodeOverridesFormAndWritesConsent(t *tes
 	for _, cookie := range res.Cookies() {
 		cookies[cookie.Name] = cookie
 	}
-	if cookies["theme"] == nil || cookies["theme"].Value != "light" || cookies[lookupWidgetPreferenceCookie] == nil || cookies[lookupWidgetPreferenceCookie].Value != "city" {
-		t.Errorf("import code did not override submitted fields: %#v", cookies)
+	if cookies["theme"] == nil || cookies["theme"].Value != "dark" || cookies[lookupWidgetPreferenceCookie] == nil || cookies[lookupWidgetPreferenceCookie].Value != "asn" {
+		t.Errorf("save did not apply submitted fields independently of code: %#v", cookies)
 	}
 	if cookies["cookie_consent"] == nil || cookies["ccpa_opt_out"] == nil || cookies["ccpa_opt_out"].Value != "true" {
 		t.Errorf("consent fields were not applied: %#v", cookies)
@@ -2063,7 +2157,7 @@ func TestServerPreferencesUpdateHandler_ResetClearsNonCredentialCookies(t *testi
 	h := newTestPagesHandler()
 	req := httptest.NewRequest(http.MethodPost, "/server/preferences", strings.NewReader("action=reset&redirect=%2Fabout"))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	for _, cookie := range []*http.Cookie{{Name: "theme", Value: "dark"}, {Name: "cookie_consent", Value: "{}"}, {Name: "csrf_token", Value: "csrf"}, {Name: "owner_token", Value: "secret"}} {
+	for _, cookie := range []*http.Cookie{{Name: "theme", Value: "dark"}, {Name: "cookie_consent", Value: "{}"}, {Name: "ipgaze_pref_token", Value: "custom"}, {Name: "csrf_token", Value: "csrf"}, {Name: "ipgaze_owner_token_abc123", Value: "secret"}} {
 		req.AddCookie(cookie)
 	}
 	w := httptest.NewRecorder()
@@ -2075,14 +2169,14 @@ func TestServerPreferencesUpdateHandler_ResetClearsNonCredentialCookies(t *testi
 	cookies := map[string]*http.Cookie{}
 	for _, cookie := range res.Cookies() {
 		cookies[cookie.Name] = cookie
-		if cookie.Name != "csrf_token" && cookie.Name != "owner_token" && cookie.MaxAge != -1 {
+		if cookie.Name != "csrf_token" && cookie.Name != "ipgaze_owner_token_abc123" && cookie.MaxAge != -1 {
 			t.Errorf("cookie %q MaxAge = %d, want -1 (serialized Max-Age=0)", cookie.Name, cookie.MaxAge)
 		}
 	}
-	if cookies["csrf_token"] != nil || cookies["owner_token"] != nil {
+	if cookies["csrf_token"] != nil || cookies["ipgaze_owner_token_abc123"] != nil {
 		t.Errorf("reset deleted credential cookies: %#v", cookies)
 	}
-	if cookies["theme"] == nil || cookies["cookie_consent"] == nil {
+	if cookies["theme"] == nil || cookies["cookie_consent"] == nil || cookies["ipgaze_pref_token"] == nil {
 		t.Errorf("reset did not expire request-present site cookies: %#v", cookies)
 	}
 }
@@ -2174,18 +2268,20 @@ func TestAPIV1ServerPreferencesHandler_ReturnsThemeAndLang(t *testing.T) {
 	}
 }
 
-func TestAPIV1ServerPreferencesExportHandler_OnlyExportsThemeAndLang(t *testing.T) {
+func TestAPIV1ServerPreferencesSyncHandler_OnlyExportsThemeAndLang(t *testing.T) {
 	h := newTestPagesHandler()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/server/preferences/export", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/server/preferences/sync", nil)
 	req.AddCookie(&http.Cookie{Name: "lang", Value: "de"})
 	req.AddCookie(&http.Cookie{Name: "cookie_consent", Value: `{"essential":true}`})
 	req.AddCookie(&http.Cookie{Name: "ccpa_opt_out", Value: "true"})
+	req.AddCookie(&http.Cookie{Name: "ipgaze_build", Value: "build"})
+	req.AddCookie(&http.Cookie{Name: "ipgaze_owner_token_abc123", Value: "credential"})
 	w := httptest.NewRecorder()
 
-	h.APIV1ServerPreferencesExportHandler(w, req)
+	h.APIV1ServerPreferencesSyncHandler(w, req)
 
 	body := w.Body.String()
-	if strings.Contains(body, "cookie_consent") || strings.Contains(body, "ccpa_opt_out") {
+	if strings.Contains(body, "cookie_consent") || strings.Contains(body, "ccpa_opt_out") || strings.Contains(body, "ipgaze_build") || strings.Contains(body, "owner_token") {
 		t.Errorf("export body leaked non-exportable cookie name: %q", body)
 	}
 	if !strings.Contains(body, "theme=dark") || !strings.Contains(body, "lang=de") {
@@ -2193,13 +2289,13 @@ func TestAPIV1ServerPreferencesExportHandler_OnlyExportsThemeAndLang(t *testing.
 	}
 }
 
-func TestAPIV1ServerPreferencesExportHandler_ExportsWidgetPreference(t *testing.T) {
+func TestAPIV1ServerPreferencesSyncHandler_ExportsWidgetPreference(t *testing.T) {
 	h := newTestPagesHandler()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/server/preferences/export", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/server/preferences/sync", nil)
 	req.AddCookie(&http.Cookie{Name: lookupWidgetPreferenceCookie, Value: "city"})
 	w := httptest.NewRecorder()
 
-	h.APIV1ServerPreferencesExportHandler(w, req)
+	h.APIV1ServerPreferencesSyncHandler(w, req)
 
 	var body struct {
 		Data PreferencesExportResponse `json:"data"`
@@ -2215,11 +2311,11 @@ func TestAPIV1ServerPreferencesExportHandler_ExportsWidgetPreference(t *testing.
 func TestServerPreferencesImportHandler_ValidValues_SetsCookiesAndRedirects(t *testing.T) {
 	h := newTestPagesHandler()
 	h.ValidateTheme = testValidateTheme
-	req := httptest.NewRequest(http.MethodGet, "/server/preferences/import?theme=light&lang=fr", nil)
+	req := httptest.NewRequest(http.MethodGet, "/server/preferences/sync/import?theme=light&lang=fr", nil)
 	req.Header.Set("Referer", "/server/preferences")
 	w := httptest.NewRecorder()
 
-	h.ServerPreferencesImportHandler(w, req)
+	h.ServerPreferencesSyncImportHandler(w, req)
 
 	res := w.Result()
 	if res.StatusCode != http.StatusSeeOther {
@@ -2248,10 +2344,10 @@ func TestServerPreferencesImportHandler_ValidValues_SetsCookiesAndRedirects(t *t
 func TestServerPreferencesImportHandler_InvalidValues_DroppedNotDefaulted(t *testing.T) {
 	h := newTestPagesHandler()
 	h.ValidateTheme = testValidateTheme
-	req := httptest.NewRequest(http.MethodGet, "/server/preferences/import?theme=not-a-theme&lang=not-a-lang", nil)
+	req := httptest.NewRequest(http.MethodGet, "/server/preferences/sync/import?theme=not-a-theme&lang=not-a-lang", nil)
 	w := httptest.NewRecorder()
 
-	h.ServerPreferencesImportHandler(w, req)
+	h.ServerPreferencesSyncImportHandler(w, req)
 
 	res := w.Result()
 	if res.StatusCode != http.StatusSeeOther {
@@ -2268,10 +2364,10 @@ func TestServerPreferencesImportHandler_ViaShortCode(t *testing.T) {
 	h := newTestPagesHandler()
 	h.ValidateTheme = testValidateTheme
 	code := base64.RawURLEncoding.EncodeToString([]byte("theme=light&lang=ja"))
-	req := httptest.NewRequest(http.MethodGet, "/server/preferences/import?code="+code, nil)
+	req := httptest.NewRequest(http.MethodGet, "/server/preferences/sync/import?code="+code, nil)
 	w := httptest.NewRecorder()
 
-	h.ServerPreferencesImportHandler(w, req)
+	h.ServerPreferencesSyncImportHandler(w, req)
 
 	var gotTheme, gotLang string
 	for _, c := range w.Result().Cookies() {
@@ -2290,10 +2386,10 @@ func TestServerPreferencesImportHandler_ViaShortCode(t *testing.T) {
 func TestServerPreferencesImportHandler_PaddedCodeAndDirectValuesWin(t *testing.T) {
 	h := newTestPagesHandler()
 	code := base64.URLEncoding.EncodeToString([]byte("theme=light&ipgaze_pref_widget=city"))
-	req := httptest.NewRequest(http.MethodGet, "/server/preferences/import?code="+url.QueryEscape(code)+"&theme=dark&ipgaze_pref_widget=asn", nil)
+	req := httptest.NewRequest(http.MethodGet, "/server/preferences/sync/import?code="+url.QueryEscape(code)+"&theme=dark&ipgaze_pref_widget=asn", nil)
 	w := httptest.NewRecorder()
 
-	h.ServerPreferencesImportHandler(w, req)
+	h.ServerPreferencesSyncImportHandler(w, req)
 
 	got := map[string]string{}
 	for _, cookie := range w.Result().Cookies() {
@@ -2306,10 +2402,10 @@ func TestServerPreferencesImportHandler_PaddedCodeAndDirectValuesWin(t *testing.
 
 func TestServerPreferencesImportHandler_AppliesWidgetPreference(t *testing.T) {
 	h := newTestPagesHandler()
-	req := httptest.NewRequest(http.MethodGet, "/server/preferences/import?ipgaze_pref_widget=asn", nil)
+	req := httptest.NewRequest(http.MethodGet, "/server/preferences/sync/import?ipgaze_pref_widget=asn", nil)
 	w := httptest.NewRecorder()
 
-	h.ServerPreferencesImportHandler(w, req)
+	h.ServerPreferencesSyncImportHandler(w, req)
 
 	for _, cookie := range w.Result().Cookies() {
 		if cookie.Name == lookupWidgetPreferenceCookie {
@@ -2325,23 +2421,23 @@ func TestServerPreferencesImportHandler_AppliesWidgetPreference(t *testing.T) {
 func TestServerPreferencesImportHandler_MalformedCode_NoCookiesSet(t *testing.T) {
 	h := newTestPagesHandler()
 	h.ValidateTheme = testValidateTheme
-	req := httptest.NewRequest(http.MethodGet, "/server/preferences/import?code=%%%not-base64%%%", nil)
+	req := httptest.NewRequest(http.MethodGet, "/server/preferences/sync/import?code=%%%not-base64%%%", nil)
 	w := httptest.NewRecorder()
 
-	h.ServerPreferencesImportHandler(w, req)
+	h.ServerPreferencesSyncImportHandler(w, req)
 
 	if len(w.Result().Cookies()) != 0 {
 		t.Errorf("cookies = %v, want none for a malformed code", w.Result().Cookies())
 	}
 }
 
-func TestAPIV1ServerPreferencesImportHandler_ReturnsAppliedValues(t *testing.T) {
+func TestAPIV1ServerPreferencesSyncImportHandler_ReturnsAppliedValues(t *testing.T) {
 	h := newTestPagesHandler()
 	h.ValidateTheme = testValidateTheme
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/server/preferences/import?theme=auto&lang=zh", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/server/preferences/sync/import?theme=auto&lang=zh", nil)
 	w := httptest.NewRecorder()
 
-	h.APIV1ServerPreferencesImportHandler(w, req)
+	h.APIV1ServerPreferencesSyncImportHandler(w, req)
 
 	res := w.Result()
 	if res.StatusCode != http.StatusOK {
@@ -2359,12 +2455,12 @@ func TestAPIV1ServerPreferencesImportHandler_ReturnsAppliedValues(t *testing.T) 
 	}
 }
 
-func TestAPIV1ServerPreferencesImportHandler_AppliesWidgetAndIgnoresConsent(t *testing.T) {
+func TestAPIV1ServerPreferencesSyncImportHandler_AppliesWidgetAndIgnoresConsent(t *testing.T) {
 	h := newTestPagesHandler()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/server/preferences/import?ipgaze_pref_widget=port&cookie_consent=accepted", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/server/preferences/sync/import?ipgaze_pref_widget=port&cookie_consent=accepted", nil)
 	w := httptest.NewRecorder()
 
-	h.APIV1ServerPreferencesImportHandler(w, req)
+	h.APIV1ServerPreferencesSyncImportHandler(w, req)
 
 	var response struct {
 		Data PreferencesImportResponse `json:"data"`
@@ -2380,13 +2476,13 @@ func TestAPIV1ServerPreferencesImportHandler_AppliesWidgetAndIgnoresConsent(t *t
 	}
 }
 
-func TestAPIV1ServerPreferencesImportHandler_UnvalidatedTheme_NoRedirect(t *testing.T) {
+func TestAPIV1ServerPreferencesSyncImportHandler_UnvalidatedTheme_NoRedirect(t *testing.T) {
 	h := newTestPagesHandler()
 	h.ValidateTheme = testValidateTheme
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/server/preferences/import?theme=bogus", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/server/preferences/sync/import?theme=bogus", nil)
 	w := httptest.NewRecorder()
 
-	h.APIV1ServerPreferencesImportHandler(w, req)
+	h.APIV1ServerPreferencesSyncImportHandler(w, req)
 
 	res := w.Result()
 	if res.StatusCode != http.StatusOK {
@@ -2416,7 +2512,7 @@ func TestResolveRobotsDirective(t *testing.T) {
 		"/api/v1/server/about":       "noindex,nofollow",
 		"/debug/pprof":               "noindex,nofollow",
 		"/8.8.8.8":                   "noindex,nofollow",
-		"/server/preferences/export": "noindex,nofollow",
+		"/server/preferences/sync":   "noindex,nofollow",
 	}
 	for path, want := range tests {
 		if got := ResolveRobotsDirective(path); got != want {

@@ -255,7 +255,14 @@ func TestAccessibility(t *testing.T) {
 		for _, page := range []string{"about.tmpl", "terms.tmpl", "help.tmpl", "contact.tmpl"} {
 			rec := httptest.NewRecorder()
 			req := httptest.NewRequest(http.MethodGet, "/server/"+strings.TrimSuffix(page, ".tmpl"), nil)
-			if err := render(rec, req, page, testPageData()); err != nil {
+			var data any = testPageData()
+			if page == "help.tmpl" {
+				data = struct {
+					handler.PageData
+					HelpPages []handler.HubPage
+				}{PageData: testPageData(), HelpPages: []handler.HubPage{{Path: "/server/help/mcp", Title: "MCP connection guide", Description: "Connect AI clients to IPGaze through the public MCP endpoint."}}}
+			}
+			if err := render(rec, req, page, data); err != nil {
 				t.Fatalf("render %s: %v", page, err)
 			}
 			assertAccessibleDocument(t, page, rec.Body.String())
@@ -266,7 +273,8 @@ func TestAccessibility(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/server/preferences", nil)
 		prefs := handler.PreferencesPageData{
 			PageData:              testPageData(),
-			PreferencesExportURL:  "https://example.com/server/preferences/import?lang=en&theme=dark",
+			PreferencePages:       []handler.HubPage{{Path: "/server/preferences/sync", Title: "Sync preferences", Description: "Move guest preferences to another browser with an export link or code."}},
+			PreferencesExportURL:  "https://example.com/server/preferences/sync/import?lang=en&theme=dark",
 			PreferencesExportCode: "bGFuZz1lbiZ0aGVtZT1kYXJr",
 			CancelURL:             "/",
 		}
@@ -279,13 +287,29 @@ func TestAccessibility(t *testing.T) {
 		if got := strings.Count(body, `method="POST"`); got != 1 {
 			t.Errorf("preferences page POST forms = %d, want 1", got)
 		}
-		for _, required := range []string{`name="consent_form"`, `name="consent_preferences"`, `name="consent_analytics"`, `name="code"`, `name="action" value="reset"`, `preferences-reset-popover`, `preferences-export-url`, `preferences-export-code`} {
+		for _, required := range []string{`name="consent_form"`, `name="consent_preferences"`, `name="consent_analytics"`, `name="action" value="reset"`, `preferences-reset-popover`, `more-preferences`, `/server/preferences/sync`} {
 			if !strings.Contains(body, required) {
 				t.Errorf("preferences page missing %q", required)
 			}
 		}
 		if strings.Contains(body, `class="theme-toggle-form"`) || strings.Contains(body, `id="cookie-preferences-modal"`) {
 			t.Error("preferences page contains global theme or consent forms")
+		}
+		if strings.Contains(body, `name="code"`) || strings.Contains(body, `preferences-export-url`) {
+			t.Error("preferences page contains sync controls")
+		}
+
+		syncRec := httptest.NewRecorder()
+		syncReq := httptest.NewRequest(http.MethodGet, "/server/preferences/sync", nil)
+		syncData := handler.PreferencesPageData{PageData: testPageData(), PreferencesExportURL: "https://example.com/server/preferences/sync/import?lang=en&theme=dark", PreferencesExportCode: "bGFuZz1lbiZ0aGVtZT1kYXJr"}
+		syncData.RequestPath = "/server/preferences/sync"
+		if err := render(syncRec, syncReq, "preferences_sync.tmpl", syncData); err != nil {
+			t.Fatalf("render preferences_sync.tmpl: %v", err)
+		}
+		syncBody := syncRec.Body.String()
+		assertAccessibleDocument(t, "preferences_sync.tmpl", syncBody)
+		if !strings.Contains(syncBody, `name="code"`) || !strings.Contains(syncBody, `preferences-export-url`) {
+			t.Error("preference sync page is missing its export block or code import field")
 		}
 	})
 }

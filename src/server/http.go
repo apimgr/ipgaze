@@ -349,6 +349,36 @@ func (s *Server) ValidateOperatorToken(rawToken string) bool {
 	return subtle.ConstantTimeCompare(inboundHash[:], s.operatorTokenHash[:]) == 1
 }
 
+// ValidateAPIToken accepts the configured operator token or an active owner token.
+func (s *Server) ValidateAPIToken(rawToken string) bool {
+	if s.ValidateOperatorToken(rawToken) {
+		return true
+	}
+	if s.sqlDB == nil || len(rawToken) != len("own_")+32 || !strings.HasPrefix(rawToken, "own_") {
+		return false
+	}
+	for _, char := range rawToken[len("own_"):] {
+		isLower := char >= 'a' && char <= 'z'
+		isUpper := char >= 'A' && char <= 'Z'
+		isDigit := char >= '0' && char <= '9'
+		if !isLower && !isUpper && !isDigit {
+			return false
+		}
+	}
+	hash := sha256.Sum256([]byte(rawToken))
+	var tokenID int64
+	var ownerID string
+	err := s.sqlDB.QueryRow(`SELECT id, owner_id FROM api_tokens WHERE token_hash = ? AND revoked_at IS NULL
+		AND (expires_at IS NULL OR expires_at > strftime('%s', 'now'))`, hex.EncodeToString(hash[:])).Scan(&tokenID, &ownerID)
+	if err != nil {
+		return false
+	}
+	_, _ = s.sqlDB.Exec(`UPDATE api_tokens SET last_used_at = strftime('%s', 'now')
+		WHERE id = ? AND (last_used_at IS NULL OR last_used_at < strftime('%s', 'now') - 60)`, tokenID)
+	_, _ = s.sqlDB.Exec(`UPDATE owners SET last_seen_at = strftime('%s', 'now') WHERE id = ?`, ownerID)
+	return true
+}
+
 // SetAllowlist configures the IP allowlist. Allowlisted IPs bypass blocklist,
 // rate limiting, and GeoIP country blocking.
 func (s *Server) SetAllowlist(al *AllowlistLookup) {
@@ -375,6 +405,30 @@ func (s *Server) SetRateLimiter(rl *RateLimiter) {
 		s.rateLimiter.Stop()
 	}
 	s.rateLimiter = rl
+	if rl != nil {
+		if counter, ok := s.cacheBackend.(rateLimitWindowCounter); ok && counter.SupportsRateLimitWindow() {
+			rl.SetWindowCounter(counter)
+		}
+		rl.SetDB(s.sqlDB)
+		rl.SetTokenIdentityResolver(func(rawToken string, strict bool) (string, bool) {
+			if s.ValidateOperatorToken(rawToken) {
+				hash := sha256.Sum256([]byte(rawToken))
+				return "token:" + hex.EncodeToString(hash[:]), true
+			}
+			if s.sqlDB == nil {
+				return "", false
+			}
+			hash := sha256.Sum256([]byte(rawToken))
+			var ownerID string
+			if err := s.sqlDB.QueryRow(`SELECT owner_id FROM api_tokens WHERE token_hash = ? AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > strftime('%s','now'))`, hex.EncodeToString(hash[:])).Scan(&ownerID); err != nil {
+				return "", false
+			}
+			if strict {
+				return "owner:" + ownerID, true
+			}
+			return "token:" + hex.EncodeToString(hash[:]), true
+		})
+	}
 }
 
 // SetGeoIPCountries configures country-level blocking.
@@ -404,14 +458,19 @@ func (s *Server) SetScheduler(sched *scheduler.Scheduler) {
 // SetDB attaches the SQL database connection for /debug/db stats endpoint.
 func (s *Server) SetDB(db *sql.DB) {
 	s.sqlDB = db
+	if s.rateLimiter != nil {
+		s.rateLimiter.SetDB(db)
+	}
 }
 
-// SetCacheBackend attaches the configured application cache.Cache backend
-// (Valkey/Redis, Memcache, memory, or noop) so /server/healthz can probe it
-// via checks.cache (AI.md PART 9/13). A nil backend leaves the check reporting
-// "ok" (nothing to probe).
+// SetCacheBackend attaches the configured cache for the health probe and, when
+// supported, the distributed sliding-window rate limiter (AI.md PART 9/12/13).
 func (s *Server) SetCacheBackend(c cacheBackendPinger) {
 	s.cacheBackend = c
+	if s.rateLimiter != nil {
+		counter, _ := c.(rateLimitWindowCounter)
+		s.rateLimiter.SetWindowCounter(counter)
+	}
 }
 
 // SetDiskUsageFunc attaches the platform disk-space helper (see
@@ -1258,6 +1317,24 @@ func (s *Server) buildHandler() http.Handler {
 			s.logManager.WriteSecurity(message, ip)
 		}
 	}
+	s.PagesHandler.TokenAuditLogger = func(event, source, ownerID, prefix string) {
+		if s.logManager != nil {
+			s.logManager.WriteAudit(applog.AuditEvent{
+				Event: event, Source: source, Category: "auth", Severity: "info", Result: "success",
+				Target:  &applog.AuditTarget{Type: "owner", ID: ownerID},
+				Details: map[string]any{"token_prefix": prefix},
+			})
+		}
+	}
+	s.PagesHandler.TokenRestoreFailed = func(r *http.Request) {
+		if s.rateLimiter != nil {
+			s.rateLimiter.RecordAuthFailure(s.authClientIP(r))
+		}
+		if s.logManager != nil {
+			s.logManager.WriteAuthFailure(sanitizeLogValue(s.authClientIP(r)), sanitizeLogValue(r.URL.Path), "invalid_token")
+		}
+	}
+	s.PagesHandler.ValidateBearerToken = s.ValidateAPIToken
 	s.PagesHandler.MCPTools = func(r *http.Request) []handler.MCPToolDescription {
 		return s.registeredMCPTools(r)
 	}
@@ -1298,8 +1375,30 @@ func (s *Server) buildHandler() http.Handler {
 	r.Post("/server/ccpa", s.PagesHandler.CCPAHandler)
 	r.Post("/server/preferences", s.PagesHandler.ServerPreferencesUpdateHandler)
 	r.Get("/server/preferences", s.PagesHandler.ServerPreferencesHandler)
-	r.Get("/server/preferences/export", s.PagesHandler.ServerPreferencesExportHandler)
-	r.Get("/server/preferences/import", s.PagesHandler.ServerPreferencesImportHandler)
+	r.Get("/server/preferences/tokens", s.PagesHandler.ServerPreferencesTokensHandler)
+	r.Post("/server/preferences/token/restore", s.PagesHandler.ServerPreferencesTokenRestoreHandler)
+	r.Post("/server/preferences/token/create", s.PagesHandler.ServerPreferencesTokenCreateHandler)
+	r.Post("/server/preferences/token/reveal", s.PagesHandler.ServerPreferencesTokenRevealHandler)
+	r.Post("/server/preferences/token/rotate", s.PagesHandler.ServerPreferencesTokenRotateHandler)
+	r.Post("/server/preferences/token/forget", s.PagesHandler.ServerPreferencesTokenForgetHandler)
+	r.Post("/server/preferences/tokens", s.PagesHandler.ServerPreferencesLinkedTokenCreateHandler)
+	linkedTokenFormAction := func(action string) http.HandlerFunc {
+		return func(w http.ResponseWriter, req *http.Request) {
+			id, err := strconv.ParseInt(chi.URLParam(req, "id"), 10, 64)
+			if err != nil {
+				http.Redirect(w, req, "/server/preferences/tokens", http.StatusSeeOther)
+				return
+			}
+			s.PagesHandler.ServerPreferencesLinkedTokenActionHandler(w, req, id, action)
+		}
+	}
+	r.Post("/server/preferences/tokens/{id}/reveal", linkedTokenFormAction("reveal"))
+	r.Post("/server/preferences/tokens/{id}/rotate", linkedTokenFormAction("rotate"))
+	r.Post("/server/preferences/tokens/{id}/update", linkedTokenFormAction("update"))
+	r.Post("/server/preferences/tokens/{id}/revoke", linkedTokenFormAction("revoke"))
+	r.Get("/server/preferences/sync", s.PagesHandler.ServerPreferencesSyncHandler)
+	r.Post("/server/preferences/sync", s.PagesHandler.ServerPreferencesSyncHandler)
+	r.Get("/server/preferences/sync/import", s.PagesHandler.ServerPreferencesSyncImportHandler)
 	r.Post("/announcements/dismiss", s.PagesHandler.DismissAnnouncementHandler)
 
 	// /api/autodiscover — unversioned; returns server info, cli_versions, cli_min_version (AI.md PART 32)
@@ -1346,6 +1445,16 @@ func (s *Server) buildHandler() http.Handler {
 				Date:    s.BuildDate,
 			}, nil)
 		})
+		linkedTokenAction := func(action string) http.HandlerFunc {
+			return func(w http.ResponseWriter, req *http.Request) {
+				id, err := strconv.ParseInt(chi.URLParam(req, "id"), 10, 64)
+				if err != nil {
+					handler.SendAPIResponseError(w, http.StatusBadRequest, "BAD_REQUEST", "Invalid token id", nil)
+					return
+				}
+				s.PagesHandler.APIV1ServerLinkedTokenActionHandler(w, req, id, action)
+			}
+		}
 		operationHandlers := map[string]http.Handler{
 			"v1_info":            appHandlerToHTTP(s.APIV1InfoHandler),
 			"v1_ip":              appHandlerToHTTP(s.APIV1IPHandler),
@@ -1369,21 +1478,34 @@ func (s *Server) buildHandler() http.Handler {
 					Kind string `json:"kind"`
 				}{Kind: "operator"}, nil)
 			})),
-			"v1_preferences":        http.HandlerFunc(s.PagesHandler.APIV1ServerPreferencesHandler),
-			"v1_preferences_update": http.HandlerFunc(s.PagesHandler.APIV1ServerPreferencesUpdateHandler),
-			"v1_preferences_export": http.HandlerFunc(s.PagesHandler.APIV1ServerPreferencesExportHandler),
-			"v1_preferences_import": http.HandlerFunc(s.PagesHandler.APIV1ServerPreferencesImportHandler),
-			"v1_json":               appHandlerToHTTP(s.APIV1InfoHandler),
-			"v1_consent":            http.HandlerFunc(s.PagesHandler.ConsentHandler),
-			"v1_ccpa":               http.HandlerFunc(s.PagesHandler.CCPAHandler),
-			"v1_dismiss":            http.HandlerFunc(s.PagesHandler.DismissAnnouncementHandler),
-			"report_csp":            s.reportsHandler("csp"),
-			"report_nel":            s.reportsHandler("nel"),
-			"report_deprecation":    s.reportsHandler("deprecation"),
-			"report_intervention":   s.reportsHandler("intervention"),
-			"report_crash":          s.reportsHandler("crash"),
-			"report_error":          s.reportsHandler("error"),
-			"report_default":        s.reportsHandler("default"),
+			"v1_preferences":             http.HandlerFunc(s.PagesHandler.APIV1ServerPreferencesHandler),
+			"v1_preferences_update":      http.HandlerFunc(s.PagesHandler.APIV1ServerPreferencesUpdateHandler),
+			"v1_preferences_sync":        http.HandlerFunc(s.PagesHandler.APIV1ServerPreferencesSyncHandler),
+			"v1_preferences_sync_import": http.HandlerFunc(s.PagesHandler.APIV1ServerPreferencesSyncImportHandler),
+			"v1_tokens_list":             http.HandlerFunc(s.PagesHandler.APIV1ServerTokensListHandler),
+			"v1_tokens_issue":            http.HandlerFunc(s.PagesHandler.APIV1ServerTokensIssueHandler),
+			"v1_tokens_primary_reveal": http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+				s.PagesHandler.APIV1ServerPrimaryTokenActionHandler(w, req, "reveal")
+			}),
+			"v1_tokens_primary_rotate": http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+				s.PagesHandler.APIV1ServerPrimaryTokenActionHandler(w, req, "rotate")
+			}),
+			"v1_tokens_linked_create": http.HandlerFunc(s.PagesHandler.APIV1ServerLinkedTokenCreateHandler),
+			"v1_tokens_linked_reveal": linkedTokenAction("reveal"),
+			"v1_tokens_linked_rotate": linkedTokenAction("rotate"),
+			"v1_tokens_linked_update": linkedTokenAction("update"),
+			"v1_tokens_linked_revoke": linkedTokenAction("revoke"),
+			"v1_json":                 appHandlerToHTTP(s.APIV1InfoHandler),
+			"v1_consent":              http.HandlerFunc(s.PagesHandler.ConsentHandler),
+			"v1_ccpa":                 http.HandlerFunc(s.PagesHandler.CCPAHandler),
+			"v1_dismiss":              http.HandlerFunc(s.PagesHandler.DismissAnnouncementHandler),
+			"report_csp":              s.reportsHandler("csp"),
+			"report_nel":              s.reportsHandler("nel"),
+			"report_deprecation":      s.reportsHandler("deprecation"),
+			"report_intervention":     s.reportsHandler("intervention"),
+			"report_crash":            s.reportsHandler("crash"),
+			"report_error":            s.reportsHandler("error"),
+			"report_default":          s.reportsHandler("default"),
 		}
 		if s.gr != nil && !s.gr.IsEmpty() {
 			operationHandlers["v1_country"] = appHandlerToHTTP(s.APIV1CountryHandler)
@@ -1423,6 +1545,14 @@ func (s *Server) buildHandler() http.Handler {
 			}
 			r.Method(definition.Method, routePath, routeHandler)
 		}
+		r.Method(http.MethodPost, "/server/preferences/tokens/primary/reveal", operationHandlers["v1_tokens_primary_reveal"])
+		r.Method(http.MethodPost, "/server/preferences/tokens/primary/rotate", operationHandlers["v1_tokens_primary_rotate"])
+		r.Route("/server/preferences/tokens/{id}", func(r chi.Router) {
+			r.Method(http.MethodPost, "/reveal", operationHandlers["v1_tokens_linked_reveal"])
+			r.Method(http.MethodPost, "/rotate", operationHandlers["v1_tokens_linked_rotate"])
+			r.Method(http.MethodPatch, "/", operationHandlers["v1_tokens_linked_update"])
+			r.Method(http.MethodDelete, "/", operationHandlers["v1_tokens_linked_revoke"])
+		})
 		if s.SpecialHandler != nil {
 			s.SpecialHandler.APIV1OperationIDs = s.apiOperationIDs
 		}

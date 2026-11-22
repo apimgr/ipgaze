@@ -91,7 +91,10 @@ operations remain anonymous. Issue an owner token from `/server/preferences/toke
 or `POST /api/v1/server/preferences/tokens/primary`, then create one linked
 token per MCP client. Operator-only API tools are listed only when the request
 carries a valid `server.token` bearer credential. Token-management operations
-are never exposed as MCP tools. See `/server/help/mcp` for client setup.
+are never exposed as MCP tools. Use a linked token for each client; do not put
+the primary owner token or operator token in an MCP client's configuration.
+The public [MCP setup guide](https://ifcfg.us/server/help/mcp) describes the
+client configuration and verification request.
 
 ---
 

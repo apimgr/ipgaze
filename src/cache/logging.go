@@ -72,3 +72,19 @@ func (l *loggingCache) Flush(ctx context.Context) error {
 
 func (l *loggingCache) Ping(ctx context.Context) error { return l.inner.Ping(ctx) }
 func (l *loggingCache) Close() error                   { return l.inner.Close() }
+
+func (l *loggingCache) SupportsRateLimitWindow() bool {
+	counter, ok := l.inner.(SlidingWindowCounter)
+	return ok && counter.SupportsRateLimitWindow()
+}
+
+func (l *loggingCache) RateLimitWindow(ctx context.Context, key string, now time.Time, window time.Duration, threshold int, add bool) (int64, time.Time, error) {
+	counter, ok := l.inner.(SlidingWindowCounter)
+	if !ok {
+		return 0, time.Time{}, ErrNotFound
+	}
+	start := time.Now()
+	count, oldest, err := counter.RateLimitWindow(ctx, key, now, window, threshold, add)
+	slog.Debug("cache", "operation", "rate_limit_window", "count", count, "duration_us", time.Since(start).Microseconds(), "error", err)
+	return count, oldest, err
+}

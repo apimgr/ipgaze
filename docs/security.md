@@ -129,13 +129,16 @@ log output.
 ## IP Blocks and Request Floods
 
 Permanent blocks and allowlists accept both IPv4 and IPv6 addresses or CIDRs.
-Allowlisted addresses bypass blocks and flood counting. Automatic flood blocks
-are stored in the database with an expiry and survive restarts; expired blocks
-are removed automatically. The default trigger is more than 10 times the
-endpoint-class rate limit in a 60-second window, and the default block lasts
-one hour. Operators can tune the threshold, duration, alerts, and permanent
-blocks under `server.security` in the ordered `yaml.d/security.yml` drop-in;
-see the
+Allowlisted addresses bypass IP blocks, request rate limits, GeoIP country
+blocking, and automatic flood blocks. Authentication, CSRF, path-security, and
+TLS checks still apply. Automatic flood blocks are stored in the database with
+an expiry and survive restarts; expired blocks are removed automatically. The
+default trigger is more than 10 times the endpoint-class rate limit in a
+60-second window, and the default block lasts one hour. Invalid entries and
+overly broad allowlist ranges are skipped with a warning. Allowlist entries are
+configuration-only and have no API. Operators can tune the threshold,
+duration, alerts, and permanent blocks under `server.security` in the ordered
+`yaml.d/security.yml` drop-in; see the
 [configuration reference](configuration.md#request-flood-detection-and-permanent-ip-blocks).
 
 The built-in contact CAPTCHA stores only a keyed answer hash, expires after 10

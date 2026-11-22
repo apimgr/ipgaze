@@ -39,6 +39,11 @@ func SendAPIResponseOK(w http.ResponseWriter, data interface{}, pagination *APIP
 	sendAPIResponse(w, http.StatusOK, &APIResponse{OK: true, Data: data, Pagination: pagination})
 }
 
+// SendAPIResponseCreated writes a 201 JSON success envelope.
+func SendAPIResponseCreated(w http.ResponseWriter, data interface{}) {
+	sendAPIResponse(w, http.StatusCreated, &APIResponse{OK: true, Data: data})
+}
+
 // SendAPIResponseError writes a JSON error envelope with the given status code,
 // UPPER_SNAKE_CASE error code, human-readable message, and optional structured
 // details, per AI.md PART 14's canonical error shape.

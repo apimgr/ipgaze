@@ -220,6 +220,8 @@
     "coordinated_disclosure_agreement": "Accetto la divulgazione coordinata."
   },
   "help": {
+    "more_heading": "Altra assistenza",
+    "mcp_description": "Collega i client IA a IPGaze tramite l’endpoint MCP pubblico.",
     "title": "Aiuto",
     "getting_started": "Come iniziare",
     "features": "Caratteristiche",
@@ -415,6 +417,7 @@
     "intro": "Le preferenze di tema e lingua vengono salvate nei cookie solo su questo dispositivo. Usa il link qui sotto per trasferirle e il comando di esempio predefinito per importarle in un altro browser o dispositivo.",
     "current_theme_label": "Tema attuale",
     "current_lang_label": "Lingua attuale",
+    "language_automatic": "Automatico",
     "default_widget_label": "Esempio di comando predefinito",
     "save": "Salva",
     "consent_heading": "Consenso ai cookie",
@@ -425,19 +428,73 @@
     "ccpa_heading": "Rinuncia alla vendita dei dati",
     "ccpa_intro": "I residenti in California possono rinunciare alla vendita di informazioni personali.",
     "export_heading": "Esportazione",
-    "export_intro": "Apri questo collegamento su un altro dispositivo per applicare lo stesso tema e lingua oppure copia il codice breve e incollalo lì.",
     "export_url_label": "Collegamento all'importazione",
     "export_code_label": "Codice breve",
     "copy_url_aria": "Copia il collegamento di importazione",
     "copy_code_aria": "Copia il codice breve",
-    "import_heading": "Importa",
     "import_intro": "Incolla un codice breve (o un collegamento di importazione completo) da un altro dispositivo di seguito.",
     "import_paste_label": "Codice o collegamento",
     "import_submit": "Applica",
+    "more_heading": "Altre preferenze",
+    "sync_title": "Sincronizzazione preferenze",
+    "sync_heading": "Sincronizza preferenze",
+    "sync_intro": "Esporta le preferenze in un altro browser o importale da un link o codice.",
+    "sync_link": "Sincronizza preferenze",
+    "back_to_preferences": "Torna alle preferenze",
+    "sync_description": "Trasferisci le preferenze in un altro browser con un link o un codice.",
     "reset": "Reimposta",
     "reset_title": "Dimenticare questo browser?",
-    "reset_warning": "Questo elimina i cookie e l'archiviazione del sito, incluse le preferenze e le scelte di consenso. L'operazione non può essere annullata.",
-    "erase_everything": "Elimina tutto"
+    "reset_warning": "Questa operazione elimina tutti i cookie IPGaze e i dati del sito, incluse preferenze, consensi, avvisi ignorati, versione build e dati offline. Le credenziali di sicurezza vengono conservate. L’operazione non può essere annullata.",
+    "erase_everything": "Elimina tutto",
+    "tokens_title": "Token del proprietario",
+    "tokens_link": "Token del proprietario",
+    "tokens_description": "Ripristina un token principale del proprietario per questo browser.",
+    "tokens_back": "Torna alle preferenze",
+    "tokens_restore_heading": "Ripristina identità",
+    "tokens_restore_intro": "Incolla il token principale per ripristinare questo browser.",
+    "tokens_primary_label": "Token principale",
+    "tokens_restore_submit": "Ripristina identità",
+    "tokens_restore_invalid": "Questo token principale non è valido o non è disponibile.",
+    "tokens_new_heading": "Nuovo token",
+    "tokens_new_intro": "Crea un token proprietario senza creare una risorsa. Conservalo al sicuro; potrai visualizzarlo di nuovo dopo aver ripristinato questo browser.",
+    "tokens_create": "Crea token",
+    "tokens_created": "Il tuo nuovo token:",
+    "tokens_primary_heading": "Token principale",
+    "tokens_active": "Attivo",
+    "tokens_primary_help": "Accesso completo ai tuoi {resources}. Conservalo al sicuro.",
+    "tokens_shown_once": "Mostrato una sola volta in questo caricamento della pagina",
+    "tokens_reveal": "Mostra",
+    "tokens_rotate": "Ruota",
+    "tokens_linked_heading": "Token collegati",
+    "tokens_linked_create_heading": "Crea token collegato",
+    "tokens_name": "Nome",
+    "tokens_name_example": "Ad esempio: client MCP",
+    "tokens_expiry": "Scadenza",
+    "tokens_never": "Mai",
+    "tokens_7_days": "7 giorni",
+    "tokens_30_days": "30 giorni",
+    "tokens_90_days": "90 giorni",
+    "tokens_1_year": "1 anno",
+    "tokens_this_browser": "Questo browser",
+    "tokens_saved_browser": "Salvato in questo browser. Dimenticarlo non elimina i tuoi {resources}.",
+    "tokens_forget": "Dimentica il token salvato",
+    "tokens_created_linked": "Il tuo token:",
+    "tokens_created_primary": "Il tuo token:",
+    "tokens_no_linked": "Nessun token collegato. Creane uno per ogni app, ad esempio per il tuo client MCP.",
+    "tokens_created_at": "Creato",
+    "tokens_last_used": "Ultimo utilizzo",
+    "tokens_expires": "Scade",
+    "tokens_edit": "Modifica",
+    "tokens_save": "Salva",
+    "tokens_revoke": "Revoca",
+    "tokens_custom_date": "Data personalizzata",
+    "tokens_expires_on": "Scadenza il",
+    "tokens_status_active": "Attivo",
+    "tokens_status_expired": "Scaduto",
+    "tokens_status_revoked": "Revocato",
+    "tokens_forget_confirm": "Conferma di dimenticare il token di questo browser",
+    "tokens_rotate_confirm": "Conferma la rotazione del token",
+    "tokens_revoke_confirm": "Conferma la revoca del token"
   },
   "announcements": {
     "warning": "Avvertimento",
@@ -660,21 +717,19 @@
     "mcp_endpoint_body": "Utilizza l'endpoint canonico o l'alias diretto:",
     "mcp_select_url": "Senza JavaScript, seleziona e copia l’URL completo dell’endpoint indicato sopra.",
     "mcp_authentication": "Autenticazione",
-    "mcp_authentication_body": "MCP usa lo stesso meccanismo di autenticazione con token Bearer dell’API REST; non esiste un token specifico per MCP. IPGaze espone strumenti di ricerca pubblici e anonimi e non rilascia token client associati. Non usare mai il token principale o il token dell’operatore (server.token). Se un’altra installazione aggiunge token client associati, usa solo quello per le operazioni protette.",
     "mcp_connect": "Collega un client",
     "mcp_claude_code": "Claude Code",
-    "mcp_token_body": "IPGaze si connette senza token. Se un’altra installazione supporta token client associati, creane uno nella pagina /server/preferences/tokens e invialo nell’intestazione:",
     "mcp_generic_config": "Configurazione client generica",
     "mcp_verify": "Verifica con initialize",
-    "mcp_omit_auth": "Quando ti connetti agli strumenti pubblici di IPGaze, ometti l’intestazione Authorization.",
     "mcp_tools": "Strumenti disponibili",
     "mcp_tools_body": "Questo elenco aggiornato viene generato dalle operazioni API registrate con versione.",
+    "mcp_tools_operator_note": "Il token operatore può visualizzare strumenti aggiuntivi.",
     "mcp_no_tools": "Al momento non è registrato alcuno strumento API pubblico.",
     "mcp_behavior_limits": "Comportamento e limiti",
     "mcp_post_stateless": "Le richieste usano POST. L’endpoint è stateless e non crea sessioni.",
     "mcp_rate_audit": "Si applicano i limiti di frequenza dell’API e la registrazione delle richieste.",
     "mcp_origin_rejected": "Le richieste con un’origine non valida vengono rifiutate.",
-    "mcp_protocol_versions": "Le versioni del protocollo supportate includono 2025-03-26.",
+    "mcp_protocol_versions": "Le versioni del protocollo supportate includono 2026-07-28.",
     "mcp_troubleshooting": "Risoluzione dei problemi",
     "mcp_status": "Stato",
     "mcp_cause": "Causa",
@@ -682,14 +737,16 @@
     "mcp_400_cause": "Versione del protocollo o intestazioni obbligatorie non corrispondenti",
     "mcp_400_fix": "Invia la versione del protocollo e le intestazioni Accept per JSON/stream indicate sopra.",
     "mcp_401_cause": "Token mancante, non valido o scaduto",
-    "mcp_401_fix": "Gli strumenti pubblici di IPGaze non richiedono un token. Nelle installazioni che supportano token associati, usa un token Bearer valido. La risposta include WWW-Authenticate: Bearer.",
     "mcp_403_cause": "Origine non valida o ambito del token insufficiente",
     "mcp_403_fix": "Connettiti da un’origine consentita e usa un token con l’ambito richiesto.",
     "mcp_404_cause": "MCP è disabilitato",
     "mcp_404_fix": "MCP è sempre disponibile; verifica che il percorso dell’endpoint sia corretto e raggiungibile.",
     "mcp_405_cause": "È stato usato GET o DELETE sull’endpoint MCP",
     "mcp_405_fix": "Usa POST per le richieste MCP.",
-    "mcp_project_tools": "Strumenti IPGaze"
+    "mcp_project_tools": "Strumenti IPGaze",
+    "mcp_authentication_body": "Ogni richiesta MCP richiede un token Bearer nell’intestazione Authorization. Crea un token proprietario in /server/preferences/tokens o tramite API, quindi usa un token collegato distinto per ogni client MCP. I token proprietario e collegati accedono agli strumenti del proprietario; i token operatore accedono agli strumenti amministrativi.",
+    "mcp_token_body": "Crea un token proprietario in /server/preferences/tokens, quindi un token collegato per ogni client MCP e invialo come intestazione Bearer:",
+    "mcp_401_fix": "Invia un token Bearer valido del proprietario, collegato o operatore. La risposta include WWW-Authenticate: Bearer."
   },
   "index": {
     "title": "Qual è il mio indirizzo IP? — {host}",
@@ -979,8 +1036,10 @@
       "contact": "Invio modulo di contatto",
       "dismiss": "Identificatore dell'annuncio da ignorare",
       "graphql": "Query GraphQL, variabili e nome dell'operazione",
-      "preferences": "Aggiornamento delle preferenze relative al tema e alla lingua",
-      "report": "Payload del report generato dal browser"
+      "preferences": "Campi delle preferenze e controlli del consenso",
+      "preferences_sync": "Codice o link delle preferenze da importare",
+      "report": "Payload del report generato dal browser",
+      "linked_token_update": "Nuovo nome e scadenza del token collegato"
     },
     "common": {
       "api_mirror": "Mirror JSON della pagina Web corrispondente, in base alla regola di parità tra percorso Web e percorso API.",
@@ -994,14 +1053,16 @@
     },
     "params": {
       "asset_path": "Percorso della risorsa di seguito /statico/",
-      "code_query": "Codice preferenza con codifica Base64url prodotto dall'endpoint di esportazione",
+      "code_query": "Codice preferenze base64url restituito dalla pagina di sincronizzazione",
       "filename_path": "Nome del file client della riga di comando, ad esempio ipgaze-linux-amd64",
       "ip_path": "Indirizzo IP da cercare (IPv4 o IPv6)",
       "ip_query": "Indirizzo IP opzionale da cercare; per impostazione predefinita è l'IP del chiamante",
       "lang_path": "Codice locale BCP 47, ad esempio en, fr o ja",
       "lang_query": "Locale da applicare, come codice BCP 47",
       "port_path": "Numero di porta da verificare (1-65535)",
-      "theme_query": "Tema da applicare: scuro, chiaro o automatico"
+      "ipgaze_pref_widget_query": "Esempio di ricerca predefinito: ip, country, country-iso, city, asn, json o port",
+      "theme_query": "Tema da applicare: scuro, chiaro o automatico",
+      "token_id": "Identificatore numerico del token proprietario collegato"
     },
     "paths": {
       "announcements_dismiss": {
@@ -1203,17 +1264,21 @@
         "description": "Restituisce la pagina delle preferenze per la scelta di un tema e di una lingua.",
         "summary": "Pagina delle preferenze"
       },
-      "server_preferences_export": {
-        "description": "Restituisce il tema e le impostazioni locali correnti sia come URL di importazione completo che come codice base64url breve, in modo che le preferenze possano essere trasferite a un altro browser.",
-        "summary": "Preferenze di esportazione"
-      },
-      "server_preferences_import": {
-        "description": "Decodifica e convalida i valori delle preferenze forniti, imposta i cookie e i reindirizzamenti corrispondenti, in modo che il codice non indugi mai nell'URL visibile.",
-        "summary": "Importa le preferenze"
-      },
       "server_preferences_post": {
         "description": "Convalida il tema e le impostazioni internazionali inviati e li memorizza come cookie del browser.",
         "summary": "Aggiorna le preferenze"
+      },
+      "server_preferences_sync": {
+        "description": "Mostra le preferenze esportabili e importa un codice.",
+        "summary": "Sincronizza preferenze"
+      },
+      "server_preferences_sync_post": {
+        "description": "Applica le preferenze valide dal codice inviato e reindirizza.",
+        "summary": "Importa preferenze"
+      },
+      "server_preferences_sync_import": {
+        "description": "Applica le preferenze valide e reindirizza senza mantenere il codice nell’URL.",
+        "summary": "Importa preferenze"
       },
       "server_privacy": {
         "description": "Restituisce l'informativa sulla privacy, incluso ciò che è stato registrato, per quanto tempo e le opzioni di rinuncia disponibili.",
@@ -1286,12 +1351,12 @@
         "description": "Restituisce il tema e le impostazioni internazionali attualmente archiviate nei cookie del chiamante.",
         "summary": "Ottieni preferenze (API v1)"
       },
-      "v1_preferences_export": {
-        "description": "Restituisce il tema e le impostazioni locali correnti come URL di importazione completo e un breve codice base64url.",
-        "summary": "Preferenze di esportazione (API v1)"
+      "v1_preferences_sync": {
+        "description": "Restituisce le preferenze come URL di importazione e codice base64url.",
+        "summary": "Sincronizza preferenze (API v1)"
       },
-      "v1_preferences_import": {
-        "description": "Decodifica e convalida i valori delle preferenze forniti e imposta i cookie corrispondenti.",
+      "v1_preferences_sync_import": {
+        "description": "Convalida le preferenze e imposta i cookie corrispondenti.",
         "summary": "Importa preferenze (API v1)"
       },
       "v1_privacy": {
@@ -1320,6 +1385,42 @@
       },
       "wk_security_txt": {
         "summary": "Criterio di contatto di sicurezza (noto)"
+      },
+      "v1_tokens_list": {
+        "summary": "Elenca i token del proprietario",
+        "description": "Restituisce metadati mascherati dei token principale e collegati del proprietario autenticato. Gli elenchi non restituiscono mai i valori dei token."
+      },
+      "v1_tokens_issue": {
+        "summary": "Emetti un token proprietario principale",
+        "description": "Crea un proprietario e il suo token principale se il chiamante non dispone di un token valido. Il token completo viene restituito solo in questa risposta."
+      },
+      "v1_tokens_primary_reveal": {
+        "summary": "Mostra il token proprietario principale",
+        "description": "Decifra e restituisce il token principale del proprietario autenticato. È richiesto il token principale."
+      },
+      "v1_tokens_primary_rotate": {
+        "summary": "Ruota il token proprietario principale",
+        "description": "Sostituisce il token principale del proprietario autenticato; i token collegati restano validi."
+      },
+      "v1_tokens_linked_create": {
+        "summary": "Crea un token proprietario collegato",
+        "description": "Crea un token collegato per il proprietario autenticato con il nome e la scadenza facoltativa specificati."
+      },
+      "v1_tokens_linked_reveal": {
+        "summary": "Mostra un token proprietario collegato",
+        "description": "Decifra e restituisce il token collegato selezionato. È richiesto il token principale del proprietario."
+      },
+      "v1_tokens_linked_rotate": {
+        "summary": "Ruota un token proprietario collegato",
+        "description": "Sostituisce il token collegato selezionato senza modificare gli altri token."
+      },
+      "v1_tokens_linked_update": {
+        "summary": "Aggiorna un token proprietario collegato",
+        "description": "Modifica il nome e la scadenza del token collegato selezionato."
+      },
+      "v1_tokens_linked_revoke": {
+        "summary": "Revoca un token proprietario collegato",
+        "description": "Revoca immediatamente e definitivamente il token collegato selezionato."
       }
     },
     "responses": {
@@ -1327,6 +1428,7 @@
       "asset": "Contenuto delle risorse statiche",
       "bad_request": "Richiesta non valida",
       "binary": "Flusso di file binario",
+      "forbidden": "Autorizzazione negata",
       "graphql": "Risultato dell'esecuzione di GraphQL",
       "health": "Stato di integrità del server",
       "html_page": "Pagina HTML",
@@ -1344,7 +1446,8 @@
       "text_value": "Valore di testo normale",
       "too_many_requests": "Limite di frequenza superato",
       "unavailable": "Il server non è integro, è in modalità di manutenzione o in fase di arresto",
-      "version": "Informazioni sulla versione della build"
+      "version": "Informazioni sulla versione della build",
+      "conflict": "La richiesta è in conflitto con lo stato attuale del token"
     },
     "tags": {
       "api_v1": "API v1",

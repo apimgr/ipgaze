@@ -6,7 +6,6 @@
     "direction": "rtl",
     "version": "1.0.0"
   },
-
   "common": {
     "select_language": "اختر اللغة",
     "save": "حفظ",
@@ -77,7 +76,6 @@
     "boot_recovery_title": "تعذر استرداد الصفحة",
     "boot_recovery_message": "لم يكتمل تحميل الصفحة بعد مسح ذاكرة التخزين المؤقت للمتصفح. أغلق علامات التبويب الأخرى لهذا الموقع ثم أعد تحميل الصفحة."
   },
-
   "theme": {
     "light": "فاتح",
     "dark": "داكن",
@@ -86,7 +84,6 @@
     "toast_prefix": "Theme: ",
     "toggle_aria": "تبديل السمة (الحالية: {theme})"
   },
-
   "auth": {
     "login": "تسجيل الدخول",
     "logout": "تسجيل الخروج",
@@ -118,7 +115,6 @@
     "session_timeout": "انتهاء مهلة الجلسة",
     "extend_on_activity": "تمديد عند النشاط"
   },
-
   "nav": {
     "home": "الرئيسية",
     "about": "حول",
@@ -136,7 +132,6 @@
     "toggle_navigation": "تبديل التنقل",
     "home_aria": "الصفحة الرئيسية لـ {app}"
   },
-
   "health": {
     "title": "حالة النظام",
     "all_operational": "جميع الأنظمة تعمل",
@@ -167,7 +162,6 @@
     "production": "إنتاج",
     "development": "تطوير"
   },
-
   "status_values": {
     "online": "متصل",
     "offline": "غير متصل",
@@ -177,7 +171,6 @@
     "good": "جيد",
     "warn": "تحذير"
   },
-
   "contact": {
     "title": "اتصل بنا",
     "name": "الاسم",
@@ -226,8 +219,9 @@
     "researcher_handle": "الاسم المستعار للنشر (مطلوب عند اختيار النسبة بالاسم المستعار)",
     "coordinated_disclosure_agreement": "أوافق على الإفصاح المنسق."
   },
-
   "help": {
+    "more_heading": "مزيد من المساعدة",
+    "mcp_description": "اربط عملاء الذكاء الاصطناعي بـ IPGaze عبر نقطة MCP العامة.",
     "title": "المساعدة",
     "getting_started": "البدء",
     "features": "الميزات",
@@ -256,7 +250,6 @@
     "troubleshooting_route_title": "المسار غير موجود",
     "troubleshooting_route_body": "تحقق من المسار واستخدم نقطة نهاية مدعومة مثل /ip أو /json أو /country أو /{ip}."
   },
-
   "privacy": {
     "title": "سياسة الخصوصية",
     "last_updated": "آخر تحديث:",
@@ -310,7 +303,6 @@
     "dpo_contact_unavailable": "لم يتم إعداد جهة اتصال لحماية البيانات.",
     "dpo_contact_form": "نموذج الاتصال"
   },
-
   "terms": {
     "title": "شروط الخدمة",
     "acceptance": "القبول",
@@ -330,7 +322,6 @@
     "changes_body": "قد تتغير هذه الشروط في أي وقت. يُعد الاستمرار في استخدام الخدمة قبولًا بالشروط المحدثة.",
     "governing_law_body": "تخضع هذه الشروط لقوانين الولاية القضائية التي يقيم فيها مشغل الخدمة، بغض النظر عن مبادئ تنازع القوانين."
   },
-
   "security": {
     "title": "سياسة الأمان",
     "intro": "نحن نأخذ أمان ipgaze على محمل الجد. إذا اكتشفت ثغرة أمنية، يُرجى الإبلاغ عنها بشكل مسؤول.",
@@ -384,7 +375,6 @@
     "report_notification_subject": "تقرير أمني مشفر {tracking_id}",
     "report_notification_body": "تقرير الأمان المشفر باستخدام AES-256-GCM مرفق. فك تشفيره باستخدام server.security.encryption_key."
   },
-
   "cookie_consent": {
     "message": "وفقاً لقانون GDPR الأوروبي، يتم عرض هذه الرسالة.",
     "accept": "أوافق",
@@ -398,7 +388,6 @@
     "accepted_toast": "Cookies accepted",
     "declined_toast": "Cookies declined"
   },
-
   "about": {
     "title": "حول",
     "features": "الميزات",
@@ -421,7 +410,6 @@
     "api_description_post": "التوثيق الكامل متاح على",
     "attribution_heading": "الإسناد"
   },
-
   "preferences": {
     "title": "Preferences",
     "heading": "Preferences",
@@ -429,6 +417,7 @@
     "intro": "Your theme and language choices are stored in cookies on this device only. Use the link below to carry them and your default command example to another browser or device.",
     "current_theme_label": "Current theme",
     "current_lang_label": "Current language",
+    "language_automatic": "تلقائي",
     "default_widget_label": "مثال الأمر الافتراضي",
     "save": "حفظ",
     "consent_heading": "الموافقة على ملفات تعريف الارتباط",
@@ -439,21 +428,74 @@
     "ccpa_heading": "إلغاء الاشتراك في بيع البيانات",
     "ccpa_intro": "يمكن لسكان كاليفورنيا إلغاء الاشتراك في بيع معلوماتهم الشخصية.",
     "export_heading": "Export",
-    "export_intro": "Open this link on another device to apply the same theme and language, or copy the short code and paste it there instead.",
     "export_url_label": "Import link",
     "export_code_label": "Short code",
     "copy_url_aria": "Copy import link",
     "copy_code_aria": "Copy short code",
-    "import_heading": "Import",
     "import_intro": "Paste a short code (or a full import link) from another device below.",
     "import_paste_label": "Code or link",
     "import_submit": "تطبيق",
+    "more_heading": "المزيد من التفضيلات",
+    "sync_title": "مزامنة التفضيلات",
+    "sync_heading": "مزامنة التفضيلات",
+    "sync_intro": "صدّر التفضيلات إلى متصفح آخر أو استوردها من رابط أو رمز.",
+    "sync_link": "مزامنة التفضيلات",
+    "back_to_preferences": "العودة إلى التفضيلات",
+    "sync_description": "انقل التفضيلات إلى متصفح آخر باستخدام رابط أو رمز.",
     "reset": "إعادة الضبط",
     "reset_title": "هل تريد نسيان هذا المتصفح؟",
-    "reset_warning": "سيؤدي ذلك إلى حذف ملفات تعريف الارتباط وبيانات تخزين هذا الموقع، بما فيها تفضيلاتك وخيارات الموافقة. لا يمكن التراجع عن ذلك.",
-    "erase_everything": "محو الكل"
+    "reset_warning": "يمسح هذا جميع ملفات تعريف ارتباط IPGaze وتخزين الموقع، بما في ذلك التفضيلات وخيارات الموافقة والتنبيهات المخفية وعلامة الإصدار والبيانات غير المتصلة. تُحفظ بيانات اعتماد الأمان. لا يمكن التراجع عن ذلك.",
+    "erase_everything": "محو الكل",
+    "tokens_title": "رموز المالك",
+    "tokens_link": "رموز المالك",
+    "tokens_description": "استعد رمز المالك الأساسي لهذا المتصفح.",
+    "tokens_back": "العودة إلى التفضيلات",
+    "tokens_restore_heading": "استعادة الهوية",
+    "tokens_restore_intro": "ألصق الرمز الأساسي لاستعادة هذا المتصفح.",
+    "tokens_primary_label": "الرمز الأساسي",
+    "tokens_restore_submit": "استعادة الهوية",
+    "tokens_restore_invalid": "هذا الرمز الأساسي غير صالح أو غير متاح.",
+    "tokens_new_heading": "رمز جديد",
+    "tokens_new_intro": "أنشئ رمز مالك دون إنشاء مورد. احفظه بأمان؛ يمكنك عرضه مجددًا بعد استعادة هذا المتصفح.",
+    "tokens_create": "إنشاء رمز",
+    "tokens_created": "رمزك الجديد:",
+    "tokens_primary_heading": "الرمز الأساسي",
+    "tokens_active": "نشط",
+    "tokens_primary_help": "وصول كامل إلى {resources} الخاصة بك. احتفظ به بأمان.",
+    "tokens_shown_once": "يظهر مرة واحدة عند تحميل هذه الصفحة",
+    "tokens_reveal": "عرض",
+    "tokens_rotate": "تدوير",
+    "tokens_linked_heading": "الرموز المرتبطة",
+    "tokens_linked_create_heading": "إنشاء رمز مرتبط",
+    "tokens_name": "الاسم",
+    "tokens_name_example": "مثال: عميل MCP",
+    "tokens_expiry": "انتهاء الصلاحية",
+    "tokens_never": "أبدًا",
+    "tokens_7_days": "7 أيام",
+    "tokens_30_days": "30 يومًا",
+    "tokens_90_days": "90 يومًا",
+    "tokens_1_year": "سنة واحدة",
+    "tokens_this_browser": "هذا المتصفح",
+    "tokens_saved_browser": "محفوظ في هذا المتصفح. نسيانه لا يحذف {resources} الخاصة بك.",
+    "tokens_forget": "نسيان الرمز المحفوظ",
+    "tokens_created_linked": "رمزك:",
+    "tokens_created_primary": "رمزك:",
+    "tokens_no_linked": "لا توجد رموز مرتبطة بعد. أنشئ رمزًا لكل تطبيق، مثل عميل MCP.",
+    "tokens_created_at": "تاريخ الإنشاء",
+    "tokens_last_used": "آخر استخدام",
+    "tokens_expires": "ينتهي",
+    "tokens_edit": "تعديل",
+    "tokens_save": "حفظ",
+    "tokens_revoke": "إلغاء",
+    "tokens_custom_date": "تاريخ مخصص",
+    "tokens_expires_on": "تاريخ الانتهاء",
+    "tokens_status_active": "نشط",
+    "tokens_status_expired": "منتهي الصلاحية",
+    "tokens_status_revoked": "ملغى",
+    "tokens_forget_confirm": "تأكيد نسيان رمز هذا المتصفح",
+    "tokens_rotate_confirm": "تأكيد تدوير الرمز",
+    "tokens_revoke_confirm": "تأكيد إلغاء الرمز"
   },
-
   "announcements": {
     "warning": "تحذير",
     "info": "معلومات",
@@ -462,7 +504,6 @@
     "scheduled_maintenance": "صيانة مجدولة",
     "dismiss_aria": "إغلاق الإعلان"
   },
-
   "pwa": {
     "install": "تثبيت التطبيق",
     "installed": "تم تثبيت التطبيق",
@@ -478,7 +519,6 @@
     "update_later": "لاحقًا",
     "update_now": "التحديث الآن"
   },
-
   "errors": {
     "required": "هذا الحقل مطلوب",
     "invalid_email": "عنوان البريد الإلكتروني غير صالح",
@@ -506,7 +546,6 @@
     "maintenance_mode": "الخدمة غير متاحة",
     "request_id_label": "معرّف الطلب"
   },
-
   "plurals": {
     "items": {
       "zero": "{count} عنصر",
@@ -557,14 +596,12 @@
       "other": "{count} دقيقة"
     }
   },
-
   "app": {
     "name": "IPGaze",
     "tagline": "خدمة البحث عن عناوين IP",
     "description": "تحديد موقع IP سريع ودقيق ومعلومات الشبكة",
     "cache_resized": "تم تحديث سعة ذاكرة التخزين المؤقت"
   },
-
   "ip": {
     "your": "عنوان IP الخاص بك",
     "lookup": "البحث عن IP",
@@ -575,7 +612,6 @@
     "is_eu": "عضو في الاتحاد الأوروبي",
     "enter_ip": "أدخل عنوان IP للبحث عنه"
   },
-
   "location": {
     "country": "الدولة",
     "country_code": "رمز الدولة",
@@ -589,13 +625,11 @@
     "metro_code": "رمز المنطقة الحضرية",
     "zip_code": "الرمز البريدي"
   },
-
   "network": {
     "asn": "ASN",
     "org": "المنظمة",
     "isp": "مزود خدمة الإنترنت"
   },
-
   "admin": {
     "title": "لوحة الإدارة",
     "dashboard": "لوحة التحكم",
@@ -610,7 +644,6 @@
     "update": "تحديث",
     "reload": "إعادة تحميل الإعدادات"
   },
-
   "cli": {
     "requires_privileges": "تتطلب هذه العملية صلاحيات مرتفعة: {action}",
     "escalate_prompt": "يرجى إعادة التشغيل بصلاحيات sudo أو كمستخدم root.",
@@ -633,7 +666,6 @@
     "service_flag": "إدارة الخدمة",
     "maintenance_flag": "عمليات الصيانة"
   },
-
   "accessibility": {
     "skip_to_content": "انتقل إلى المحتوى",
     "menu": "القائمة",
@@ -644,7 +676,6 @@
     "loading": "جارٍ التحميل، يرجى الانتظار",
     "required_field": "حقل مطلوب"
   },
-
   "api_help": {
     "title": "المساعدة ومرجع واجهة برمجة التطبيقات",
     "basic_heading": "الاستخدام الأساسي",
@@ -701,21 +732,19 @@
     "mcp_endpoint_body": "استخدم نقطة النهاية الأساسية أو أيًا من الاسمين البديلين المباشرين:",
     "mcp_select_url": "يمكن تحديد عنوان URL الكامل أعلاه دون JavaScript.",
     "mcp_authentication": "المصادقة",
-    "mcp_authentication_body": "يستخدم MCP رموز Authorization: Bearer نفسها المستخدمة في REST API، ولا يوجد رمز خاص بـ MCP. توفر IPGaze أدوات بحث عامة مجهولة ولا تصدر رموز عميل مرتبطة. لا تستخدم مطلقًا الرمز الأساسي أو رمز المشغّل (server.token). إذا أضاف نشر آخر رموز عميل مرتبطة، فاستخدم الرمز المرتبط فقط للعمليات المحمية.",
     "mcp_connect": "توصيل عميل",
     "mcp_claude_code": "Claude Code",
-    "mcp_token_body": "تتصل IPGaze دون رمز. في عمليات النشر الأخرى التي تدعم رموز العميل المرتبطة، أنشئ رمزًا من صفحة /server/preferences/tokens وأرسله في ترويسة:",
     "mcp_generic_config": "إعداد العميل العام",
     "mcp_verify": "التحقق باستخدام initialize",
-    "mcp_omit_auth": "احذف ترويسة التفويض عند الاتصال بأدوات IPGaze العامة.",
     "mcp_tools": "الأدوات المتاحة",
     "mcp_tools_body": "تُنشأ هذه القائمة المباشرة من عمليات API المسجلة ذات الإصدارات.",
+    "mcp_tools_operator_note": "قد يعرض رمز المشغّل أدوات إضافية.",
     "mcp_no_tools": "لا توجد حاليًا أدوات API عامة مسجلة.",
     "mcp_behavior_limits": "السلوك والحدود",
     "mcp_post_stateless": "تستخدم الطلبات POST؛ نقطة النهاية هذه عديمة الحالة ولا تنشئ جلسات.",
     "mcp_rate_audit": "تُطبق حدود معدل API وتدقيق الطلبات.",
     "mcp_origin_rejected": "تُرفض الطلبات التي تحتوي على Origin غير صالح.",
-    "mcp_protocol_versions": "تشمل إصدارات البروتوكول المدعومة 2025-03-26.",
+    "mcp_protocol_versions": "تشمل إصدارات البروتوكول المدعومة 2026-07-28.",
     "mcp_troubleshooting": "استكشاف الأخطاء وإصلاحها",
     "mcp_status": "الحالة",
     "mcp_cause": "السبب",
@@ -723,16 +752,17 @@
     "mcp_400_cause": "عدم تطابق إصدار البروتوكول أو الترويسة المطلوبة",
     "mcp_400_fix": "أرسل إصدار البروتوكول وترويسات Accept الخاصة بـ JSON/stream الموضحة أعلاه.",
     "mcp_401_cause": "الرمز مفقود أو غير صالح أو منتهي الصلاحية",
-    "mcp_401_fix": "لا تحتاج أدوات IPGaze العامة إلى رمز. في عمليات النشر التي تستخدم رموزًا مرتبطة، استخدم رمز Bearer مرتبطًا صالحًا؛ تتضمن الاستجابة WWW-Authenticate: Bearer.",
     "mcp_403_cause": "Origin غير صالح أو نطاق الرمز غير كافٍ",
     "mcp_403_fix": "اتصل من Origin مسموح واستخدم رمزًا بالنطاق المطلوب.",
     "mcp_404_cause": "تم تعطيل MCP",
     "mcp_404_fix": "MCP متاح دائمًا؛ تحقق من صحة مسار نقطة النهاية وإمكانية الوصول إليه.",
     "mcp_405_cause": "تم استخدام GET أو DELETE على نقطة نهاية MCP",
     "mcp_405_fix": "استخدم POST لطلبات MCP.",
-    "mcp_project_tools": "أدوات IPGaze"
+    "mcp_project_tools": "أدوات IPGaze",
+    "mcp_authentication_body": "يتطلب كل طلب MCP رمز Bearer في ترويسة Authorization. أنشئ رمز مالك من /server/preferences/tokens أو عبر API، ثم استخدم رمزًا مرتبطًا منفصلًا لكل عميل MCP. يمكن لرموز المالك والرموز المرتبطة الوصول إلى أدوات المالك، بينما تتيح رموز المشغّل الأدوات الإدارية.",
+    "mcp_token_body": "أنشئ رمز مالك من /server/preferences/tokens، ثم أنشئ رمزًا مرتبطًا لكل عميل MCP وأرسله في ترويسة Bearer:",
+    "mcp_401_fix": "أرسل رمز Bearer صالحًا للمالك أو الرمز المرتبط أو المشغّل. تتضمن الاستجابة WWW-Authenticate: Bearer."
   },
-
   "index": {
     "title": "ما هو عنوان IP الخاص بي؟ — {host}",
     "meta_description": "{host} • ما هو عنوان IP الخاص بي؟ — أفضل أداة للعثور على عنوان IP الخاص بك ومعلومات عنه. دعم كامل لـ IPv4 وIPv6.",
@@ -781,7 +811,6 @@
     "faq_rate_limit_guarantee": "لا يوجد ضمان للطلبات التي تتجاوز هذا الحد.",
     "faq_rate_limit_consequence": "قد يتم تقييد معدلها برمز حالة 429، أو إسقاطها بالكامل."
   },
-
   "healthz": {
     "page_title": "حالة الصحة",
     "degraded_performance": "أداء متدهور",
@@ -804,7 +833,6 @@
     "refreshing_in_prefix": "التحديث خلال",
     "provider_label": "المزوّد"
   },
-
   "client": {
     "help_flag": "عرض هذه المساعدة ثم الخروج",
     "version_flag": "عرض معلومات الإصدار ثم الخروج",
@@ -854,7 +882,6 @@
     "err_unsupported_shell": "صدفة غير مدعومة \"{shell}\". الصدفات المدعومة: {shells}",
     "err_tui_unavailable": "وضع TUI غير متاح لعدم اكتشاف طرفية تفاعلية."
   },
-
   "tui": {
     "title": "معلومات عنوان IP",
     "loading": "جارٍ البحث عن عنوان IP…",
@@ -902,7 +929,6 @@
     "status_yes": "نعم",
     "status_no": "لا"
   },
-
   "setup": {
     "title": "إعداد {app} CLI",
     "intro": "لا يوجد خادم مُهيأ. لنقم بإعداد واحد!",
@@ -918,7 +944,6 @@
     "hint": "tab: الحقل التالي │ space: تبديل │ enter: اختبار وحفظ │ esc: إلغاء",
     "saved": "تم حفظ الإعدادات في {path}"
   },
-
   "notifications": {
     "title": "الإشعارات",
     "mark_all_read": "تعليم الكل كمقروء",
@@ -949,7 +974,6 @@
       "other_admins": "مسؤولون آخرون"
     }
   },
-
   "email": {
     "subjects": {
       "security_alert": "تنبيه أمني - {app_name}",
@@ -1020,7 +1044,6 @@
       "test_action": "استلام هذه الرسالة يؤكد أن إعدادات البريد الصادر صحيحة."
     }
   },
-
   "swagger": {
     "bodies": {
       "ccpa": "اختيار الانسحاب وفق CCPA",
@@ -1028,8 +1051,10 @@
       "contact": "محتوى نموذج الاتصال المُرسل",
       "dismiss": "معرّف الإعلان المراد إخفاؤه",
       "graphql": "استعلام GraphQL والمتغيرات واسم العملية",
-      "preferences": "تحديث تفضيلات السمة واللغة",
-      "report": "بيانات تقرير أنشأه المتصفح"
+      "preferences": "حقول التفضيلات وعناصر التحكم بالموافقة",
+      "preferences_sync": "رمز التفضيلات أو رابطها للاستيراد",
+      "report": "بيانات تقرير أنشأه المتصفح",
+      "linked_token_update": "الاسم الجديد ومدة صلاحية الرمز المرتبط"
     },
     "common": {
       "api_mirror": "النسخة بصيغة JSON من الصفحة المقابلة، وفق قاعدة التطابق بين مسارات الويب ومسارات واجهة البرمجة.",
@@ -1043,14 +1068,16 @@
     },
     "params": {
       "asset_path": "مسار المورد ضمن ‎/static/‎",
-      "code_query": "رمز التفضيلات المُشفّر بصيغة base64url من نقطة نهاية التصدير",
+      "code_query": "رمز التفضيلات base64url الذي تعيده صفحة المزامنة",
       "filename_path": "اسم ملف عميل سطر الأوامر، مثل ipgaze-linux-amd64",
       "ip_path": "عنوان IP المراد البحث عنه (IPv4 أو IPv6)",
       "ip_query": "عنوان IP اختياري للبحث؛ الافتراضي هو عنوان المتصل",
       "lang_path": "رمز لغة وفق BCP 47، مثل en أو fr أو ja",
       "lang_query": "اللغة المراد تطبيقها كرمز BCP 47",
       "port_path": "رقم المنفذ المراد فحصه (1-65535)",
-      "theme_query": "السمة المراد تطبيقها: dark أو light أو auto"
+      "ipgaze_pref_widget_query": "مثال البحث الافتراضي: ip أو country أو country-iso أو city أو asn أو json أو port",
+      "theme_query": "السمة المراد تطبيقها: dark أو light أو auto",
+      "token_id": "المعرّف الرقمي لرمز المالك المرتبط"
     },
     "paths": {
       "announcements_dismiss": {
@@ -1252,17 +1279,21 @@
         "description": "يقدّم صفحة التفضيلات لاختيار السمة واللغة.",
         "summary": "صفحة التفضيلات"
       },
-      "server_preferences_export": {
-        "description": "يعيد السمة واللغة الحاليتين على هيئة عنوان URL كامل للاستيراد ورمز base64url قصير لنقل التفضيلات إلى متصفح آخر.",
-        "summary": "تصدير التفضيلات"
-      },
-      "server_preferences_import": {
-        "description": "يفك ترميز القيم المقدّمة ويتحقق منها ويضبط ملفات تعريف الارتباط المطابقة ثم يعيد التوجيه كي لا يبقى الرمز في عنوان URL الظاهر.",
-        "summary": "استيراد التفضيلات"
-      },
       "server_preferences_post": {
         "description": "يتحقق من صحة السمة واللغة المُرسلتين ويحفظهما في ملفات تعريف ارتباط بالمتصفح.",
         "summary": "تحديث التفضيلات"
+      },
+      "server_preferences_sync": {
+        "description": "يعرض التفضيلات القابلة للتصدير ويستورد رمز تفضيلات.",
+        "summary": "مزامنة التفضيلات"
+      },
+      "server_preferences_sync_post": {
+        "description": "يطبق التفضيلات الصالحة من الرمز المرسل ثم يعيد التوجيه.",
+        "summary": "استيراد التفضيلات"
+      },
+      "server_preferences_sync_import": {
+        "description": "يطبق التفضيلات الصالحة ويعيد التوجيه دون إبقاء الرمز في عنوان URL.",
+        "summary": "استيراد التفضيلات"
       },
       "server_privacy": {
         "description": "يقدّم سياسة الخصوصية التي تصف البيانات المسجّلة ومدة الاحتفاظ بها وخيارات الانسحاب المتاحة.",
@@ -1335,12 +1366,12 @@
         "description": "يعيد السمة واللغة المحفوظتين حاليًا في ملفات تعريف ارتباط المتصل.",
         "summary": "جلب التفضيلات (API v1)"
       },
-      "v1_preferences_export": {
-        "description": "يعيد السمة واللغة الحاليتين على هيئة عنوان URL كامل للاستيراد ورمز base64url قصير.",
-        "summary": "تصدير التفضيلات (API v1)"
+      "v1_preferences_sync": {
+        "description": "يعيد التفضيلات كرابط استيراد ورمز base64url.",
+        "summary": "مزامنة التفضيلات (API v1)"
       },
-      "v1_preferences_import": {
-        "description": "يفك ترميز القيم المقدّمة ويتحقق منها ويضبط ملفات تعريف الارتباط المطابقة.",
+      "v1_preferences_sync_import": {
+        "description": "يتحقق من التفضيلات ويضبط ملفات تعريف الارتباط المطابقة.",
         "summary": "استيراد التفضيلات (API v1)"
       },
       "v1_privacy": {
@@ -1369,6 +1400,42 @@
       },
       "wk_security_txt": {
         "summary": "سياسة الاتصال الأمني (well-known)"
+      },
+      "v1_tokens_list": {
+        "summary": "عرض رموز المالك",
+        "description": "يعرض بيانات مقنّعة للرمز الأساسي والرموز المرتبطة بالمالك المصادق عليه. لا تعرض القوائم قيم الرموز مطلقًا."
+      },
+      "v1_tokens_issue": {
+        "summary": "إصدار رمز مالك أساسي",
+        "description": "ينشئ مالكًا جديدًا ورمزًا أساسيًا عندما لا يملك المستدعي رمزًا صالحًا. تُعاد قيمة الرمز في هذا الرد فقط."
+      },
+      "v1_tokens_primary_reveal": {
+        "summary": "عرض رمز المالك الأساسي",
+        "description": "يفك تشفير الرمز الأساسي للمالك المصادق عليه ويعيده. يتطلب الرمز الأساسي."
+      },
+      "v1_tokens_primary_rotate": {
+        "summary": "تدوير رمز المالك الأساسي",
+        "description": "يستبدل الرمز الأساسي للمالك المصادق عليه؛ وتظل الرموز المرتبطة صالحة."
+      },
+      "v1_tokens_linked_create": {
+        "summary": "إنشاء رمز مالك مرتبط",
+        "description": "ينشئ رمزًا مرتبطًا للمالك المصادق عليه بالاسم المحدد ومدة صلاحية اختيارية."
+      },
+      "v1_tokens_linked_reveal": {
+        "summary": "عرض رمز المالك المرتبط",
+        "description": "يفك تشفير الرمز المرتبط المحدد ويعيده. يتطلب الرمز الأساسي للمالك."
+      },
+      "v1_tokens_linked_rotate": {
+        "summary": "تدوير رمز المالك المرتبط",
+        "description": "يستبدل الرمز المرتبط المحدد دون التأثير في الرموز الأخرى."
+      },
+      "v1_tokens_linked_update": {
+        "summary": "تحديث رمز المالك المرتبط",
+        "description": "يغير اسم الرمز المرتبط المحدد ومدة صلاحيته."
+      },
+      "v1_tokens_linked_revoke": {
+        "summary": "إلغاء رمز المالك المرتبط",
+        "description": "يلغي الرمز المرتبط المحدد فورًا وبشكل دائم."
       }
     },
     "responses": {
@@ -1376,6 +1443,7 @@
       "asset": "محتوى مورد ثابت",
       "bad_request": "طلب غير صالح",
       "binary": "دفق ملف ثنائي",
+      "forbidden": "الإذن مرفوض",
       "graphql": "نتيجة تنفيذ GraphQL",
       "health": "سلامة الخادم",
       "html_page": "صفحة HTML",
@@ -1393,7 +1461,8 @@
       "text_value": "قيمة نصية عادية",
       "too_many_requests": "تم تجاوز حد المعدل",
       "unavailable": "الخادم في حالة غير سليمة أو في وضع الصيانة أو قيد الإيقاف",
-      "version": "معلومات إصدار البناء"
+      "version": "معلومات إصدار البناء",
+      "conflict": "يتعارض الطلب مع حالة الرمز الحالية"
     },
     "tags": {
       "api_v1": "API v1",
@@ -1411,7 +1480,6 @@
       "title": "واجهة برمجة IPGaze - واجهة Swagger"
     }
   },
-
   "graphql": {
     "args": {
       "checkPort": {
@@ -1566,27 +1634,23 @@
       "variables": "المتغيرات (JSON)"
     }
   },
-
   "version": {
     "name_version": "{project_name} {project_version}",
     "built": "تاريخ البناء: {build_date}",
     "go": "Go: {go_version}",
     "os_arch": "نظام التشغيل/المعمارية: {goos}/{goarch}"
   },
-
   "confirm": {
     "delete_title": "تأكيد الحذف",
     "delete_message": "هل أنت متأكد من رغبتك في حذف هذا العنصر؟",
     "action_irreversible": "لا يمكن التراجع عن هذا الإجراء."
   },
-
   "form": {
     "required_field": "(مطلوب)",
     "optional_field": "(اختياري)",
     "hint_email": "لن نشارك عنوان بريدك الإلكتروني أبدًا.",
     "errors_count": "يوجد {count} خطأ في النموذج"
   },
-
   "gui": {
     "title": "IPGaze",
     "subtitle": "ابحث عن عنوان IP وراجع تفاصيل الشبكة.",

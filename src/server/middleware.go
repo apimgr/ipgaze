@@ -826,6 +826,19 @@ func writeUnauthorized(w http.ResponseWriter, r *http.Request) {
 // inferred from response latency either.
 func (s *Server) RequireOperatorToken(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		clientIP := s.authClientIP(r)
+		if s.rateLimiter != nil {
+			if blocked, retryAfter := s.rateLimiter.AuthFailureBlocked(clientIP); blocked {
+				if retryAfter < time.Second {
+					retryAfter = time.Second
+				}
+				w.Header().Set("Retry-After", strconv.Itoa(int(retryAfter.Seconds())))
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusTooManyRequests)
+				writeRateLimitedBody(w, i18n.T(i18n.WithLang(r.Context(), i18n.DetectLocale(r)), "errors.rate_limited"))
+				return
+			}
+		}
 		start := time.Now()
 		auth := r.Header.Get("Authorization")
 		rawToken := strings.TrimPrefix(auth, "Bearer ")
@@ -838,6 +851,9 @@ func (s *Server) RequireOperatorToken(next http.Handler) http.Handler {
 			reason = "missing_token"
 		}
 		if !s.ValidateOperatorToken(rawToken) {
+			if s.rateLimiter != nil {
+				s.rateLimiter.RecordAuthFailure(clientIP)
+			}
 			smetrics.RecordAuthAttempt("operator_token", "failure")
 			s.logManager.WriteAuthFailure(sanitizeLogValue(s.authClientIP(r)),
 				sanitizeLogValue(r.URL.Path), reason)

@@ -6,7 +6,6 @@
     "direction": "ltr",
     "version": "1.0.0"
   },
-
   "common": {
     "select_language": "Sprache auswählen",
     "save": "Speichern",
@@ -77,7 +76,6 @@
     "boot_recovery_title": "Seitenwiederherstellung fehlgeschlagen",
     "boot_recovery_message": "Die Seite wurde nach dem Leeren des Browser-Caches nicht vollständig geladen. Schließen Sie andere Tabs dieser Website und laden Sie die Seite erneut."
   },
-
   "theme": {
     "light": "Hell",
     "dark": "Dunkel",
@@ -86,7 +84,6 @@
     "toast_prefix": "Theme: ",
     "toggle_aria": "Design wechseln (aktuell {theme})"
   },
-
   "auth": {
     "login": "Anmelden",
     "logout": "Abmelden",
@@ -118,7 +115,6 @@
     "session_timeout": "Sitzungs-Timeout",
     "extend_on_activity": "Bei Aktivität verlängern"
   },
-
   "nav": {
     "home": "Startseite",
     "about": "Über uns",
@@ -136,7 +132,6 @@
     "toggle_navigation": "Navigation umschalten",
     "home_aria": "{app} Startseite"
   },
-
   "health": {
     "title": "Systemstatus",
     "all_operational": "Alle Systeme in Betrieb",
@@ -167,7 +162,6 @@
     "production": "Produktion",
     "development": "Entwicklung"
   },
-
   "status_values": {
     "online": "Online",
     "offline": "Offline",
@@ -177,7 +171,6 @@
     "good": "Gut",
     "warn": "Warnung"
   },
-
   "contact": {
     "title": "Kontakt",
     "name": "Name",
@@ -226,8 +219,9 @@
     "researcher_handle": "Benutzername für die öffentliche Nennung (erforderlich bei Nennung per Benutzername)",
     "coordinated_disclosure_agreement": "Ich stimme einer koordinierten Offenlegung zu."
   },
-
   "help": {
+    "more_heading": "Weitere Hilfe",
+    "mcp_description": "Verbinden Sie KI-Clients über den öffentlichen MCP-Endpunkt mit IPGaze.",
     "title": "Hilfe",
     "getting_started": "Erste Schritte",
     "features": "Funktionen",
@@ -256,7 +250,6 @@
     "troubleshooting_route_title": "Route nicht gefunden",
     "troubleshooting_route_body": "Prüfen Sie den Pfad und verwenden Sie einen unterstützten Endpunkt wie /ip, /json, /country oder /{ip}."
   },
-
   "privacy": {
     "title": "Datenschutzrichtlinie",
     "last_updated": "Zuletzt aktualisiert:",
@@ -310,7 +303,6 @@
     "dpo_contact_unavailable": "Es ist kein Datenschutzkontakt konfiguriert.",
     "dpo_contact_form": "Kontaktformular"
   },
-
   "terms": {
     "title": "Nutzungsbedingungen",
     "acceptance": "Annahme",
@@ -330,7 +322,6 @@
     "changes_body": "Diese Bedingungen können jederzeit geändert werden. Die fortgesetzte Nutzung des Dienstes gilt als Zustimmung zu den aktualisierten Bedingungen.",
     "governing_law_body": "Diese Bedingungen unterliegen dem Recht des Rechtsraums, in dem der Betreiber des Dienstes ansässig ist, ohne Berücksichtigung des Kollisionsrechts."
   },
-
   "security": {
     "title": "Sicherheitsrichtlinie",
     "intro": "Wir nehmen die Sicherheit von ipgaze ernst. Wenn Sie eine Sicherheitslücke entdecken, melden Sie diese bitte verantwortungsbewusst.",
@@ -384,7 +375,6 @@
     "report_notification_subject": "Verschlüsselter Sicherheitsbericht {tracking_id}",
     "report_notification_body": "Der mit AES-256-GCM verschlüsselte Sicherheitsbericht ist angehängt. Entschlüsseln Sie ihn mit server.security.encryption_key."
   },
-
   "cookie_consent": {
     "message": "Gemäß der EU-DSGVO wird diese Meldung angezeigt.",
     "accept": "Ich akzeptiere",
@@ -398,7 +388,6 @@
     "accepted_toast": "Cookies accepted",
     "declined_toast": "Cookies declined"
   },
-
   "about": {
     "title": "Über uns",
     "features": "Funktionen",
@@ -421,7 +410,6 @@
     "api_description_post": "Die vollständige Dokumentation ist verfügbar unter",
     "attribution_heading": "Namensnennung"
   },
-
   "preferences": {
     "title": "Preferences",
     "heading": "Preferences",
@@ -429,6 +417,7 @@
     "intro": "Your theme and language choices are stored in cookies on this device only. Use the link below to carry them and your default command example to another browser or device.",
     "current_theme_label": "Current theme",
     "current_lang_label": "Current language",
+    "language_automatic": "Automatisch",
     "default_widget_label": "Standard-Beispielbefehl",
     "save": "Speichern",
     "consent_heading": "Cookie-Einwilligung",
@@ -439,21 +428,74 @@
     "ccpa_heading": "Widerspruch gegen Datenverkauf",
     "ccpa_intro": "Einwohner Kaliforniens können dem Verkauf ihrer personenbezogenen Daten widersprechen.",
     "export_heading": "Export",
-    "export_intro": "Open this link on another device to apply the same theme and language, or copy the short code and paste it there instead.",
     "export_url_label": "Import link",
     "export_code_label": "Short code",
     "copy_url_aria": "Copy import link",
     "copy_code_aria": "Copy short code",
-    "import_heading": "Import",
     "import_intro": "Paste a short code (or a full import link) from another device below.",
     "import_paste_label": "Code or link",
     "import_submit": "Anwenden",
+    "more_heading": "Weitere Einstellungen",
+    "sync_title": "Einstellungssynchronisierung",
+    "sync_heading": "Einstellungen synchronisieren",
+    "sync_intro": "Exportieren Sie Einstellungen in einen anderen Browser oder importieren Sie sie über einen Link oder Code.",
+    "sync_link": "Einstellungen synchronisieren",
+    "back_to_preferences": "Zurück zu den Einstellungen",
+    "sync_description": "Übertragen Sie Einstellungen mit einem Link oder Code in einen anderen Browser.",
     "reset": "Zurücksetzen",
     "reset_title": "Diesen Browser vergessen?",
-    "reset_warning": "Dadurch werden Cookies und Browserdaten dieser Website einschließlich Ihrer Einstellungen und Einwilligungen gelöscht. Dies kann nicht rückgängig gemacht werden.",
-    "erase_everything": "Alles löschen"
+    "reset_warning": "Dadurch werden alle IPGaze-Cookies und sämtliche Websitedaten gelöscht, einschließlich Einstellungen, Einwilligungen, ausgeblendeter Hinweise, Build-Kennung und Offline-Daten. Ihre Sicherheitszugangsdaten bleiben erhalten. Dieser Vorgang kann nicht rückgängig gemacht werden.",
+    "erase_everything": "Alles löschen",
+    "tokens_title": "Eigentümer-Token",
+    "tokens_link": "Eigentümer-Token",
+    "tokens_description": "Stelle ein primäres Eigentümer-Token für diesen Browser wieder her.",
+    "tokens_back": "Zurück zu den Einstellungen",
+    "tokens_restore_heading": "Identität wiederherstellen",
+    "tokens_restore_intro": "Füge dein primäres Token ein, um diesen Browser wiederherzustellen.",
+    "tokens_primary_label": "Primäres Token",
+    "tokens_restore_submit": "Identität wiederherstellen",
+    "tokens_restore_invalid": "Dieses primäre Token ist ungültig oder nicht verfügbar.",
+    "tokens_new_heading": "Neues Token",
+    "tokens_new_intro": "Erstelle ein Eigentümer-Token ohne eine Ressource anzulegen. Bewahre es sicher auf; nach der Wiederherstellung dieses Browsers kannst du es erneut anzeigen.",
+    "tokens_create": "Token erstellen",
+    "tokens_created": "Dein neues Token:",
+    "tokens_primary_heading": "Primäres Token",
+    "tokens_active": "Aktiv",
+    "tokens_primary_help": "Voller Zugriff auf deine {resources}. Bewahre es sicher auf.",
+    "tokens_shown_once": "Wird nur bei diesem Seitenaufruf angezeigt",
+    "tokens_reveal": "Anzeigen",
+    "tokens_rotate": "Erneuern",
+    "tokens_linked_heading": "Verknüpfte Tokens",
+    "tokens_linked_create_heading": "Verknüpftes Token erstellen",
+    "tokens_name": "Name",
+    "tokens_name_example": "Zum Beispiel: MCP-Client",
+    "tokens_expiry": "Ablauf",
+    "tokens_never": "Nie",
+    "tokens_7_days": "7 Tage",
+    "tokens_30_days": "30 Tage",
+    "tokens_90_days": "90 Tage",
+    "tokens_1_year": "1 Jahr",
+    "tokens_this_browser": "Dieser Browser",
+    "tokens_saved_browser": "In diesem Browser gespeichert. Das Entfernen löscht deine {resources} nicht.",
+    "tokens_forget": "Gespeichertes Token vergessen",
+    "tokens_created_linked": "Dein Token:",
+    "tokens_created_primary": "Dein Token:",
+    "tokens_no_linked": "Noch keine verknüpften Tokens. Erstelle für jede App eines, zum Beispiel für deinen MCP-Client.",
+    "tokens_created_at": "Erstellt",
+    "tokens_last_used": "Zuletzt verwendet",
+    "tokens_expires": "Läuft ab",
+    "tokens_edit": "Bearbeiten",
+    "tokens_save": "Speichern",
+    "tokens_revoke": "Widerrufen",
+    "tokens_custom_date": "Benutzerdefiniertes Datum",
+    "tokens_expires_on": "Ablaufdatum",
+    "tokens_status_active": "Aktiv",
+    "tokens_status_expired": "Abgelaufen",
+    "tokens_status_revoked": "Widerrufen",
+    "tokens_forget_confirm": "Vergessen dieses Browser-Tokens bestätigen",
+    "tokens_rotate_confirm": "Erneuerung des Tokens bestätigen",
+    "tokens_revoke_confirm": "Widerruf des Tokens bestätigen"
   },
-
   "announcements": {
     "warning": "Warnung",
     "info": "Info",
@@ -462,7 +504,6 @@
     "scheduled_maintenance": "Geplante Wartung",
     "dismiss_aria": "Ankündigung schließen"
   },
-
   "pwa": {
     "install": "App installieren",
     "installed": "App installiert",
@@ -478,7 +519,6 @@
     "update_later": "Später",
     "update_now": "Jetzt aktualisieren"
   },
-
   "errors": {
     "required": "Dieses Feld ist erforderlich",
     "invalid_email": "Ungültige E-Mail-Adresse",
@@ -506,7 +546,6 @@
     "maintenance_mode": "Dienst nicht verfügbar",
     "request_id_label": "Anfrage-ID"
   },
-
   "plurals": {
     "items": {
       "zero": "Keine Elemente",
@@ -536,14 +575,12 @@
       "other": "{count} Minuten"
     }
   },
-
   "app": {
     "name": "IPGaze",
     "tagline": "IP-Adress-Nachschlagedienst",
     "description": "Schnelle und genaue IP-Geolokalisierung und Netzwerkinformationen",
     "cache_resized": "Cache-Kapazität aktualisiert"
   },
-
   "ip": {
     "your": "Ihre IP-Adresse",
     "lookup": "IP-Suche",
@@ -554,7 +591,6 @@
     "is_eu": "EU-Mitglied",
     "enter_ip": "Geben Sie eine IP-Adresse zum Nachschlagen ein"
   },
-
   "location": {
     "country": "Land",
     "country_code": "Ländercode",
@@ -568,13 +604,11 @@
     "metro_code": "Metropolcode",
     "zip_code": "Postleitzahl"
   },
-
   "network": {
     "asn": "ASN",
     "org": "Organisation",
     "isp": "ISP"
   },
-
   "admin": {
     "title": "Administrationspanel",
     "dashboard": "Dashboard",
@@ -589,7 +623,6 @@
     "update": "Aktualisieren",
     "reload": "Konfiguration neu laden"
   },
-
   "cli": {
     "requires_privileges": "Dieser Vorgang erfordert erhöhte Berechtigungen: {action}",
     "escalate_prompt": "Bitte führen Sie den Befehl mit sudo oder als Root erneut aus.",
@@ -612,7 +645,6 @@
     "service_flag": "Dienstverwaltung",
     "maintenance_flag": "Wartungsoperationen"
   },
-
   "accessibility": {
     "skip_to_content": "Zum Inhalt springen",
     "menu": "Menü",
@@ -623,7 +655,6 @@
     "loading": "Wird geladen, bitte warten",
     "required_field": "Pflichtfeld"
   },
-
   "api_help": {
     "title": "Hilfe & API-Referenz",
     "basic_heading": "Grundlegende Verwendung",
@@ -680,21 +711,19 @@
     "mcp_endpoint_body": "Verwenden Sie den kanonischen Endpunkt oder einen der beiden direkten Aliase:",
     "mcp_select_url": "Die Endpunkt-URL oben kann ohne JavaScript vollständig ausgewählt werden.",
     "mcp_authentication": "Authentifizierung",
-    "mcp_authentication_body": "MCP verwendet dieselben Authorization: Bearer-Token wie die REST-API; es gibt kein eigenes MCP-Token. IPGaze stellt öffentliche Suchwerkzeuge anonym bereit und gibt keine verknüpften Client-Token aus. Verwenden Sie niemals das primäre Token oder das Betreiber-Token (server.token). Falls eine andere Bereitstellung verknüpfte Client-Token unterstützt, verwenden Sie für geschützte Vorgänge nur das verknüpfte Token.",
     "mcp_connect": "Client verbinden",
     "mcp_claude_code": "Claude Code",
-    "mcp_token_body": "IPGaze verbindet sich ohne Token. Erstellen Sie bei einer anderen Bereitstellung mit verknüpften Client-Token ein Token auf der Seite /server/preferences/tokens und übergeben Sie es als Header:",
     "mcp_generic_config": "Allgemeine Client-Konfiguration",
     "mcp_verify": "Mit initialize überprüfen",
-    "mcp_omit_auth": "Lassen Sie den Authorization-Header weg, wenn Sie die öffentlichen Werkzeuge von IPGaze verwenden.",
     "mcp_tools": "Verfügbare Werkzeuge",
     "mcp_tools_body": "Diese aktuelle Liste wird aus den registrierten versionierten API-Operationen erzeugt.",
+    "mcp_tools_operator_note": "Das Operator-Token kann zusätzliche Werkzeuge sehen.",
     "mcp_no_tools": "Derzeit sind keine öffentlichen API-Werkzeuge registriert.",
     "mcp_behavior_limits": "Verhalten und Einschränkungen",
     "mcp_post_stateless": "Anfragen verwenden POST; dieser Endpunkt ist zustandslos und erstellt keine Sitzungen.",
     "mcp_rate_audit": "Es gelten API-Ratenbegrenzungen und die Anfrageprüfung.",
     "mcp_origin_rejected": "Anfragen mit ungültigem Origin werden abgewiesen.",
-    "mcp_protocol_versions": "Zu den unterstützten Protokollversionen gehört 2025-03-26.",
+    "mcp_protocol_versions": "Zu den unterstützten Protokollversionen gehört 2026-07-28.",
     "mcp_troubleshooting": "Fehlerbehebung",
     "mcp_status": "Status",
     "mcp_cause": "Ursache",
@@ -702,16 +731,17 @@
     "mcp_400_cause": "Protokollversion oder erforderlicher Header stimmt nicht überein",
     "mcp_400_fix": "Senden Sie die oben gezeigte Protokollversion sowie die JSON/Stream-Accept-Header.",
     "mcp_401_cause": "Token fehlt, ist ungültig oder abgelaufen",
-    "mcp_401_fix": "Die öffentlichen IPGaze-Werkzeuge benötigen kein Token. Verwenden Sie bei Bereitstellungen mit verknüpften Token ein gültiges verknüpftes Bearer-Token; die Antwort enthält WWW-Authenticate: Bearer.",
     "mcp_403_cause": "Ungültiger Origin oder unzureichender Token-Bereich",
     "mcp_403_fix": "Stellen Sie die Verbindung von einem zulässigen Origin her und verwenden Sie ein Token mit dem erforderlichen Bereich.",
     "mcp_404_cause": "MCP ist deaktiviert",
     "mcp_404_fix": "MCP ist immer verfügbar; prüfen Sie, ob der Endpunktpfad korrekt und erreichbar ist.",
     "mcp_405_cause": "GET oder DELETE am MCP-Endpunkt verwendet",
     "mcp_405_fix": "Verwenden Sie POST für MCP-Anfragen.",
-    "mcp_project_tools": "IPGaze-Werkzeuge"
+    "mcp_project_tools": "IPGaze-Werkzeuge",
+    "mcp_authentication_body": "Jede MCP-Anfrage benötigt ein Bearer-Token im Authorization-Header. Erstellen Sie ein Owner-Token unter /server/preferences/tokens oder über die API und verwenden Sie für jeden MCP-Client ein eigenes verknüpftes Token. Owner- und verknüpfte Tokens erhalten Zugriff auf Owner-Tools; Betreiber-Tokens erhalten Zugriff auf Admin-Tools.",
+    "mcp_token_body": "Erstellen Sie unter /server/preferences/tokens ein Owner-Token und anschließend für jeden MCP-Client ein eigenes verknüpftes Token. Übergeben Sie es als Bearer-Header:",
+    "mcp_401_fix": "Übergeben Sie ein gültiges Bearer-Token für Owner, verknüpften Client oder Betreiber. Die Antwort enthält WWW-Authenticate: Bearer."
   },
-
   "index": {
     "title": "Wie lautet meine IP-Adresse? — {host}",
     "meta_description": "{host} • Wie lautet meine IP-Adresse? — Das beste Werkzeug, um Ihre eigene IP-Adresse und Informationen dazu zu finden. Vollständige Unterstützung für IPv4 und IPv6.",
@@ -760,7 +790,6 @@
     "faq_rate_limit_guarantee": "Für Anfragen, die dieses Limit überschreiten, wird keine Garantie übernommen.",
     "faq_rate_limit_consequence": "Sie können mit dem Statuscode 429 begrenzt oder vollständig verworfen werden."
   },
-
   "healthz": {
     "page_title": "Gesundheitsstatus",
     "degraded_performance": "Beeinträchtigte Leistung",
@@ -783,7 +812,6 @@
     "refreshing_in_prefix": "Aktualisierung in",
     "provider_label": "Anbieter"
   },
-
   "client": {
     "help_flag": "Zeigt diese Hilfe an und beendet das Programm",
     "version_flag": "Zeigt die Versionsinformationen an und beendet das Programm",
@@ -833,7 +861,6 @@
     "err_unsupported_shell": "Nicht unterstützte Shell \"{shell}\". Unterstützte Shells: {shells}",
     "err_tui_unavailable": "Der TUI-Modus ist nicht verfügbar, da kein interaktives Terminal erkannt wurde."
   },
-
   "tui": {
     "title": "IP-Adressinformationen",
     "loading": "IP-Adresse wird ermittelt…",
@@ -881,7 +908,6 @@
     "status_yes": "Ja",
     "status_no": "Nein"
   },
-
   "setup": {
     "title": "{app} CLI-Einrichtung",
     "intro": "Kein Server konfiguriert. Richten wir einen ein!",
@@ -897,7 +923,6 @@
     "hint": "Tab: nächstes Feld │ Leertaste: umschalten │ Enter: testen und speichern │ Esc: abbrechen",
     "saved": "Konfiguration gespeichert unter {path}"
   },
-
   "notifications": {
     "title": "Benachrichtigungen",
     "mark_all_read": "Alle als gelesen markieren",
@@ -928,7 +953,6 @@
       "other_admins": "Andere Administratoren"
     }
   },
-
   "email": {
     "subjects": {
       "security_alert": "Sicherheitswarnung – {app_name}",
@@ -999,7 +1023,6 @@
       "test_action": "Der Empfang dieser Nachricht bestätigt, dass die Einstellungen für den Postausgang korrekt sind."
     }
   },
-
   "swagger": {
     "bodies": {
       "ccpa": "CCPA-Widerspruchsauswahl",
@@ -1007,8 +1030,10 @@
       "contact": "Übermittlung des Kontaktformulars",
       "dismiss": "Kennung der auszublendenden Ankündigung",
       "graphql": "GraphQL-Abfrage, Variablen und Operationsname",
-      "preferences": "Aktualisierung von Design- und Spracheinstellung",
-      "report": "Vom Browser erzeugte Meldungsdaten"
+      "preferences": "Felder für Einstellungen und Einwilligung",
+      "preferences_sync": "Zu importierender Einstellungscode oder Link",
+      "report": "Vom Browser erzeugte Meldungsdaten",
+      "linked_token_update": "Neuer Name und Ablaufwert des verknüpften Tokens"
     },
     "common": {
       "api_mirror": "JSON-Entsprechung der zugehörigen Webseite, gemäß der Regel zur Parität von Web- und API-Route.",
@@ -1022,14 +1047,16 @@
     },
     "params": {
       "asset_path": "Pfad der Ressource unterhalb von /static/",
-      "code_query": "Mit base64url kodierter Einstellungscode aus dem Exportendpunkt",
+      "code_query": "Base64url-Einstellungscode von der Synchronisierungsseite",
       "filename_path": "Dateiname des Kommandozeilenclients, zum Beispiel ipgaze-linux-amd64",
       "ip_path": "Abzufragende IP-Adresse (IPv4 oder IPv6)",
       "ip_query": "Optionale abzufragende IP-Adresse; Standard ist die IP des Aufrufers",
       "lang_path": "Sprachcode nach BCP 47, zum Beispiel en, fr oder ja",
       "lang_query": "Anzuwendende Sprache als BCP-47-Code",
       "port_path": "Zu prüfende Portnummer (1-65535)",
-      "theme_query": "Anzuwendendes Design: dark, light oder auto"
+      "ipgaze_pref_widget_query": "Standardbeispiel für die Suche: ip, country, country-iso, city, asn, json oder port",
+      "theme_query": "Anzuwendendes Design: dark, light oder auto",
+      "token_id": "Numerische Kennung des verknüpften Eigentümer-Tokens"
     },
     "paths": {
       "announcements_dismiss": {
@@ -1231,17 +1258,21 @@
         "description": "Liefert die Einstellungsseite zur Auswahl von Design und Sprache.",
         "summary": "Einstellungsseite"
       },
-      "server_preferences_export": {
-        "description": "Liefert das aktuelle Design und die aktuelle Sprache sowohl als vollständige Import-URL als auch als kurzen base64url-Code, damit die Einstellungen in einen anderen Browser übernommen werden können.",
-        "summary": "Einstellungen exportieren"
-      },
-      "server_preferences_import": {
-        "description": "Dekodiert und prüft die übergebenen Einstellungswerte, setzt die zugehörigen Cookies und leitet weiter, sodass der Code nicht in der sichtbaren URL verbleibt.",
-        "summary": "Einstellungen importieren"
-      },
       "server_preferences_post": {
         "description": "Prüft das übermittelte Design und die übermittelte Sprache und speichert sie als Browser-Cookies.",
         "summary": "Einstellungen aktualisieren"
+      },
+      "server_preferences_sync": {
+        "description": "Zeigt exportierbare Einstellungen an und importiert einen Code.",
+        "summary": "Einstellungen synchronisieren"
+      },
+      "server_preferences_sync_post": {
+        "description": "Übernimmt gültige Einstellungen aus dem Code und leitet weiter.",
+        "summary": "Einstellungen importieren"
+      },
+      "server_preferences_sync_import": {
+        "description": "Übernimmt gültige Einstellungen und leitet ohne Code in der URL weiter.",
+        "summary": "Einstellungen importieren"
       },
       "server_privacy": {
         "description": "Liefert die Datenschutzerklärung, einschließlich der protokollierten Daten, ihrer Aufbewahrungsdauer und der verfügbaren Widerspruchsmöglichkeiten.",
@@ -1314,12 +1345,12 @@
         "description": "Liefert das Design und die Sprache, die derzeit in den Cookies des Aufrufers gespeichert sind.",
         "summary": "Einstellungen abrufen (API v1)"
       },
-      "v1_preferences_export": {
-        "description": "Liefert das aktuelle Design und die aktuelle Sprache als vollständige Import-URL und als kurzen base64url-Code.",
-        "summary": "Einstellungen exportieren (API v1)"
+      "v1_preferences_sync": {
+        "description": "Gibt Einstellungen als Importlink und base64url-Code zurück.",
+        "summary": "Einstellungen synchronisieren (API v1)"
       },
-      "v1_preferences_import": {
-        "description": "Dekodiert und prüft die übergebenen Einstellungswerte und setzt die zugehörigen Cookies.",
+      "v1_preferences_sync_import": {
+        "description": "Prüft Einstellungen und setzt die passenden Cookies.",
         "summary": "Einstellungen importieren (API v1)"
       },
       "v1_privacy": {
@@ -1348,6 +1379,42 @@
       },
       "wk_security_txt": {
         "summary": "Richtlinie zum Sicherheitskontakt (well-known)"
+      },
+      "v1_tokens_list": {
+        "summary": "Eigentümer-Tokens auflisten",
+        "description": "Gibt maskierte Metadaten der primären und verknüpften Tokens des authentifizierten Eigentümers zurück. Tokenwerte werden in Listen nie ausgegeben."
+      },
+      "v1_tokens_issue": {
+        "summary": "Primäres Eigentümer-Token ausstellen",
+        "description": "Erstellt einen neuen Eigentümer und ein primäres Token, wenn der Aufrufer kein gültiges Token hat. Das Token wird nur in dieser Antwort ausgegeben."
+      },
+      "v1_tokens_primary_reveal": {
+        "summary": "Primäres Eigentümer-Token anzeigen",
+        "description": "Entschlüsselt das primäre Token des authentifizierten Eigentümers. Erfordert das primäre Token."
+      },
+      "v1_tokens_primary_rotate": {
+        "summary": "Primäres Eigentümer-Token erneuern",
+        "description": "Ersetzt das primäre Token des authentifizierten Eigentümers; verknüpfte Tokens bleiben gültig."
+      },
+      "v1_tokens_linked_create": {
+        "summary": "Verknüpftes Eigentümer-Token erstellen",
+        "description": "Erstellt für den authentifizierten Eigentümer ein verknüpftes Token mit Name und optionalem Ablaufdatum."
+      },
+      "v1_tokens_linked_reveal": {
+        "summary": "Verknüpftes Eigentümer-Token anzeigen",
+        "description": "Entschlüsselt das ausgewählte verknüpfte Token. Erfordert das primäre Token des Eigentümers."
+      },
+      "v1_tokens_linked_rotate": {
+        "summary": "Verknüpftes Eigentümer-Token erneuern",
+        "description": "Ersetzt nur das ausgewählte verknüpfte Token."
+      },
+      "v1_tokens_linked_update": {
+        "summary": "Verknüpftes Eigentümer-Token ändern",
+        "description": "Ändert Name und Ablaufdatum des ausgewählten verknüpften Tokens."
+      },
+      "v1_tokens_linked_revoke": {
+        "summary": "Verknüpftes Eigentümer-Token widerrufen",
+        "description": "Widerruft das ausgewählte verknüpfte Token sofort und dauerhaft."
       }
     },
     "responses": {
@@ -1355,6 +1422,7 @@
       "asset": "Inhalt der statischen Ressource",
       "bad_request": "Fehlerhafte Anfrage",
       "binary": "Binärer Dateistrom",
+      "forbidden": "Zugriff verweigert",
       "graphql": "Ergebnis der GraphQL-Ausführung",
       "health": "Zustand des Servers",
       "html_page": "HTML-Seite",
@@ -1372,7 +1440,8 @@
       "text_value": "Klartextwert",
       "too_many_requests": "Ratenbegrenzung überschritten",
       "unavailable": "Der Server ist fehlerhaft, im Wartungsmodus oder fährt herunter",
-      "version": "Informationen zur Build-Version"
+      "version": "Informationen zur Build-Version",
+      "conflict": "Die Anfrage steht im Konflikt mit dem aktuellen Tokenstatus"
     },
     "tags": {
       "api_v1": "API v1",
@@ -1390,7 +1459,6 @@
       "title": "IPGaze-API – Swagger-Oberfläche"
     }
   },
-
   "graphql": {
     "args": {
       "checkPort": {
@@ -1545,27 +1613,23 @@
       "variables": "Variablen (JSON)"
     }
   },
-
   "version": {
     "name_version": "{project_name} {project_version}",
     "built": "Erstellt: {build_date}",
     "go": "Go: {go_version}",
     "os_arch": "BS/Arch: {goos}/{goarch}"
   },
-
   "confirm": {
     "delete_title": "Löschen bestätigen",
     "delete_message": "Möchten Sie dieses Element wirklich löschen?",
     "action_irreversible": "Diese Aktion kann nicht rückgängig gemacht werden."
   },
-
   "form": {
     "required_field": "(erforderlich)",
     "optional_field": "(optional)",
     "hint_email": "Wir geben Ihre E-Mail-Adresse niemals weiter.",
     "errors_count": "Das Formular enthält {count} Fehler"
   },
-
   "gui": {
     "title": "IPGaze",
     "subtitle": "Rufen Sie eine IP-Adresse ab und prüfen Sie die Netzwerkdetails.",

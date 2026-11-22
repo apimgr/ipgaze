@@ -280,7 +280,9 @@ The CLI reads/writes `cli.yml` (created automatically on first run, `0600` permi
 
 The server resolves in priority order: `--server` flag > `server.primary` in `cli.yml` > the compiled-in official site. The token resolves through `--token`, `--token-file`, `IPGAZE_TOKEN`, and `cli.yml`. A flag only persists to `cli.yml` if the current config value is empty or invalid — otherwise it's used for that invocation only.
 
-The CLI is an unauthenticated client to ipgaze's open lookup API by default. A token is only needed for protected server operations; this product does not expose token-owned resources.
+The CLI uses ipgaze's public lookup API without a token. A token is needed for
+MCP access or protected server operations: owner or linked tokens identify the
+caller, while the operator token authorizes operator-only operations.
 
 ## Configuration
 

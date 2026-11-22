@@ -150,6 +150,46 @@ The server-wide operator token is stored in `secrets.yml`; issued API tokens are
 | Proxy client-IP headers are gated by `trusted_proxies` | Trusting headers from arbitrary peers enables IP spoofing; only a configured trusted proxy may supply the client IP, with `r.RemoteAddr` as fallback |
 | Coordinated disclosure defaults to the official `ifcfg.us` service and a 90-day window | Keep third-party and self-hosted systems outside the project's authority; exclude disruptive or non-technical testing and protect good-faith research |
 
+### API routes
+
+IPGaze's project-defined lookup API is public and requires no authentication.
+The compatibility routes preserve echoip request and response behavior; the
+versioned routes expose the same lookup operations under `/api/v1`.
+
+| Method | Path | Auth | Purpose and request/response summary |
+|--------|------|------|--------------------------------------|
+| `GET` | `/` | None | Look up the caller's public IP; negotiate HTML, JSON, or plain text and return available address and GeoIP fields. |
+| `GET` | `/json` | None | Return the caller's address and lookup fields as JSON. |
+| `GET` | `/ip` | None | Return the caller's IP address as plain text. |
+| `GET` | `/country` | None | Return the caller's country name when GeoIP data is available. |
+| `GET` | `/country-iso` | None | Return the caller's ISO country code when GeoIP data is available. |
+| `GET` | `/city` | None | Return the caller's city when GeoIP data is available. |
+| `GET` | `/coordinates` | None | Return the caller's latitude and longitude when GeoIP data is available. |
+| `GET` | `/asn` | None | Return the caller's autonomous system number when GeoIP data is available. |
+| `GET` | `/asn-org` | None | Return the caller's autonomous system organization when GeoIP data is available. |
+| `GET` | `/{ip}` | None | Look up the supplied IPv4 or IPv6 address from the path and return its available address and GeoIP fields; invalid addresses are rejected. |
+| `GET` | `/port/{port}` | None | Check TCP reachability for the requested port and return the result. |
+| `GET` | `/api/v1` | None | Return the caller's address and available lookup fields in the standard JSON envelope. |
+| `GET` | `/api/v1/json` | None | Return the caller's address and lookup fields as JSON. |
+| `GET` | `/api/v1/ip` | None | Return the caller's IP address. |
+| `GET` | `/api/v1/ip/{ip}` | None | Look up a supplied IPv4 or IPv6 address and return its available address and GeoIP fields; invalid addresses are rejected. |
+| `GET` | `/api/v1/country` | None | Return the caller's country name when GeoIP data is available. |
+| `GET` | `/api/v1/country-iso` | None | Return the caller's ISO country code when GeoIP data is available. |
+| `GET` | `/api/v1/city` | None | Return the caller's city when GeoIP data is available. |
+| `GET` | `/api/v1/coordinates` | None | Return the caller's latitude and longitude when GeoIP data is available. |
+| `GET` | `/api/v1/asn` | None | Return the caller's autonomous system number when GeoIP data is available. |
+| `GET` | `/api/v1/asn-org` | None | Return the caller's autonomous system organization when GeoIP data is available. |
+| `GET` | `/api/v1/port/{port}` | None | Check TCP reachability for the requested port and return the result. |
+| `GET` | `/api/v1/server/graphql` | None | Serve the GraphQL explorer. |
+| `POST` | `/api/v1/server/graphql` | None | Accept a GraphQL query, optional variables and operation name; return the query result in the GraphQL response shape. |
+
+Where supported, `.txt` selects a plain-text representation. GeoIP-dependent
+fields are available only when the corresponding database is enabled and
+loaded. The versioned API otherwise uses the standard success and error
+envelopes; health responses retain their documented health shape. MCP and
+template-provided server-management routes are defined by AI.md and are not
+project-defined lookup routes.
+
 ---
 
 ### echoip Compatibility

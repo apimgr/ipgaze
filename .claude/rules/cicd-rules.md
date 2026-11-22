@@ -2,10 +2,11 @@
 
 ⚠️ **These rules are NON-NEGOTIABLE. Violations are bugs.** ⚠️
 
-> Synced against AI.md revision `7ac307b1a0b` (2026-11-21). AI.md remains authoritative for complete requirements.
+> Synced against AI.md revision `eb41fb200153` (2026-11-22). AI.md remains authoritative for complete requirements.
 
 ## CRITICAL - NEVER DO
 - **PART 27:** *CI/CD workflows are DIFFERENT from local development. Do NOT mix them.**
+- **PART 27:** Jenkins Go module and build caches live under `${JENKINS_HOME}/cache/${PROJECT_ORG}/${PROJECT_NAME}/go-mod` and `go-build`; create them in Setup and never fall back to a user home directory.
 - **PART 27:** | **Makefile** | ALWAYS use Makefile targets | NEVER use Makefile (explicit commands) |
 - **PART 27:** *CI/CD workflows MUST NOT:**
 - **PART 27:** > **Note:** `ci.yml` and `release.yml` are required on every project. Go projects never have `build-toolchain.yml` — `casjaysdev/go:latest` is maintained externally. `beta.yml`, `devel.yml`, and `docker.yml` are project-specific optional workflows — include only when the project requires them.
@@ -62,4 +63,4 @@
 
 For complete details, see AI.md PART 27.
 
-<!-- AI.md source: 03cc45ec58df -->
+<!-- AI.md source: eb41fb200153 -->

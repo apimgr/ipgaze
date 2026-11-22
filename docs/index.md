@@ -43,6 +43,11 @@ data-sale opt-out from `/server/preferences`. The separate
 link/code. Reset clears site cookies and browser storage while preserving
 security credentials.
 
+Manage owner tokens at [Preferences → Tokens](https://ifcfg.us/server/preferences/tokens); token actions require
+the primary owner credential. The [MCP setup guide](https://ifcfg.us/server/help/mcp)
+explains how to create a linked token for each client and connect it to the
+Streamable HTTP endpoint.
+
 ## Documentation
 
 - [Installation](installation.md) — Docker, binaries, and service management

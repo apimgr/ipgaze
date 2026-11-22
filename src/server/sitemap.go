@@ -7,6 +7,7 @@ import (
 
 	"github.com/apimgr/ipgaze/src/common/i18n"
 	"github.com/apimgr/ipgaze/src/netutil"
+	"github.com/apimgr/ipgaze/src/server/handler"
 )
 
 // sitemapURL is one <url> entry of the sitemaps.org 0.9 schema.
@@ -79,19 +80,27 @@ func (s *Server) sitemapHandler() http.HandlerFunc {
 			return
 		}
 		maxURLs := len(sitemapEntries)
-		if s.config != nil && s.config.Server.SEO.Sitemap.MaxURLs > 0 &&
-			s.config.Server.SEO.Sitemap.MaxURLs < maxURLs {
+		if s.config != nil && s.config.Server.SEO.Sitemap.MaxURLs > 0 && s.config.Server.SEO.Sitemap.MaxURLs < maxURLs {
 			maxURLs = s.config.Server.SEO.Sitemap.MaxURLs
+		}
+		excluded := make(map[string]bool)
+		for _, path := range handler.RegisteredHubPagePaths() {
+			excluded[path] = true
 		}
 		lastMod := s.sitemapLastMod()
 		set := sitemapURLSet{Xmlns: sitemapNamespace}
-		for _, entry := range sitemapEntries[:maxURLs] {
+		added := 0
+		for _, entry := range sitemapEntries {
+			if excluded[entry.path] || added >= maxURLs {
+				continue
+			}
 			set.URLs = append(set.URLs, sitemapURL{
 				Loc:        netutil.BuildURL(r, s.getTrust(), entry.path),
 				LastMod:    lastMod,
 				ChangeFreq: entry.changeFreq,
 				Priority:   entry.priority,
 			})
+			added++
 		}
 		body, err := xml.MarshalIndent(set, "", "  ")
 		if err != nil {

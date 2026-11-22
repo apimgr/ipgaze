@@ -68,7 +68,7 @@ func classifyDBStatement(query string) (string, string) {
 
 func isKnownDBTable(table string) bool {
 	switch strings.ToLower(table) {
-	case "config", "config_meta", "rate_limits", "audit_log", "scheduler_tasks", "scheduler_history", "backups", "api_tokens", "app_secrets", "pgp_keypairs", "ip_blocks", "security_reports", "contact_captcha_challenges":
+	case "config", "config_meta", "rate_limits", "rate_limit_events", "audit_log", "scheduler_tasks", "scheduler_history", "backups", "api_tokens", "app_secrets", "pgp_keypairs", "ip_blocks", "security_reports", "contact_captcha_challenges":
 		return true
 	default:
 		return false

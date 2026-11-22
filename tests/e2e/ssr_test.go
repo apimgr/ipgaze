@@ -101,7 +101,7 @@ func TestSSRLandingPageMatchesJSONForSameVisitor(t *testing.T) {
 func TestSSRSpecificIPLookupReturnsThatIP(t *testing.T) {
 	const target = "8.8.8.8"
 
-	status, body, _ := getBody(t, "/"+target, nil)
+	status, body, _ := getBody(t, "/"+target, http.Header{"Accept": []string{"application/json"}})
 	if status != http.StatusOK {
 		t.Fatalf("GET /%s returned %d, want 200", target, status)
 	}
@@ -113,7 +113,7 @@ func TestSSRSpecificIPLookupReturnsThatIP(t *testing.T) {
 		t.Errorf("GET /%s reports ip=%v, want %q", target, payload["ip"], target)
 	}
 
-	status, field, _ := getBody(t, "/"+target+"/ip", nil)
+	status, field, _ := getBody(t, "/"+target+"/ip", http.Header{"Accept": []string{"text/plain"}})
 	if status != http.StatusOK {
 		t.Fatalf("GET /%s/ip returned %d, want 200", target, status)
 	}
@@ -121,7 +121,7 @@ func TestSSRSpecificIPLookupReturnsThatIP(t *testing.T) {
 		t.Errorf("GET /%s/ip returned %q, want %q", target, strings.TrimSpace(field), target)
 	}
 
-	status, apiBody, _ := getBody(t, "/api/v1/ip/"+target, nil)
+	status, apiBody, _ := getBody(t, "/api/v1/ip/"+target, http.Header{"Accept": []string{"application/json"}})
 	if status != http.StatusOK {
 		t.Fatalf("GET /api/v1/ip/%s returned %d, want 200", target, status)
 	}
@@ -155,7 +155,7 @@ func TestSSRContentNegotiationHonoursClient(t *testing.T) {
 		t.Error("Accept: application/json on / returned JSON without an ip field")
 	}
 
-	_, curlBody, _ := getBody(t, "/", http.Header{"User-Agent": []string{"curl/8.5.0"}})
+	_, curlBody, _ := getBody(t, "/", http.Header{"User-Agent": []string{"curl/8.5.0"}, "Accept": []string{"*/*"}})
 	if strings.Contains(strings.ToLower(curlBody), "<html") {
 		t.Error("curl user-agent on / returned HTML instead of plain text")
 	}
@@ -192,13 +192,14 @@ func TestSSRStandardServerPagesRender(t *testing.T) {
 		title    string
 		fragment string
 	}{
-		{"/server/about", "<title>About — ", "About ipgaze</h1>"},
+		{"/server/about", "<title>About — ", "About — IPGaze</h1>"},
 		{"/server/help", "<title>", "<h1"},
 		{"/server/privacy", "<title>", "<h1"},
 		{"/server/terms", "<title>", "<h1"},
 		{"/server/contact", "<title>", "<form"},
-		{"/server/preferences", "<title>Preferences — ", "preferences-export-code"},
-		{"/server/healthz", "<title>System Status — ", "status-banner"},
+		{"/server/preferences", "<title>Preferences — ", "more-preferences"},
+		{"/server/preferences/sync", "<title>Preference sync — ", "preferences-export-code"},
+		{"/server/healthz", "<title>", "status-banner"},
 	}
 	for _, tc := range cases {
 		status, body, header := getBody(t, tc.path, nil)
@@ -320,6 +321,7 @@ func TestSSRAPIDocsPagesRender(t *testing.T) {
 	if len(documented) == 0 {
 		t.Fatal("OpenAPI spec documents no paths at all")
 	}
+	optionalWhenUnconfigured := map[string]bool{"/.well-known/pgp-key.asc": true}
 	for _, path := range documented {
 		if strings.Contains(path, "{") {
 			path = strings.NewReplacer("{ip}", "8.8.8.8", "{field}", "ip").Replace(path)
@@ -329,11 +331,11 @@ func TestSSRAPIDocsPagesRender(t *testing.T) {
 		}
 		res := browserRequest(t, http.MethodGet, path, nil)
 		res.Body.Close()
-		if res.StatusCode == http.StatusNotFound {
+		if res.StatusCode == http.StatusNotFound && !optionalWhenUnconfigured[path] {
 			t.Errorf("OpenAPI spec documents %s but the server returns 404 for it", path)
 		}
 	}
-	status, _, _ := getBody(t, "/security.txt", nil)
+	status, _, _ = getBody(t, "/security.txt", nil)
 	if status != http.StatusNotFound {
 		t.Errorf("GET /security.txt returned %d, want 404", status)
 	}
@@ -487,7 +489,7 @@ func TestSSRFormsCarryCSRFTokenAndEnforceIt(t *testing.T) {
 }
 
 func TestSSRPreferencesImportSetsCookiesAndRedirects(t *testing.T) {
-	res := browserRequest(t, http.MethodGet, "/server/preferences/import?theme=light&lang=es", nil)
+	res := browserRequest(t, http.MethodGet, "/server/preferences/sync/import?theme=light&lang=es", nil)
 	res.Body.Close()
 	if res.StatusCode != http.StatusSeeOther {
 		t.Fatalf("preferences import returned %d, want 303", res.StatusCode)
@@ -507,7 +509,7 @@ func TestSSRPreferencesImportSetsCookiesAndRedirects(t *testing.T) {
 	}
 
 	// An unknown value must be dropped, never applied and never a hard error.
-	rejected := browserRequest(t, http.MethodGet, "/server/preferences/import?theme=neon&lang=xx", nil)
+	rejected := browserRequest(t, http.MethodGet, "/server/preferences/sync/import?theme=neon&lang=xx", nil)
 	rejected.Body.Close()
 	if rejected.StatusCode != http.StatusSeeOther {
 		t.Fatalf("import of unknown values returned %d, want 303", rejected.StatusCode)

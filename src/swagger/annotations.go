@@ -50,9 +50,11 @@ var swaggerDefaults = map[string]string{
 	"swagger.responses.invalid_port":                   "Invalid port number",
 	"swagger.responses.not_found":                      "Resource not found",
 	"swagger.responses.bad_request":                    "Malformed request",
+	"swagger.responses.forbidden":                      "Permission denied",
 	"swagger.responses.unauthorized":                   "Bearer token is missing or invalid",
 	"swagger.responses.unavailable":                    "Server is unhealthy, in maintenance mode, or shutting down",
 	"swagger.responses.too_many_requests":              "Rate limit exceeded",
+	"swagger.responses.conflict":                       "The request conflicts with the current token state",
 	"swagger.paths.server_tracking_script.summary":     "Load consented analytics",
 	"swagger.paths.server_tracking_script.description": "Returns a no-cache analytics loader only when analytics consent is present; unavailable when tracking is disabled or the request uses Tor or I2P.",
 	"swagger.paths.server_dpo.summary":                 "View DPO contact details",
@@ -65,17 +67,39 @@ var swaggerDefaults = map[string]string{
 	"swagger.params.asset_path":                  "Path of the asset below /static/",
 	"swagger.params.filename_path":               "Command-line client file name, for example ipgaze-linux-amd64",
 	"swagger.params.theme_query":                 "Theme to apply: dark, light or auto",
+	"swagger.params.ipgaze_pref_widget_query":    "Default lookup example: ip, country, country-iso, city, asn, json or port",
 	"swagger.params.lang_query":                  "Locale to apply, as a BCP 47 code",
 	"swagger.params.code_query":                  "Base64url-encoded preference code produced by the export endpoint",
 	"swagger.params.security_report_tracking_id": "Tracking identifier returned after submitting a security report.",
+	"swagger.params.token_id":                    "Numeric identifier of the linked owner token",
 
-	"swagger.bodies.graphql":     "GraphQL query, variables and operation name",
-	"swagger.bodies.contact":     "Contact form submission",
-	"swagger.bodies.consent":     "Cookie consent selection",
-	"swagger.bodies.ccpa":        "CCPA opt-out selection",
-	"swagger.bodies.preferences": "Theme and locale preference update",
-	"swagger.bodies.report":      "Browser-generated report payload",
-	"swagger.bodies.dismiss":     "Announcement identifier to dismiss",
+	"swagger.bodies.graphql":                             "GraphQL query, variables and operation name",
+	"swagger.bodies.contact":                             "Contact form submission",
+	"swagger.bodies.consent":                             "Cookie consent selection",
+	"swagger.bodies.ccpa":                                "CCPA opt-out selection",
+	"swagger.bodies.preferences":                         "Theme and locale preference update",
+	"swagger.bodies.preferences_sync":                    "Preference code or link to import",
+	"swagger.bodies.report":                              "Browser-generated report payload",
+	"swagger.bodies.dismiss":                             "Announcement identifier to dismiss",
+	"swagger.bodies.linked_token_update":                 "New linked-token name and expiry value",
+	"swagger.paths.v1_tokens_list.summary":               "List owner tokens",
+	"swagger.paths.v1_tokens_list.description":           "Returns masked primary and linked token metadata for the authenticated owner. Token values are never returned by list operations.",
+	"swagger.paths.v1_tokens_issue.summary":              "Issue a primary owner token",
+	"swagger.paths.v1_tokens_issue.description":          "Creates a new owner and primary token when the caller has no valid token. The raw token is returned in this response only.",
+	"swagger.paths.v1_tokens_primary_reveal.summary":     "Reveal the primary owner token",
+	"swagger.paths.v1_tokens_primary_reveal.description": "Decrypts and returns the authenticated owner's primary token. Requires the primary token.",
+	"swagger.paths.v1_tokens_primary_rotate.summary":     "Rotate the primary owner token",
+	"swagger.paths.v1_tokens_primary_rotate.description": "Replaces the authenticated owner's primary token in place; linked tokens remain valid.",
+	"swagger.paths.v1_tokens_linked_create.summary":      "Create a linked owner token",
+	"swagger.paths.v1_tokens_linked_create.description":  "Creates a linked token for the authenticated owner with the supplied name and optional expiry.",
+	"swagger.paths.v1_tokens_linked_reveal.summary":      "Reveal a linked owner token",
+	"swagger.paths.v1_tokens_linked_reveal.description":  "Decrypts and returns the selected linked token. Requires the owner's primary token.",
+	"swagger.paths.v1_tokens_linked_rotate.summary":      "Rotate a linked owner token",
+	"swagger.paths.v1_tokens_linked_rotate.description":  "Replaces the selected linked token in place without affecting other owner tokens.",
+	"swagger.paths.v1_tokens_linked_update.summary":      "Update a linked owner token",
+	"swagger.paths.v1_tokens_linked_update.description":  "Changes the selected linked token's name and expiry.",
+	"swagger.paths.v1_tokens_linked_revoke.summary":      "Revoke a linked owner token",
+	"swagger.paths.v1_tokens_linked_revoke.description":  "Immediately and permanently revokes the selected linked token.",
 
 	"swagger.common.txt_variant":  "Plain-text variant of the matching endpoint; the .txt suffix forces a text/plain response regardless of the Accept header.",
 	"swagger.common.api_mirror":   "JSON mirror of the matching web page, per the web-route to API-route parity rule.",
@@ -159,104 +183,106 @@ var swaggerDefaults = map[string]string{
 	"swagger.paths.cli_binary.summary":            "Download a command-line client binary",
 	"swagger.paths.cli_binary.description":        "Streams the command-line client binary for the requested operating system and architecture.",
 
-	"swagger.paths.server_index.summary":                      "Server information index",
-	"swagger.paths.server_index.description":                  "Redirects to the server about page.",
-	"swagger.paths.server_about.summary":                      "About this server",
-	"swagger.paths.server_about.description":                  "Returns the about page describing the service, its version and its operator.",
-	"swagger.paths.server_help.summary":                       "Usage help",
-	"swagger.paths.server_help.description":                   "Returns the usage page documenting every endpoint with copy-and-paste examples.",
-	"swagger.paths.server_help_mcp.summary":                   "MCP connection guide",
-	"swagger.paths.server_help_mcp.description":               "Returns the client setup guide for the optional Model Context Protocol endpoint.",
-	"swagger.paths.server_privacy.summary":                    "Privacy policy",
-	"swagger.paths.server_privacy.description":                "Returns the privacy policy, including what is logged, for how long, and the available opt-outs.",
-	"swagger.paths.server_contact.summary":                    "Contact page",
-	"swagger.paths.server_contact.description":                "Returns the contact form for reaching the server operator.",
-	"swagger.paths.server_contact_post.summary":               "Submit the contact form",
-	"swagger.paths.server_contact_post.description":           "Validates and delivers a contact message to the configured operator address.",
-	"swagger.paths.server_terms.summary":                      "Terms of service",
-	"swagger.paths.server_terms.description":                  "Returns the terms governing use of this service.",
-	"swagger.paths.server_security_policy.summary":            "Security disclosure policy",
-	"swagger.paths.server_security_policy.description":        "Returns the coordinated disclosure window, in-scope service, exclusions and safe-harbor terms.",
-	"swagger.paths.server_security_thanks.summary":            "Security acknowledgments",
-	"swagger.paths.server_security_thanks.description":        "Lists researchers who consented to public acknowledgment.",
-	"swagger.paths.server_security_report_status.summary":     "Check security report status",
-	"swagger.paths.server_security_report_status.description": "Shows current triage status using the one-shot token from the acknowledgment email.",
-	"swagger.paths.server_consent.summary":                    "Record cookie consent",
-	"swagger.paths.server_consent.description":                "Stores the visitor's cookie consent choice in a browser cookie. Consent is per-browser and is never persisted server-side.",
-	"swagger.paths.server_ccpa.summary":                       "Record a CCPA opt-out",
-	"swagger.paths.server_ccpa.description":                   "Stores the visitor's CCPA do-not-sell opt-out in a browser cookie.",
-	"swagger.paths.server_preferences.summary":                "Preferences page",
-	"swagger.paths.server_preferences.description":            "Returns the preferences page for choosing a theme and a locale.",
-	"swagger.paths.server_preferences_post.summary":           "Update preferences",
-	"swagger.paths.server_preferences_post.description":       "Validates the submitted theme and locale and stores them as browser cookies.",
-	"swagger.paths.server_preferences_export.summary":         "Export preferences",
-	"swagger.paths.server_preferences_export.description":     "Returns the current theme and locale as both a full import URL and a short base64url code, so preferences can be carried to another browser.",
-	"swagger.paths.server_preferences_import.summary":         "Import preferences",
-	"swagger.paths.server_preferences_import.description":     "Decodes and validates the supplied preference values, sets the matching cookies and redirects, so the code never lingers in the visible URL.",
-	"swagger.paths.announcements_dismiss.summary":             "Dismiss an announcement",
-	"swagger.paths.announcements_dismiss.description":         "Marks a site announcement as dismissed for this browser.",
+	"swagger.paths.server_index.summary":                       "Server information index",
+	"swagger.paths.server_index.description":                   "Redirects to the server about page.",
+	"swagger.paths.server_about.summary":                       "About this server",
+	"swagger.paths.server_about.description":                   "Returns the about page describing the service, its version and its operator.",
+	"swagger.paths.server_help.summary":                        "Usage help",
+	"swagger.paths.server_help.description":                    "Returns the usage page documenting every endpoint with copy-and-paste examples.",
+	"swagger.paths.server_help_mcp.summary":                    "MCP connection guide",
+	"swagger.paths.server_help_mcp.description":                "Returns the client setup guide for the always-available Model Context Protocol endpoint.",
+	"swagger.paths.server_privacy.summary":                     "Privacy policy",
+	"swagger.paths.server_privacy.description":                 "Returns the privacy policy, including what is logged, for how long, and the available opt-outs.",
+	"swagger.paths.server_contact.summary":                     "Contact page",
+	"swagger.paths.server_contact.description":                 "Returns the contact form for reaching the server operator.",
+	"swagger.paths.server_contact_post.summary":                "Submit the contact form",
+	"swagger.paths.server_contact_post.description":            "Validates and delivers a contact message to the configured operator address.",
+	"swagger.paths.server_terms.summary":                       "Terms of service",
+	"swagger.paths.server_terms.description":                   "Returns the terms governing use of this service.",
+	"swagger.paths.server_security_policy.summary":             "Security disclosure policy",
+	"swagger.paths.server_security_policy.description":         "Returns the coordinated disclosure window, in-scope service, exclusions and safe-harbor terms.",
+	"swagger.paths.server_security_thanks.summary":             "Security acknowledgments",
+	"swagger.paths.server_security_thanks.description":         "Lists researchers who consented to public acknowledgment.",
+	"swagger.paths.server_security_report_status.summary":      "Check security report status",
+	"swagger.paths.server_security_report_status.description":  "Shows current triage status using the one-shot token from the acknowledgment email.",
+	"swagger.paths.server_consent.summary":                     "Record cookie consent",
+	"swagger.paths.server_consent.description":                 "Stores the visitor's cookie consent choice in a browser cookie. Consent is per-browser and is never persisted server-side.",
+	"swagger.paths.server_ccpa.summary":                        "Record a CCPA opt-out",
+	"swagger.paths.server_ccpa.description":                    "Stores the visitor's CCPA do-not-sell opt-out in a browser cookie.",
+	"swagger.paths.server_preferences.summary":                 "Preferences page",
+	"swagger.paths.server_preferences.description":             "Returns the preferences page for choosing a theme and a locale.",
+	"swagger.paths.server_preferences_post.summary":            "Update preferences",
+	"swagger.paths.server_preferences_post.description":        "Validates the submitted theme and locale and stores them as browser cookies.",
+	"swagger.paths.server_preferences_sync.summary":            "Sync preferences",
+	"swagger.paths.server_preferences_sync.description":        "Exports guest preferences or imports a preference code.",
+	"swagger.paths.server_preferences_sync_post.summary":       "Import preferences",
+	"swagger.paths.server_preferences_sync_post.description":   "Applies validated guest preferences from the submitted code and redirects.",
+	"swagger.paths.server_preferences_sync_import.summary":     "Import preferences",
+	"swagger.paths.server_preferences_sync_import.description": "Applies validated guest preferences and redirects without retaining the code in the visible URL.",
+	"swagger.paths.announcements_dismiss.summary":              "Dismiss an announcement",
+	"swagger.paths.announcements_dismiss.description":          "Marks a site announcement as dismissed for this browser.",
 
-	"swagger.paths.v1_info.summary":                   "Get full IP info (API v1)",
-	"swagger.paths.v1_info.description":               "Returns the complete IP record as JSON, identical to /json.",
-	"swagger.paths.v1_ip.summary":                     "Get your IP (API v1)",
-	"swagger.paths.v1_ip.description":                 "Returns only the caller's IP address.",
-	"swagger.paths.v1_ip_lookup.summary":              "Look up a specific IP (API v1)",
-	"swagger.paths.v1_ip_lookup.description":          "Returns GeoIP, ASN and reverse DNS information for any IPv4 or IPv6 address.",
-	"swagger.paths.v1_country.summary":                "Get country (API v1)",
-	"swagger.paths.v1_country.description":            "Returns the country name resolved for the caller's IP address.",
-	"swagger.paths.v1_city.summary":                   "Get city (API v1)",
-	"swagger.paths.v1_city.description":               "Returns the city name resolved for the caller's IP address.",
-	"swagger.paths.v1_asn.summary":                    "Get ASN (API v1)",
-	"swagger.paths.v1_asn.description":                "Returns the Autonomous System Number announcing the caller's IP address.",
-	"swagger.paths.v1_healthz.summary":                "Health check (API v1)",
-	"swagger.paths.v1_healthz.description":            "Returns the full server health record as JSON. Always JSON, with no content negotiation.",
-	"swagger.paths.v1_healthz_txt.summary":            "Health check (API v1, .txt)",
-	"swagger.paths.v1_version.summary":                "Get build version",
-	"swagger.paths.v1_version.description":            "Returns the running version, the source commit and the build date.",
-	"swagger.paths.v1_about.summary":                  "About this server (API v1)",
-	"swagger.paths.v1_help.summary":                   "Usage help (API v1)",
-	"swagger.paths.v1_help_mcp.summary":               "MCP connection help (API v1)",
-	"swagger.paths.v1_privacy.summary":                "Privacy policy (API v1)",
-	"swagger.paths.v1_dpo.summary":                    "DPO contact details (API v1)",
-	"swagger.paths.v1_terms.summary":                  "Terms of service (API v1)",
-	"swagger.paths.v1_security_policy.summary":        "Security disclosure policy (API v1)",
-	"swagger.paths.v1_security_thanks.summary":        "Security acknowledgments (API v1)",
-	"swagger.paths.v1_contact.summary":                "Submit the contact form (API v1)",
-	"swagger.paths.v1_contact.description":            "Validates and delivers a contact message, returning the result as JSON.",
-	"swagger.paths.v1_contact_get.summary":            "Get contact form definition (API v1)",
-	"swagger.paths.v1_contact_get.description":        "Returns the public contact form fields, captcha descriptor, security URL and abuse contact address.",
-	"swagger.paths.v1_auth_check.summary":             "Validate operator token (API v1)",
-	"swagger.paths.v1_auth_check.description":         "Requires an Authorization: Bearer token. Returns its kind when valid and 401 otherwise; the token is never returned.",
-	"swagger.paths.v1_preferences.summary":            "Get preferences (API v1)",
-	"swagger.paths.v1_preferences.description":        "Returns the theme and locale currently stored in the caller's cookies.",
-	"swagger.paths.v1_preferences_update.summary":     "Update preferences (API v1)",
-	"swagger.paths.v1_preferences_update.description": "Validates the submitted theme, stores it as a browser cookie and returns the updated preferences.",
-	"swagger.paths.v1_preferences_export.summary":     "Export preferences (API v1)",
-	"swagger.paths.v1_preferences_export.description": "Returns the current theme and locale as a full import URL and a short base64url code.",
-	"swagger.paths.v1_preferences_import.summary":     "Import preferences (API v1)",
-	"swagger.paths.v1_preferences_import.description": "Decodes and validates the supplied preference values and sets the matching cookies.",
-	"swagger.paths.v1_swagger.summary":                "OpenAPI document (API v1)",
-	"swagger.paths.v1_swagger.description":            "Returns this OpenAPI 3.0 document as JSON from the versioned API path.",
-	"swagger.paths.v1_graphql_get.summary":            "GraphQL explorer (API v1)",
-	"swagger.paths.v1_graphql_post.summary":           "Execute a GraphQL query (API v1)",
-	"swagger.paths.v1_json.summary":                   "Get full IP info as JSON (API v1)",
-	"swagger.paths.v1_json.description":               "Returns the complete IP record as JSON, the API mirror of /json.",
-	"swagger.paths.v1_country_iso.summary":            "Get country ISO code (API v1)",
-	"swagger.paths.v1_country_iso.description":        "Returns the ISO 3166-1 alpha-2 country code resolved for the caller's IP address.",
-	"swagger.paths.v1_coordinates.summary":            "Get coordinates (API v1)",
-	"swagger.paths.v1_coordinates.description":        "Returns the latitude and longitude resolved for the caller's IP address as comma-separated decimal degrees.",
-	"swagger.paths.v1_asn_org.summary":                "Get ASN organization (API v1)",
-	"swagger.paths.v1_asn_org.description":            "Returns the organization name that owns the Autonomous System announcing the caller's IP address.",
-	"swagger.paths.v1_port_check.summary":             "Check port reachability (API v1)",
-	"swagger.paths.v1_port_check.description":         "Opens a TCP connection from the server back to the caller's IP address on the requested port and reports whether it succeeded.",
-	"swagger.paths.v1_consent.summary":                "Record cookie consent (API v1)",
-	"swagger.paths.v1_consent.description":            "Stores the visitor's cookie consent choice in a browser cookie and answers 204 with no body.",
-	"swagger.paths.v1_ccpa.summary":                   "Record a CCPA opt-out (API v1)",
-	"swagger.paths.v1_ccpa.description":               "Stores the visitor's CCPA do-not-sell opt-out in a browser cookie and answers 204 with no body.",
-	"swagger.paths.v1_dismiss.summary":                "Dismiss an announcement (API v1)",
-	"swagger.paths.v1_dismiss.description":            "Marks a site announcement as dismissed for this browser and answers 204 with no body.",
-	"swagger.paths.sitemap.summary":                   "Sitemap",
-	"swagger.paths.sitemap.description":               "Returns the search-engine sitemap listing every public page of this server.",
+	"swagger.paths.v1_info.summary":                        "Get full IP info (API v1)",
+	"swagger.paths.v1_info.description":                    "Returns the complete IP record as JSON, identical to /json.",
+	"swagger.paths.v1_ip.summary":                          "Get your IP (API v1)",
+	"swagger.paths.v1_ip.description":                      "Returns only the caller's IP address.",
+	"swagger.paths.v1_ip_lookup.summary":                   "Look up a specific IP (API v1)",
+	"swagger.paths.v1_ip_lookup.description":               "Returns GeoIP, ASN and reverse DNS information for any IPv4 or IPv6 address.",
+	"swagger.paths.v1_country.summary":                     "Get country (API v1)",
+	"swagger.paths.v1_country.description":                 "Returns the country name resolved for the caller's IP address.",
+	"swagger.paths.v1_city.summary":                        "Get city (API v1)",
+	"swagger.paths.v1_city.description":                    "Returns the city name resolved for the caller's IP address.",
+	"swagger.paths.v1_asn.summary":                         "Get ASN (API v1)",
+	"swagger.paths.v1_asn.description":                     "Returns the Autonomous System Number announcing the caller's IP address.",
+	"swagger.paths.v1_healthz.summary":                     "Health check (API v1)",
+	"swagger.paths.v1_healthz.description":                 "Returns the full server health record as JSON. Always JSON, with no content negotiation.",
+	"swagger.paths.v1_healthz_txt.summary":                 "Health check (API v1, .txt)",
+	"swagger.paths.v1_version.summary":                     "Get build version",
+	"swagger.paths.v1_version.description":                 "Returns the running version, the source commit and the build date.",
+	"swagger.paths.v1_about.summary":                       "About this server (API v1)",
+	"swagger.paths.v1_help.summary":                        "Usage help (API v1)",
+	"swagger.paths.v1_help_mcp.summary":                    "MCP connection help (API v1)",
+	"swagger.paths.v1_privacy.summary":                     "Privacy policy (API v1)",
+	"swagger.paths.v1_dpo.summary":                         "DPO contact details (API v1)",
+	"swagger.paths.v1_terms.summary":                       "Terms of service (API v1)",
+	"swagger.paths.v1_security_policy.summary":             "Security disclosure policy (API v1)",
+	"swagger.paths.v1_security_thanks.summary":             "Security acknowledgments (API v1)",
+	"swagger.paths.v1_contact.summary":                     "Submit the contact form (API v1)",
+	"swagger.paths.v1_contact.description":                 "Validates and delivers a contact message, returning the result as JSON.",
+	"swagger.paths.v1_contact_get.summary":                 "Get contact form definition (API v1)",
+	"swagger.paths.v1_contact_get.description":             "Returns the public contact form fields, captcha descriptor, security URL and abuse contact address.",
+	"swagger.paths.v1_auth_check.summary":                  "Validate operator token (API v1)",
+	"swagger.paths.v1_auth_check.description":              "Requires an Authorization: Bearer token. Returns its kind when valid and 401 otherwise; the token is never returned.",
+	"swagger.paths.v1_preferences.summary":                 "Get preferences (API v1)",
+	"swagger.paths.v1_preferences.description":             "Returns the theme, locale and application preferences currently stored in the caller's cookies.",
+	"swagger.paths.v1_preferences_update.summary":          "Update preferences (API v1)",
+	"swagger.paths.v1_preferences_update.description":      "Validates the submitted theme, stores it as a browser cookie and returns the updated preferences.",
+	"swagger.paths.v1_preferences_sync.summary":            "Sync preferences (API v1)",
+	"swagger.paths.v1_preferences_sync.description":        "Returns the current guest preferences as a full import URL and a short base64url code.",
+	"swagger.paths.v1_preferences_sync_import.summary":     "Import preferences (API v1)",
+	"swagger.paths.v1_preferences_sync_import.description": "Decodes and validates preference values and sets matching cookies.",
+	"swagger.paths.v1_swagger.summary":                     "OpenAPI document (API v1)",
+	"swagger.paths.v1_swagger.description":                 "Returns this OpenAPI 3.0 document as JSON from the versioned API path.",
+	"swagger.paths.v1_graphql_get.summary":                 "GraphQL explorer (API v1)",
+	"swagger.paths.v1_graphql_post.summary":                "Execute a GraphQL query (API v1)",
+	"swagger.paths.v1_json.summary":                        "Get full IP info as JSON (API v1)",
+	"swagger.paths.v1_json.description":                    "Returns the complete IP record as JSON, the API mirror of /json.",
+	"swagger.paths.v1_country_iso.summary":                 "Get country ISO code (API v1)",
+	"swagger.paths.v1_country_iso.description":             "Returns the ISO 3166-1 alpha-2 country code resolved for the caller's IP address.",
+	"swagger.paths.v1_coordinates.summary":                 "Get coordinates (API v1)",
+	"swagger.paths.v1_coordinates.description":             "Returns the latitude and longitude resolved for the caller's IP address as comma-separated decimal degrees.",
+	"swagger.paths.v1_asn_org.summary":                     "Get ASN organization (API v1)",
+	"swagger.paths.v1_asn_org.description":                 "Returns the organization name that owns the Autonomous System announcing the caller's IP address.",
+	"swagger.paths.v1_port_check.summary":                  "Check port reachability (API v1)",
+	"swagger.paths.v1_port_check.description":              "Opens a TCP connection from the server back to the caller's IP address on the requested port and reports whether it succeeded.",
+	"swagger.paths.v1_consent.summary":                     "Record cookie consent (API v1)",
+	"swagger.paths.v1_consent.description":                 "Stores the visitor's cookie consent choice in a browser cookie and answers 204 with no body.",
+	"swagger.paths.v1_ccpa.summary":                        "Record a CCPA opt-out (API v1)",
+	"swagger.paths.v1_ccpa.description":                    "Stores the visitor's CCPA do-not-sell opt-out in a browser cookie and answers 204 with no body.",
+	"swagger.paths.v1_dismiss.summary":                     "Dismiss an announcement (API v1)",
+	"swagger.paths.v1_dismiss.description":                 "Marks a site announcement as dismissed for this browser and answers 204 with no body.",
+	"swagger.paths.sitemap.summary":                        "Sitemap",
+	"swagger.paths.sitemap.description":                    "Returns the search-engine sitemap listing every public page of this server.",
 
 	"swagger.paths.report_csp.summary":          "Content Security Policy report",
 	"swagger.paths.report_nel.summary":          "Network Error Logging report",
@@ -291,21 +317,24 @@ type apiErr struct {
 // so operations that share wording (the .txt variants, the API mirrors) do not
 // duplicate translation strings.
 type routeDoc struct {
-	path         string
-	runtimePath  string
-	runtimeAlias bool
-	method       string
-	id           string
-	descKey      string
-	tagSlug      string
-	params       []Parameter
-	okSlug       string
-	content      map[string]MediaType
-	bodySlug     string
-	bodySchema   *Schema
-	errs         []apiErr
-	statusOK     string
-	requiresAuth bool
+	path          string
+	runtimePath   string
+	runtimeAlias  bool
+	method        string
+	id            string
+	summaryKey    string
+	descKey       string
+	tagSlug       string
+	params        []Parameter
+	okSlug        string
+	content       map[string]MediaType
+	bodySlug      string
+	bodySchema    *Schema
+	bodyMediaType string
+	bodyOptional  bool
+	errs          []apiErr
+	statusOK      string
+	requiresAuth  bool
 }
 
 // RouteDefinition exposes the stable HTTP identity shared by runtime API
@@ -374,6 +403,22 @@ func textPlain(example string) map[string]MediaType {
 func htmlPage() map[string]MediaType {
 	return map[string]MediaType{
 		"text/html": {Schema: &Schema{Type: "string"}},
+	}
+}
+
+func negotiatedPreferences() map[string]MediaType {
+	return map[string]MediaType{
+		"application/json": {Schema: &Schema{Ref: "#/components/schemas/PreferencesExportResponse"}},
+		"text/plain":       {Schema: &Schema{Type: "string", Example: "URL: https://host/server/preferences/sync/import?lang=en&theme=dark\nCode: bGFuZz1lbiZ0aGVtZT1kYXJr\n"}},
+		"text/html":        {Schema: &Schema{Type: "string"}},
+	}
+}
+
+func negotiatedPreferencesCurrent() map[string]MediaType {
+	return map[string]MediaType{
+		"application/json": {Schema: &Schema{Ref: "#/components/schemas/PreferencesResponse"}},
+		"text/plain":       {Schema: &Schema{Type: "string"}},
+		"text/html":        {Schema: &Schema{Type: "string"}},
 	}
 }
 
@@ -454,6 +499,7 @@ func routeDocs(lang string) []routeDoc {
 		param(lang, "theme", "query", "theme_query", false, stringSchema()),
 		param(lang, "lang", "query", "lang_query", false, stringSchema()),
 		param(lang, "code", "query", "code_query", false, stringSchema()),
+		param(lang, "ipgaze_pref_widget", "query", "ipgaze_pref_widget_query", false, stringSchema()),
 	}
 
 	docs := []routeDoc{
@@ -523,10 +569,22 @@ func routeDocs(lang string) []routeDoc {
 		{path: "/server/security/report/{tracking_id}", method: "get", id: "server_security_report_status", tagSlug: "pages", params: []Parameter{param(lang, "tracking_id", "path", "security_report_tracking_id", true, &Schema{Type: "string"})}, okSlug: "html_page", content: htmlPage()},
 		{path: "/server/consent", method: "post", id: "server_consent", tagSlug: "pages", okSlug: "redirect", content: htmlPage(), statusOK: "303", bodySlug: "consent", bodySchema: &Schema{Type: "object"}},
 		{path: "/server/ccpa", method: "post", id: "server_ccpa", tagSlug: "pages", okSlug: "redirect", content: htmlPage(), statusOK: "303", bodySlug: "ccpa", bodySchema: &Schema{Type: "object"}},
-		{path: "/server/preferences", method: "get", id: "server_preferences", tagSlug: "pages", okSlug: "html_page", content: htmlPage()},
-		{path: "/server/preferences", method: "post", id: "server_preferences_post", tagSlug: "pages", okSlug: "redirect", content: htmlPage(), statusOK: "303", bodySlug: "preferences", bodySchema: &Schema{Ref: "#/components/schemas/PreferencesRequest"}, errs: []apiErr{{"400", "bad_request"}}},
-		{path: "/server/preferences/export", method: "get", id: "server_preferences_export", tagSlug: "pages", okSlug: "html_page", content: htmlPage()},
-		{path: "/server/preferences/import", method: "get", id: "server_preferences_import", tagSlug: "pages", params: prefsQuery, okSlug: "redirect", content: htmlPage(), statusOK: "303", errs: []apiErr{{"400", "bad_request"}}},
+		{path: "/server/preferences", method: "get", id: "server_preferences", tagSlug: "pages", okSlug: "html_page", content: negotiatedPreferencesCurrent()},
+		{path: "/server/preferences", method: "post", id: "server_preferences_post", tagSlug: "pages", okSlug: "redirect", statusOK: "303", bodySlug: "preferences", bodySchema: &Schema{Type: "object", Properties: map[string]Schema{"csrf_token": {Type: "string"}, "redirect": {Type: "string"}, "theme": {Type: "string"}, "lang": {Type: "string"}, "ipgaze_pref_widget": {Type: "string"}, "consent_form": {Type: "string"}, "consent_preferences": {Type: "string"}, "consent_analytics": {Type: "string"}, "ccpa_opt_out": {Type: "string"}, "action": {Type: "string"}}}, bodyMediaType: "application/x-www-form-urlencoded", bodyOptional: true, errs: []apiErr{{"403", "forbidden"}}},
+		{path: "/server/preferences/tokens", method: "get", id: "server_preferences_tokens", summaryKey: "v1_tokens_list", tagSlug: "pages", okSlug: "html_page", content: htmlPage()},
+		{path: "/server/preferences/token/create", method: "post", id: "server_preferences_token_create", summaryKey: "v1_tokens_issue", tagSlug: "pages", okSlug: "html_page", content: htmlPage(), bodyMediaType: "application/x-www-form-urlencoded", bodyOptional: true},
+		{path: "/server/preferences/token/restore", method: "post", id: "server_preferences_token_restore", summaryKey: "v1_tokens_issue", tagSlug: "pages", okSlug: "redirect", content: htmlPage(), statusOK: "303", bodySlug: "linked_token_update", bodySchema: &Schema{Type: "object"}, bodyMediaType: "application/x-www-form-urlencoded"},
+		{path: "/server/preferences/token/reveal", method: "post", id: "server_preferences_token_reveal", summaryKey: "v1_tokens_primary_reveal", tagSlug: "pages", okSlug: "html_page", content: htmlPage()},
+		{path: "/server/preferences/token/rotate", method: "post", id: "server_preferences_token_rotate", summaryKey: "v1_tokens_primary_rotate", tagSlug: "pages", okSlug: "html_page", content: htmlPage()},
+		{path: "/server/preferences/token/forget", method: "post", id: "server_preferences_token_forget", summaryKey: "v1_tokens_list", tagSlug: "pages", okSlug: "redirect", content: htmlPage(), statusOK: "303", bodySlug: "linked_token_update", bodySchema: &Schema{Type: "object"}, bodyMediaType: "application/x-www-form-urlencoded"},
+		{path: "/server/preferences/tokens", method: "post", id: "server_preferences_tokens_create", summaryKey: "v1_tokens_linked_create", tagSlug: "pages", okSlug: "html_page", content: htmlPage(), bodyMediaType: "application/x-www-form-urlencoded"},
+		{path: "/server/preferences/tokens/{id}/reveal", method: "post", id: "server_preferences_tokens_reveal", summaryKey: "v1_tokens_linked_reveal", tagSlug: "pages", params: []Parameter{param(lang, "id", "path", "token_id", true, intSchema())}, okSlug: "html_page", content: htmlPage()},
+		{path: "/server/preferences/tokens/{id}/rotate", method: "post", id: "server_preferences_tokens_rotate", summaryKey: "v1_tokens_linked_rotate", tagSlug: "pages", params: []Parameter{param(lang, "id", "path", "token_id", true, intSchema())}, okSlug: "html_page", content: htmlPage()},
+		{path: "/server/preferences/tokens/{id}/update", method: "post", id: "server_preferences_tokens_update", summaryKey: "v1_tokens_linked_update", tagSlug: "pages", params: []Parameter{param(lang, "id", "path", "token_id", true, intSchema())}, okSlug: "redirect", content: htmlPage(), statusOK: "303", bodySlug: "linked_token_update", bodySchema: &Schema{Type: "object"}, bodyMediaType: "application/x-www-form-urlencoded"},
+		{path: "/server/preferences/tokens/{id}/revoke", method: "post", id: "server_preferences_tokens_revoke", summaryKey: "v1_tokens_linked_revoke", tagSlug: "pages", params: []Parameter{param(lang, "id", "path", "token_id", true, intSchema())}, okSlug: "redirect", content: htmlPage(), statusOK: "303", bodySlug: "linked_token_update", bodySchema: &Schema{Type: "object"}, bodyMediaType: "application/x-www-form-urlencoded"},
+		{path: "/server/preferences/sync", method: "get", id: "server_preferences_sync", tagSlug: "pages", okSlug: "html_page", content: negotiatedPreferences()},
+		{path: "/server/preferences/sync", method: "post", id: "server_preferences_sync_post", tagSlug: "pages", okSlug: "redirect", statusOK: "303", bodySlug: "preferences_sync", bodySchema: &Schema{Type: "object", Properties: map[string]Schema{"code": {Type: "string"}}}, bodyMediaType: "application/x-www-form-urlencoded", bodyOptional: true},
+		{path: "/server/preferences/sync/import", method: "get", id: "server_preferences_sync_import", tagSlug: "pages", params: prefsQuery, okSlug: "redirect", statusOK: "303"},
 		{path: "/announcements/dismiss", method: "post", id: "announcements_dismiss", tagSlug: "pages", okSlug: "redirect", content: htmlPage(), statusOK: "303", bodySlug: "dismiss", bodySchema: &Schema{Type: "object"}},
 
 		{path: "/api/v1", runtimePath: "/api/v1/", method: "get", id: "v1_info", tagSlug: "api_v1", params: ipQuery, okSlug: "ip_info", content: jsonRef("IPResponse")},
@@ -552,8 +610,17 @@ func routeDocs(lang string) []routeDoc {
 		{path: "/api/v1/server/auth/check", method: "get", id: "v1_auth_check", tagSlug: "api_v1", okSlug: "json_object", content: jsonObject(), errs: []apiErr{{"401", "unauthorized"}}, requiresAuth: true},
 		{path: "/api/v1/server/preferences", method: "get", id: "v1_preferences", tagSlug: "api_v1", okSlug: "json_object", content: jsonRef("PreferencesResponse")},
 		{path: "/api/v1/server/preferences", method: "post", id: "v1_preferences_update", tagSlug: "api_v1", okSlug: "json_object", content: jsonRef("PreferencesResponse"), bodySlug: "preferences", bodySchema: &Schema{Ref: "#/components/schemas/PreferencesRequest"}},
-		{path: "/api/v1/server/preferences/export", method: "get", id: "v1_preferences_export", tagSlug: "api_v1", okSlug: "json_object", content: jsonRef("PreferencesExportResponse")},
-		{path: "/api/v1/server/preferences/import", method: "get", id: "v1_preferences_import", tagSlug: "api_v1", params: prefsQuery, okSlug: "json_object", content: jsonRef("PreferencesResponse"), errs: []apiErr{{"400", "bad_request"}}},
+		{path: "/api/v1/server/preferences/sync", method: "get", id: "v1_preferences_sync", tagSlug: "api_v1", okSlug: "json_object", content: jsonRef("PreferencesExportResponse")},
+		{path: "/api/v1/server/preferences/sync/import", method: "get", id: "v1_preferences_sync_import", tagSlug: "api_v1", params: prefsQuery, okSlug: "json_object", content: jsonRef("PreferencesResponse")},
+		{path: "/api/v1/server/preferences/tokens", method: "get", id: "v1_tokens_list", descKey: "swagger.paths.v1_tokens_list.description", tagSlug: "api_v1", okSlug: "json_object", content: jsonObject(), requiresAuth: true},
+		{path: "/api/v1/server/preferences/tokens/primary", method: "post", id: "v1_tokens_issue", descKey: "swagger.paths.v1_tokens_issue.description", tagSlug: "api_v1", okSlug: "json_object", content: jsonObject(), statusOK: "201", errs: []apiErr{{"409", "conflict"}}},
+		{path: "/api/v1/server/preferences/tokens/primary/reveal", runtimePath: "/api/v1/server/preferences/tokens/primary/reveal", runtimeAlias: true, method: "post", id: "v1_tokens_primary_reveal", descKey: "swagger.paths.v1_tokens_primary_reveal.description", tagSlug: "api_v1", okSlug: "json_object", content: jsonObject(), requiresAuth: true},
+		{path: "/api/v1/server/preferences/tokens/primary/rotate", runtimePath: "/api/v1/server/preferences/tokens/primary/rotate", runtimeAlias: true, method: "post", id: "v1_tokens_primary_rotate", descKey: "swagger.paths.v1_tokens_primary_rotate.description", tagSlug: "api_v1", okSlug: "json_object", content: jsonObject(), requiresAuth: true},
+		{path: "/api/v1/server/preferences/tokens", method: "post", id: "v1_tokens_linked_create", descKey: "swagger.paths.v1_tokens_linked_create.description", tagSlug: "api_v1", okSlug: "json_object", content: jsonObject(), requiresAuth: true},
+		{path: "/api/v1/server/preferences/tokens/{id}/reveal", runtimePath: "/api/v1/server/preferences/tokens/{id}/reveal", runtimeAlias: true, method: "post", id: "v1_tokens_linked_reveal", descKey: "swagger.paths.v1_tokens_linked_reveal.description", tagSlug: "api_v1", params: []Parameter{param(lang, "id", "path", "token_id", true, intSchema())}, okSlug: "json_object", content: jsonObject(), requiresAuth: true},
+		{path: "/api/v1/server/preferences/tokens/{id}/rotate", runtimePath: "/api/v1/server/preferences/tokens/{id}/rotate", runtimeAlias: true, method: "post", id: "v1_tokens_linked_rotate", descKey: "swagger.paths.v1_tokens_linked_rotate.description", tagSlug: "api_v1", params: []Parameter{param(lang, "id", "path", "token_id", true, intSchema())}, okSlug: "json_object", content: jsonObject(), requiresAuth: true},
+		{path: "/api/v1/server/preferences/tokens/{id}", runtimePath: "/api/v1/server/preferences/tokens/{id}", runtimeAlias: true, method: "patch", id: "v1_tokens_linked_update", descKey: "swagger.paths.v1_tokens_linked_update.description", tagSlug: "api_v1", params: []Parameter{param(lang, "id", "path", "token_id", true, intSchema())}, okSlug: "json_object", content: jsonObject(), bodySlug: "linked_token_update", bodySchema: &Schema{Type: "object", Properties: map[string]Schema{"name": {Type: "string"}, "expiry": {Type: "string"}}}, requiresAuth: true},
+		{path: "/api/v1/server/preferences/tokens/{id}", runtimePath: "/api/v1/server/preferences/tokens/{id}", runtimeAlias: true, method: "delete", id: "v1_tokens_linked_revoke", descKey: "swagger.paths.v1_tokens_linked_revoke.description", tagSlug: "api_v1", params: []Parameter{param(lang, "id", "path", "token_id", true, intSchema())}, okSlug: "json_object", content: jsonObject(), requiresAuth: true},
 		{path: "/api/v1/server/swagger", method: "get", id: "v1_swagger", tagSlug: "api_v1", okSlug: "spec", content: jsonObject()},
 		{path: "/api/v1/server/graphql", method: "get", id: "v1_graphql_get", descKey: "swagger.paths.docs_graphql_get.description", tagSlug: "api_v1", okSlug: "html_page", content: htmlPage()},
 		{path: "/api/v1/json", method: "get", id: "v1_json", tagSlug: "api_v1", params: ipQuery, okSlug: "ip_info", content: jsonRef("IPResponse")},
@@ -600,9 +667,17 @@ func routeDocs(lang string) []routeDoc {
 // buildOperation renders one routeDoc into an OpenAPI Operation with every
 // human-readable string resolved for lang.
 func buildOperation(lang string, d routeDoc) *Operation {
+	summaryKey := d.summaryKey
+	if summaryKey == "" {
+		summaryKey = d.id
+	}
 	descKey := d.descKey
 	if descKey == "" {
-		descKey = "swagger.paths." + d.id + ".description"
+		descriptionID := d.id
+		if d.summaryKey != "" {
+			descriptionID = d.summaryKey
+		}
+		descKey = "swagger.paths." + descriptionID + ".description"
 	}
 
 	okStatus := d.statusOK
@@ -625,7 +700,7 @@ func buildOperation(lang string, d routeDoc) *Operation {
 
 	op := &Operation{
 		OperationID: d.id,
-		Summary:     tr(lang, "swagger.paths."+d.id+".summary"),
+		Summary:     tr(lang, "swagger.paths."+summaryKey+".summary"),
 		Description: tr(lang, descKey),
 		Tags:        []string{tr(lang, "swagger.tags."+d.tagSlug)},
 		Parameters:  d.params,
@@ -635,10 +710,14 @@ func buildOperation(lang string, d routeDoc) *Operation {
 		op.Security = []map[string][]string{{"BearerAuth": {}}}
 	}
 	if d.bodySchema != nil {
+		mediaType := d.bodyMediaType
+		if mediaType == "" {
+			mediaType = "application/json"
+		}
 		op.RequestBody = &RequestBody{
 			Description: tr(lang, "swagger.bodies."+d.bodySlug),
-			Required:    true,
-			Content:     map[string]MediaType{"application/json": {Schema: d.bodySchema}},
+			Required:    !d.bodyOptional,
+			Content:     map[string]MediaType{mediaType: {Schema: d.bodySchema}},
 		}
 	}
 	return op
@@ -851,22 +930,30 @@ func generateComponents() Components {
 			"PreferencesRequest": {
 				Type: "object",
 				Properties: map[string]Schema{
-					"theme": {Type: "string", Example: "dark"},
-					"lang":  {Type: "string", Example: "en"},
+					"theme":              {Type: "string", Example: "dark"},
+					"lang":               {Type: "string", Example: "en"},
+					"ipgaze_pref_widget": {Type: "string", Example: "ip"},
+					"prefs":              {Type: "object", AdditionalProperties: &Schema{Type: "string"}},
 				},
 			},
 			"PreferencesResponse": {
 				Type: "object",
 				Properties: map[string]Schema{
-					"theme": {Type: "string", Example: "dark"},
-					"lang":  {Type: "string", Example: "en"},
+					"theme":   {Type: "string", Example: "dark"},
+					"lang":    {Type: "string", Example: "en"},
+					"prefs":   {Type: "object", AdditionalProperties: &Schema{Type: "string"}},
+					"applied": {Type: "array", Items: &Schema{Type: "string"}},
+					"ignored": {Type: "array", Items: &Schema{Type: "string"}},
 				},
 			},
 			"PreferencesExportResponse": {
 				Type: "object",
 				Properties: map[string]Schema{
-					"url":  {Type: "string", Example: "https://ifcfg.us/server/preferences/import?theme=dark&lang=fr"},
-					"code": {Type: "string", Example: "dGhlbWU9ZGFyayZsYW5nPWZy"},
+					"theme": {Type: "string", Example: "dark"},
+					"lang":  {Type: "string", Example: "fr"},
+					"prefs": {Type: "object", AdditionalProperties: &Schema{Type: "string"}},
+					"url":   {Type: "string", Example: "https://ifcfg.us/server/preferences/sync/import?lang=fr&theme=dark"},
+					"code":  {Type: "string", Example: "bGFuZz1mciZ0aGVtZT1kYXJr"},
 				},
 			},
 			"Error": {

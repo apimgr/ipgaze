@@ -31,8 +31,10 @@
       </div>
     </form>
   </dialog>
-  <main id="main-content" class="container" role="main">
-    {{block "content" .}}{{end}}
+  <main id="main-content" role="main">
+    <div class="container {{.ContainerWidthClass}}">
+      {{block "content" .}}{{end}}
+    </div>
   </main>
   {{template "nav_drawer" .}}
   {{template "footer" .}}

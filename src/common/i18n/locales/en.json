@@ -6,7 +6,6 @@
     "direction": "ltr",
     "version": "1.0.0"
   },
-
   "common": {
     "select_language": "Select language",
     "save": "Save",
@@ -77,7 +76,6 @@
     "boot_recovery_title": "Page recovery failed",
     "boot_recovery_message": "The page did not finish loading after browser caches were cleared. Close other tabs for this site, then reload the page."
   },
-
   "theme": {
     "light": "Light",
     "dark": "Dark",
@@ -86,7 +84,6 @@
     "toast_prefix": "Theme: ",
     "toggle_aria": "Switch theme (currently {theme})"
   },
-
   "auth": {
     "login": "Login",
     "logout": "Logout",
@@ -118,7 +115,6 @@
     "session_timeout": "Session timeout",
     "extend_on_activity": "Extend on activity"
   },
-
   "nav": {
     "home": "Home",
     "about": "About",
@@ -136,7 +132,6 @@
     "toggle_navigation": "Toggle navigation",
     "home_aria": "{app} home"
   },
-
   "health": {
     "title": "System Status",
     "all_operational": "All systems operational",
@@ -167,7 +162,6 @@
     "production": "Production",
     "development": "Development"
   },
-
   "status_values": {
     "online": "Online",
     "offline": "Offline",
@@ -177,7 +171,6 @@
     "good": "Good",
     "warn": "Warning"
   },
-
   "contact": {
     "title": "Contact",
     "name": "Name",
@@ -226,8 +219,9 @@
     "researcher_handle": "Handle for public credit (required when crediting by handle)",
     "coordinated_disclosure_agreement": "I agree to coordinated disclosure."
   },
-
   "help": {
+    "more_heading": "More help",
+    "mcp_description": "Connect AI clients to IPGaze through the public MCP endpoint.",
     "title": "Help",
     "getting_started": "Getting Started",
     "features": "Features",
@@ -256,7 +250,6 @@
     "troubleshooting_route_title": "Route not found",
     "troubleshooting_route_body": "Check the path and use a supported endpoint such as /ip, /json, /country, or /{ip}."
   },
-
   "privacy": {
     "title": "Privacy Policy",
     "last_updated": "Last updated:",
@@ -310,7 +303,6 @@
     "dpo_contact_unavailable": "No data protection contact is configured.",
     "dpo_contact_form": "Contact form"
   },
-
   "terms": {
     "title": "Terms of Service",
     "acceptance": "Acceptance",
@@ -330,7 +322,6 @@
     "changes_body": "These terms may change at any time. Continued use of the service constitutes acceptance of the updated terms.",
     "governing_law_body": "These terms are governed by the laws of the jurisdiction in which the service operator resides, without regard to conflict-of-law principles."
   },
-
   "security": {
     "title": "Security Policy",
     "intro": "We take the security of ipgaze seriously. If you discover a security vulnerability, please report it responsibly.",
@@ -384,7 +375,6 @@
     "report_notification_subject": "Encrypted security report {tracking_id}",
     "report_notification_body": "The AES-256-GCM encrypted security report is attached. Decrypt it with server.security.encryption_key."
   },
-
   "cookie_consent": {
     "message": "In accordance with EU GDPR law, this message is displayed.",
     "accept": "I accept",
@@ -398,7 +388,6 @@
     "accepted_toast": "Cookies accepted",
     "declined_toast": "Cookies declined"
   },
-
   "about": {
     "title": "About",
     "features": "Features",
@@ -421,7 +410,6 @@
     "api_description_post": "Full documentation is available at",
     "attribution_heading": "Attribution"
   },
-
   "preferences": {
     "title": "Preferences",
     "heading": "Preferences",
@@ -429,6 +417,7 @@
     "intro": "Your theme and language choices are stored in cookies on this device only. Use the link below to carry them and your default command example to another browser or device.",
     "current_theme_label": "Current theme",
     "current_lang_label": "Current language",
+    "language_automatic": "Automatic",
     "default_widget_label": "Default command example",
     "save": "Save",
     "consent_heading": "Cookie consent",
@@ -439,21 +428,74 @@
     "ccpa_heading": "Data sale opt-out",
     "ccpa_intro": "California residents can opt out of the sale of personal information.",
     "export_heading": "Export",
-    "export_intro": "Open this link on another device to apply the same theme and language, or copy the short code and paste it there instead.",
     "export_url_label": "Import link",
     "export_code_label": "Short code",
     "copy_url_aria": "Copy import link",
     "copy_code_aria": "Copy short code",
-    "import_heading": "Import",
     "import_intro": "Paste a short code (or a full import link) from another device below.",
     "import_paste_label": "Code or link",
     "import_submit": "Apply",
+    "more_heading": "More preferences",
+    "sync_title": "Preference sync",
+    "sync_heading": "Sync preferences",
+    "sync_intro": "Export preferences to another browser or import preferences from a link or code.",
+    "sync_link": "Sync preferences",
+    "back_to_preferences": "Back to preferences",
+    "sync_description": "Move guest preferences to another browser with an export link or code.",
     "reset": "Reset",
     "reset_title": "Forget this browser?",
-    "reset_warning": "This erases this site's cookies and browser storage, including your preferences and consent choices. It cannot be undone.",
-    "erase_everything": "Erase everything"
+    "reset_warning": "This clears every IPGaze cookie and all site storage, including preferences, consent choices, dismissals, the build stamp, and offline data. Your security credentials are preserved. This cannot be undone.",
+    "erase_everything": "Erase everything",
+    "tokens_title": "Owner tokens",
+    "tokens_link": "Owner tokens",
+    "tokens_description": "Issue, restore, and manage owner and linked tokens.",
+    "tokens_back": "Back to preferences",
+    "tokens_restore_heading": "Restore identity",
+    "tokens_restore_intro": "Paste your primary token to restore this browser.",
+    "tokens_primary_label": "Primary token",
+    "tokens_restore_submit": "Restore identity",
+    "tokens_restore_invalid": "This primary token is invalid or unavailable.",
+    "tokens_new_heading": "New token",
+    "tokens_new_intro": "Create an owner token without creating a resource. Save it securely; you can reveal it again after restoring this browser.",
+    "tokens_create": "Create token",
+    "tokens_created": "Your new token:",
+    "tokens_primary_heading": "Primary token",
+    "tokens_active": "Active",
+    "tokens_primary_help": "Full access to your {resources}. Keep it private.",
+    "tokens_shown_once": "Shown once, on this page load",
+    "tokens_reveal": "Reveal",
+    "tokens_rotate": "Rotate",
+    "tokens_linked_heading": "Linked tokens",
+    "tokens_linked_create_heading": "Create linked token",
+    "tokens_name": "Name",
+    "tokens_name_example": "For example: MCP client",
+    "tokens_expiry": "Expiry",
+    "tokens_never": "Never",
+    "tokens_7_days": "7 days",
+    "tokens_30_days": "30 days",
+    "tokens_90_days": "90 days",
+    "tokens_1_year": "1 year",
+    "tokens_this_browser": "This browser",
+    "tokens_saved_browser": "Saved in this browser. Forgetting it does not delete your {resources}.",
+    "tokens_forget": "Forget saved token",
+    "tokens_created_linked": "Your token:",
+    "tokens_created_primary": "Your token:",
+    "tokens_no_linked": "No linked tokens yet. Create one per app, for example your MCP client.",
+    "tokens_created_at": "Created",
+    "tokens_last_used": "Last used",
+    "tokens_expires": "Expires",
+    "tokens_edit": "Edit",
+    "tokens_save": "Save",
+    "tokens_revoke": "Revoke",
+    "tokens_custom_date": "Custom date",
+    "tokens_expires_on": "Expires on",
+    "tokens_status_active": "Active",
+    "tokens_status_expired": "Expired",
+    "tokens_status_revoked": "Revoked",
+    "tokens_forget_confirm": "Confirm forgetting this browser token",
+    "tokens_rotate_confirm": "Confirm token rotation",
+    "tokens_revoke_confirm": "Confirm token revocation"
   },
-
   "announcements": {
     "warning": "Warning",
     "info": "Info",
@@ -462,7 +504,6 @@
     "scheduled_maintenance": "Scheduled maintenance",
     "dismiss_aria": "Dismiss announcement"
   },
-
   "pwa": {
     "install": "Install app",
     "installed": "App installed",
@@ -478,7 +519,6 @@
     "update_later": "Later",
     "update_now": "Update Now"
   },
-
   "errors": {
     "required": "This field is required",
     "invalid_email": "Invalid email address",
@@ -506,7 +546,6 @@
     "maintenance_mode": "Service unavailable",
     "request_id_label": "Request ID"
   },
-
   "plurals": {
     "items": {
       "zero": "No items",
@@ -536,14 +575,12 @@
       "other": "{count} minutes"
     }
   },
-
   "app": {
     "name": "IPGaze",
     "tagline": "IP Address Lookup Service",
     "description": "Fast, accurate IP geolocation and network information",
     "cache_resized": "Cache capacity updated"
   },
-
   "ip": {
     "your": "Your IP Address",
     "lookup": "IP Lookup",
@@ -554,7 +591,6 @@
     "is_eu": "EU Member",
     "enter_ip": "Enter an IP address to look up"
   },
-
   "location": {
     "country": "Country",
     "country_code": "Country Code",
@@ -568,13 +604,11 @@
     "metro_code": "Metro Code",
     "zip_code": "ZIP Code"
   },
-
   "network": {
     "asn": "ASN",
     "org": "Organization",
     "isp": "ISP"
   },
-
   "admin": {
     "title": "Admin Panel",
     "dashboard": "Dashboard",
@@ -589,7 +623,6 @@
     "update": "Update",
     "reload": "Reload Config"
   },
-
   "cli": {
     "requires_privileges": "This operation requires elevated privileges: {action}",
     "escalate_prompt": "Please re-run with sudo or as root.",
@@ -612,7 +645,6 @@
     "service_flag": "Service management",
     "maintenance_flag": "Maintenance operations"
   },
-
   "accessibility": {
     "skip_to_content": "Skip to content",
     "menu": "Menu",
@@ -623,7 +655,6 @@
     "loading": "Loading, please wait",
     "required_field": "Required field"
   },
-
   "api_help": {
     "title": "Help & API Reference",
     "basic_heading": "Basic Usage",
@@ -680,21 +711,21 @@
     "mcp_endpoint_body": "Use the canonical endpoint or either direct alias:",
     "mcp_select_url": "Select the endpoint URL above as a whole without JavaScript.",
     "mcp_authentication": "Authentication",
-    "mcp_authentication_body": "MCP uses the same Authorization: Bearer tokens as the REST API; there is no MCP-specific token. IPGaze exposes public lookup tools anonymously and does not issue linked client tokens. Never use the primary token or the operator token (server.token). If another deployment adds linked client tokens, use only its linked token for protected operations.",
+    "mcp_authentication_body": "Every MCP request requires an Authorization: Bearer token. Create an owner token on /server/preferences/tokens or through the API, then use a linked token for each MCP client. Owner and linked tokens can access owner tools; operator tokens can access administrative tools.",
     "mcp_connect": "Connect a client",
     "mcp_claude_code": "Claude Code",
-    "mcp_token_body": "IPGaze connects without a token. For another deployment that supports linked client tokens, create a token from its /server/preferences/tokens page and provide it as a header:",
+    "mcp_token_body": "Create an owner token from /server/preferences/tokens, then create a linked token for each MCP client and provide it as a Bearer header:",
     "mcp_generic_config": "Generic client configuration",
     "mcp_verify": "Verify with initialize",
-    "mcp_omit_auth": "Omit the authorization header when connecting to IPGaze’s public tools.",
     "mcp_tools": "Available tools",
     "mcp_tools_body": "This live list is generated from the registered versioned API operations.",
+    "mcp_tools_operator_note": "The operator token may see additional tools.",
     "mcp_no_tools": "No public API tools are currently registered.",
     "mcp_behavior_limits": "Behavior and limits",
     "mcp_post_stateless": "Requests use POST; this endpoint is stateless and does not create sessions.",
     "mcp_rate_audit": "API rate limits and request auditing apply.",
     "mcp_origin_rejected": "Requests with an invalid Origin are rejected.",
-    "mcp_protocol_versions": "Supported protocol versions include 2025-03-26.",
+    "mcp_protocol_versions": "Supported protocol versions include 2026-07-28.",
     "mcp_troubleshooting": "Troubleshooting",
     "mcp_status": "Status",
     "mcp_cause": "Cause",
@@ -702,7 +733,7 @@
     "mcp_400_cause": "Protocol version or required header mismatch",
     "mcp_400_fix": "Send the protocol version and JSON/stream Accept headers shown above.",
     "mcp_401_cause": "Missing, invalid, or expired token",
-    "mcp_401_fix": "IPGaze’s public tools need no token. For deployments with linked tokens, use a valid linked Bearer token; the response includes WWW-Authenticate: Bearer.",
+    "mcp_401_fix": "Provide a valid owner, linked, or operator Bearer token. The response includes WWW-Authenticate: Bearer.",
     "mcp_403_cause": "Invalid Origin or insufficient token scope",
     "mcp_403_fix": "Connect from an allowed origin and use a token with the required scope.",
     "mcp_404_cause": "MCP endpoint route was not found",
@@ -711,7 +742,6 @@
     "mcp_405_fix": "Use POST for MCP requests.",
     "mcp_project_tools": "IPGaze tools"
   },
-
   "index": {
     "title": "What is my IP address? — {host}",
     "meta_description": "{host} • What is my IP address? — The best tool to find your own IP address, and information about it. Full IPv4 and IPv6 support.",
@@ -760,7 +790,6 @@
     "faq_rate_limit_guarantee": "No guarantee is made for requests that exceed this limit.",
     "faq_rate_limit_consequence": "They may be rate-limited, with a 429 status code, or dropped entirely."
   },
-
   "healthz": {
     "page_title": "Health Status",
     "degraded_performance": "Degraded Performance",
@@ -783,7 +812,6 @@
     "refreshing_in_prefix": "Refreshing in",
     "provider_label": "Provider"
   },
-
   "client": {
     "help_flag": "Show this help message and exit",
     "version_flag": "Show version information and exit",
@@ -833,7 +861,6 @@
     "err_unsupported_shell": "Unsupported shell \"{shell}\". Supported shells: {shells}",
     "err_tui_unavailable": "TUI mode is unavailable because no interactive terminal was detected."
   },
-
   "tui": {
     "title": "IP Address Information",
     "loading": "Looking up IP address…",
@@ -881,7 +908,6 @@
     "status_yes": "Yes",
     "status_no": "No"
   },
-
   "setup": {
     "title": "{app} CLI Setup",
     "intro": "No server configured. Let's set one up!",
@@ -897,7 +923,6 @@
     "hint": "tab: next field │ space: toggle │ enter: test and save │ esc: cancel",
     "saved": "Configuration saved to {path}"
   },
-
   "notifications": {
     "title": "Notifications",
     "mark_all_read": "Mark all as read",
@@ -928,7 +953,6 @@
       "other_admins": "Other administrators"
     }
   },
-
   "email": {
     "subjects": {
       "security_alert": "Security alert - {app_name}",
@@ -999,7 +1023,6 @@
       "test_action": "Receiving this message confirms that the outgoing mail settings are correct."
     }
   },
-
   "swagger": {
     "bodies": {
       "ccpa": "CCPA opt-out selection",
@@ -1007,8 +1030,10 @@
       "contact": "Contact form submission",
       "dismiss": "Announcement identifier to dismiss",
       "graphql": "GraphQL query, variables and operation name",
-      "preferences": "Theme and locale preference update",
-      "report": "Browser-generated report payload"
+      "preferences": "Guest preference fields and consent controls",
+      "preferences_sync": "Preference code or link to import",
+      "report": "Browser-generated report payload",
+      "linked_token_update": "New linked-token name and expiry value"
     },
     "common": {
       "api_mirror": "JSON mirror of the matching web page, per the web-route to API-route parity rule.",
@@ -1022,14 +1047,16 @@
     },
     "params": {
       "asset_path": "Path of the asset below /static/",
-      "code_query": "Base64url-encoded preference code produced by the export endpoint",
+      "code_query": "Base64url preference code returned by the preference sync page",
       "filename_path": "Command-line client file name, for example ipgaze-linux-amd64",
       "ip_path": "IP address to look up (IPv4 or IPv6)",
       "ip_query": "Optional IP address to look up; defaults to the caller's IP",
       "lang_path": "BCP 47 locale code, for example en, fr or ja",
       "lang_query": "Locale to apply, as a BCP 47 code",
       "port_path": "Port number to check (1-65535)",
-      "theme_query": "Theme to apply: dark, light or auto"
+      "ipgaze_pref_widget_query": "Default lookup example: ip, country, country-iso, city, asn, json or port",
+      "theme_query": "Theme to apply: dark, light or auto",
+      "token_id": "Numeric identifier of the linked owner token"
     },
     "paths": {
       "announcements_dismiss": {
@@ -1231,17 +1258,21 @@
         "description": "Returns the preferences page for choosing a theme and a locale.",
         "summary": "Preferences page"
       },
-      "server_preferences_export": {
-        "description": "Returns the current theme and locale as both a full import URL and a short base64url code, so preferences can be carried to another browser.",
-        "summary": "Export preferences"
-      },
-      "server_preferences_import": {
-        "description": "Decodes and validates the supplied preference values, sets the matching cookies and redirects, so the code never lingers in the visible URL.",
-        "summary": "Import preferences"
-      },
       "server_preferences_post": {
         "description": "Validates the submitted theme and locale and stores them as browser cookies.",
         "summary": "Update preferences"
+      },
+      "server_preferences_sync": {
+        "description": "Renders portable guest preferences and accepts a preference code.",
+        "summary": "Sync preferences"
+      },
+      "server_preferences_sync_post": {
+        "description": "Applies validated guest preferences from the submitted code and redirects.",
+        "summary": "Import preferences"
+      },
+      "server_preferences_sync_import": {
+        "description": "Applies validated guest preferences and redirects without retaining the code in the visible URL.",
+        "summary": "Import preferences"
       },
       "server_privacy": {
         "description": "Returns the privacy policy, including what is logged, for how long, and the available opt-outs.",
@@ -1314,12 +1345,12 @@
         "description": "Returns the theme and locale currently stored in the caller's cookies.",
         "summary": "Get preferences (API v1)"
       },
-      "v1_preferences_export": {
-        "description": "Returns the current theme and locale as a full import URL and a short base64url code.",
-        "summary": "Export preferences (API v1)"
+      "v1_preferences_sync": {
+        "description": "Returns current guest preferences as a full import URL and a short base64url code.",
+        "summary": "Sync preferences (API v1)"
       },
-      "v1_preferences_import": {
-        "description": "Decodes and validates the supplied preference values and sets the matching cookies.",
+      "v1_preferences_sync_import": {
+        "description": "Validates preference values and sets matching cookies.",
         "summary": "Import preferences (API v1)"
       },
       "v1_privacy": {
@@ -1348,6 +1379,42 @@
       },
       "wk_security_txt": {
         "summary": "Security contact policy (well-known)"
+      },
+      "v1_tokens_list": {
+        "summary": "List owner tokens",
+        "description": "Returns masked primary and linked token metadata for the authenticated owner. Token values are never returned by list operations."
+      },
+      "v1_tokens_issue": {
+        "summary": "Issue a primary owner token",
+        "description": "Creates a new owner and primary token when the caller has no valid token. The raw token is returned in this response only."
+      },
+      "v1_tokens_primary_reveal": {
+        "summary": "Reveal the primary owner token",
+        "description": "Decrypts and returns the authenticated owner's primary token. Requires the primary token."
+      },
+      "v1_tokens_primary_rotate": {
+        "summary": "Rotate the primary owner token",
+        "description": "Replaces the authenticated owner's primary token in place; linked tokens remain valid."
+      },
+      "v1_tokens_linked_create": {
+        "summary": "Create a linked owner token",
+        "description": "Creates a linked token for the authenticated owner with the supplied name and optional expiry."
+      },
+      "v1_tokens_linked_reveal": {
+        "summary": "Reveal a linked owner token",
+        "description": "Decrypts and returns the selected linked token. Requires the owner's primary token."
+      },
+      "v1_tokens_linked_rotate": {
+        "summary": "Rotate a linked owner token",
+        "description": "Replaces the selected linked token in place without affecting other owner tokens."
+      },
+      "v1_tokens_linked_update": {
+        "summary": "Update a linked owner token",
+        "description": "Changes the selected linked token's name and expiry."
+      },
+      "v1_tokens_linked_revoke": {
+        "summary": "Revoke a linked owner token",
+        "description": "Immediately and permanently revokes the selected linked token."
       }
     },
     "responses": {
@@ -1355,6 +1422,7 @@
       "asset": "Static asset content",
       "bad_request": "Malformed request",
       "binary": "Binary file stream",
+      "forbidden": "Permission denied",
       "graphql": "GraphQL execution result",
       "health": "Server health status",
       "html_page": "HTML page",
@@ -1372,7 +1440,8 @@
       "text_value": "Plain text value",
       "too_many_requests": "Rate limit exceeded",
       "unavailable": "Server is unhealthy, in maintenance mode, or shutting down",
-      "version": "Build version information"
+      "version": "Build version information",
+      "conflict": "The request conflicts with the current token state"
     },
     "tags": {
       "api_v1": "API v1",
@@ -1390,7 +1459,6 @@
       "title": "IPGaze API - Swagger UI"
     }
   },
-
   "graphql": {
     "args": {
       "checkPort": {
@@ -1545,27 +1613,23 @@
       "variables": "Variables (JSON)"
     }
   },
-
   "version": {
     "name_version": "{project_name} {project_version}",
     "built": "Built: {build_date}",
     "go": "Go: {go_version}",
     "os_arch": "OS/Arch: {goos}/{goarch}"
   },
-
   "confirm": {
     "delete_title": "Confirm deletion",
     "delete_message": "Are you sure you want to delete this item?",
     "action_irreversible": "This action cannot be undone."
   },
-
   "form": {
     "required_field": "(required)",
     "optional_field": "(optional)",
     "hint_email": "We will never share your email address.",
     "errors_count": "The form has {count} errors"
   },
-
   "gui": {
     "title": "IPGaze",
     "subtitle": "Look up an IP address and review its network details.",

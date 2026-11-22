@@ -172,7 +172,8 @@ button.selected {
   border-color: var(--color-success);
 }
 
-.form-control {
+.form-control,
+.form-input {
   width: 100%;
   min-height: 2.75rem;
   padding: var(--space-2);
@@ -189,6 +190,7 @@ button.selected {
 }
 
 .form-control:not([type="checkbox"]):not([type="radio"]),
+.form-input:not([type="checkbox"]):not([type="radio"]),
 .form-group input:not([type="checkbox"]):not([type="radio"]),
 .form-group select,
 .form-group textarea {
@@ -216,7 +218,8 @@ button.selected {
   }
 }
 
-.form-control:focus {
+.form-control:focus,
+.form-input:focus {
   outline: none;
   border-color: var(--color-primary);
   box-shadow: 0 0 0 2px var(--color-primary-bg);
@@ -981,4 +984,117 @@ dialog.modal::backdrop {
   }
 
   .copy-text { display: inline; }
+}
+
+.hub-list {
+  display: grid;
+  gap: var(--space-4);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.hub-item {
+  min-width: 0;
+}
+
+.hub-link {
+  display: grid;
+  gap: var(--space-1);
+  padding: var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: inherit;
+  text-decoration: none;
+}
+
+.hub-link:hover,
+.hub-link:focus-visible {
+  border-color: var(--color-primary);
+  text-decoration: underline;
+}
+
+.hub-title {
+  font-weight: 600;
+}
+
+.hub-desc {
+  color: var(--color-muted);
+}
+
+/* Shared page width modifiers from the server page shell contract. */
+.container-sm { max-width: 40rem; }
+.container-md { max-width: 56rem; }
+.container-lg { max-width: 72rem; }
+
+main#main-content:has(> .container > section#primary) > .container {
+  display: grid;
+  gap: var(--space-4);
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+main#main-content:has(> .container > section#primary) > .container > * {
+  min-width: 0;
+}
+
+.copy-value {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+  user-select: all;
+  white-space: nowrap;
+}
+
+.button-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.button-row form,
+.button-row .btn {
+  width: 100%;
+}
+
+@media (min-width: 768px) {
+  main#main-content:has(> .container > section#primary) > .container {
+    max-width: 40rem;
+    margin-inline: auto;
+  }
+
+  .button-row {
+    flex-flow: row wrap;
+  }
+
+  .button-row form,
+  .button-row .btn {
+    width: auto;
+  }
+
+  main#main-content:has(> .container > section#primary) > .container > #linked-token-list:has(> article:nth-of-type(2)) {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-3);
+  }
+
+  main#main-content:has(> .container > section#primary) > .container > #linked-token-list > h2,
+  main#main-content:has(> .container > section#primary) > .container > #linked-token-list > .empty-state {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (min-width: 1024px) {
+  main#main-content:has(> .container > section#primary) > .container {
+    max-width: 72rem;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-areas: "header header" "primary linked" "create linked" "browser linked";
+    align-items: start;
+  }
+
+  main#main-content:has(> .container > section#primary) > .container > .page-header { grid-area: header; }
+  main#main-content:has(> .container > section#primary) > .container > #primary { grid-area: primary; }
+  main#main-content:has(> .container > section#primary) > .container > #linked-token-list { grid-area: linked; }
+  main#main-content:has(> .container > section#primary) > .container > #create-linked-token { grid-area: create; }
+  main#main-content:has(> .container > section#primary) > .container > #this-browser { grid-area: browser; }
 }

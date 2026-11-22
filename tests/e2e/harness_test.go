@@ -22,6 +22,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/chromedp/cdproto/emulation"
 	"github.com/chromedp/chromedp"
 )
 
@@ -146,6 +147,9 @@ func startServer(binary, root string, port int) (func(), error) {
 		}
 		dirs[name] = path
 	}
+	if err := writeE2EServerConfig(dirs["config"]); err != nil {
+		return nil, err
+	}
 
 	logPath := filepath.Join(artifactDir, "server.log")
 	logFile, err := os.Create(logPath)
@@ -195,6 +199,20 @@ func startServer(binary, root string, port int) (func(), error) {
 		return nil, fmt.Errorf("%w (server log: %s)", err, logPath)
 	}
 	return stop, nil
+}
+
+// writeE2EServerConfig raises request ceilings for the many-route browser
+// suite and enables the optional root health endpoint in its isolated server.
+func writeE2EServerConfig(configDir string) error {
+	dropInDir := filepath.Join(configDir, "yaml.d")
+	if err := os.MkdirAll(dropInDir, 0o700); err != nil {
+		return fmt.Errorf("create E2E config drop-in directory: %w", err)
+	}
+	content := []byte("server:\n  healthz:\n    root:\n      enabled: true\n  rate_limit:\n    read:\n      requests: 10000\n      window: 60\n    write:\n      requests: 10000\n      window: 60\n    health:\n      requests: 10000\n      window: 60\n    global_burst: 20000\n")
+	if err := os.WriteFile(filepath.Join(dropInDir, "e2e.yml"), content, 0o600); err != nil {
+		return fmt.Errorf("write E2E server config: %w", err)
+	}
+	return nil
 }
 
 // waitForServer polls the health endpoint until the server answers or the
@@ -250,13 +268,16 @@ func waitForBrowser() error {
 func newBrowserContext(t *testing.T) context.Context {
 	t.Helper()
 	allocCtx, cancelAlloc := chromedp.NewRemoteAllocator(context.Background(), browserEndpoint)
-	tabCtx, cancelTab := chromedp.NewContext(allocCtx)
+	tabCtx, cancelTab := chromedp.NewContext(allocCtx, chromedp.WithNewBrowserContext())
 	timeoutCtx, cancelTimeout := context.WithTimeout(tabCtx, perTestBrowserTimeout)
 	t.Cleanup(func() {
 		cancelTimeout()
 		cancelTab()
 		cancelAlloc()
 	})
+	if err := chromedp.Run(timeoutCtx, emulation.SetUserAgentOverride(browserUserAgent).WithAcceptLanguage("en-US,en;q=0.9")); err != nil {
+		t.Fatalf("setting isolated browser language: %v", err)
+	}
 	return timeoutCtx
 }
 

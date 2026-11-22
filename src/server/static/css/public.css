@@ -90,10 +90,10 @@
 /* Main Content */
 #main-content {
   flex: 1;
-  max-width: 1200px;
+  max-width: none;
   width: 100%;
-  margin: 0 auto;
-  padding: var(--space-8) var(--space-6);
+  margin: 0;
+  padding: 0;
 }
 
 /* Footer styling lives in the dedicated "Footer" section below — it
@@ -566,8 +566,8 @@ body:has(.nav-checkbox:checked) {
   body:has(#navigation.nav-overflow) #nav-toggle { display: block; }
 
   #main-content {
-    width: 90%;
-    padding: var(--space-8) var(--space-6);
+    width: 100%;
+    padding: 0;
   }
 
   .ip-display {

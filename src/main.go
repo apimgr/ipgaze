@@ -1659,15 +1659,20 @@ func runMain() {
 			log.Printf("Warning: Failed to add healthcheck_self task: %v", err)
 		}
 
-		// token_cleanup: every 15 minutes — remove expired API tokens and sessions.
-		// ipgaze is anonymous-only; no user tokens exist, so this is a required no-op per AI.md PART 18.
+		// token_cleanup: every 15 minutes — purge idle owners only when configured.
 		if err := sched.AddTask(&scheduler.Task{
 			ID:       "token_cleanup",
 			Name:     "Token Cleanup",
 			Schedule: scheduleFor("@every 15m", cfg.Server.Schedule.Tasks.TokenCleanup),
 			Enabled:  enabledFor(true, cfg.Server.Schedule.Tasks.TokenCleanup),
 			Fn: func() error {
-				return nil
+				days := cfg.Server.Tokens.IdlePurgeDays
+				if days <= 0 || serverDB == nil {
+					return nil
+				}
+				cutoff := time.Now().Add(-time.Duration(days) * 24 * time.Hour).Unix()
+				_, err := serverDB.ExecContext(context.Background(), `DELETE FROM owners WHERE last_seen_at < ?`, cutoff)
+				return err
 			},
 		}); err != nil {
 			log.Printf("Warning: Failed to add token_cleanup task: %v", err)
@@ -1737,6 +1742,8 @@ func runMain() {
 	rlCfg.Read = resolveRateBucket(cfg.Server.RateLimit.Read, rlCfg.Read)
 	rlCfg.Write = resolveRateBucket(cfg.Server.RateLimit.Write, rlCfg.Write)
 	rlCfg.Health = resolveRateBucket(cfg.Server.RateLimit.Health, rlCfg.Health)
+	rlCfg.Strict = resolveRateBucket(cfg.Server.RateLimit.Strict, rlCfg.Strict)
+	rlCfg.AuthFailures = resolveRateBucket(cfg.Server.RateLimit.AuthFailures, rlCfg.AuthFailures)
 	if cfg.Server.RateLimit.GlobalBurst > 0 {
 		rlCfg.Global = server.RateLimitBucket{Limit: cfg.Server.RateLimit.GlobalBurst, Window: time.Minute}
 	}
@@ -1960,6 +1967,8 @@ func runMain() {
 			newRateConfig.Read = resolveRateBucket(newCfg.Server.RateLimit.Read, newRateConfig.Read)
 			newRateConfig.Write = resolveRateBucket(newCfg.Server.RateLimit.Write, newRateConfig.Write)
 			newRateConfig.Health = resolveRateBucket(newCfg.Server.RateLimit.Health, newRateConfig.Health)
+			newRateConfig.Strict = resolveRateBucket(newCfg.Server.RateLimit.Strict, newRateConfig.Strict)
+			newRateConfig.AuthFailures = resolveRateBucket(newCfg.Server.RateLimit.AuthFailures, newRateConfig.AuthFailures)
 			if newCfg.Server.RateLimit.GlobalBurst > 0 {
 				newRateConfig.Global = server.RateLimitBucket{Limit: newCfg.Server.RateLimit.GlobalBurst, Window: time.Minute}
 			}
@@ -4179,31 +4188,31 @@ func maintenanceToken(args []string, cfg *config.AppConfig, logsDir string, dirs
 func maintenanceTokenList(conn *sql.DB) {
 	ctx, cancel := context.WithTimeout(context.Background(), simpleSelectTimeout)
 	defer cancel()
-	rows, err := conn.QueryContext(ctx, `SELECT token_prefix, resource_type, resource_id, created_at, expires_at, revoked_at
-        FROM api_tokens ORDER BY created_at DESC`)
+	rows, err := conn.QueryContext(ctx, `SELECT token_prefix, kind, COALESCE(name, ''), owner_id, created_at, expires_at, revoked_at
+		FROM api_tokens ORDER BY created_at DESC`)
 	if err != nil {
 		log.Printf("token list: query failed: %v", err)
 		os.Exit(exIoErr)
 	}
 	defer func() { _ = rows.Close() }()
 
-	fmt.Printf("%-12s %-12s %-24s %-20s %-10s\n", "PREFIX", "TYPE", "RESOURCE", "CREATED", "STATUS")
+	fmt.Printf("%-14s %-9s %-18s %-36s %-20s %-10s\n", "PREFIX", "KIND", "NAME", "OWNER", "CREATED", "STATUS")
 	count := 0
 	for rows.Next() {
-		var prefix, resType, resID string
+		var prefix, kind, name, ownerID string
 		var createdAt int64
 		var expiresAt, revokedAt sql.NullInt64
-		if err := rows.Scan(&prefix, &resType, &resID, &createdAt, &expiresAt, &revokedAt); err != nil {
+		if err := rows.Scan(&prefix, &kind, &name, &ownerID, &createdAt, &expiresAt, &revokedAt); err != nil {
 			continue
 		}
 		status := "active"
 		if revokedAt.Valid {
 			status = "revoked"
-		} else if expiresAt.Valid && expiresAt.Int64 < time.Now().Unix() {
+		} else if expiresAt.Valid && expiresAt.Int64 <= time.Now().Unix() {
 			status = "expired"
 		}
-		fmt.Printf("%-12s %-12s %-24s %-20s %-10s\n",
-			prefix, resType, resID, time.Unix(createdAt, 0).Format(time.RFC3339), status)
+		fmt.Printf("%-14s %-9s %-18s %-36s %-20s %-10s\n",
+			prefix, kind, name, ownerID, time.Unix(createdAt, 0).Format(time.RFC3339), status)
 		count++
 	}
 	if count == 0 {
@@ -4215,19 +4224,42 @@ func maintenanceTokenList(conn *sql.DB) {
 func maintenanceTokenRevoke(conn *sql.DB, prefix, logsDir string, cfg *config.AppConfig) {
 	ctx, cancel := context.WithTimeout(context.Background(), writeQueryTimeout)
 	defer cancel()
-	res, err := conn.ExecContext(ctx, `UPDATE api_tokens SET revoked_at = ?, revoked_reason = ?
-        WHERE token_prefix = ? AND revoked_at IS NULL`,
-		time.Now().Unix(), "revoked via --maintenance token revoke", prefix)
+	rows, err := conn.QueryContext(ctx, `SELECT id, owner_id, kind FROM api_tokens WHERE token_prefix LIKE ? AND revoked_at IS NULL`, prefix+"%")
+	if err != nil {
+		log.Printf("token revoke: lookup failed: %v", err)
+		os.Exit(exIoErr)
+	}
+	type tokenMatch struct {
+		id            int64
+		ownerID, kind string
+	}
+	var matches []tokenMatch
+	for rows.Next() {
+		var match tokenMatch
+		if err := rows.Scan(&match.id, &match.ownerID, &match.kind); err == nil {
+			matches = append(matches, match)
+		}
+	}
+	_ = rows.Close()
+	if len(matches) == 0 {
+		fmt.Printf("No active token found with prefix %q.\n", prefix)
+		return
+	}
+	if len(matches) > 1 {
+		fmt.Printf("Token prefix %q is ambiguous; provide a longer prefix.\n", prefix)
+		os.Exit(exUsage)
+	}
+	match := matches[0]
+	now := time.Now().Unix()
+	if match.kind == "primary" {
+		_, err = conn.ExecContext(ctx, `UPDATE api_tokens SET revoked_at = ?, revoked_reason = ? WHERE owner_id = ? AND revoked_at IS NULL`, now, "owner revoked via --maintenance token revoke", match.ownerID)
+	} else {
+		_, err = conn.ExecContext(ctx, `UPDATE api_tokens SET revoked_at = ?, revoked_reason = ? WHERE id = ? AND revoked_at IS NULL`, now, "revoked via --maintenance token revoke", match.id)
+	}
 	if err != nil {
 		log.Printf("token revoke: update failed: %v", err)
 		os.Exit(exIoErr)
 	}
-	n, _ := res.RowsAffected()
-	if n == 0 {
-		fmt.Printf("No active token found with prefix %q.\n", prefix)
-		return
-	}
-
 	logMgr, logMgrErr := applog.NewManager(logsDir, buildLogConfig(cfg))
 	if logMgrErr == nil {
 		logMgr.WriteAuditEvent("", "cli.token_revoked", "security", "warn", "success", "", map[string]any{
@@ -4274,7 +4306,7 @@ func maintenanceData(args []string, cfg *config.AppConfig, logsDir string, dirs 
 // policy plus a row-count inventory of every table that may hold operator
 // or visitor data, per AI.md PART 21 GDPR/CCPA "data export" behaviors.
 func maintenanceDataExport(conn *sql.DB, cfg *config.AppConfig) {
-	tables := []string{"config", "rate_limits", "audit_log", "scheduler_history", "backups", "api_tokens", "pgp_keypairs"}
+	tables := []string{"config", "rate_limits", "rate_limit_events", "audit_log", "scheduler_history", "backups", "api_tokens", "pgp_keypairs"}
 	counts := map[string]int{}
 	ctx, cancel := context.WithTimeout(context.Background(), simpleSelectTimeout)
 	defer cancel()
@@ -4320,7 +4352,7 @@ func maintenanceDataDelete(conn *sql.DB, logsDir string, cfg *config.AppConfig) 
 	logMgr, logMgrErr := applog.NewManager(logsDir, buildLogConfig(cfg))
 	if logMgrErr == nil {
 		logMgr.WriteAuditEvent("", "cli.data_deleted", "security", "warn", "success", "", map[string]any{
-			"tables": []string{"rate_limits", "audit_log"},
+			"tables": []string{"rate_limits", "rate_limit_events", "audit_log"},
 		})
 	}
 
@@ -4330,6 +4362,10 @@ func maintenanceDataDelete(conn *sql.DB, logsDir string, cfg *config.AppConfig) 
 		log.Printf("data delete: failed to clear rate_limits: %v", err)
 		os.Exit(exIoErr)
 	}
+	if _, err := conn.ExecContext(ctx, "DELETE FROM rate_limit_events"); err != nil {
+		log.Printf("data delete: failed to clear rate_limit_events: %v", err)
+		os.Exit(exIoErr)
+	}
 	if _, err := conn.ExecContext(ctx, "DELETE FROM audit_log"); err != nil {
 		log.Printf("data delete: failed to clear audit_log: %v", err)
 		os.Exit(exIoErr)
@@ -4337,7 +4373,7 @@ func maintenanceDataDelete(conn *sql.DB, logsDir string, cfg *config.AppConfig) 
 	if logMgrErr == nil {
 		logMgr.Close()
 	}
-	fmt.Println("Operational data (rate_limits, audit_log) deleted.")
+	fmt.Println("Operational data (rate_limits, rate_limit_events, audit_log) deleted.")
 }
 
 // maintenanceCompliance implements `--maintenance compliance report` per

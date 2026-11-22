@@ -58,7 +58,10 @@ func TestIsDatabaseEmpty_WithAuditRow(t *testing.T) {
 
 func TestIsDatabaseEmpty_WithTokenRow(t *testing.T) {
 	conn := openTestDB(t)
-	if _, err := conn.Exec(`INSERT INTO api_tokens (token_hash, token_prefix, resource_type, resource_id) VALUES ('h','p','t','r')`); err != nil {
+	if _, err := conn.Exec(`INSERT INTO owners(id) VALUES ('owner-token-test')`); err != nil {
+		t.Fatalf("insert owner: %v", err)
+	}
+	if _, err := conn.Exec(`INSERT INTO api_tokens (owner_id, kind, token_hash, token_prefix, token_last4, token_enc) VALUES ('owner-token-test','primary','h','own_test','last','encrypted')`); err != nil {
 		t.Fatalf("insert api_tokens: %v", err)
 	}
 	if isDatabaseEmpty(conn) {
@@ -132,10 +135,13 @@ func TestMaintenanceTokenList_EmptyDatabase(t *testing.T) {
 
 func TestMaintenanceTokenList_ListsActiveAndRevoked(t *testing.T) {
 	conn := openTestDB(t)
-	if _, err := conn.Exec(`INSERT INTO api_tokens (token_hash, token_prefix, resource_type, resource_id) VALUES ('h1','abc123','cli','op')`); err != nil {
+	if _, err := conn.Exec(`INSERT INTO owners(id) VALUES ('owner-active'), ('owner-revoked')`); err != nil {
+		t.Fatalf("insert owners: %v", err)
+	}
+	if _, err := conn.Exec(`INSERT INTO api_tokens (owner_id, kind, token_hash, token_prefix, token_last4, token_enc) VALUES ('owner-active','primary','h1','abc123','last','encrypted')`); err != nil {
 		t.Fatalf("insert active token: %v", err)
 	}
-	if _, err := conn.Exec(`INSERT INTO api_tokens (token_hash, token_prefix, resource_type, resource_id, revoked_at) VALUES ('h2','def456','cli','op', 1)`); err != nil {
+	if _, err := conn.Exec(`INSERT INTO api_tokens (owner_id, kind, token_hash, token_prefix, token_last4, token_enc, revoked_at) VALUES ('owner-revoked','primary','h2','def456','last','encrypted', 1)`); err != nil {
 		t.Fatalf("insert revoked token: %v", err)
 	}
 	out := captureStdout(func() { maintenanceTokenList(conn) })
@@ -159,7 +165,10 @@ func TestMaintenanceTokenRevoke_UnknownPrefix(t *testing.T) {
 
 func TestMaintenanceTokenRevoke_RevokesMatchingToken(t *testing.T) {
 	conn := openTestDB(t)
-	if _, err := conn.Exec(`INSERT INTO api_tokens (token_hash, token_prefix, resource_type, resource_id) VALUES ('h1','xyz789','cli','op')`); err != nil {
+	if _, err := conn.Exec(`INSERT INTO owners(id) VALUES ('owner-revoke-test')`); err != nil {
+		t.Fatalf("insert owner: %v", err)
+	}
+	if _, err := conn.Exec(`INSERT INTO api_tokens (owner_id, kind, token_hash, token_prefix, token_last4, token_enc) VALUES ('owner-revoke-test','primary','h1','xyz789','last','encrypted')`); err != nil {
 		t.Fatalf("insert token: %v", err)
 	}
 	logsDir := t.TempDir()
@@ -179,7 +188,10 @@ func TestMaintenanceTokenRevoke_RevokesMatchingToken(t *testing.T) {
 
 func TestMaintenanceDataExport_ReportsTableCountsAndPolicy(t *testing.T) {
 	conn := openTestDB(t)
-	if _, err := conn.Exec(`INSERT INTO api_tokens (token_hash, token_prefix, resource_type, resource_id) VALUES ('h1','abc','cli','op')`); err != nil {
+	if _, err := conn.Exec(`INSERT INTO owners(id) VALUES ('owner-export-test')`); err != nil {
+		t.Fatalf("insert owner: %v", err)
+	}
+	if _, err := conn.Exec(`INSERT INTO api_tokens (owner_id, kind, token_hash, token_prefix, token_last4, token_enc) VALUES ('owner-export-test','primary','h1','abc','last','encrypted')`); err != nil {
 		t.Fatalf("insert token: %v", err)
 	}
 	cfg := config.DefaultConfig()
@@ -212,6 +224,9 @@ func TestMaintenanceDataDelete_CancelledWithoutConfirmation(t *testing.T) {
 	if _, err := conn.Exec(`INSERT INTO rate_limits (key, count) VALUES ('1.2.3.4','1')`); err != nil {
 		t.Fatalf("insert rate_limits: %v", err)
 	}
+	if _, err := conn.Exec(`INSERT INTO rate_limit_events (bucket_key, occurred_at) VALUES ('read|ip:1.2.3.4', strftime('%s','now'))`); err != nil {
+		t.Fatalf("insert rate_limit_events: %v", err)
+	}
 	logsDir := t.TempDir()
 	cfg := config.DefaultConfig()
 
@@ -228,6 +243,12 @@ func TestMaintenanceDataDelete_CancelledWithoutConfirmation(t *testing.T) {
 	}
 	if count != 1 {
 		t.Errorf("rate_limits count = %d, want 1 (delete should have been cancelled)", count)
+	}
+	if err := conn.QueryRow(`SELECT COUNT(*) FROM rate_limit_events`).Scan(&count); err != nil {
+		t.Fatalf("count rate_limit_events: %v", err)
+	}
+	if count != 1 {
+		t.Errorf("rate_limit_events count = %d, want 1 (delete should have been cancelled)", count)
 	}
 }
 

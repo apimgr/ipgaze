@@ -2,7 +2,7 @@
 
 ⚠️ **These rules are NON-NEGOTIABLE. Violations are bugs.** ⚠️
 
-> Synced against AI.md revision `7ac307b1a0b` (2026-11-21). AI.md remains authoritative for complete requirements.
+> Synced against AI.md revision `eb41fb200153` (2026-11-22). AI.md remains authoritative for complete requirements.
 
 ## CRITICAL - NEVER DO
 - **PART 7:** *Security databases are NEVER embedded in the binary.** They are downloaded on first run and kept updated via the built-in scheduler.
@@ -13,8 +13,8 @@
 - **PART 8:** *Directory mode is locked at process start.** System vs user paths are decided ONCE from the EUID at startup, before any privilege drop, and cached for the process lifetime. Never resolve `~` or `$HOME` after the privilege drop — the service account's HOME points at `{data_dir}` (e.g. `/var/lib/{internal_org}/{internal_name}`), so a late `$HOME` lookup nests user-style paths like `.local/share/Backups/` inside the system data dir.
 - **PART 8:** | 7. Resolve paths | any | Resolved ONCE and cached — mode locked from start EUID; never re-derived after 8h |
 - **PART 8:** | 8g. Spawn children (Tor) | **root** | Children spawned with setuid/setgid {internal_name} credentials — never run as root |
-- **PART 8:** *Token format:** `tok_` prefix + 32 URL-safe random base62 chars, the same for every tier. The server stores `SHA-256(token)` for lookup and an AES-256-GCM encrypted copy (`token_enc`, key: `server.security.encryption_key`) so the owner can **view the token again at any time** — masked by default, revealed on request. The raw token is never logged, never in a backup in plaintext, and never in any list/detail response. The operator token is the exception: it lives in `server.yml`, is only compared by hash, and is never shown by the server.
-- **PART 8:** *Not stored in `api_tokens` DB table.** Validated by SHA-256-hashing the inbound token and comparing against `SHA-256(server.token)` with `subtle.ConstantTimeCompare`. The hash is cached in memory at startup — never written to the DB.
+- **PART 8:** Owner and linked tokens use the `own_` prefix; the operator token uses `adm_`. Owner tokens are stored in `api_tokens` with a SHA-256 lookup hash and an AES-256-GCM encrypted copy. The operator token lives in `secrets.yml`, is validated by a constant-time SHA-256 comparison and is never stored in `api_tokens` or shown by the server.
+- **PART 8:** `token_last4` is stored with each owner token. Token lists and page loads display the masked value from this suffix and never decrypt `token_enc`; only the reveal action decrypts it.
 - **PART 8:** | Ownership | Resources store `owner_id`. Tokens resolve to an `owner_id`. A resource is never bound to a token hash, so rotating or revoking a token never touches resource rows |
 - **PART 8:** | One primary per owner | Created with the owner; **never expires and never disappears** — not when resources expire or are deleted, not when the owner has none left. It ends only by owner rotation (replaced in place), operator revocation, or the optional idle purge below |
 - **PART 8:** | Idle purge | `server.tokens.idle_purge_days` (default `0` = never). When greater than 0, an owner with **zero resources** and no token use for that many days is deleted with its tokens. Owners with resources are never purged |
@@ -191,4 +191,4 @@
 
 For complete details, see AI.md PART 7, PART 8, PART 32.
 
-<!-- AI.md source: 03cc45ec58df -->
+<!-- AI.md source: eb41fb200153 -->

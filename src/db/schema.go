@@ -8,6 +8,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 )
@@ -81,6 +82,14 @@ END`,
 
 	`CREATE INDEX IF NOT EXISTS idx_rate_limits_window ON rate_limits(window_start)`,
 
+	`CREATE TABLE IF NOT EXISTS rate_limit_events (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    bucket_key  TEXT NOT NULL,
+    occurred_at INTEGER NOT NULL
+)`,
+
+	`CREATE INDEX IF NOT EXISTS idx_rate_limit_events_bucket_time ON rate_limit_events(bucket_key, occurred_at)`,
+
 	// ----------------------------------------------------------------------------
 	// Audit log (config changes, request log, security events)
 	// ----------------------------------------------------------------------------
@@ -153,26 +162,41 @@ END`,
 	`CREATE INDEX IF NOT EXISTS idx_backups_created ON backups(created_at)`,
 
 	// ----------------------------------------------------------------------------
-	// API tokens — server-generated resource-owner tokens.
+	// Owners — anonymous, credential-only identities.
+	// ----------------------------------------------------------------------------
+	`CREATE TABLE IF NOT EXISTS owners (
+    id            TEXT PRIMARY KEY,
+    created_at    INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+    last_seen_at  INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
+)`,
+
+	// ----------------------------------------------------------------------------
+	// API tokens — server-generated owner and linked tokens.
 	// The server.token (server.yml) is NOT stored here; it is validated directly
 	// from config via constant-time SHA-256 comparison (AI.md PART 11).
 	// ----------------------------------------------------------------------------
 	`CREATE TABLE IF NOT EXISTS api_tokens (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    owner_id      TEXT NOT NULL REFERENCES owners(id) ON DELETE CASCADE,
+    kind          TEXT NOT NULL CHECK (kind IN ('primary', 'linked')),
+    name          TEXT,
     token_hash    TEXT NOT NULL UNIQUE,
     token_prefix  TEXT NOT NULL,
-    resource_type TEXT NOT NULL,
-    resource_id   TEXT NOT NULL,
+    token_last4   TEXT NOT NULL,
+    token_enc     TEXT NOT NULL,
     created_at    INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+    rotated_at    INTEGER,
     expires_at    INTEGER,
     last_used_at  INTEGER,
     revoked_at    INTEGER,
     revoked_reason TEXT
 )`,
 
+	`CREATE UNIQUE INDEX IF NOT EXISTS idx_api_tokens_primary ON api_tokens(owner_id) WHERE kind = 'primary' AND revoked_at IS NULL`,
+	`CREATE UNIQUE INDEX IF NOT EXISTS idx_api_tokens_linked_name ON api_tokens(owner_id, name) WHERE kind = 'linked'`,
 	`CREATE INDEX IF NOT EXISTS idx_api_tokens_hash     ON api_tokens(token_hash)`,
 	`CREATE INDEX IF NOT EXISTS idx_api_tokens_prefix   ON api_tokens(token_prefix)`,
-	`CREATE INDEX IF NOT EXISTS idx_api_tokens_resource ON api_tokens(resource_type, resource_id)`,
+	`CREATE INDEX IF NOT EXISTS idx_api_tokens_owner    ON api_tokens(owner_id)`,
 	`CREATE INDEX IF NOT EXISTS idx_api_tokens_active   ON api_tokens(revoked_at) WHERE revoked_at IS NULL`,
 
 	// ----------------------------------------------------------------------------
@@ -271,6 +295,7 @@ var schemaUpdates = []string{
 	// v1.2.0 — audit category index
 	`CREATE INDEX IF NOT EXISTS idx_audit_category ON audit_log(category)`,
 	`CREATE INDEX IF NOT EXISTS idx_security_reports_public ON security_reports(status, created_at)`,
+	`ALTER TABLE api_tokens ADD COLUMN token_last4 TEXT NOT NULL DEFAULT ''`,
 }
 
 // migrationTimeout is the AI.md PART 10 "Query Timeouts" ceiling for schema
@@ -290,6 +315,9 @@ func EnsureSchema(db *sql.DB) error {
 // EnsureSchemaContext is EnsureSchema bound to a caller-supplied context, so a
 // shutdown signal or an outer deadline can abort a migration in progress.
 func EnsureSchemaContext(ctx context.Context, db *sql.DB) error {
+	if err := upgradeAPITokensSchema(ctx, db); err != nil {
+		return fmt.Errorf("db: upgrade API tokens schema: %w", err)
+	}
 	for _, stmt := range createStatements {
 		if _, err := db.ExecContext(ctx, stmt); err != nil {
 			return fmt.Errorf("db: create schema: %w", err)
@@ -311,6 +339,62 @@ func EnsureSchemaContext(ctx context.Context, db *sql.DB) error {
 	}
 
 	return nil
+}
+
+// upgradeAPITokensSchema preserves the earlier resource-bound token table
+// before installing the owner-token schema required by AI.md PART 8.
+func upgradeAPITokensSchema(ctx context.Context, db *sql.DB) error {
+	rows, err := db.QueryContext(ctx, `PRAGMA table_info(api_tokens)`)
+	if err != nil {
+		return err
+	}
+	columns := map[string]bool{}
+	for rows.Next() {
+		var cid, notNull, primaryKey int
+		var name, columnType string
+		var defaultValue sql.NullString
+		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &primaryKey); err != nil {
+			return errors.Join(err, rows.Close())
+		}
+		columns[name] = true
+	}
+	if err := rows.Err(); err != nil {
+		return errors.Join(err, rows.Close())
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	if len(columns) == 0 || (columns["owner_id"] && columns["kind"] && columns["token_enc"]) {
+		return nil
+	}
+
+	var legacyTable string
+	err = db.QueryRowContext(ctx, `SELECT name FROM sqlite_master WHERE type='table' AND name='api_tokens_legacy'`).Scan(&legacyTable)
+	if err == nil {
+		return errors.New("api_tokens_legacy already exists; refusing to replace or discard token data")
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if rollbackErr := tx.Rollback(); rollbackErr != nil && !errors.Is(rollbackErr, sql.ErrTxDone) {
+			slog.Warn("legacy API token schema rollback failed", "error", rollbackErr)
+		}
+	}()
+	if _, err := tx.ExecContext(ctx, `ALTER TABLE api_tokens RENAME TO api_tokens_legacy`); err != nil {
+		return err
+	}
+	for _, index := range []string{"idx_api_tokens_hash", "idx_api_tokens_prefix", "idx_api_tokens_resource", "idx_api_tokens_active"} {
+		if _, err := tx.ExecContext(ctx, `DROP INDEX IF EXISTS `+index); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 // upgradeSecurityReportsSchema rebuilds pre-contract tables into the canonical

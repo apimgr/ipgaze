@@ -168,10 +168,14 @@ func TestOpenAPICoversEveryRegisteredRoute(t *testing.T) {
 
 	var missing []string
 	for op := range registeredRoutes(t) {
-		if strings.HasPrefix(strings.SplitN(op, " ", 2)[1], "/api/v1") {
+		path := strings.SplitN(op, " ", 2)[1]
+		if strings.HasPrefix(path, "/api/v1") {
 			continue
 		}
 		if isInternal(op) {
+			continue
+		}
+		if undocumentedByDesign[path] {
 			continue
 		}
 		if !documented[op] {
