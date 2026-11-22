@@ -89,7 +89,10 @@ Streamable HTTP:
 IPGaze exposes public lookup operations, so MCP clients can connect without a
 token. There is no MCP-specific token. The guide at `/server/help/mcp` shows
 the resolved endpoint URL, available tools, and a client initialization
-example.
+example. Operator-only API tools are listed only when the request carries a
+valid `server.token` bearer credential. IPGaze has no owner-owned resources,
+so it does not issue owner or linked tokens; token-management operations are
+never exposed as MCP tools.
 
 ---
 
