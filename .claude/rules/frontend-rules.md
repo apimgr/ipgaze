@@ -2,6 +2,8 @@
 
 ⚠️ **These rules are NON-NEGOTIABLE. Violations are bugs.** ⚠️
 
+> Synced against AI.md revision `7ac307b1a0b` (2026-11-21). AI.md remains authoritative for complete requirements.
+
 ## CRITICAL - NEVER DO
 - **PART 16:** Routes are registered on the router in `main.go`/`routes.go`. All frontend routes are public — there is no admin web UI, no dashboard, and no settings pages beyond the guest `/server/preferences` page and its `/server/preferences/tokens` sub-page (no login, no user accounts). Auth is bearer-token only (operator token, owner token, or linked token) and applies to `/api/` routes. HTML pages never require auth, including `/server/preferences/tokens`: that page is public but credential-gated — it always renders (with the restore form) and lists tokens and accepts management actions only when a valid owner cookie is present (PART 8 → "Token Management"). The owner cookie is the only cookie credential, and only for those token-management forms.
 - **PART 16:** *Adjacent copy button → single-line scroll-box, never wrap** (the copy button is the intended way to get the value, so hiding overflow behind a scroll costs nothing and keeps the pill from inflating to multiple lines):

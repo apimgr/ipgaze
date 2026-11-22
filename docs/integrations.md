@@ -193,7 +193,8 @@ requests use this route; caller-supplied remote URLs remain outside it.
 
 ## I2P Eepsite
 
-I2P eepsite hosting is optional and disabled by default. Enable it explicitly
+I2P eepsite hosting is optional. It starts by default in containers and is
+disabled by default on bare metal and in VMs. Enable or disable it explicitly
 in `server.yml`:
 
 ```yaml
@@ -202,7 +203,10 @@ server:
     enabled: true
 ```
 
-When enabled, IPGaze manages a dedicated `i2pd` process when the binary is
+When enabled, IPGaze starts overlay setup in the background so it does not
+delay the HTTP listener. Health reports `starting`, `healthy`, or
+`unavailable`; provider failures do not stop or restart the clearnet server.
+IPGaze manages a dedicated `i2pd` process when the binary is
 available, or connects to an existing SAMv3 bridge at `127.0.0.1:7656`.
 The resulting `.b32.i2p` address is shown in the server information page when
 the destination is ready. I2P is used for inbound eepsite hosting only.

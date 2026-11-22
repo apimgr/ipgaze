@@ -2,6 +2,8 @@
 
 ⚠️ **These rules are NON-NEGOTIABLE. Violations are bugs.** ⚠️
 
+> Synced against AI.md revision `7ac307b1a0b` (2026-11-21). AI.md remains authoritative for complete requirements.
+
 ## CRITICAL - NEVER DO
 - **PART 5:** *CRITICAL: ALL comments in YAML files MUST go ABOVE the setting, NEVER inline.**
 - **PART 5:** *Exception:** GitHub Actions SHA-pin version annotations stay inline — `uses: owner/action@{40-char-sha}  # vX.Y.Z` — Renovate reads and rewrites the same-line comment when bumping pins; never move it above the `uses:` line.
@@ -77,14 +79,14 @@
 - **PART 5:** | Operation | Danger | Authorization Required |
 - **PART 5:** | Always show others | Show port for all non-standard ports |
 - **PART 6:** | Credentials | Keys, tokens, passwords, secrets ALWAYS redacted — no exceptions |
-- **PART 12:** *I2P exception:** identical to the Tor exception. When I2P is opt-in enabled and `i2p.b32_address` is set, a request whose `Host` matches it is resolved from `i2p.*` config — always `http://`, no proxy header inspection, no IP check (the eepsite backend is a plain loopback listener with no PROXY header). When I2P is disabled or the address is unset, `.b32.i2p` Host headers are treated like any other host. See **PART 31.2 → "I2P Eepsite"**.
+- **PART 12:** *I2P exception:** identical to the Tor exception. When the resolved I2P config enables the eepsite and `i2p.b32_address` is set, a request whose `Host` matches it is resolved from `i2p.*` config — always `http://`, no proxy header inspection, no IP check (the eepsite backend is a plain loopback listener with no PROXY header). When I2P is disabled or the address is unset, `.b32.i2p` Host headers are treated like any other host. See **PART 31.2 → "I2P Eepsite"**.
 - **PART 12:** | Always trusted (no config required) | Reason |
 - **PART 12:** **Proto:** `http://` — Tor hidden services are always HTTP; TLS terminates in the Tor layer
 - **PART 12:** This check is **priority 0** in the FQDN resolution table — evaluated before reverse proxy headers, always trusted, no IP check against `trusted_proxies` required.
 - **PART 12:** *Tor parity principle:** a Tor request MUST behave **exactly like the equivalent clearnet request** — same routes, same features, same responses — with only two classes of difference:
 - **PART 12:** | **Clearnet links** | Any link that would normally point to the clearnet site must use the onion address or be omitted entirely. |
 - **PART 12:** | **OAuth / external auth** | Redirect URIs must use the onion address. If the OAuth provider does not support `.onion` redirect URIs, that provider is disabled for Tor requests with a `503` error. |
-- **PART 12:** > **Full I2P implementation:** the same overlay HTTP semantics apply to `.b32.i2p` (always `http://`, no cert, no HSTS, no upgrade). For the opt-in eepsite provider lifecycle (i2pd process or SAM bridge), `i2pd.conf` generation, and destination-key persistence, see **PART 31.2 → "I2P Eepsite"**.
+- **PART 12:** > **Full I2P implementation:** the same overlay HTTP semantics apply to `.b32.i2p` (always `http://`, no cert, no HSTS, no upgrade). For the eepsite provider lifecycle (i2pd process or SAM bridge), `i2pd.conf` generation, and destination-key persistence, see **PART 31.2 → "I2P Eepsite"**.
 - **PART 12:** | `admin` | Required. Empty → startup warning. Auto-populated from the operator's email on first install if unset. |
 - **PART 12:** | Type | Name | ID Format | URL Required | Notes |
 - **PART 12:** | `google` | Must match `UA-\d+-\d+` or `G-[A-Z0-9]+` | N/A |
@@ -93,6 +95,11 @@
 - **PART 12:** | `owa` | Non-empty string | Must be valid URL |
 - **PART 12:** | `umami` | Valid UUID format | Must be valid URL |
 - **PART 12:** | **Essential** | No | Sessions, CSRF tokens, security - required |
+
+## AI.md 2026-11-21 Updates
+
+- **PART 12:** `server.security.reports.retention_days` defaults to `365` and controls closed security report retention.
+- **PART 31.2:** Resolve I2P's built-in default from container detection: enabled in a container, disabled elsewhere. Explicit configuration remains authoritative.
 
 ## Key Rules Summary
 

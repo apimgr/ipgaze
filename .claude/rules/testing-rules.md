@@ -2,6 +2,8 @@
 
 ⚠️ **These rules are NON-NEGOTIABLE. Violations are bugs.** ⚠️
 
+> Synced against AI.md revision `7ac307b1a0b` (2026-11-21). AI.md remains authoritative for complete requirements.
+
 ## CRITICAL - NEVER DO
 - **PART 28:** When a test or debug step requires `reboot`, `systemctl`, `iptables`, `mount`, package install, network reconfiguration, or any other host-affecting command, that step MUST run inside a container, VM, chroot, or network namespace — never on the host.
 - **PART 28:** *See PART 0: "Host System Safety Rule" for the full forbidden-command list, allowed contexts, detection guidance, and the required refusal flow. See FINAL: "HOST SYSTEM SAFETY CHECKLIST" for audit items.**
@@ -143,6 +145,11 @@
 - **PART 30:** 7. Update the project's README language list and `docs/translating.md` credits (the count MUST equal the number of locale files)
 - **PART 30:** | **WCAG 2.1 AA** | Mandatory | Full compliance required |
 - **PART 30:** *Automated tests MUST include accessibility checks:**
+
+## AI.md 2026-11-21 Updates
+
+- **PART 28:** Container integration tests expect I2P enabled by default in containers and must also verify explicit opt-out.
+- **PART 28:** Cover domain normalization, wildcard/public-suffix handling, target extraction without request Host, body preservation, overlay asynchronous states, and security cleanup retention.
 
 ## Key Rules Summary
 

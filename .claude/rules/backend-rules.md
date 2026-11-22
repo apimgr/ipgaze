@@ -2,6 +2,8 @@
 
 ⚠️ **These rules are NON-NEGOTIABLE. Violations are bugs.** ⚠️
 
+> Synced against AI.md revision `7ac307b1a0b` (2026-11-21). AI.md remains authoritative for complete requirements.
+
 ## CRITICAL - NEVER DO
 - **PART 9:** | **No stack traces** | Never expose stack traces in production responses |
 - **PART 9:** *Canonical shape — see PART 14 → "Error Response" for the authoritative spec including the optional `details` field, forbidden legacy patterns, and field semantics. Never re-define the shape here; reference PART 14 instead.**
@@ -148,8 +150,7 @@
 - **PART 31:** Files are written in Tor's own on-disk formats (the secret key as the 64-byte expanded key behind the `== ed25519v1-secret: type0 ==` header) — byte-for-byte the same layout Tor persists in `{data_dir}/tor/site/` and the same layout `mkp224o` emits, so a found candidate dir, an external `mkp224o` output dir, and the live site dir are interchangeable. The search never writes into `{data_dir}/tor/site/`, and secret key material is never logged — only the found address is.
 - **PART 31:** *Handoff — `tor vanity apply <address>`.** The candidate directory IS the handoff format; apply is a file swap, never a re-derivation:
 - **PART 31:** **Dedicated backend port** — the eepsite maps `.b32.i2p:{virtual_port}` → `127.0.0.1:{i2p_backend_port}`, a random-unused loopback port. **Unlike Tor, there is no PROXY-protocol header** (SAM/i2pd do not prepend one), so the backend is a **plain loopback listener**, separate from the clearnet port.
-- **PART 31:** *I2P is opt-in.** No provider is contacted and no port is allocated unless `enabled: true`. The canonical config path is `server.i2p.enabled` (env `I2P_ENABLED`, flag `--i2p`), grouped under `server` like `server.tor`; `features.i2p.*` names the same state only as response fields in health output and is never a config key. Precedence follows PART 8: `--i2p` flag, then `I2P_ENABLED`, then `server.i2p.enabled`.
-- **PART 31:** **Opt-in only** — never auto-enabled; selecting it requires an explicit config/flag/env.
+- **PART 31:** I2P is enabled by default in containers and disabled elsewhere. Explicit `--i2p`, `I2P_ENABLED`, or `server.i2p.enabled` values override the detected default; no provider is contacted unless the resolved value is true.
 - **PART 31:** | **Model A SAM port** | A random-unused loopback port allocated after the provider is confirmed (same detection as the backend port); never `7656`. Never persisted |
 - **PART 31:** | **Key file** | `{data_dir}/i2p/site/site-keys.dat` holds ONE line: the SAM `PRIV` value (I2P base64 of destination + private keys). Written by the app (0600) for both models. If missing: `DEST GENERATE SIGNATURE_TYPE={signature_type}`, then write temp file + fsync + rename BEFORE `SESSION CREATE`, so a crash never loses a published identity. If present but unparsable: fail with an error naming the file; NEVER regenerate silently |
 - **PART 31:** | **I2P base64** | Alphabet `A-Za-z0-9-~` (`-` and `~` replace `+` and `/`), `=` padding. Standard base64 decoders MUST NOT be used |
@@ -245,7 +246,7 @@
 - **PART 11:** | Path security (traversal) | No | Always enforced |
 - **PART 11:** | SSL/TLS | No | Always enforced when enabled |
 - **PART 11:** Must be valid IPv4, IPv6, or CIDR notation
-- **PART 31:** > **This PART covers two overlay-network integrations:** **PART 31.1 (Tor Hidden Service)** — REQUIRED, auto-enabled when the `tor` binary is found, no toggle — and **PART 31.2 (I2P Eepsite)** — OPTIONAL, opt-in (default off). Both serve the app over an anonymity network at an `http://` address that is itself the cryptographic identity; neither ever uses HTTPS, HSTS, or an upgrade redirect (see PART 12 → overlay HTTP semantics). The dedicated backend port for each is allocated smartly — only after a provider is confirmed available, so "no provider → no port, no generated config."
+- **PART 31:** > **This PART covers two overlay-network integrations:** **PART 31.1 (Tor Hidden Service)** — REQUIRED, auto-enabled when the `tor` binary is found, no toggle — and **PART 31.2 (I2P Eepsite)** — OPTIONAL, enabled by default in containers and disabled elsewhere. Both serve the app over an anonymity network at an `http://` address that is itself the cryptographic identity; neither ever uses HTTPS, HSTS, or an upgrade redirect (see PART 12 → overlay HTTP semantics). The dedicated backend port for each is allocated smartly — only after a provider is confirmed available, so "no provider → no port, no generated config."
 - **PART 31:** > **Trust chain integration:** Tor detection is priority 0 in the FQDN resolution table — evaluated before reverse proxy headers, always trusted, no IP check required. See **PART 12 → "Tor Hidden Service Configuration"** for request detection rules, `BuildURL` / `GetURLVars` behavior, privacy rules, and the Tor security.txt variant.
 - **PART 31:** *ALL projects MUST have built-in Tor hidden service support.**
 - **PART 31:** 1. **Hidden Service** - server-side .onion hosting (always enabled if Tor binary found)
@@ -282,6 +283,12 @@
 - **PART 31:** | `HELLO` returns `NOVERSION` | Step 3 | `error`: router too old, SAM 3.1+ required |
 - **PART 31:** `i2pd.conf` is derived state, regenerated on every startup. The destination identity persists in `site-keys.dat` (written by the app), NOT in `i2pd.conf`, so overwriting it is always safe. Content: see "I2P Provider Contract".
 - **PART 31:** *I2P dirs are ALWAYS under the app's dirs (Model A; server binary owns i2pd):**
+
+## AI.md 2026-11-21 Updates
+
+- **PART 12:** Domain blocklists match Origin (otherwise Referer), submitted email domains, and every URL host a request submits for fetch or storage. Never match the server's request Host or client reverse DNS. Normalize with IDNA, remove userinfo/port/trailing dot, ignore IP literals, honor wildcard label boundaries, and reject wildcard public suffixes.
+- **PART 31:** Tor and I2P initialization is asynchronous; overlay bootstrap never delays the HTTP listener. Health status uses only `disabled`, `starting`, `healthy`, or `unavailable`; unavailable overlays degrade health but never fail or restart the server.
+- **PART 31.2:** I2P defaults on in containers and off elsewhere; an explicit config, environment variable, or flag overrides the detected default.
 
 ## Key Rules Summary
 
@@ -338,7 +345,7 @@
 - Implementation
 - Behavior
 - CLI
-- PART 31.2: I2P Eepsite (OPTIONAL — opt-in)
+- PART 31.2: I2P Eepsite (OPTIONAL — container default on, off elsewhere)
 
 For complete details, see AI.md PART 9, PART 10, PART 11, PART 31.
 

@@ -2,6 +2,8 @@
 
 ⚠️ **These rules are NON-NEGOTIABLE. Violations are bugs.** ⚠️
 
+> Synced against AI.md revision `7ac307b1a0b` (2026-11-21). AI.md remains authoritative for complete requirements.
+
 ## CRITICAL - NEVER DO
 - **PART 26:** NEVER place Dockerfile or docker-compose.yml in project root
 - **PART 26:** | **NEVER modify ENTRYPOINT** | Always use entrypoint.sh for customization |

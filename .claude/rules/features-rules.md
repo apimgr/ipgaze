@@ -2,6 +2,8 @@
 
 ⚠️ **These rules are NON-NEGOTIABLE. Violations are bugs.** ⚠️
 
+> Synced against AI.md revision `7ac307b1a0b` (2026-11-21). AI.md remains authoritative for complete requirements.
+
 ## CRITICAL - NEVER DO
 - **PART 17:** *Display Note:** Detected SMTP `{host}:{port}` is shown in console/logs (exempt from "never show localhost" rules - users need to see the actual detected server for troubleshooting).
 - **PART 17:** *Encryption is always negotiated per `smtp.tls`; certificate verification is skipped only when the configured `smtp.host` is an IP literal in a private range.** A relay on the operator's own network (for example the Docker bridge `172.17.0.1`) almost never has a certificate with an IP SAN, so verification there always fails with `x509: cannot validate certificate for {ip} because it doesn't contain any IP SAN`. The operator is handing mail to a local relay inside their own infrastructure, so TLS stays on (traffic is still encrypted) and only chain and name verification are relaxed.
@@ -108,6 +110,10 @@
 - **PART 22:** | Gates the scheduled task only | `update_check` skips ineligible releases for BOTH notification and auto-install; manual `--update check` / `--update yes` always see and install the true latest — an explicit operator action overrides the defer window |
 - **PART 22:** *When running as a service, update must coordinate with service manager:**
 - **PART 22:** *All downloads MUST be verified against checksums from the release:**
+
+## AI.md 2026-11-21 Updates
+
+- **PART 18:** Register `security_cleanup` daily at 03:30. It removes closed security reports after the configured retention period and retired PGP private keys 30 days after rotation.
 
 ## Key Rules Summary
 

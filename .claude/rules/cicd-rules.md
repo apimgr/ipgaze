@@ -2,6 +2,8 @@
 
 ⚠️ **These rules are NON-NEGOTIABLE. Violations are bugs.** ⚠️
 
+> Synced against AI.md revision `7ac307b1a0b` (2026-11-21). AI.md remains authoritative for complete requirements.
+
 ## CRITICAL - NEVER DO
 - **PART 27:** *CI/CD workflows are DIFFERENT from local development. Do NOT mix them.**
 - **PART 27:** | **Makefile** | ALWAYS use Makefile targets | NEVER use Makefile (explicit commands) |

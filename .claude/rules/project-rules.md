@@ -2,6 +2,8 @@
 
 ⚠️ **These rules are NON-NEGOTIABLE. Violations are bugs.** ⚠️
 
+> Synced against AI.md revision `7ac307b1a0b` (2026-11-21). AI.md remains authoritative for complete requirements.
+
 ## CRITICAL - NEVER DO
 - **PART 2:** | **GPL/AGPL/LGPL** | ⚠️ AVOID | Copyleft licenses - do not use |
 - **PART 2:** *NEVER use GPL/AGPL/LGPL licensed dependencies** - they require derivative works to be open-sourced under the same license.

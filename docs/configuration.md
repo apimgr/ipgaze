@@ -125,6 +125,18 @@ first run. It protects sensitive data stored by the application, including
 security report contents and researcher credit names. Keep the config file
 private and preserve its backup with the database.
 
+Closed security reports are removed by the daily `security_cleanup` task
+after `server.security.reports.retention_days` days from `closed_at` (default
+365). Open reports are retained. Rotated PGP keys used for in-flight reports
+are pruned after their 30-day grace period.
+
+```yaml
+server:
+  security:
+    reports:
+      retention_days: 365
+```
+
 ## Configuration Precedence
 
 For values that can come from a CLI flag, an environment variable, and
@@ -299,9 +311,12 @@ server:
 
 ## I2P
 
-I2P hosting is enabled by default in containers and disabled by default on
+I2P hosting starts by default in containers and is disabled by default on
 bare metal and in VMs. Set `server.i2p.enabled` to `true` to enable an eepsite
-outside a container or `false` to disable it in a container. IPGaze manages an
+outside a container or `false` to disable it in a container. Overlay startup
+runs in the background so it does not delay the HTTP listener. Health reports
+`starting`, `healthy`, or `unavailable`; an overlay failure does not stop or
+restart the clearnet server. IPGaze manages an
 `i2pd` process when its binary is available; otherwise it connects to an
 external SAMv3 bridge. Tunnel lengths
 and quantities apply to the managed `i2pd` provider. `bootstrap_timeout` is

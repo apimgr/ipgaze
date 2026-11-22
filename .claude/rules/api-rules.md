@@ -2,6 +2,8 @@
 
 ⚠️ **These rules are NON-NEGOTIABLE. Violations are bugs.** ⚠️
 
+> Synced against AI.md revision `7ac307b1a0b` (2026-11-21). AI.md remains authoritative for complete requirements.
+
 ## CRITICAL - NEVER DO
 - **PART 13:** *Healthz is PUBLIC. NEVER expose sensitive data.**
 - **PART 13:** | ALLOWED (public) | FORBIDDEN (sensitive) |
@@ -140,6 +142,10 @@
 - **PART 15:** *Log format is ALWAYS plain text:**
 - **PART 15:** Certificate CN or SAN must match configured FQDN (`server.host`)
 - **PART 15:** Both cert and key files must be readable
+
+## AI.md 2026-11-21 Updates
+
+- **PART 13:** Overlay health payloads expose only `disabled`, `starting`, `healthy`, or `unavailable`; never return provider errors or paths. An unavailable overlay sets its check and overall health to `degraded`, never `unhealthy`.
 
 ## Key Rules Summary
 
