@@ -236,7 +236,7 @@ docker:
 	@echo "Docker build complete: $(REGISTRY):$(VERSION)"
 
 # =============================================================================
-# TEST - Run unit/toolchain tests with coverage enforcement (via Docker)
+# TEST - Run Go checks and unit tests with coverage enforcement (via Docker)
 # =============================================================================
 # Coverage gate: >= 60% required. Binary integration tests live in tests/ and
 # are run separately via tests/run_tests.sh — NOT as part of this target.
@@ -261,6 +261,8 @@ test:
 		TEST_ROOT=\$$(mktemp -d \"\$$TEST_BASE/$(INTERNAL_NAME)-XXXXXX\") && \
 		export TMPDIR=\$$TEST_ROOT && \
 		go mod download && \
+		go vet ./... && \
+		govulncheck -scan=module -C src && \
 		go test -v -cover -coverprofile=\$$TEST_ROOT/coverage.out ./... && \
 		COVERAGE=\$$(go tool cover -func=\$$TEST_ROOT/coverage.out | grep total | awk '{print \$$3}' | sed 's/%//') && \
 		echo \"Coverage: \$$COVERAGE%\" && \

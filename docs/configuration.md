@@ -120,9 +120,9 @@ standards and a summary of configured privacy and security controls. A
 standard flag records the operator's configured scope; it does not certify
 that the deployment meets that standard.
 
-`server.security.encryption_key` is generated and stored in `server.yml` on
+`server.security.encryption_key` is generated and stored in `secrets.yml` on
 first run. It protects sensitive data stored by the application, including
-security report contents and researcher credit names. Keep the config file
+security report contents and researcher credit names. Keep the secrets file
 private and preserve its backup with the database.
 
 Closed security reports are removed by the daily `security_cleanup` task
@@ -584,8 +584,9 @@ Permissions-Policy is fixed by the project and always emitted:
 
 ## Server Administration
 
-ipgaze has no admin web UI and no runtime configuration API. All settings
-are managed by editing `server.yml`. See
+ipgaze has no admin web UI and no runtime configuration API. Settings are
+managed by editing `server.yml` and the appropriate `yaml.d/` drop-in;
+credentials are stored in `secrets.yml`. See
 [Server Administration](admin.md) for details.
 
 ## Logging

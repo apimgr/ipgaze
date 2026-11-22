@@ -528,7 +528,7 @@ make release
 # Outputs to: releases/
 
 # Cleanup
-make clean          # Remove binaries/, releases/, and temp files
+make clean          # Remove binaries/ and releases/
 ```
 
 #### Platform Support
@@ -626,7 +626,7 @@ pipelines can replace the rolling `devel` release and tag. Go builds run in
 ### Testing
 
 ```bash
-# Run the Go test suite in Docker with coverage enforcement
+# Run Go vet, the vulnerability scan, and tests in Docker with coverage enforcement
 make test
 
 # Run integration tests (Incus also verifies the systemd privilege drop)

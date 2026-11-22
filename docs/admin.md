@@ -5,16 +5,19 @@ runtime configuration API.
 
 ## Overview
 
-All configuration is managed via `server.yml`. The server watches this file
-and reloads settings that support live changes. Settings bound at startup, such
-as the listen address or port, require a restart; the health endpoint reports
-when a restart is required.
+Configuration is split between `server.yml`, ordered `yaml.d/*.yml` drop-ins,
+and credential-only `secrets.yml`. The server watches these files and reloads
+settings that support live changes. Settings bound at startup, such as the
+listen address or port, require a restart; the health endpoint reports when a
+restart is required.
 
 ## Configuration
 
-Edit `server.yml` with any text editor. Live-changeable settings take effect
-after the file is saved; restart-required settings are applied after restarting
-the service.
+Edit the appropriate file with any text editor. Put node-local settings in
+`server.yml`, application settings in the matching `yaml.d/` drop-in, and
+credentials in `secrets.yml`. Live-changeable settings take effect after the
+file is saved; restart-required settings are applied after restarting the
+service.
 
 See the [Configuration](configuration.md) reference for all available settings.
 
@@ -28,18 +31,18 @@ server:
   token: <shown-once-value>
 ```
 
-This is the server-wide operator credential. It authorizes protected server
-operations and permits the operator to manage issued API tokens, including
-tokens associated with resources. The raw value is shown once at first startup;
-the maintenance token commands do not display it.
+This is the server-wide operator credential for protected operator operations.
+The raw value is shown once at first startup; the maintenance token commands do
+not display it. IPGaze has no user accounts or owner-managed resources, so it
+does not issue owner or linked API tokens.
 
 To replace the token, update its value in `secrets.yml` and restart the service.
 
 ## Token Management (CLI)
 
-The maintenance token commands list issued API tokens by prefix and status,
-and revoke an issued token by prefix. They do not rotate `server.token`.
-Public IP lookups do not issue owner tokens, so this list is normally empty.
+The maintenance token commands support listing and revoking issued API tokens
+by prefix. They do not rotate `server.token`. IPGaze does not issue owner or
+linked tokens, so the list is normally empty.
 
 ```bash
 ipgaze --maintenance token list

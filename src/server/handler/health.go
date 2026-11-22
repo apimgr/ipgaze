@@ -517,7 +517,7 @@ func (h *HealthHandler) buildHealthResponse() model.HealthResponse {
 	i2pInfo := model.I2PInfo{Status: "disabled", State: "disabled", Provider: i2pProviderNone}
 	if h.I2PStatus != nil {
 		state := h.I2PStatus.Status()
-		status := state
+		status := ""
 		switch state {
 		case "disabled", "no_provider":
 			status = "disabled"

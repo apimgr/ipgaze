@@ -63,7 +63,11 @@ func TestCleanupSecurityDataRetentionAndRetiredKeys(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer conn.Close()
+	t.Cleanup(func() {
+		if err := conn.Close(); err != nil {
+			t.Errorf("close database: %v", err)
+		}
+	})
 	if _, err := conn.Exec(`CREATE TABLE security_reports (tracking_id TEXT PRIMARY KEY, closed_at INTEGER)`); err != nil {
 		t.Fatal(err)
 	}
@@ -106,7 +110,11 @@ func TestCleanupSecurityDataRetentionAndRetiredKeys(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer rows.Close()
+	t.Cleanup(func() {
+		if err := rows.Close(); err != nil {
+			t.Errorf("close report rows: %v", err)
+		}
+	})
 	var ids []string
 	for rows.Next() {
 		var id string

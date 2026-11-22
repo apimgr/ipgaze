@@ -30,7 +30,7 @@ make dev
 make local
 
 # Build for all platforms
-make release
+make build
 ```
 
 ### Quick Development Build
@@ -45,7 +45,7 @@ directory. Run the service in Docker; do not execute the Go binary on the host.
 ### Run Tests
 
 ```bash
-# Unit tests with coverage enforcement
+# Go vet, vulnerability scan, and unit tests with coverage enforcement
 make test
 ```
 
@@ -116,24 +116,35 @@ if err != nil {
 ### Build
 
 ```bash
-make build
+make local
 ```
 
-`make build` writes artifacts under `binaries/`. `make dev` writes quick
-development binaries under the OS temporary directory.
+`make local` builds the current platform with version metadata in `binaries/`.
+`make build` builds the current host binary and distributions for all eight
+supported platforms in `binaries/`. `make dev` writes quick development
+binaries under the OS temporary directory.
 
 ### All Platforms
 
 ```bash
-make release
+make build
 ```
 
-Builds for 8 platforms:
+Builds for eight platforms:
 
 - linux-amd64, linux-arm64
 - darwin-amd64, darwin-arm64
 - windows-amd64, windows-arm64
 - freebsd-amd64, freebsd-arm64
+
+### Release Archive
+
+```bash
+make release
+```
+
+Builds all platforms and prepares checksummed release archives under
+`releases/`.
 
 ### Docker Image
 
@@ -253,12 +264,13 @@ release and tag. Go commands run in `casjaysdev/go:latest` containers.
 
 | Target | Description |
 |--------|-------------|
-| `make build` | Build for current platform |
-| `make release` | Build for all platforms |
-| `make test` | Run tests |
+| `make build` | Build host and all eight supported platform binaries |
+| `make local` | Build binaries for the current platform with version metadata |
+| `make release` | Build all platforms and prepare release archives |
+| `make test` | Run `go vet`, `govulncheck`, and tests with coverage enforcement |
 | `make dev` | Build quick development binaries in the OS temp directory |
 | `make docker` | Build Docker image |
-| `make clean` | Clean build artifacts |
+| `make clean` | Remove `binaries/` and `releases/` |
 
 ## Dependencies
 

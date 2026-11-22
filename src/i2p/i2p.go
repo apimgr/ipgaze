@@ -223,7 +223,9 @@ func (m *I2PManager) StartAsync() {
 		return
 	}
 	go func() {
-		m.finishStart(ctx, cancel, done)
+		if err := m.finishStart(ctx, cancel, done); err != nil && !errors.Is(err, context.Canceled) {
+			log.Printf("WARN: I2P eepsite startup failed: %v", err)
+		}
 	}()
 }
 

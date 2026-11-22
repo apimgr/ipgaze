@@ -154,23 +154,25 @@ removal.
 ```bash
 git clone https://github.com/apimgr/ipgaze.git
 cd ipgaze
-make build
+make local
 ```
 
-Binaries are output to `binaries/` directory.
+Binaries for the current platform are output to `binaries/`.
 
 ### Build All Platforms
 
 ```bash
-make release
+make build
 ```
 
-Builds for all 8 supported platforms:
+Builds for all eight supported platforms:
 
 - linux-amd64, linux-arm64
 - darwin-amd64, darwin-arm64
 - windows-amd64, windows-arm64
 - freebsd-amd64, freebsd-arm64
+
+To create checksummed release archives after building, run `make release`.
 
 ## Verify Installation
 
