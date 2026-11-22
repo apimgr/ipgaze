@@ -465,9 +465,40 @@ server:
     health:
       requests: 120
       window: 60
-    # GlobalBurst: absolute per-IP ceiling across all classes (req/min)
+    # Token reveal, rotation, restore, and issue operations
+    strict:
+      requests: 10
+      window: 900
+    # Invalid, revoked, or expired Bearer credentials; lockout is per IP
+    auth_failures:
+      requests: 5
+      window: 900
+    # Absolute per-minute ceiling across endpoint classes
     global_burst: 240
 ```
+
+Counters use sliding windows persisted in `server.db`. Anonymous requests use
+the normalized client IP; authenticated requests use the validated token, and
+strict token actions use the owner identity. Authentication failures are
+counted per IP and do not reset after a successful request.
+
+## Owner and Linked Token Settings
+
+Owner tokens can be issued from `/server/preferences/tokens` or the API without
+creating an IP lookup resource. The primary token identifies its owner; linked
+tokens provide separate credentials for MCP clients.
+
+```yaml
+server:
+  tokens:
+    max_linked: 25
+    cookie_max_age: 1y
+    idle_purge_days: 0
+```
+
+`cookie_max_age` is a sliding lifetime refreshed when the primary owner cookie
+is used. `idle_purge_days: 0` keeps owners indefinitely. A positive value
+deletes idle owners that have no owned resources, along with their tokens.
 
 ## CORS
 
