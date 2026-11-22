@@ -298,6 +298,37 @@ func TestGetInfo_Disabled(t *testing.T) {
 	}
 }
 
+func TestUnavailableServiceHidesAddressAndRunningState(t *testing.T) {
+	m := NewI2PManager(I2PServiceConfig{Enabled: true})
+	m.running = true
+	m.svc = &service{provider: ProviderI2PD, eepsiteAddress: "example.b32.i2p", status: "error"}
+
+	if m.IsRunning() {
+		t.Fatal("IsRunning() = true while provider status is error")
+	}
+	if got := m.GetHostname(); got != "" {
+		t.Fatalf("GetHostname() = %q while unavailable, want empty", got)
+	}
+	info := m.GetInfo()
+	if info.Running || info.Hostname != "" || info.Status != "error" {
+		t.Fatalf("GetInfo() = %+v, want unavailable with no hostname", info)
+	}
+}
+
+func TestAddressHandlerReceivesStartupIdentity(t *testing.T) {
+	m := NewI2PManager(I2PServiceConfig{})
+	const address = "example.b32.i2p"
+	m.publishAddress(address)
+	if got := m.WaitForAddress(time.Second); got != address {
+		t.Fatalf("WaitForAddress() = %q, want %q", got, address)
+	}
+	var received string
+	m.AddAddressHandler(func(value string) { received = value })
+	if received != address {
+		t.Fatalf("address handler received %q, want %q", received, address)
+	}
+}
+
 func TestServeBackend_BeforeStartIsSafe(t *testing.T) {
 	m := NewI2PManager(I2PServiceConfig{Enabled: false})
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -649,7 +680,7 @@ func TestStartSAMEepsite_UsesSAM31AndSeparateSilentForwardSocket(t *testing.T) {
 	}()
 	m := NewI2PManager(I2PServiceConfig{Enabled: true, ConfigDir: t.TempDir(), DataDir: t.TempDir(), SAMAddress: ln.Addr().String(), SignatureType: 7, InboundLength: 3, OutboundLength: 3, InboundQuantity: 5, OutboundQuantity: 5, BootstrapTimeout: 30})
 	svc := &service{}
-	addr, err := m.startSAMEepsite(ln.Addr().String(), filepath.Join(t.TempDir(), "site", "site-keys.dat"), backendPort, svc)
+	addr, err := m.startSAMEepsite(context.Background(), ln.Addr().String(), filepath.Join(t.TempDir(), "site", "site-keys.dat"), backendPort, svc)
 	if err != nil {
 		t.Fatalf("startSAMEepsite(): %v", err)
 	}
@@ -685,7 +716,7 @@ func mustDestination(t *testing.T, priv string) []byte {
 	return dest
 }
 
-func TestBootstrapTimeoutRangeAndRecoveryBackoff(t *testing.T) {
+func TestBootstrapTimeoutRange(t *testing.T) {
 	for _, tc := range []struct {
 		seconds int
 		want    time.Duration
@@ -696,16 +727,18 @@ func TestBootstrapTimeoutRangeAndRecoveryBackoff(t *testing.T) {
 			t.Errorf("bootstrapTimeout(%d) = %v, %v", tc.seconds, got, err)
 		}
 	}
-	backoff := 0 * time.Second
-	for _, want := range []time.Duration{5 * time.Second, 10 * time.Second, 20 * time.Second, 40 * time.Second, 80 * time.Second, 160 * time.Second, 300 * time.Second, 300 * time.Second} {
-		backoff = recoveryBackoff(backoff)
-		if backoff != want {
-			t.Fatalf("recoveryBackoff = %v, want %v", backoff, want)
-		}
-	}
 	if i2pdSAMStartupTimeout != 60*time.Second {
 		t.Errorf("Model A SAM startup bound = %v, want 60s per Part 31.2", i2pdSAMStartupTimeout)
 	}
+}
+
+func TestStartAsyncMarksStartingSynchronously(t *testing.T) {
+	m := NewI2PManager(I2PServiceConfig{Enabled: true, SAMAddress: "127.0.0.1:1"})
+	m.StartAsync()
+	if got := m.Status(); got != "starting" {
+		t.Fatalf("Status() immediately after StartAsync() = %q, want starting", got)
+	}
+	_ = m.Stop()
 }
 
 func TestI2PDConfigDisablesUnrelatedServicesAndUsesPrivateSAMPort(t *testing.T) {

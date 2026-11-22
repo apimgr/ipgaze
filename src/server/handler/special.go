@@ -101,6 +101,9 @@ func (h *SpecialHandler) assetStampOrCommit() string {
 
 // isTorRequest reports whether the request's Host matches the configured onion address.
 func (h *SpecialHandler) isTorRequest(r *http.Request) bool {
+	if h.Trust != nil && netutil.IsTorRequest(r, h.Trust) {
+		return true
+	}
 	if h.OnionAddress == "" {
 		return false
 	}

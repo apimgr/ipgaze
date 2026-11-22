@@ -150,10 +150,15 @@ type service struct {
 // declaring the hidden service in torrc (HiddenServiceDir/HiddenServicePort)
 // rather than via the control-port ADD_ONION API.
 type TorManager struct {
-	cfg     TorServiceConfig
-	mu      sync.RWMutex
-	svc     *service
-	running bool
+	cfg         TorServiceConfig
+	mu          sync.RWMutex
+	svc         *service
+	running     bool
+	starting    bool
+	startCancel context.CancelFunc
+	startDone   chan struct{}
+	stopping    bool
+	stopDone    chan struct{}
 	// outboundTransport resolves the current managed Tor dialer for each new
 	// connection, so clients created before a restart follow the replacement.
 	outboundTransport *http.Transport
@@ -164,7 +169,10 @@ type TorManager struct {
 	// the health payload as `features.tor.status: "error:{short message}"`
 	// per AI.md PART 13's documented status format. Cleared on the next
 	// successful Start().
-	lastErr error
+	lastErr         error
+	healthErr       error
+	startupHostname string
+	addressHandlers []func(string)
 	// vanity holds the state of the background vanity-address search driven
 	// by `tor vanity start` (see vanity.go). Nil until the first search.
 	vanity *vanitySearch
@@ -287,44 +295,148 @@ func (m *TorManager) IsAvailable() bool {
 // Tor is optional — a missing binary is logged at INFO, not an error, and
 // the server continues without a hidden service.
 func (m *TorManager) Start() error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	if m.running {
+	ctx, cancel, done, shouldStart := m.beginStart()
+	if !shouldStart {
 		return nil
+	}
+	return m.finishStart(ctx, cancel, done)
+}
+
+func (m *TorManager) beginStart() (context.Context, context.CancelFunc, chan struct{}, bool) {
+	m.mu.Lock()
+	if m.running || m.starting || m.stopping {
+		m.mu.Unlock()
+		return nil, nil, nil, false
 	}
 
 	if !m.IsAvailable() {
 		metrics.TorEnabled.Set(0)
 		metrics.TorRunning.Set(0)
 		metrics.TorCircuitEstablished.Set(0)
+		m.mu.Unlock()
 		log.Println("Tor binary not found, hidden service disabled")
-		return nil
+		return nil, nil, nil, false
 	}
 	metrics.TorEnabled.Set(1)
+	m.starting = true
+	m.lastErr = nil
+	m.healthErr = nil
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	m.startCancel = cancel
+	m.startDone = done
+	m.mu.Unlock()
+	return ctx, cancel, done, true
+}
 
-	svc, err := m.startDedicated(context.Background())
+func (m *TorManager) finishStart(ctx context.Context, cancel context.CancelFunc, done chan struct{}) error {
+	defer func() {
+		m.mu.Lock()
+		if m.startDone == done {
+			m.startDone = nil
+		}
+		close(done)
+		m.mu.Unlock()
+	}()
+	svc, err := m.startDedicated(ctx)
+	wasCanceled := ctx.Err() != nil
+	cancel()
+	m.mu.Lock()
+	m.startCancel = nil
+	m.starting = false
+	if wasCanceled {
+		m.mu.Unlock()
+		if svc != nil {
+			_ = stopTor(svc.cmd, svc.ctrl)
+			if svc.backendSrv != nil {
+				_ = svc.backendSrv.Close()
+			} else if svc.backendLn != nil {
+				_ = svc.backendLn.Close()
+			}
+		}
+		return ctx.Err()
+	}
 	if err != nil {
 		metrics.TorRunning.Set(0)
 		metrics.TorCircuitEstablished.Set(0)
 		m.lastErr = err
+		m.mu.Unlock()
 		return err
 	}
 	m.svc = svc
 	m.running = true
 	m.lastErr = nil
+	m.healthErr = nil
 	metrics.TorRunning.Set(1)
 	metrics.TorCircuitEstablished.Set(1)
 
 	if m.pendingHandler != nil {
 		m.attachBackendHandlerLocked(m.pendingHandler)
 	}
+	m.mu.Unlock()
 
-	// onionAddress already carries the .onion suffix straight from the
-	// hidden-service hostname file; appending another one printed a
-	// non-resolvable "…onion.onion".
-	log.Printf("Tor: %s", svc.onionAddress)
+	log.Printf("Tor hidden service ready")
 	return nil
+}
+
+// StartAsync begins overlay initialization in the background so the HTTP
+// listener can start while Tor bootstraps.
+func (m *TorManager) StartAsync() {
+	ctx, cancel, done, shouldStart := m.beginStart()
+	if !shouldStart {
+		return
+	}
+	go func() {
+		if err := m.finishStart(ctx, cancel, done); err != nil && !errors.Is(err, context.Canceled) {
+			log.Printf("WARN: Tor hidden service unavailable: %v", err)
+		}
+	}()
+}
+
+// AddAddressHandler registers a callback for the generated onion identity.
+// If startup already discovered the hostname, it is delivered immediately.
+func (m *TorManager) AddAddressHandler(handler func(string)) {
+	if handler == nil {
+		return
+	}
+	m.mu.Lock()
+	m.addressHandlers = append(m.addressHandlers, handler)
+	address := m.startupHostname
+	if address == "" && m.svc != nil {
+		address = m.svc.onionAddress
+	}
+	m.mu.Unlock()
+	if address != "" {
+		handler(address)
+	}
+}
+
+// WaitForAddress waits up to timeout for Tor to write its hostname file.
+func (m *TorManager) WaitForAddress(timeout time.Duration) string {
+	deadline := time.Now().Add(timeout)
+	for {
+		m.mu.RLock()
+		address := m.startupHostname
+		if address == "" && m.svc != nil {
+			address = m.svc.onionAddress
+		}
+		finishedWithoutAddress := !m.starting && m.svc == nil && address == ""
+		m.mu.RUnlock()
+		if address != "" || finishedWithoutAddress || time.Until(deadline) <= 0 {
+			return address
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+func (m *TorManager) publishAddress(address string) {
+	m.mu.Lock()
+	m.startupHostname = address
+	handlers := append([]func(string){}, m.addressHandlers...)
+	m.mu.Unlock()
+	for _, handler := range handlers {
+		handler(address)
+	}
 }
 
 // ServeBackend attaches the app's HTTP handler to the dedicated
@@ -363,7 +475,26 @@ func (m *TorManager) attachBackendHandlerLocked(handler http.Handler) {
 // Stop terminates the Tor process and its dedicated backend listener.
 func (m *TorManager) Stop() error {
 	m.mu.Lock()
-	defer m.mu.Unlock()
+	if m.stopping {
+		done := m.stopDone
+		m.mu.Unlock()
+		if done != nil {
+			<-done
+		}
+		return nil
+	}
+	m.stopping = true
+	stopDone := make(chan struct{})
+	m.stopDone = stopDone
+	if m.startCancel != nil {
+		m.startCancel()
+	}
+	startDone := m.startDone
+	m.mu.Unlock()
+	if startDone != nil {
+		<-startDone
+	}
+	m.mu.Lock()
 
 	// A deliberate Stop() is not a failure condition — clear any stale
 	// lastErr so a subsequent status query reports "stopped", not a
@@ -371,23 +502,28 @@ func (m *TorManager) Stop() error {
 	// when there is nothing running to stop.
 	m.lastErr = nil
 
-	if !m.running || m.svc == nil {
-		return nil
+	var err error
+	if m.running && m.svc != nil {
+		if m.svc.backendSrv != nil {
+			_ = m.svc.backendSrv.Close()
+		} else if m.svc.backendLn != nil {
+			_ = m.svc.backendLn.Close()
+		}
+		if m.outboundTransport != nil {
+			m.outboundTransport.CloseIdleConnections()
+		}
+		err = stopTor(m.svc.cmd, m.svc.ctrl)
+		m.svc = nil
+		m.running = false
+		metrics.TorRunning.Set(0)
+		metrics.TorCircuitEstablished.Set(0)
+		log.Println("Tor: hidden service stopped")
 	}
-	if m.svc.backendSrv != nil {
-		_ = m.svc.backendSrv.Close()
-	} else if m.svc.backendLn != nil {
-		_ = m.svc.backendLn.Close()
-	}
-	if m.outboundTransport != nil {
-		m.outboundTransport.CloseIdleConnections()
-	}
-	err := stopTor(m.svc.cmd, m.svc.ctrl)
-	m.svc = nil
-	m.running = false
-	metrics.TorRunning.Set(0)
-	metrics.TorCircuitEstablished.Set(0)
-	log.Println("Tor: hidden service stopped")
+	m.startCancel = nil
+	m.stopping = false
+	m.stopDone = nil
+	close(stopDone)
+	m.mu.Unlock()
 	return err
 }
 
@@ -414,9 +550,32 @@ func (m *TorManager) HealthCheck() error {
 		return nil
 	}
 	if _, err := svc.ctrl.GetInfo("version"); err != nil {
+		healthErr := fmt.Errorf("tor control probe failed: %w", err)
+		m.mu.Lock()
+		current := m.svc == svc && m.running
+		newFailure := current && m.healthErr == nil
+		if current {
+			m.healthErr = healthErr
+		}
+		m.mu.Unlock()
+		if !current {
+			return nil
+		}
 		metrics.TorRunning.Set(0)
 		metrics.TorCircuitEstablished.Set(0)
-		return fmt.Errorf("tor control probe failed: %w", err)
+		if newFailure {
+			log.Printf("WARN: Tor hidden service unavailable: %v", healthErr)
+		}
+		return healthErr
+	}
+	m.mu.Lock()
+	current := m.svc == svc && m.running
+	if current {
+		m.healthErr = nil
+	}
+	m.mu.Unlock()
+	if !current {
+		return nil
 	}
 	metrics.TorRunning.Set(1)
 	return nil
@@ -500,7 +659,7 @@ func (m *TorManager) ApplyKeys(privateKey []byte) (string, error) {
 func (m *TorManager) GetHostname() string {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	if m.svc == nil {
+	if m.svc == nil || m.healthErr != nil {
 		return ""
 	}
 	return m.svc.onionAddress
@@ -510,7 +669,7 @@ func (m *TorManager) GetHostname() string {
 func (m *TorManager) IsRunning() bool {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	return m.running
+	return m.running && m.healthErr == nil
 }
 
 // Status returns the current status string.
@@ -526,6 +685,12 @@ func (m *TorManager) Status() string {
 // concurrent writer waiting on Lock() (sync.RWMutex read locks are not
 // reentrant once a writer is blocked).
 func (m *TorManager) statusLocked() string {
+	if m.starting {
+		return "starting"
+	}
+	if m.healthErr != nil {
+		return "error:" + shortErrMsg(m.healthErr)
+	}
 	if !m.running {
 		if !m.IsAvailable() {
 			return "unavailable"
@@ -567,12 +732,12 @@ func (m *TorManager) GetInfo() Info {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	hostname := ""
-	if m.svc != nil {
+	if m.svc != nil && m.healthErr == nil {
 		hostname = m.svc.onionAddress
 	}
 	return Info{
 		Enabled:  m.IsAvailable(),
-		Running:  m.running,
+		Running:  m.running && m.healthErr == nil,
 		Status:   m.statusLocked(),
 		Hostname: hostname,
 	}
@@ -870,6 +1035,13 @@ func (m *TorManager) startDedicated(ctx context.Context) (*service, error) {
 	}
 	bootstrapCtx, cancel := context.WithTimeout(ctx, bootstrapTimeout)
 	defer cancel()
+	onionAddress, err := waitHostname(bootstrapCtx, child, hostnamePath)
+	if err != nil {
+		_ = stopTor(child, ctrl)
+		_ = backendLn.Close()
+		return nil, fmt.Errorf("wait for Tor hostname: %w", err)
+	}
+	m.publishAddress(onionAddress)
 
 	// Check the current phase after subscribing so a bootstrap event that
 	// happened just before the request cannot leave startup waiting forever.
@@ -901,13 +1073,6 @@ func (m *TorManager) startDedicated(ctx context.Context) (*service, error) {
 		}
 	}
 
-	onionAddress, err := waitHostname(bootstrapCtx, child, hostnamePath)
-	if err != nil {
-		_ = stopTor(child, ctrl)
-		_ = backendLn.Close()
-		return nil, fmt.Errorf("wait for Tor hostname: %w", err)
-	}
-
 	svc := &service{
 		cmd:            child,
 		ctrl:           ctrl,
@@ -934,7 +1099,7 @@ func (m *TorManager) startDedicated(ctx context.Context) (*service, error) {
 
 	// The loopback backend port is an internal implementation detail and is
 	// deliberately kept out of the startup log (AI.md PART 31.1).
-	log.Printf("Tor hidden service started: %s:%d", onionAddress, m.cfg.VirtualPort)
+	log.Printf("Tor hidden service starting publication")
 	descCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	err = waitForTorEvent(descCtx, ctrl, controlConn, events, func(event control.Event) (bool, error) {
 		desc, ok := event.(*control.HSDescEvent)

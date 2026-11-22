@@ -2,6 +2,8 @@ package main
 
 import (
 	"bytes"
+	"context"
+	"database/sql"
 	"fmt"
 	"io"
 	"os"
@@ -52,6 +54,81 @@ func TestConfiguredBlocklistSourcesHonorEnabledSettings(t *testing.T) {
 	}
 	if got := configuredBlocklistTypes(cfg); len(got) != 0 {
 		t.Fatalf("disabled configured source types = %+v, want none", got)
+	}
+}
+
+func TestCleanupSecurityDataRetentionAndRetiredKeys(t *testing.T) {
+	now := time.Date(2026, 11, 21, 12, 0, 0, 0, time.UTC)
+	conn, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	if _, err := conn.Exec(`CREATE TABLE security_reports (tracking_id TEXT PRIMARY KEY, closed_at INTEGER)`); err != nil {
+		t.Fatal(err)
+	}
+	for _, report := range []struct {
+		id       string
+		closedAt any
+	}{{"expired", now.Add(-48 * time.Hour).Unix()}, {"recent", now.Add(-12 * time.Hour).Unix()}, {"open", nil}} {
+		if _, err := conn.Exec(`INSERT INTO security_reports (tracking_id, closed_at) VALUES (?, ?)`, report.id, report.closedAt); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	configDir := t.TempDir()
+	securityDir := filepath.Join(configDir, "security")
+	archiveDir := filepath.Join(securityDir, "archive")
+	if err := os.MkdirAll(archiveDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	oldPath := filepath.Join(securityDir, "pgp.priv.old.asc.enc")
+	if err := os.WriteFile(oldPath, []byte("retired"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	oldTime := now.Add(-31 * 24 * time.Hour)
+	if err := os.Chtimes(oldPath, oldTime, oldTime); err != nil {
+		t.Fatal(err)
+	}
+	retainedPath := filepath.Join(securityDir, "pgp.priv.old.asc.enc.new")
+	if err := os.WriteFile(retainedPath, []byte("recent"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	expiredArchive := filepath.Join(archiveDir, strings.Repeat("a", 40)+"."+fmt.Sprint(now.Add(-time.Second).Unix())+".priv.asc.enc")
+	if err := os.WriteFile(expiredArchive, []byte("expired"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := cleanupSecurityData(context.Background(), conn, configDir, 1, now); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := conn.Query(`SELECT tracking_id FROM security_reports ORDER BY tracking_id`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(ids, ","); got != "open,recent" {
+		t.Fatalf("remaining reports = %q, want open,recent", got)
+	}
+	if _, err := os.Stat(oldPath); !os.IsNotExist(err) {
+		t.Fatalf("expired retired key stat error = %v, want not-exist", err)
+	}
+	if _, err := os.Stat(retainedPath); err != nil {
+		t.Fatalf("recent key file was removed: %v", err)
+	}
+	if _, err := os.Stat(expiredArchive); !os.IsNotExist(err) {
+		t.Fatalf("expired archived key stat error = %v, want not-exist", err)
 	}
 }
 

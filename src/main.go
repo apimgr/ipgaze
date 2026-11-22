@@ -120,6 +120,33 @@ func configuredBlocklistIDs(cfg *config.AppConfig) []string {
 	return ids
 }
 
+func cleanupSecurityData(ctx context.Context, conn *sql.DB, configDir string, retentionDays int, now time.Time) error {
+	if retentionDays <= 0 {
+		retentionDays = 365
+	}
+	var cleanupErr error
+	if conn != nil {
+		cutoff := now.Add(-time.Duration(retentionDays) * 24 * time.Hour).Unix()
+		if _, err := conn.ExecContext(ctx, `DELETE FROM security_reports WHERE closed_at IS NOT NULL AND closed_at <= ?`, cutoff); err != nil {
+			cleanupErr = errors.Join(cleanupErr, fmt.Errorf("delete expired security reports: %w", err))
+		}
+	}
+	if err := pgp.PruneArchivedKeypairs(configDir, now); err != nil {
+		cleanupErr = errors.Join(cleanupErr, fmt.Errorf("prune retired PGP keys: %w", err))
+	}
+	oldKeyPath := filepath.Join(configDir, "security", "pgp.priv.old.asc.enc")
+	if info, err := os.Lstat(oldKeyPath); err == nil {
+		if info.Mode().IsRegular() && now.Sub(info.ModTime()) >= pgp.RotationGrace {
+			if err := os.Remove(oldKeyPath); err != nil {
+				cleanupErr = errors.Join(cleanupErr, fmt.Errorf("remove retired PGP key: %w", err))
+			}
+		}
+	} else if !os.IsNotExist(err) {
+		cleanupErr = errors.Join(cleanupErr, fmt.Errorf("inspect retired PGP key: %w", err))
+	}
+	return cleanupErr
+}
+
 // buildEpoch parses the embedded BuildEpoch ldflag; 0 when unset or invalid.
 // Passed to updater.CheckForUpdate so the devel channel's rolling "devel" tag
 // can be compared against this binary's own build time.
@@ -753,10 +780,8 @@ func runMain() {
 		writePIDFile(pidFile)
 	}
 
-	// Phase 8e: initialize and spawn Tor while still privileged, per AI.md
-	// PART 23 step 5 — managed children are started before the drop so the
-	// root phase owns every privileged action. Scheduler registration for
-	// tor_health happens later, once the scheduler itself exists.
+	// Prepare Tor while privileged, but start no child process until after the
+	// privilege drop. The health task is registered once the scheduler exists.
 	torVirtualPort := cfg.Server.Tor.VirtualPort
 	if torVirtualPort == 0 {
 		torVirtualPort = 80
@@ -781,15 +806,6 @@ func runMain() {
 		VirtualPort:               torVirtualPort,
 	})
 	torAvailable := torMgr.IsAvailable()
-	if torAvailable {
-		if err := torMgr.Start(); err != nil {
-			log.Printf("Warning: Failed to start Tor: %v", err)
-		} else {
-			log.Println("Tor hidden service starting (server binary controls Tor per PART 32)")
-		}
-	} else {
-		log.Println("Tor binary not found, hidden service disabled")
-	}
 	if cfg.Server.Tor.UseNetwork {
 		tor.SetOutboundHTTPClient(torMgr.GetHTTPClient(true))
 	}
@@ -805,6 +821,12 @@ func runMain() {
 			os.Exit(exNoPerm)
 		}
 		log.Printf("Dropped privileges to user %s", projectName)
+	}
+	if torAvailable {
+		torMgr.StartAsync()
+		log.Println("Tor hidden service starting (bootstrap runs in the background)")
+	} else {
+		log.Println("Tor binary not found, hidden service disabled")
 	}
 
 	// Initialize GeoIP manager
@@ -1127,6 +1149,22 @@ func runMain() {
 			log.Printf("Warning: Failed to add blocklist_update task: %v", err)
 		}
 
+		if err := sched.AddTask(&scheduler.Task{
+			ID:       "security_cleanup",
+			Name:     "Security Data Cleanup",
+			Schedule: "30 3 * * *",
+			Enabled:  true,
+			Fn: func() error {
+				currentCfg := config.Get()
+				if currentCfg == nil {
+					currentCfg = cfg
+				}
+				return cleanupSecurityData(context.Background(), serverDB, configDir, currentCfg.Server.Security.Reports.RetentionDays, time.Now())
+			},
+		}); err != nil {
+			log.Printf("Warning: Failed to add security_cleanup task: %v", err)
+		}
+
 		// threat_update: daily 04:30 — VPN/proxy/Tor exit-node list refresh
 		if err := sched.AddTask(&scheduler.Task{
 			ID:       "threat_update",
@@ -1421,8 +1459,8 @@ func runMain() {
 		}
 	}
 
-	// tor_health per AI.md PART 18 Built-in Tasks: probe the live control
-	// connection every 10 minutes and restart Tor when the probe fails.
+	// tor_health probes Tor without allowing an overlay failure to block,
+	// restart, or fail the clearnet server.
 	// Registered here rather than at spawn time because the scheduler is
 	// created after the drop.
 	if torAvailable && sched != nil {
@@ -1432,17 +1470,7 @@ func runMain() {
 			Schedule: scheduleFor("@every 10m", cfg.Server.Schedule.Tasks.TorHealth),
 			Enabled:  enabledFor(true, cfg.Server.Schedule.Tasks.TorHealth),
 			Fn: func() error {
-				healthErr := torMgr.HealthCheck()
-				if healthErr != nil || !torMgr.IsRunning() {
-					if healthErr != nil {
-						log.Printf("scheduler: tor_health — control probe failed (%v), restarting Tor", healthErr)
-					} else {
-						log.Printf("scheduler: tor_health — Tor is not running, retrying startup")
-					}
-					if err := torMgr.Restart(); err != nil {
-						return fmt.Errorf("tor_health: restart failed: %w", err)
-					}
-				}
+				_ = torMgr.HealthCheck()
 				return nil
 			},
 		}); err != nil {
@@ -1450,9 +1478,8 @@ func runMain() {
 		}
 	}
 
-	// Initialize I2P eepsite per AI.md PART 31.2.
-	// OPT-IN: unlike Tor, no provider is contacted and no port is allocated
-	// unless server.i2p.enabled is explicitly true.
+	// Initialize I2P per AI.md PART 31.2. Its default is enabled in
+	// containers and disabled elsewhere; initialization runs in the background.
 	i2pLogDir := dirs.Logs
 	if envLog := os.Getenv("LOG_DIR"); envLog != "" {
 		i2pLogDir = envLog
@@ -1473,35 +1500,22 @@ func runMain() {
 		BootstrapTimeout: cfg.Server.I2P.BootstrapTimeout,
 	})
 	if cfg.Server.I2P.Enabled {
-		if i2pMgr.IsAvailable() {
-			if err := i2pMgr.Start(); err != nil {
-				log.Printf("Warning: Failed to start I2P eepsite: %v", err)
-			} else {
-				log.Println("I2P eepsite starting (server binary controls I2P per PART 31.2)")
-			}
+		i2pMgr.StartAsync()
+		log.Println("I2P eepsite starting (provider detection and tunnels run in the background)")
 
-			// i2p_health: every 10 minutes — only when I2P is enabled and a provider was found.
-			if sched != nil {
-				if err := sched.AddTask(&scheduler.Task{
-					ID:       "i2p_health",
-					Name:     "I2P Health Check",
-					Schedule: "@every 10m",
-					Enabled:  true,
-					Fn: func() error {
-						if !i2pMgr.IsRunning() {
-							log.Println("scheduler: i2p_health — I2P not running, attempting restart")
-							if err := i2pMgr.Start(); err != nil {
-								return fmt.Errorf("i2p_health: restart failed: %w", err)
-							}
-						}
-						return nil
-					},
-				}); err != nil {
-					log.Printf("Warning: Failed to add i2p_health task: %v", err)
-				}
+		if sched != nil {
+			if err := sched.AddTask(&scheduler.Task{
+				ID:       "i2p_health",
+				Name:     "I2P Health Check",
+				Schedule: "@every 10m",
+				Enabled:  true,
+				Fn: func() error {
+					i2pMgr.HealthCheck()
+					return nil
+				},
+			}); err != nil {
+				log.Printf("Warning: Failed to add i2p_health task: %v", err)
 			}
-		} else {
-			log.Println("WARN: I2P enabled but no provider found (i2pd binary or SAM bridge), eepsite disabled")
 		}
 	}
 
@@ -1697,16 +1711,18 @@ func runMain() {
 	// manually copy it into tor.onion_address would leave Tor request detection
 	// (FQDN resolution, clearnet URL/email suppression, CORS, security.txt)
 	// permanently inert on every fresh deployment.
-	trust.OnionAddress = cfg.Tor.OnionAddress
+	trust.SetOnionAddress(cfg.Tor.OnionAddress)
 	if hostname := torMgr.GetHostname(); hostname != "" {
-		trust.OnionAddress = hostname
+		trust.SetOnionAddress(hostname)
 	}
 	// Wire I2P eepsite address for priority-0 I2P request detection (AI.md
 	// PART 31.2). No static server.yml equivalent exists — the .b32.i2p
 	// address derives entirely from the persisted destination key.
 	if hostname := i2pMgr.GetHostname(); hostname != "" {
-		trust.I2PAddress = hostname
+		trust.SetI2PAddress(hostname)
 	}
+	torMgr.AddAddressHandler(trust.SetOnionAddress)
+	i2pMgr.AddAddressHandler(trust.SetI2PAddress)
 	// trustCtx governs the DNS-refresh goroutine; cancelled during graceful shutdown.
 	trustCtx, trustCancel := context.WithCancel(context.Background())
 	trust.Start(trustCtx)
@@ -1892,39 +1908,6 @@ func runMain() {
 		},
 	})
 
-	// Print startup banner. Per AI.md PART 12 startup step 20 the banner's
-	// "Listening on" line ALWAYS shows the resolved {proto}://{fqdn}[:{port}]
-	// and never the raw bind address — a wildcard bind such as 0.0.0.0, ::,
-	// or [::] is explicitly WRONG in the URL Display Rules. Raw bind addresses
-	// remain acceptable in the log line emitted further below.
-	bannerProto := "http"
-	bannerPort := httpPort
-	if httpsListener != nil {
-		bannerProto = "https"
-		bannerPort = "443"
-		if httpsPort != "" {
-			bannerPort = httpsPort
-		}
-	}
-	// With no configured FQDN the banner falls back to a globally reachable
-	// address rather than a development TLD (AI.md URL Display Rules).
-	bannerURL := bannerProto + "://" + bannerDisplayHost(cfg.Server.FQDN, serverAddress) + bannerPortSuffix(bannerProto, bannerPort)
-	if strings.TrimSpace(cfg.Server.FQDN) == "" {
-		bannerURL = netutil.GetDisplayURL(projectName, bannerPort, bannerProto == "https")
-	}
-	bannerURLs := []string{bannerURL}
-	// ColorFlag carries the --color value so it keeps AI.md PART 8 priority 1,
-	// above NO_COLOR and TTY auto-detection (see display.ColorEnabled).
-	banner.PrintStartupBanner(banner.BannerPrintConfig{
-		AppName:   binaryName,
-		Version:   Version,
-		AppMode:   cfg.Server.Mode,
-		Debug:     *debugMode,
-		ColorFlag: *colorMode,
-		URLs:      bannerURLs,
-		StartedAt: time.Now(),
-	})
-
 	// Parse configurable HTTP timeouts from server.yml; fall back to spec defaults.
 	readTimeout := parseDurationOrDefault(cfg.Server.Limits.ReadTimeout, 30*time.Second)
 	writeTimeout := parseDurationOrDefault(cfg.Server.Limits.WriteTimeout, 30*time.Second)
@@ -2105,6 +2088,52 @@ func runMain() {
 			logMgr.WriteServer("info", fmt.Sprintf("listening on HTTP %s", httpListenAddr))
 		}
 	}
+	// Print the startup banner only after the HTTP listener is serving. Overlay
+	// identity discovery may add a URL here, but never delays listener startup.
+	bannerProto := "http"
+	bannerPort := httpPort
+	if httpsListener != nil {
+		bannerProto = "https"
+		bannerPort = "443"
+		if httpsPort != "" {
+			bannerPort = httpsPort
+		}
+	}
+	bannerURL := bannerProto + "://" + bannerDisplayHost(cfg.Server.FQDN, serverAddress) + bannerPortSuffix(bannerProto, bannerPort)
+	if strings.TrimSpace(cfg.Server.FQDN) == "" {
+		bannerURL = netutil.GetDisplayURL(projectName, bannerPort, bannerProto == "https")
+	}
+	bannerURLs := []string{bannerURL}
+	addressWaitDeadline := time.Now().Add(5 * time.Second)
+	torAddress := torMgr.WaitForAddress(time.Until(addressWaitDeadline))
+	i2pAddress := i2pMgr.WaitForAddress(time.Until(addressWaitDeadline))
+	if torAddress != "" {
+		bannerURLs = append(bannerURLs, "http://"+torAddress)
+	} else {
+		torMgr.AddAddressHandler(func(address string) {
+			if address != "" {
+				log.Printf("INFO: Tor hidden service address available: http://%s", address)
+			}
+		})
+	}
+	if i2pAddress != "" {
+		bannerURLs = append(bannerURLs, "http://"+i2pAddress)
+	} else {
+		i2pMgr.AddAddressHandler(func(address string) {
+			if address != "" {
+				log.Printf("INFO: I2P eepsite address available: http://%s", address)
+			}
+		})
+	}
+	banner.PrintStartupBanner(banner.BannerPrintConfig{
+		AppName:   binaryName,
+		Version:   Version,
+		AppMode:   cfg.Server.Mode,
+		Debug:     *debugMode,
+		ColorFlag: *colorMode,
+		URLs:      bannerURLs,
+		StartedAt: time.Now(),
+	})
 	reloadHTTPTimeouts = func(newCfg *config.AppConfig) error {
 		read := parseDurationOrDefault(newCfg.Server.Limits.ReadTimeout, 30*time.Second)
 		write := parseDurationOrDefault(newCfg.Server.Limits.WriteTimeout, 30*time.Second)

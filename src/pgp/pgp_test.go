@@ -3,6 +3,7 @@ package pgp
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -206,12 +207,19 @@ func TestStore_SaveLoadDelete(t *testing.T) {
 	if info.Mode().Perm() != 0o600 {
 		t.Fatalf("private key file mode = %v, want 0600", info.Mode().Perm())
 	}
+	retiredPath := filepath.Join(dir, SecurityDirName, retiredPrivateKeyFile)
+	if err := os.WriteFile(retiredPath, []byte("retired"), 0o600); err != nil {
+		t.Fatalf("write retired private key fixture: %v", err)
+	}
 
 	if err := DeleteKeypair(dir); err != nil {
 		t.Fatalf("Delete: %v", err)
 	}
 	if Exists(dir) {
 		t.Fatal("Exists should be false after Delete")
+	}
+	if _, err := os.Stat(retiredPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("retired private key remains after Delete: %v", err)
 	}
 
 	// Delete on an already-empty dir must not error.
@@ -234,6 +242,10 @@ func TestArchivedKeyRetainedThroughRotationAndSecretRekey(t *testing.T) {
 	expires := time.Now().Add(time.Hour)
 	if err := ArchiveCurrentKeypair(dir, oldKey.Fingerprint, expires); err != nil {
 		t.Fatal(err)
+	}
+	retiredPath := filepath.Join(dir, SecurityDirName, "pgp.priv.old.asc.enc")
+	if info, err := os.Stat(retiredPath); err != nil || info.Mode().Perm() != 0o600 {
+		t.Fatalf("retired private key stat = (%v, %v), want mode 0600", info, err)
 	}
 	newKey, err := Generate("ipgaze", "security@example.com")
 	if err != nil {

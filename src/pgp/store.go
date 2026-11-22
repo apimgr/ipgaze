@@ -27,10 +27,11 @@ const (
 const SecurityDirName = "security"
 
 const (
-	publicKeyFile     = "pgp.pub.asc"
-	privateKeyFile    = "pgp.priv.asc.enc"
-	keyserversFile    = "keyservers.state"
-	privateKeyKDFInfo = "ipgaze:pgp-private-key:v1"
+	publicKeyFile         = "pgp.pub.asc"
+	privateKeyFile        = "pgp.priv.asc.enc"
+	retiredPrivateKeyFile = "pgp.priv.old.asc.enc"
+	keyserversFile        = "keyservers.state"
+	privateKeyKDFInfo     = "ipgaze:pgp-private-key:v1"
 )
 
 // SecurityDir returns {config_dir}/security, creating it (mode 0700) if needed.
@@ -120,6 +121,15 @@ func ArchiveCurrentKeypair(configDir, fingerprint string, expiresAt time.Time) e
 		}
 		if err := os.WriteFile(archivePath, data, mode); err != nil {
 			return fmt.Errorf("pgp: archive active key: %w", err)
+		}
+		if name == privateKeyFile {
+			retiredPath := filepath.Join(dir, retiredPrivateKeyFile)
+			if err := os.WriteFile(retiredPath, data, 0o600); err != nil {
+				return fmt.Errorf("pgp: retain previous private key: %w", err)
+			}
+			if err := os.Chmod(retiredPath, 0o600); err != nil {
+				return fmt.Errorf("pgp: secure previous private key: %w", err)
+			}
 		}
 	}
 	return nil
@@ -262,10 +272,10 @@ func Exists(configDir string) bool {
 	return err == nil
 }
 
-// DeleteKeypair removes both key files from disk. Missing files are not an error.
+// DeleteKeypair removes active and retired key files from disk. Missing files are not an error.
 func DeleteKeypair(configDir string) error {
 	dir := filepath.Join(configDir, SecurityDirName)
-	for _, name := range []string{publicKeyFile, privateKeyFile} {
+	for _, name := range []string{publicKeyFile, privateKeyFile, retiredPrivateKeyFile} {
 		if err := os.Remove(filepath.Join(dir, name)); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return fmt.Errorf("pgp: delete %s: %w", name, err)
 		}

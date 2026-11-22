@@ -389,6 +389,37 @@ func TestGetInfo_WithRunningService(t *testing.T) {
 	m.mu.Unlock()
 }
 
+func TestUnavailableHealthProjectionHidesActiveAddress(t *testing.T) {
+	m := NewTorManager(TorServiceConfig{})
+	m.running = true
+	m.svc = &service{onionAddress: "example.onion"}
+	m.healthErr = errors.New("control connection failed")
+
+	if m.IsRunning() {
+		t.Fatal("IsRunning() = true while health probe is failing")
+	}
+	if got := m.GetHostname(); got != "" {
+		t.Fatalf("GetHostname() = %q while unavailable, want empty", got)
+	}
+	if got := m.Status(); !strings.HasPrefix(got, "error:") {
+		t.Fatalf("Status() = %q, want an internal error state", got)
+	}
+}
+
+func TestAddressHandlerReceivesStartupIdentity(t *testing.T) {
+	m := NewTorManager(TorServiceConfig{})
+	const address = "example.onion"
+	m.publishAddress(address)
+	if got := m.WaitForAddress(time.Second); got != address {
+		t.Fatalf("WaitForAddress() = %q, want %q", got, address)
+	}
+	var received string
+	m.AddAddressHandler(func(value string) { received = value })
+	if received != address {
+		t.Fatalf("address handler received %q, want %q", received, address)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // GetHTTPClient
 // ---------------------------------------------------------------------------

@@ -313,6 +313,15 @@ func TestIsTorRequest_EmptyOnionAddress_ReturnsFalse(t *testing.T) {
 	}
 }
 
+func TestIsTorRequestUsesDynamicallySetAddress(t *testing.T) {
+	request := httptest.NewRequest(http.MethodGet, "http://generated.onion/", nil)
+	resolver := NewTrustResolver(config.TrustedProxiesConfig{}, "")
+	resolver.SetOnionAddress("generated.onion")
+	if !IsTorRequest(request, resolver) {
+		t.Fatal("IsTorRequest did not use the address set during asynchronous startup")
+	}
+}
+
 func TestIsTorRequest_MatchingHost_ReturnsTrue(t *testing.T) {
 	r := httptest.NewRequest(http.MethodGet, "/", nil)
 	r.Host = "abc123def456abc123def456abc123def456abc123def456abc123de.onion"

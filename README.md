@@ -394,7 +394,9 @@ flow and enforce the limits returned by the form definition. See
 
 Health checks also include per-database GeoIP and per-list blocklist status
 when those features are enabled. Results report only `ok`, `degraded`, or
-`error`; dataset checks refresh on the scheduler.
+`error`; dataset checks refresh on the scheduler. Blocklists become `degraded`
+after 72 hours without a successful update while their last good entries stay
+active.
 
 ### Quick Examples
 

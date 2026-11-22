@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/apimgr/ipgaze/src/config"
+	"github.com/apimgr/ipgaze/src/netutil"
 	"github.com/apimgr/ipgaze/src/swagger"
 )
 
@@ -136,6 +137,16 @@ func TestIsTorRequest(t *testing.T) {
 	req3.Host = "clearnet.example.com"
 	if h.isTorRequest(req3) {
 		t.Error("isTorRequest with non-matching Host = true, want false")
+	}
+}
+
+func TestIsTorRequestUsesLiveTrustAddress(t *testing.T) {
+	h := NewSpecialHandler("")
+	h.Trust = netutil.NewTrustResolver(config.TrustedProxiesConfig{}, "")
+	h.Trust.SetOnionAddress("generated.onion")
+	request := httptest.NewRequest(http.MethodGet, "http://generated.onion/.well-known/security.txt", nil)
+	if !h.isTorRequest(request) {
+		t.Fatal("isTorRequest did not recognize the onion address published after async startup")
 	}
 }
 

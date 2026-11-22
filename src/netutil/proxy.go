@@ -411,7 +411,8 @@ func IsTorRequest(r *http.Request, tr *TrustResolver) bool {
 	if tr == nil {
 		return false
 	}
-	return isTorRequest(r, tr.OnionAddress)
+	onionAddress, _ := tr.overlayAddresses()
+	return isTorRequest(r, onionAddress)
 }
 
 // isI2PRequest reports whether r is an I2P eepsite request per AI.md PART
@@ -429,7 +430,8 @@ func IsI2PRequest(r *http.Request, tr *TrustResolver) bool {
 	if tr == nil {
 		return false
 	}
-	return isI2PRequest(r, tr.I2PAddress)
+	_, i2pAddress := tr.overlayAddresses()
+	return isI2PRequest(r, i2pAddress)
 }
 
 // getURLVars returns the resolved proto, fqdn, and port for the request.
@@ -446,11 +448,12 @@ func IsI2PRequest(r *http.Request, tr *TrustResolver) bool {
 func getURLVars(r *http.Request, tr *TrustResolver) (proto, fqdn, port string) {
 	// Priority 0: Tor hidden service / I2P eepsite — bypass all proxy header
 	// inspection. Neither ever gets HTTPS upgrade, HSTS, or a cert.
-	if tr != nil && isTorRequest(r, tr.OnionAddress) {
-		return "http", tr.OnionAddress, ""
+	onionAddress, i2pAddress := tr.overlayAddresses()
+	if isTorRequest(r, onionAddress) {
+		return "http", onionAddress, ""
 	}
-	if tr != nil && isI2PRequest(r, tr.I2PAddress) {
-		return "http", tr.I2PAddress, ""
+	if isI2PRequest(r, i2pAddress) {
+		return "http", i2pAddress, ""
 	}
 
 	trusted := tr.IsTrustedPeer(r)

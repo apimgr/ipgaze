@@ -1,7 +1,7 @@
 // Package i2p implements the OPTIONAL I2P eepsite subsystem per AI.md
 // PART 31.2. Unlike Tor (PART 31.1, auto-enabled when the tor binary is
-// found), I2P is opt-in: no provider is contacted, no port is allocated,
-// and no files are written unless server.i2p.enabled is true.
+// found), I2P is enabled by default only in containers. Elsewhere it remains
+// opt-in; no provider is contacted unless server.i2p.enabled is true.
 package i2p
 
 import (
@@ -31,7 +31,7 @@ type I2PServiceConfig struct {
 	ConfigDir string
 	DataDir   string
 	LogDir    string
-	// OPT-IN: the eepsite is created only when Enabled is true.
+	// Enabled is resolved from config, environment, flags, and the container default.
 	Enabled bool
 	// Binary is the path to the i2pd binary; empty = auto-detect.
 	Binary string
@@ -125,26 +125,22 @@ func bootstrapTimeout(seconds int) (time.Duration, error) {
 	return time.Duration(seconds) * time.Second, nil
 }
 
-func recoveryBackoff(previous time.Duration) time.Duration {
-	if previous <= 0 {
-		return 5 * time.Second
-	}
-	next := previous * 2
-	if next > 300*time.Second {
-		return 300 * time.Second
-	}
-	return next
-}
-
 // I2PManager owns the lifecycle of the I2P eepsite backend — provider
 // detection, start/stop, and the status reported to operators.
 type I2PManager struct {
-	cfg      I2PServiceConfig
-	mu       sync.RWMutex
-	svc      *service
-	running  bool
-	starting bool
-	phase    string
+	cfg             I2PServiceConfig
+	mu              sync.RWMutex
+	svc             *service
+	running         bool
+	starting        bool
+	phase           string
+	provider        Provider
+	startupAddress  string
+	addressHandlers []func(string)
+	startCancel     context.CancelFunc
+	startDone       chan struct{}
+	stopping        bool
+	stopDone        chan struct{}
 	// startErr holds the last start failure so Status()/GetInfo() can report
 	// the "error:{short message}" and "no provider" states.
 	startErr error
@@ -213,53 +209,144 @@ func (m *I2PManager) IsAvailable() bool {
 }
 
 // Start creates the eepsite when I2P is enabled and a provider is
-// available. I2P is opt-in and optional — disabled, or no provider found,
-// is logged at WARN/INFO, never an error, and the server continues.
+// available. I2P is optional — disabled or unavailable providers never fail
+// server startup.
 func (m *I2PManager) Start() error {
-	return m.start(true)
+	return m.start()
 }
 
-func (m *I2PManager) start(scheduleRecovery bool) error {
+// StartAsync begins I2P initialization in the background so listener startup
+// never waits for router bootstrap or tunnel creation.
+func (m *I2PManager) StartAsync() {
+	ctx, cancel, done, shouldStart := m.beginStart()
+	if !shouldStart {
+		return
+	}
+	go func() {
+		m.finishStart(ctx, cancel, done)
+	}()
+}
+
+// AddAddressHandler registers a callback for the generated eepsite identity.
+// If startup already discovered the address, it is delivered immediately.
+func (m *I2PManager) AddAddressHandler(handler func(string)) {
+	if handler == nil {
+		return
+	}
 	m.mu.Lock()
-	if m.running || m.starting {
-		m.mu.Unlock()
+	m.addressHandlers = append(m.addressHandlers, handler)
+	address := m.startupAddress
+	if address == "" && m.svc != nil {
+		address = m.svc.eepsiteAddress
+	}
+	m.mu.Unlock()
+	if address != "" {
+		handler(address)
+	}
+}
+
+// WaitForAddress waits up to timeout for the destination address to be
+// generated, without waiting for tunnel bootstrap to complete.
+func (m *I2PManager) WaitForAddress(timeout time.Duration) string {
+	deadline := time.Now().Add(timeout)
+	for {
+		m.mu.RLock()
+		address := m.startupAddress
+		if address == "" && m.svc != nil {
+			address = m.svc.eepsiteAddress
+		}
+		finishedWithoutAddress := !m.starting && m.svc == nil && address == ""
+		m.mu.RUnlock()
+		if address != "" || finishedWithoutAddress || time.Until(deadline) <= 0 {
+			return address
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+func (m *I2PManager) publishAddress(address string) {
+	m.mu.Lock()
+	m.startupAddress = address
+	handlers := append([]func(string){}, m.addressHandlers...)
+	m.mu.Unlock()
+	for _, handler := range handlers {
+		handler(address)
+	}
+}
+
+func (m *I2PManager) start() error {
+	ctx, cancel, done, shouldStart := m.beginStart()
+	if !shouldStart {
 		return nil
+	}
+	return m.finishStart(ctx, cancel, done)
+}
+
+func (m *I2PManager) beginStart() (context.Context, context.CancelFunc, chan struct{}, bool) {
+	m.mu.Lock()
+	if m.running || m.starting || m.stopping {
+		m.mu.Unlock()
+		return nil, nil, nil, false
 	}
 	if !m.cfg.Enabled {
 		m.phase = "disabled"
 		m.mu.Unlock()
-		return nil
+		return nil, nil, nil, false
 	}
 	m.starting = true
 	m.phase = "starting"
+	m.provider = ProviderNone
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	m.startCancel = cancel
+	m.startDone = done
 	m.mu.Unlock()
+	return ctx, cancel, done, true
+}
 
-	svc, err := m.startDedicated(context.Background())
+func (m *I2PManager) finishStart(ctx context.Context, cancel context.CancelFunc, done chan struct{}) error {
+	defer func() {
+		m.mu.Lock()
+		if m.startDone == done {
+			m.startDone = nil
+		}
+		close(done)
+		m.mu.Unlock()
+	}()
+	svc, err := m.startDedicated(ctx)
+	wasCanceled := ctx.Err() != nil
+	cancel()
 	m.mu.Lock()
+	m.startCancel = nil
 	m.starting = false
+	if wasCanceled {
+		m.phase = "disabled"
+		m.startErr = nil
+		m.mu.Unlock()
+		if svc != nil {
+			m.mu.Lock()
+			_ = closeServiceLocked(svc)
+			m.mu.Unlock()
+		}
+		return context.Canceled
+	}
 	if err != nil {
-		// I2P is opt-in and optional: a missing provider or a failed start
-		// is recorded and reported by Status()/GetInfo(), never fatal.
+		// A missing provider or failed start is recorded for status reporting,
+		// never returned as a fatal server-startup error.
 		m.startErr = err
+		m.provider = ProviderNone
 		if errors.Is(err, ErrNoProvider) {
 			m.phase = "no_provider"
 		} else {
 			m.phase = "error"
 		}
-		retry := scheduleRecovery && m.cfg.Enabled && !errors.Is(err, ErrNoProvider) && !strings.Contains(err.Error(), "INVALID_KEY") && !strings.Contains(err.Error(), "corrupt destination key file") && !strings.Contains(err.Error(), "invalid persisted destination key")
-		retryDelay := 5 * time.Second
-		if strings.Contains(err.Error(), "DUPLICATED_DEST") {
-			retryDelay = 60 * time.Second
-		}
 		m.mu.Unlock()
-		log.Printf("I2P not started: %v", err)
-		if retry {
-			go m.retryRecovery(retryDelay)
-		}
+		log.Printf("WARN: I2P eepsite unavailable: %v", err)
 		return nil
 	}
 	m.startErr = nil
 	m.svc = svc
+	m.provider = svc.provider
 	m.running = true
 	m.phase = "running"
 
@@ -271,7 +358,7 @@ func (m *I2PManager) start(scheduleRecovery bool) error {
 	m.mu.Unlock()
 	go m.monitorService(monitorCtx, svc)
 
-	log.Printf("I2P eepsite started (%s): %s", svc.provider, svc.eepsiteAddress)
+	log.Printf("I2P eepsite ready (%s)", svc.provider)
 	return nil
 }
 
@@ -286,7 +373,10 @@ func (m *I2PManager) monitorService(ctx context.Context, svc *service) {
 			return
 		case err := <-svc.samLost:
 			failed = true
-			log.Printf("I2P: SAM session connection lost: %v", err)
+			if err != nil {
+				m.markUnavailable(svc, fmt.Errorf("SAM session lost: %w", err))
+				return
+			}
 		case <-ticker.C:
 		}
 		if svc.provider == ProviderI2PD {
@@ -315,41 +405,62 @@ func (m *I2PManager) monitorService(ctx context.Context, svc *service) {
 		if !failed {
 			continue
 		}
-		m.mu.Lock()
-		if m.svc == svc {
-			m.startErr = fmt.Errorf("I2P provider session lost")
-		}
-		m.mu.Unlock()
 		if ctx.Err() != nil {
 			return
 		}
-		m.mu.Lock()
-		if m.svc == svc {
-			svc.status = "error"
-			m.phase = "error"
-		}
-		m.mu.Unlock()
-		if err := m.Restart(); err == nil && m.IsRunning() {
-			return
-		}
+		m.markUnavailable(svc, errors.New("I2P provider session lost"))
 		return
 	}
 }
 
-func (m *I2PManager) retryRecovery(backoff time.Duration) {
-	for {
-		time.Sleep(backoff)
-		m.mu.RLock()
-		enabled, phase := m.cfg.Enabled, m.phase
-		m.mu.RUnlock()
-		if !enabled || phase == "disabled" || phase == "no_provider" {
-			return
+// HealthCheck probes the active provider and marks it unavailable without
+// restarting it or logging the same failure more than once.
+func (m *I2PManager) HealthCheck() {
+	m.mu.RLock()
+	svc := m.svc
+	running := m.running
+	m.mu.RUnlock()
+	if !running || svc == nil {
+		return
+	}
+	var err error
+	if svc.provider == ProviderI2PD {
+		select {
+		case <-svc.i2pdExited:
+			err = errors.New("i2pd process exited")
+		default:
 		}
-		_ = m.start(false)
-		if m.IsRunning() {
-			return
+	} else {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		samAddr := m.cfg.SAMAddress
+		if samAddr == "" {
+			samAddr = "127.0.0.1:7656"
 		}
-		backoff = recoveryBackoff(backoff)
+		conn, _, dialErr := samDial(ctx, samAddr)
+		if dialErr != nil {
+			err = dialErr
+		} else {
+			_, _ = fmt.Fprintln(conn, "QUIT")
+			_ = conn.Close()
+		}
+	}
+	if err != nil {
+		m.markUnavailable(svc, err)
+	}
+}
+
+func (m *I2PManager) markUnavailable(svc *service, cause error) {
+	m.mu.Lock()
+	newFailure := m.svc == svc && svc.status != "error"
+	if m.svc == svc {
+		m.startErr = cause
+		svc.status = "error"
+		m.phase = "error"
+	}
+	m.mu.Unlock()
+	if newFailure {
+		log.Printf("WARN: I2P eepsite unavailable: %v", cause)
 	}
 }
 
@@ -424,17 +535,43 @@ func closeServiceLocked(svc *service) error {
 // Stop terminates the I2P provider and its dedicated backend listener.
 func (m *I2PManager) Stop() error {
 	m.mu.Lock()
-	defer m.mu.Unlock()
+	if m.stopping {
+		done := m.stopDone
+		m.mu.Unlock()
+		if done != nil {
+			<-done
+		}
+		return nil
+	}
+	m.stopping = true
+	stopDone := make(chan struct{})
+	m.stopDone = stopDone
+	if m.startCancel != nil {
+		m.startCancel()
+	}
+	startDone := m.startDone
+	m.mu.Unlock()
+	if startDone != nil {
+		<-startDone
+	}
+	m.mu.Lock()
+	var err error
 	if !m.running || m.svc == nil {
 		m.phase = "disabled"
 		m.startErr = nil
-		return nil
+	} else {
+		err = closeServiceLocked(m.svc)
+		m.svc = nil
+		m.running = false
+		m.provider = ProviderNone
+		m.phase = "disabled"
+		log.Println("I2P: eepsite stopped")
 	}
-	err := closeServiceLocked(m.svc)
-	m.svc = nil
-	m.running = false
-	m.phase = "disabled"
-	log.Println("I2P: eepsite stopped")
+	m.startCancel = nil
+	m.stopping = false
+	m.stopDone = nil
+	close(stopDone)
+	m.mu.Unlock()
 	return err
 }
 
@@ -486,7 +623,7 @@ func (m *I2PManager) RegenerateAddress() (string, error) {
 func (m *I2PManager) EepsiteAddress() string {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	if m.svc == nil {
+	if m.svc == nil || m.svc.status == "error" {
 		return ""
 	}
 	return m.svc.eepsiteAddress
@@ -496,7 +633,7 @@ func (m *I2PManager) EepsiteAddress() string {
 func (m *I2PManager) IsRunning() bool {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	return m.running
+	return m.running && m.svc != nil && m.svc.status != "error"
 }
 
 // Status returns the current status string.
@@ -504,6 +641,17 @@ func (m *I2PManager) Status() string {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.statusLocked()
+}
+
+// ProviderName reports the detected provider without probing an external SAM
+// service from a health request.
+func (m *I2PManager) ProviderName() string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.svc != nil {
+		return m.svc.provider.String()
+	}
+	return m.provider.String()
 }
 
 func (m *I2PManager) statusLocked() string {
@@ -547,12 +695,14 @@ func (m *I2PManager) GetInfo() Info {
 	hostname := ""
 	provider := ProviderNone.String()
 	if m.svc != nil {
-		hostname = m.svc.eepsiteAddress
+		if m.svc.status != "error" {
+			hostname = m.svc.eepsiteAddress
+		}
 		provider = m.svc.provider.String()
 	}
 	return Info{
-		Enabled:  m.cfg.Enabled,
-		Running:  m.running,
+		Enabled:  m.cfg.Enabled && !errors.Is(m.startErr, ErrNoProvider),
+		Running:  m.running && m.svc != nil && m.svc.status != "error",
 		Status:   m.statusLocked(),
 		Provider: provider,
 		Hostname: hostname,
@@ -563,7 +713,7 @@ func (m *I2PManager) GetInfo() Info {
 func (m *I2PManager) GetHostname() string {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	if m.svc == nil {
+	if m.svc == nil || m.svc.status == "error" {
 		return ""
 	}
 	return m.svc.eepsiteAddress
@@ -704,6 +854,10 @@ func (m *I2PManager) startDedicated(ctx context.Context) (*service, error) {
 	} else if !samReachable(samAddr) {
 		return nil, fmt.Errorf("%w (no i2pd binary, SAM %s unreachable)", ErrNoProvider, samAddr)
 	}
+	m.mu.Lock()
+	m.provider = provider
+	m.phase = "starting"
+	m.mu.Unlock()
 
 	configDir := m.cfg.ConfigDir
 	dataDir := m.cfg.DataDir
@@ -741,7 +895,7 @@ func (m *I2PManager) startDedicated(ctx context.Context) (*service, error) {
 			_ = closeServiceLocked(svc)
 			return nil, err
 		}
-		addr, err := m.startSAMEepsite(samAddr, keysPath, i2pBackendPort, svc)
+		addr, err := m.startSAMEepsite(ctx, samAddr, keysPath, i2pBackendPort, svc)
 		if err != nil {
 			_ = closeServiceLocked(svc)
 			_ = rawLn.Close()
@@ -749,7 +903,7 @@ func (m *I2PManager) startDedicated(ctx context.Context) (*service, error) {
 		}
 		svc.eepsiteAddress = addr
 	case ProviderSAM:
-		addr, err := m.startSAMEepsite(samAddr, keysPath, i2pBackendPort, svc)
+		addr, err := m.startSAMEepsite(ctx, samAddr, keysPath, i2pBackendPort, svc)
 		if err != nil {
 			_ = closeServiceLocked(svc)
 			return nil, err
@@ -1072,12 +1226,13 @@ func loadOrCreateSAMDestination(conn net.Conn, r *bufio.Reader, keysPath string,
 // incoming streams to the dedicated backend port. Returns the .b32.i2p
 // address. Model B: no PROXY-protocol header is ever sent by SAM/i2pd, so
 // svc.backendLn (allocated by the caller) is served plain.
-func (m *I2PManager) startSAMEepsite(samAddr, keysPath string, i2pBackendPort int, svc *service) (string, error) {
-	ctx := context.Background()
+func (m *I2PManager) startSAMEepsite(ctx context.Context, samAddr, keysPath string, i2pBackendPort int, svc *service) (string, error) {
 	conn, r, err := samDial(ctx, samAddr)
 	if err != nil {
 		return "", fmt.Errorf("failed to dial SAM %s: %w", samAddr, err)
 	}
+	stopClose := context.AfterFunc(ctx, func() { _ = conn.Close() })
+	defer stopClose()
 	watchDone := make(chan struct{})
 	defer close(watchDone)
 	if svc.i2pdExited != nil {
@@ -1100,6 +1255,8 @@ func (m *I2PManager) startSAMEepsite(samAddr, keysPath string, i2pBackendPort in
 		return "", fmt.Errorf("invalid persisted destination key: %w", err)
 	}
 	addr := b32Address(privateDestination)
+	svc.eepsiteAddress = addr
+	m.publishAddress(addr)
 	id := fmt.Sprintf("site-%d", os.Getpid())
 	bootstrap, err := bootstrapTimeout(m.cfg.BootstrapTimeout)
 	if err != nil {
@@ -1133,6 +1290,8 @@ func (m *I2PManager) startSAMEepsite(samAddr, keysPath string, i2pBackendPort in
 		_ = conn.Close()
 		return "", fmt.Errorf("open SAM forward socket: %w", err)
 	}
+	stopForwardClose := context.AfterFunc(ctx, func() { _ = forward.Close() })
+	defer stopForwardClose()
 	reply, err = samCommand(forward, fr, 10*time.Second, fmt.Sprintf("STREAM FORWARD ID=%s PORT=%d HOST=127.0.0.1 SILENT=true", id, i2pBackendPort))
 	if err != nil || !strings.Contains(reply, "RESULT=OK") {
 		_ = forward.Close()

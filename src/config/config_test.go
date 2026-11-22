@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/apimgr/ipgaze/src/paths"
 	"gopkg.in/yaml.v3"
 	_ "modernc.org/sqlite"
 )
@@ -130,6 +131,20 @@ func TestDefaultConfig_TorDefaults(t *testing.T) {
 	}
 	if tor.VirtualPort != 80 {
 		t.Errorf("Tor.VirtualPort: got %d, want 80", tor.VirtualPort)
+	}
+}
+
+func TestDefaultConfig_I2PAndSecurityReportRetention(t *testing.T) {
+	cfg := DefaultConfig()
+	if cfg.Server.I2P.Enabled != paths.IsRunningInContainer() {
+		t.Fatalf("I2P.Enabled = %t, want container-derived value %t", cfg.Server.I2P.Enabled, paths.IsRunningInContainer())
+	}
+	if cfg.Server.Security.Reports.RetentionDays != 365 {
+		t.Fatalf("security report retention = %d days, want 365", cfg.Server.Security.Reports.RetentionDays)
+	}
+	yamlConfig := generateConfigYAML(cfg)
+	if !strings.Contains(yamlConfig, "reports:\n      retention_days: 365") {
+		t.Fatal("generated config is missing security report retention")
 	}
 }
 

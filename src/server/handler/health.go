@@ -414,10 +414,14 @@ func (h *HealthHandler) checkTor() string {
 	if h.TorStatus == nil || !h.TorStatus.IsAvailable() {
 		return ""
 	}
-	if h.TorStatus.IsRunning() {
+	switch h.TorStatus.Status() {
+	case "starting", "healthy":
 		return "ok"
+	case "disabled":
+		return ""
+	default:
+		return "degraded"
 	}
-	return "error"
 }
 
 // checkI2P returns the I2P subsystem status per AI.md PART 31.2. Returns
@@ -431,10 +435,10 @@ func (h *HealthHandler) checkI2P() string {
 	if state == "disabled" || state == "no_provider" {
 		return ""
 	}
-	if h.I2PStatus.IsRunning() {
+	if state == "starting" || state == "building" || state == "running" || state == "healthy" {
 		return "ok"
 	}
-	return "error"
+	return "degraded"
 }
 
 // getOverallStatus derives the overall status string from individual checks
@@ -449,7 +453,7 @@ func getOverallStatus(checks model.ChecksInfo, degraded bool) string {
 		checks.Disk == "error" || checks.Scheduler == "error" {
 		return statusUnhealthy
 	}
-	if degraded || checks.Tor == "error" || checks.I2P == "error" {
+	if degraded || checks.Tor == "error" || checks.I2P == "error" || checks.Tor == "degraded" || checks.I2P == "degraded" {
 		return statusDegraded
 	}
 	return statusHealthy
@@ -495,10 +499,17 @@ func (h *HealthHandler) buildHealthResponse() model.HealthResponse {
 
 	torInfo := model.TorInfo{Status: "disabled"}
 	if h.TorStatus != nil && h.TorStatus.IsAvailable() {
+		torStatus := "unavailable"
+		switch h.TorStatus.Status() {
+		case "starting":
+			torStatus = "starting"
+		case "healthy", "running":
+			torStatus = "healthy"
+		}
 		torInfo = model.TorInfo{
 			Enabled:  true,
 			Running:  h.TorStatus.IsRunning(),
-			Status:   h.TorStatus.Status(),
+			Status:   torStatus,
 			Hostname: h.TorStatus.GetHostname(),
 		}
 	}
@@ -515,16 +526,16 @@ func (h *HealthHandler) buildHealthResponse() model.HealthResponse {
 		case "running", "healthy":
 			status = "healthy"
 		case "error":
-			status = "error"
+			status = "unavailable"
 		default:
-			if strings.HasPrefix(state, "error:") {
-				status = state
-			} else if state == "" {
+			if state == "" {
 				state, status = "disabled", "disabled"
+			} else {
+				status = "unavailable"
 			}
 		}
 		i2pInfo = model.I2PInfo{
-			Enabled:  state != "disabled",
+			Enabled:  state != "disabled" && state != "no_provider",
 			Running:  h.I2PStatus.IsRunning(),
 			Status:   status,
 			State:    state,

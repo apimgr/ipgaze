@@ -1332,7 +1332,8 @@ type TorConfig struct {
 // I2PConfig contains I2P eepsite configuration per AI.md PART 31.2.
 // The eepsite is enabled by default in containers and opt-in elsewhere.
 type I2PConfig struct {
-	// Enabled opts into the I2P eepsite. Default false.
+	// Enabled opts into the I2P eepsite. The default is computed from
+	// container detection: true in containers and false elsewhere.
 	Enabled bool `yaml:"enabled"`
 	// Binary is the path to the i2pd binary. Leave empty for auto-detection.
 	// When found, the app spawns/manages a dedicated i2pd process (Model A).
@@ -1696,10 +1697,11 @@ func (g GeoIPConfig) expandCountryList(list []string) []string {
 
 // SecurityConfig contains server-level security settings (allowlist, etc.)
 type SecurityConfig struct {
-	Allowlist      []AllowlistEntry     `yaml:"allowlist"`
-	BlockedIPs     []BlockedIPEntry     `yaml:"blocked_ips"`
-	AbuseDetection AbuseDetectionConfig `yaml:"abuse_detection"`
-	Blocklists     BlocklistsConfig     `yaml:"blocklists"`
+	Allowlist      []AllowlistEntry      `yaml:"allowlist"`
+	BlockedIPs     []BlockedIPEntry      `yaml:"blocked_ips"`
+	AbuseDetection AbuseDetectionConfig  `yaml:"abuse_detection"`
+	Blocklists     BlocklistsConfig      `yaml:"blocklists"`
+	Reports        SecurityReportsConfig `yaml:"reports"`
 	// EncryptionKey is the base64-encoded 32-byte AES-256-GCM key used to encrypt
 	// sensitive at-rest data (e.g. DNS-01 provider credentials), per AI.md PART 11.
 	// Auto-generated via crypto/rand on first run and persisted to secrets.yml.
@@ -1711,6 +1713,11 @@ type SecurityConfig struct {
 	PreviousEncryptionKey string `yaml:"previous_encryption_key,omitempty"`
 	// PreviousEncryptionKeyUntil is the Unix timestamp the grace period above ends.
 	PreviousEncryptionKeyUntil int64 `yaml:"previous_encryption_key_until,omitempty"`
+}
+
+// SecurityReportsConfig controls retention for closed coordinated-disclosure reports.
+type SecurityReportsConfig struct {
+	RetentionDays int `yaml:"retention_days"`
 }
 
 type BlocklistsConfig struct {
@@ -2304,7 +2311,7 @@ func DefaultConfig() *AppConfig {
 			Healthz: HealthzConfig{
 				Root: RootHealthzConfig{Enabled: false},
 			},
-			Security: SecurityConfig{Blocklists: BlocklistsConfig{Enabled: true}, AbuseDetection: AbuseDetectionConfig{
+			Security: SecurityConfig{Blocklists: BlocklistsConfig{Enabled: true}, Reports: SecurityReportsConfig{RetentionDays: 365}, AbuseDetection: AbuseDetectionConfig{
 				RequestFlood: RequestFloodConfig{Multiplier: 10, Window: "60s", BlockDuration: "1h"},
 				AutoBlockIP:  true, AutoAlert: true,
 			}},
@@ -4176,8 +4183,7 @@ server:
     virtual_port: %d
 
   i2p:
-    # OPT-IN: disabled by default. Unlike Tor (auto-enabled when the binary
-    # is found), the eepsite is created only when this is true.
+    # Enabled by default in containers and disabled elsewhere; explicit config overrides it.
     enabled: %t
     binary: "%s"
     sam_address: "%s"
@@ -4318,6 +4324,8 @@ server:
   # sensitive at-rest data (e.g. DNS-01 provider credentials), per AI.md PART 11.
   security:
     encryption_key: "%s"
+    reports:
+      retention_days: %d
     # Trusted IP/CIDR entries that bypass blocklist, rate limiting, and GeoIP
 %s
 %s
@@ -4767,6 +4775,7 @@ pages:
 		cfg.Server.SSL.LetsEncrypt.DNSProvider,
 		formatDNSCredentials(cfg.Server.SSL.LetsEncrypt.DNSCredentials.Values),
 		cfg.Server.Security.EncryptionKey,
+		cfg.Server.Security.Reports.RetentionDays,
 		formatAllowlist(cfg.Server.Security.Allowlist),
 		formatBlocklists(cfg.Server.Security.Blocklists),
 		cfg.Server.Security.AbuseDetection.RequestFlood.Multiplier,

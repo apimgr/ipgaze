@@ -41,6 +41,8 @@ repository:        https://github.com/apimgr/ipgaze
 - Email/notification delivery via SMTP (operator-configured; HTML + plain text multipart)
 - Configurable IPv4/IPv6 allowlists and permanent blocks, with persisted temporary request-flood blocks and optional security alerts
 - IP/domain threat blocklist downloads (daily, auto-applied to incoming requests)
+- Blocklist health degrades after 72 hours without a successful source update;
+  the last good entries remain active, and never-loaded sources report an error
 - CVE/security database sync (daily, for vulnerability reporting)
 - PWA support: web app manifest and service worker for offline caching
 - Prometheus metrics (internal only, not public)

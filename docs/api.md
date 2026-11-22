@@ -146,8 +146,11 @@ shutting-down return `503`. The public response reports version/build/runtime
 information, enabled features, subsystem checks, and aggregate statistics. It
 includes cached per-database GeoIP and per-list blocklist checks when enabled.
 Those checks expose only `ok`, `degraded`, or `error` and refresh at least
-every 60 seconds and after a data update. The response does not expose private
-configuration, credentials, internal addresses, or filesystem paths.
+every 60 seconds and after a data update. A blocklist source becomes `degraded`
+when its last good copy is older than 72 hours; its last good entries remain
+active, and a source that has never loaded reports `error`. The response does
+not expose private configuration, credentials, internal addresses, or
+filesystem paths.
 
 ## API Documentation and Discovery
 

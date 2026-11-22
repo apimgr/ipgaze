@@ -4,17 +4,23 @@ package blocklist
 
 import (
 	"bufio"
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
+
+	"golang.org/x/net/idna"
+	"golang.org/x/net/publicsuffix"
 
 	"github.com/apimgr/ipgaze/src/tor"
 )
@@ -28,6 +34,8 @@ var DefaultSources = []Source{
 		File: "firehol_level1.txt",
 	},
 }
+
+const maxBlocklistAge = 72 * time.Hour
 
 // Source describes one blocklist data source.
 type Source struct {
@@ -66,8 +74,12 @@ func (m *BlocklistManager) Update() error {
 			log.Printf("blocklist: updated %s", src.Name)
 		}
 	}
-	tsPath := filepath.Join(m.dataDir, ".last_updated")
-	_ = os.WriteFile(tsPath, []byte(time.Now().UTC().Format(time.RFC3339)+"\n"), 0o644)
+	if lastErr == nil {
+		tsPath := filepath.Join(m.dataDir, ".last_updated")
+		if err := os.WriteFile(tsPath, []byte(time.Now().UTC().Format(time.RFC3339)+"\n"), 0o644); err != nil {
+			lastErr = fmt.Errorf("blocklist: write update timestamp: %w", err)
+		}
+	}
 	return lastErr
 }
 
@@ -78,8 +90,10 @@ type Lookup struct {
 	nets          []*net.IPNet
 	singles       []net.IP
 	domains       []string
+	domainSources map[string][]string
 	health        map[string]string
 	healthUpdated map[string]time.Time
+	skipped       map[string]int
 }
 
 // LoadDir reads all .txt files in dir and parses each non-comment line as an
@@ -101,8 +115,10 @@ func (l *Lookup) LoadDirWithTypes(dir string, sourceTypes map[string]string) err
 	var nets []*net.IPNet
 	var singles []net.IP
 	var domains []string
+	domainSources := make(map[string][]string)
 	health := make(map[string]string)
 	healthUpdated := make(map[string]time.Time)
+	skipped := make(map[string]int)
 
 	for _, e := range entries {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".txt") {
@@ -121,7 +137,7 @@ func (l *Lookup) LoadDirWithTypes(dir string, sourceTypes map[string]string) err
 		}
 		scanner := bufio.NewScanner(f)
 		entries := 0
-		domainSource := sourceTypes[key] == "domain"
+		domainSource := sourceTypes != nil && sourceTypes[key] == "domain"
 		for scanner.Scan() {
 			line := strings.TrimSpace(scanner.Text())
 			if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, ";") {
@@ -136,29 +152,37 @@ func (l *Lookup) LoadDirWithTypes(dir string, sourceTypes map[string]string) err
 			}
 			line = strings.TrimSpace(line[:commentIndex])
 			if domainSource {
-				domain := strings.ToLower(strings.TrimSuffix(line, "."))
+				domain := strings.TrimSpace(line)
 				wildcard := strings.HasPrefix(domain, "*.")
 				if wildcard {
 					domain = strings.TrimPrefix(domain, "*.")
 				}
-				if validBlocklistDomain(domain) {
+				domain, ok := NormalizeDomain(domain)
+				if ok && validBlocklistDomain(domain) && (!wildcard || !isPublicSuffix(domain)) {
 					if wildcard {
 						domain = "*." + domain
 					}
 					domains = append(domains, domain)
+					domainSources[domain] = append(domainSources[domain], key)
 					entries++
+				} else {
+					skipped[key]++
 				}
 			} else if strings.Contains(line, "/") {
 				_, ipnet, err := net.ParseCIDR(line)
 				if err == nil {
 					nets = append(nets, ipnet)
 					entries++
+				} else {
+					skipped[key]++
 				}
 			} else {
 				ip := net.ParseIP(line)
 				if ip != nil {
 					singles = append(singles, ip)
 					entries++
+				} else {
+					skipped[key]++
 				}
 			}
 		}
@@ -173,7 +197,7 @@ func (l *Lookup) LoadDirWithTypes(dir string, sourceTypes map[string]string) err
 		switch {
 		case entries == 0 || statErr != nil:
 			health[key] = "error"
-		case time.Since(info.ModTime()) > 7*24*time.Hour:
+		case time.Since(info.ModTime()) > maxBlocklistAge:
 			health[key] = "degraded"
 		default:
 			health[key] = "ok"
@@ -181,14 +205,19 @@ func (l *Lookup) LoadDirWithTypes(dir string, sourceTypes map[string]string) err
 		if err := f.Close(); err != nil {
 			return fmt.Errorf("close %s: %w", e.Name(), err)
 		}
+		if skipped[key] > 0 {
+			log.Printf("blocklist: skipped %d invalid entries from %s", skipped[key], key)
+		}
 	}
 
 	l.mu.Lock()
 	l.nets = nets
 	l.singles = singles
 	l.domains = domains
+	l.domainSources = domainSources
 	l.health = health
 	l.healthUpdated = healthUpdated
+	l.skipped = skipped
 	l.mu.Unlock()
 	return nil
 }
@@ -208,6 +237,59 @@ func validBlocklistDomain(domain string) bool {
 	return true
 }
 
+// NormalizeDomain extracts a hostname from a host, URL, or email domain and
+// converts it to the ASCII form used by blocklist entries. IP literals are
+// deliberately ignored because they are handled by IP blocklists.
+func NormalizeDomain(value string) (string, bool) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "", false
+	}
+	if strings.Contains(value, "://") {
+		parsed, err := url.Parse(value)
+		if err != nil {
+			return "", false
+		}
+		value = parsed.Hostname()
+	} else if at := strings.LastIndex(value, "@"); at >= 0 {
+		value = value[at+1:]
+	} else if host, _, err := net.SplitHostPort(value); err == nil {
+		value = host
+	} else if strings.ContainsAny(value, "/?#") {
+		return "", false
+	}
+	value = strings.TrimSuffix(strings.ToLower(strings.TrimSpace(value)), ".")
+	value = strings.Trim(value, "[]")
+	if value == "" || net.ParseIP(value) != nil {
+		return "", false
+	}
+	ascii, err := idna.Lookup.ToASCII(value)
+	if err != nil {
+		return "", false
+	}
+	ascii = strings.ToLower(strings.TrimSuffix(ascii, "."))
+	if !validBlocklistDomain(ascii) {
+		return "", false
+	}
+	return ascii, true
+}
+
+func isPublicSuffix(domain string) bool {
+	suffix, _ := publicsuffix.PublicSuffix(domain)
+	return suffix == domain
+}
+
+// SkippedCount reports malformed or unsafe entries ignored while loading a
+// source. A missing source has a skipped count of zero.
+func (l *Lookup) SkippedCount(id string) int {
+	if l == nil {
+		return 0
+	}
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	return l.skipped[id]
+}
+
 // HealthStatus reports the cached health of one parsed list by stable source ID.
 func (l *Lookup) HealthStatus(id string) string {
 	if l == nil {
@@ -216,7 +298,7 @@ func (l *Lookup) HealthStatus(id string) string {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
 	if status := l.health[id]; status != "" {
-		if status == "ok" && time.Since(l.healthUpdated[id]) > 7*24*time.Hour {
+		if status == "ok" && time.Since(l.healthUpdated[id]) > maxBlocklistAge {
 			return "degraded"
 		}
 		return status
@@ -245,23 +327,40 @@ func (l *Lookup) Contains(ip net.IP) bool {
 }
 
 func (l *Lookup) ContainsDomain(host string) bool {
-	host = strings.ToLower(strings.TrimSuffix(host, "."))
-	if host == "" {
-		return false
+	return len(l.MatchingDomainSources(host)) > 0
+}
+
+// MatchingDomainSources returns IDs of loaded domain sources matching host.
+func (l *Lookup) MatchingDomainSources(host string) []string {
+	host, ok := NormalizeDomain(host)
+	if !ok {
+		return nil
 	}
 	l.mu.RLock()
 	defer l.mu.RUnlock()
+	matched := make(map[string]struct{})
 	for _, domain := range l.domains {
+		match := false
 		if strings.HasPrefix(domain, "*.") {
 			base := strings.TrimPrefix(domain, "*.")
 			if strings.HasSuffix(host, "."+base) {
-				return true
+				match = true
 			}
 		} else if host == domain {
-			return true
+			match = true
+		}
+		if match {
+			for _, source := range l.domainSources[domain] {
+				matched[source] = struct{}{}
+			}
 		}
 	}
-	return false
+	sources := make([]string, 0, len(matched))
+	for source := range matched {
+		sources = append(sources, source)
+	}
+	sort.Strings(sources)
+	return sources
 }
 
 // HasData reports whether at least one parsed blocklist entry is loaded.
@@ -271,7 +370,7 @@ func (l *Lookup) HasData() bool {
 	}
 	l.mu.RLock()
 	defer l.mu.RUnlock()
-	return len(l.nets) > 0 || len(l.singles) > 0
+	return len(l.nets) > 0 || len(l.singles) > 0 || len(l.domains) > 0
 }
 
 func (m *BlocklistManager) download(client *http.Client, src Source) error {
@@ -293,8 +392,60 @@ func (m *BlocklistManager) download(client *http.Client, src Source) error {
 	if err != nil {
 		return err
 	}
+	valid, skipped, err := countValidEntries(data, src.Type)
+	if err != nil {
+		return fmt.Errorf("blocklist %s is malformed: %w", src.Name, err)
+	}
+	if valid == 0 {
+		return fmt.Errorf("blocklist %s contains no valid entries", src.Name)
+	}
+	if skipped > 0 {
+		log.Printf("blocklist: skipped %d invalid entries from %s", skipped, src.Name)
+	}
 	dest := filepath.Join(m.dataDir, src.File)
 	return writeFileAtomic(dest, data, 0o644)
+}
+
+func countValidEntries(data []byte, sourceType string) (int, int, error) {
+	valid, skipped := 0, 0
+	scanner := bufio.NewScanner(bytes.NewReader(data))
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, ";") {
+			continue
+		}
+		if index := strings.IndexAny(line, " \t;"); index >= 0 {
+			line = strings.TrimSpace(line[:index])
+		}
+		if sourceType == "domain" {
+			wildcard := strings.HasPrefix(line, "*.")
+			if wildcard {
+				line = strings.TrimPrefix(line, "*.")
+			}
+			domain, ok := NormalizeDomain(line)
+			if ok && (!wildcard || !isPublicSuffix(domain)) {
+				valid++
+			} else {
+				skipped++
+			}
+			continue
+		}
+		if strings.Contains(line, "/") {
+			if _, _, err := net.ParseCIDR(line); err == nil {
+				valid++
+			} else {
+				skipped++
+			}
+		} else if net.ParseIP(line) != nil {
+			valid++
+		} else {
+			skipped++
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return 0, skipped, err
+	}
+	return valid, skipped, nil
 }
 
 // writeFileAtomic writes data to a temp file in the same directory as path,

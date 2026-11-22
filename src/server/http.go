@@ -961,8 +961,10 @@ func (s *Server) buildHandler() http.Handler {
 	r.Use(URLNormalizeMiddleware)
 	r.Use(RequestIDMiddleware)
 	r.Use(PathSecurityMiddleware)
+	maxBody := int64(0)
 	if s.config != nil {
-		if maxBody := parseByteSize(s.config.Server.Limits.MaxBodySize); maxBody > 0 {
+		maxBody = parseByteSize(s.config.Server.Limits.MaxBodySize)
+		if maxBody > 0 {
 			r.Use(BodyLimitMiddleware(maxBody))
 		}
 	}
@@ -980,7 +982,7 @@ func (s *Server) buildHandler() http.Handler {
 	}
 	policy := AbusePolicyFromConfig(s.config, limits)
 	r.Use(AbuseMiddleware(s.sqlDB, policy, s.getTrust(), s.allowlistLookup, s.logManager, rateLimiterAlertCallback))
-	r.Use(BlocklistMiddleware(s.blocklistLookup, s.logManager))
+	r.Use(BlocklistMiddleware(s.blocklistLookup, s.logManager, maxBody))
 	if s.rateLimiter != nil {
 		r.Use(RateLimitMiddleware(s.rateLimiter))
 	}

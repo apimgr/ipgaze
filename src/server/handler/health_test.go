@@ -111,7 +111,7 @@ func TestCheckTor_NotAvailable(t *testing.T) {
 
 func TestCheckTor_AvailableRunning(t *testing.T) {
 	h := newTestHandler()
-	h.TorStatus = &stubTorStatus{available: true, running: true, status: "ok"}
+	h.TorStatus = &stubTorStatus{available: true, running: true, status: "healthy"}
 	if got := h.checkTor(); got != "ok" {
 		t.Errorf("checkTor() = %q, want %q", got, "ok")
 	}
@@ -120,8 +120,8 @@ func TestCheckTor_AvailableRunning(t *testing.T) {
 func TestCheckTor_AvailableNotRunning(t *testing.T) {
 	h := newTestHandler()
 	h.TorStatus = &stubTorStatus{available: true, running: false}
-	if got := h.checkTor(); got != "error" {
-		t.Errorf("checkTor() = %q, want %q", got, "error")
+	if got := h.checkTor(); got != "degraded" {
+		t.Errorf("checkTor() = %q, want %q", got, "degraded")
 	}
 }
 
@@ -323,14 +323,47 @@ func TestBuildHealthResponse_I2PNoProvider(t *testing.T) {
 	h.I2PStatus = &stubI2PStatus{status: "no_provider", provider: "none"}
 
 	resp := h.buildHealthResponse()
-	if !resp.Features.I2P.Enabled {
-		t.Error("I2P must retain its opt-in enabled state when no provider is available")
+	if resp.Features.I2P.Enabled {
+		t.Error("I2P must be disabled when no provider is available")
 	}
 	if resp.Features.I2P.Status != "disabled" || resp.Features.I2P.State != "no_provider" || resp.Features.I2P.Provider != "none" {
 		t.Errorf("I2P no-provider health = %+v", resp.Features.I2P)
 	}
 	if resp.Checks.I2P != "" || resp.Status != statusHealthy {
 		t.Errorf("no-provider I2P should not fail health: checks.i2p=%q status=%q", resp.Checks.I2P, resp.Status)
+	}
+}
+
+func TestBuildHealthResponse_OverlayStatusContract(t *testing.T) {
+	tests := []struct {
+		name         string
+		torStatus    string
+		i2pStatus    string
+		wantTor      string
+		wantI2P      string
+		wantTorCheck string
+		wantI2PCheck string
+	}{
+		{name: "starting", torStatus: "starting", i2pStatus: "starting", wantTor: "starting", wantI2P: "starting", wantTorCheck: "ok", wantI2PCheck: "ok"},
+		{name: "healthy", torStatus: "healthy", i2pStatus: "running", wantTor: "healthy", wantI2P: "healthy", wantTorCheck: "ok", wantI2PCheck: "ok"},
+		{name: "unavailable", torStatus: "error:details must not leak", i2pStatus: "error", wantTor: "unavailable", wantI2P: "unavailable", wantTorCheck: "degraded", wantI2PCheck: "degraded"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := newTestHandler()
+			h.TorStatus = &stubTorStatus{available: true, status: tt.torStatus}
+			h.I2PStatus = &stubI2PStatus{available: true, status: tt.i2pStatus, provider: "i2pd"}
+			response := h.buildHealthResponse()
+			if response.Features.Tor.Status != tt.wantTor || response.Features.I2P.Status != tt.wantI2P {
+				t.Errorf("overlay statuses = (%q, %q), want (%q, %q)", response.Features.Tor.Status, response.Features.I2P.Status, tt.wantTor, tt.wantI2P)
+			}
+			if response.Checks.Tor != tt.wantTorCheck || response.Checks.I2P != tt.wantI2PCheck {
+				t.Errorf("overlay checks = (%q, %q), want (%q, %q)", response.Checks.Tor, response.Checks.I2P, tt.wantTorCheck, tt.wantI2PCheck)
+			}
+			if strings.Contains(response.Features.Tor.Status, "details") || response.Status == statusUnhealthy {
+				t.Errorf("overlay details leaked or made the service unhealthy: %+v", response)
+			}
+		})
 	}
 }
 
@@ -426,7 +459,7 @@ func TestHealthzHandler_HTML(t *testing.T) {
 
 func TestHealthzHandler_HTMLWithTorRow(t *testing.T) {
 	h := newTestHandler()
-	h.TorStatus = &stubTorStatus{available: true, running: true, status: "ok"}
+	h.TorStatus = &stubTorStatus{available: true, running: true, status: "healthy"}
 	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
 	req.Header.Set("Accept", "text/html")
 	w := httptest.NewRecorder()
@@ -466,7 +499,7 @@ func TestHealthzHandler_PlainText(t *testing.T) {
 
 func TestHealthzHandler_PlainTextWithTor(t *testing.T) {
 	h := newTestHandler()
-	h.TorStatus = &stubTorStatus{available: true, running: true, status: "ok"}
+	h.TorStatus = &stubTorStatus{available: true, running: true, status: "healthy"}
 	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
 	req.Header.Set("Accept", "text/plain")
 	w := httptest.NewRecorder()

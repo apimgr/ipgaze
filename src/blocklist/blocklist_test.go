@@ -69,7 +69,7 @@ func TestLookup_HealthStatus(t *testing.T) {
 	dir := t.TempDir()
 	writeTxt(t, dir, "fresh.txt", "203.0.113.1\n")
 	writeTxt(t, dir, "empty.txt", "# no entries\n")
-	old := time.Now().Add(-8 * 24 * time.Hour)
+	old := time.Now().Add(-(maxBlocklistAge + time.Hour))
 	if err := os.Chtimes(filepath.Join(dir, "fresh.txt"), old, old); err != nil {
 		t.Fatal(err)
 	}
@@ -98,6 +98,29 @@ func TestLookup_HealthStatus(t *testing.T) {
 	}
 	if got := l.HealthStatus("fresh"); got != "ok" {
 		t.Errorf("fresh list status = %q, want ok", got)
+	}
+}
+
+func TestLookup_HealthStatusFreshnessThreshold(t *testing.T) {
+	dir := t.TempDir()
+	writeTxt(t, dir, "recent.txt", "203.0.113.2\n")
+	justFresh := time.Now().Add(-maxBlocklistAge + time.Minute)
+	if err := os.Chtimes(filepath.Join(dir, "recent.txt"), justFresh, justFresh); err != nil {
+		t.Fatal(err)
+	}
+	var l Lookup
+	if err := l.LoadDir(dir); err != nil {
+		t.Fatal(err)
+	}
+	if got := l.HealthStatus("recent"); got != "ok" {
+		t.Fatalf("list younger than 72 hours status = %q, want ok", got)
+	}
+	stale := time.Now().Add(-maxBlocklistAge - time.Minute)
+	l.mu.Lock()
+	l.healthUpdated["recent"] = stale
+	l.mu.Unlock()
+	if got := l.HealthStatus("recent"); got != "degraded" {
+		t.Fatalf("list older than 72 hours status = %q, want degraded", got)
 	}
 }
 
@@ -435,6 +458,52 @@ func TestUpdate_PartialFailure_ReturnsLastError(t *testing.T) {
 	}
 }
 
+func TestUpdate_RejectsEmptyReplacementAndKeepsLastGoodData(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "domains.txt")
+	if err := os.WriteFile(path, []byte("kept.example\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("# comments only\n*.com\n"))
+	}))
+	defer srv.Close()
+	manager := NewBlocklistManager(dir, []Source{{Name: "domains", Type: "domain", URL: srv.URL, File: "domains.txt"}})
+	if err := manager.Update(); err == nil {
+		t.Fatal("Update() accepted a source with no valid entries")
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "kept.example\n" {
+		t.Fatalf("last good data was overwritten: %q", data)
+	}
+}
+
+func TestUpdate_RejectsMalformedLineAndKeepsLastGoodData(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "domains.txt")
+	if err := os.WriteFile(path, []byte("kept.example\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("valid.example\n" + strings.Repeat("x", 70<<10) + "\n"))
+	}))
+	defer srv.Close()
+	manager := NewBlocklistManager(dir, []Source{{Name: "domains", Type: "domain", URL: srv.URL, File: "domains.txt"}})
+	if err := manager.Update(); err == nil {
+		t.Fatal("Update() accepted a source with an overlong line")
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "kept.example\n" {
+		t.Fatalf("last good data was overwritten: %q", data)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // DefaultSources — basic sanity
 // ---------------------------------------------------------------------------
@@ -481,6 +550,61 @@ func TestLookup_LoadDirWithDomainTypes(t *testing.T) {
 		if lookup.ContainsDomain(host) {
 			t.Errorf("ContainsDomain(%q) = true", host)
 		}
+	}
+}
+
+func TestNormalizeDomain(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+		ok    bool
+	}{
+		{input: "  https://User:pass@ExAmPle.com.:8443/path ", want: "example.com", ok: true},
+		{input: "münich.example", want: "xn--mnich-kva.example", ok: true},
+		{input: "person@example.com", want: "example.com", ok: true},
+		{input: "[2001:db8::1]:443", ok: false},
+		{input: "not/a/domain", ok: false},
+	}
+	for _, tt := range tests {
+		got, ok := NormalizeDomain(tt.input)
+		if got != tt.want || ok != tt.ok {
+			t.Errorf("NormalizeDomain(%q) = (%q, %v), want (%q, %v)", tt.input, got, ok, tt.want, tt.ok)
+		}
+	}
+}
+
+func TestLookup_DomainWildcardPublicSuffixAndSources(t *testing.T) {
+	dir := t.TempDir()
+	writeTxt(t, dir, "domains.txt", "*.com\n*.co.uk\n*.example.com\nexample.com\n")
+	var lookup Lookup
+	if err := lookup.LoadDirWithTypes(dir, map[string]string{"domains": "domain"}); err != nil {
+		t.Fatal(err)
+	}
+	if lookup.SkippedCount("domains") != 2 {
+		t.Fatalf("skipped count = %d, want 2", lookup.SkippedCount("domains"))
+	}
+	for _, tc := range []struct {
+		host string
+		want bool
+	}{{"example.com", true}, {"a.example.com", true}, {"co.uk", false}, {"evil.co.uk", false}, {"other.example.net", false}} {
+		if got := lookup.ContainsDomain(tc.host); got != tc.want {
+			t.Errorf("ContainsDomain(%q) = %v, want %v", tc.host, got, tc.want)
+		}
+	}
+	if sources := lookup.MatchingDomainSources("a.example.com."); len(sources) != 1 || sources[0] != "domains" {
+		t.Errorf("MatchingDomainSources() = %v, want [domains]", sources)
+	}
+}
+
+func TestLookup_LoadDirWithoutTypes(t *testing.T) {
+	dir := t.TempDir()
+	writeTxt(t, dir, "ips.txt", "203.0.113.5\n")
+	var lookup Lookup
+	if err := lookup.LoadDir(dir); err != nil {
+		t.Fatal(err)
+	}
+	if !lookup.Contains(net.ParseIP("203.0.113.5")) {
+		t.Fatal("LoadDir did not load IP entries")
 	}
 }
 

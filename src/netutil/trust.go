@@ -81,6 +81,37 @@ func (tr *TrustResolver) Start(ctx context.Context) {
 	}()
 }
 
+// SetOnionAddress updates the live hidden-service identity used by request
+// classification after Tor creates its hostname during asynchronous startup.
+func (tr *TrustResolver) SetOnionAddress(address string) {
+	if tr == nil {
+		return
+	}
+	tr.mu.Lock()
+	tr.OnionAddress = address
+	tr.mu.Unlock()
+}
+
+// SetI2PAddress updates the live eepsite identity after I2P creates its
+// destination during asynchronous startup.
+func (tr *TrustResolver) SetI2PAddress(address string) {
+	if tr == nil {
+		return
+	}
+	tr.mu.Lock()
+	tr.I2PAddress = address
+	tr.mu.Unlock()
+}
+
+func (tr *TrustResolver) overlayAddresses() (string, string) {
+	if tr == nil {
+		return "", ""
+	}
+	tr.mu.RLock()
+	defer tr.mu.RUnlock()
+	return tr.OnionAddress, tr.I2PAddress
+}
+
 // IsTrustedPeer reports whether r's immediate peer is a trusted reverse proxy.
 // Always-trusted: loopback, RFC 1918 private, RFC 4193 ULA, link-local, and the
 // /24 subnet of the server's listen address (sidecar pattern).
