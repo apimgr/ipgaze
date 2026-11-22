@@ -86,13 +86,12 @@ Streamable HTTP:
 | `GET /server/help/mcp` | Client setup guide, available tools, and troubleshooting |
 | `GET /api/v1/server/help/mcp` | MCP help data as JSON |
 
-IPGaze exposes public lookup operations, so MCP clients can connect without a
-token. There is no MCP-specific token. The guide at `/server/help/mcp` shows
-the resolved endpoint URL, available tools, and a client initialization
-example. Operator-only API tools are listed only when the request carries a
-valid `server.token` bearer credential. IPGaze has no owner-owned resources,
-so it does not issue owner or linked tokens; token-management operations are
-never exposed as MCP tools.
+MCP requires an owner or operator Bearer token; the REST API's public lookup
+operations remain anonymous. Issue an owner token from `/server/preferences/tokens`
+or `POST /api/v1/server/preferences/tokens/primary`, then create one linked
+token per MCP client. Operator-only API tools are listed only when the request
+carries a valid `server.token` bearer credential. Token-management operations
+are never exposed as MCP tools. See `/server/help/mcp` for client setup.
 
 ---
 
@@ -145,7 +144,7 @@ access-control requirements.
 | `ipgaze_db_connections_in_use` | Gauge | Database connections currently in use |
 | `ipgaze_db_errors_total` | Counter | Database errors by operation and error category |
 | `ipgaze_auth_attempts_total` | Counter | Authentication attempts by mechanism and outcome |
-| `ipgaze_owner_tokens_active` | Gauge | Active owner tokens by token kind (`primary` or `linked`); emitted only when owner tokens are implemented (not applicable to ipgaze) |
+| `ipgaze_owner_tokens_active` | Gauge | Active owner tokens by token kind (`primary` or `linked`); remains zero until a visitor issues a token |
 | `ipgaze_ratelimit_requests_total` | Counter | Rate-limiter requests by limit type and outcome |
 | `ipgaze_ratelimit_blocked_total` | Counter | Requests blocked by the rate limiter |
 

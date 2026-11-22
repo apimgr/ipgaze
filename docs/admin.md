@@ -33,16 +33,16 @@ server:
 
 This is the server-wide operator credential for protected operator operations.
 The raw value is shown once at first startup; the maintenance token commands do
-not display it. IPGaze has no user accounts or owner-managed resources, so it
-does not issue owner or linked API tokens.
+not display it. Owner tokens are separate credentials for resources visitors
+create and for MCP access. Visitors can issue them from the public tokens page.
 
 To replace the token, update its value in `secrets.yml` and restart the service.
 
 ## Token Management (CLI)
 
 The maintenance token commands support listing and revoking issued API tokens
-by prefix. They do not rotate `server.token`. IPGaze does not issue owner or
-linked tokens, so the list is normally empty.
+by prefix. They do not rotate `server.token`. Owner tokens are issued by
+visitors; linked tokens can be created and revoked from the tokens page.
 
 ```bash
 ipgaze --maintenance token list

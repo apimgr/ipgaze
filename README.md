@@ -31,7 +31,7 @@ https://ifcfg.us
 - **VPN/Proxy & Tor Detection** - `is_vpn`, `is_proxy`, `is_tor` fields from daily-updated threat lists
 - **GraphQL Endpoint** - Flexible queries alongside the REST API
 - **OpenAPI/Swagger UI** - Interactive API documentation
-- **Model Context Protocol (MCP)** - Anonymous Streamable HTTP tools for public API operations
+- **Model Context Protocol (MCP)** - Authenticated Streamable HTTP tools for versioned API operations; visitors can issue owner tokens and separate linked tokens for each client
 - **Prometheus Metrics** - Optional authenticated metrics endpoints for operators
 - **Atom and RSS Feeds** - Empty `/feed.xml` and `/rss.xml` endpoints, ready for syndication clients
 - **PWA Support** - Web app manifest and service worker for offline use

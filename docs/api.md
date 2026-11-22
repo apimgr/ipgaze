@@ -4,6 +4,11 @@ IPGaze accepts requests at the configured server URL. The public service is
 available at `https://ifcfg.us`. All lookup endpoints are anonymous. A
 deployment may apply rate limits and block abusive traffic.
 
+The REST API is public. MCP uses the same API but requires an `Authorization:
+Bearer` token. Visitors can issue an owner token from the tokens page or
+`POST /api/v1/server/preferences/tokens/primary`; use a linked token for each
+MCP client.
+
 When deployed behind a trusted proxy, caller identity uses the configured
 `server.trusted_proxies.client_ip_header` selection and validates forwarded
 chains against trusted proxy ranges. Addresses are normalized before lookup,

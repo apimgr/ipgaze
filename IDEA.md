@@ -49,7 +49,7 @@ repository:        https://github.com/apimgr/ipgaze
 - Prometheus metrics (internal only, not public)
 - GraphQL endpoint for flexible queries
 - OpenAPI/Swagger interactive documentation
-- Stateless Streamable HTTP MCP endpoint that exposes the registered public versioned API operations as tools. Example user prompts: “What is my public IP address?”, “Look up 8.8.8.8 and summarize its GeoIP data”, and “Which ASN announces 1.1.1.1?” MCP clients use anonymous public access; results depend on configured GeoIP databases. The endpoint is POST-only, sessionless, rate-limited, audited, and validates `Origin`.
+- Stateless Streamable HTTP MCP endpoint that exposes the registered versioned API operations as tools. Example user prompts: “What is my public IP address?”, “Look up 8.8.8.8 and summarize its GeoIP data”, and “Which ASN announces 1.1.1.1?” MCP requires an owner or operator Bearer token; the REST API remains publicly accessible. Visitors can issue an owner token without creating a resource and create a separate linked token for each MCP client. Results depend on configured GeoIP databases. The endpoint is POST-only, sessionless, rate-limited, audited, and validates `Origin`.
 - CLI client binary (`ipgaze-cli`) for querying any ipgaze-compatible server with token-based auth
 - Tor hidden service (auto-enabled when Tor binary is present) with optional server-originated outbound Tor routing
 - I2P eepsite (enabled by default in containers and opt-in elsewhere; i2pd process preferred, external SAM bridge as fallback)
@@ -66,7 +66,7 @@ repository:        https://github.com/apimgr/ipgaze
 |------|-------------|-------------|
 | **Anonymous** | Any visitor or API client | All public IP/GeoIP endpoints, GraphQL, OpenAPI, PWA — no authentication required |
 
-There is exactly one role. ipgaze is a public, anonymous service with no user accounts, no admin web UI, and no login.
+There is exactly one role. ipgaze is a public service with no user accounts, no admin web UI, and no login. Anonymous callers can use the REST API; owner tokens identify resources a caller creates and are required for MCP access.
 
 ### Data model & sensitivity
 

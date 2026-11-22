@@ -12,14 +12,16 @@ ipgaze is a public, anonymous IP lookup service. No login is required for public
 lookup endpoints. The service does not create user accounts or persistent
 lookup-result ownership records. Operator-protected endpoints use the
 server-wide `server.token` bearer credential stored in `secrets.yml`. This
-product has no user accounts or owner-managed resources, so it does not issue
-owner or linked tokens. The CLI can access public lookup operations without a
-token; protected operator operations require the operator credential.
+product has no user accounts. Visitors may issue owner tokens without creating
+a resource; those tokens link later resources to the visitor and are required
+for MCP. Linked tokens are intended for individual MCP clients. The CLI can
+access public lookup operations without a token; protected operator operations
+require the operator credential.
 
 Security practices applied throughout:
 
 - **Operator token:** Stored in `secrets.yml` and compared using its SHA-256 hash cached in memory; never stored in the database
-- **Issued API tokens:** The token database schema supports issued resource-owner tokens for projects that use owned resources; IPGaze has no such resources and does not issue these tokens
+- **Issued API tokens:** Owner tokens may be issued without creating a resource. They identify resources a caller creates and are required for MCP access. Linked tokens provide separate, revocable credentials for MCP clients.
 - **Rate limiting:** Requests are limited by client IP and endpoint class; repeated floods can trigger persisted temporary IP blocks
 - **Client address identity:** Trusted proxy headers are validated and normalized to one canonical IP; IPv6 limits and bans use the full address, and rate-limit state is bounded and expires
 - **Constant-time comparison:** All token checks use timing-safe comparison to prevent timing attacks

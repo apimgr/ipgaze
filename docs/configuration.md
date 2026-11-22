@@ -413,7 +413,7 @@ labels:
 ## MCP Endpoint
 
 The Streamable HTTP MCP endpoint is always available at `/api/v1/server/mcp`,
-with aliases at `/api/mcp` and `/mcp`. MCP exposes the anonymous public API operations without authentication. The
+with aliases at `/api/mcp` and `/mcp`. MCP requires an owner or operator Bearer token, while the REST API remains publicly accessible. Issue an owner token from the tokens page or API, then use a linked token for each MCP client. The
 endpoint is stateless, accepts POST requests, validates the `Origin` header,
 and applies the server's rate limits. It does not accept cookies or issue
 MCP-specific tokens.
