@@ -30,7 +30,7 @@ for reverse proxy, binary, and service setup.
 - Plain text, JSON, and server-rendered HTML responses
 - echoip-compatible endpoints plus a versioned REST API, OpenAPI, and GraphQL
 - Guest theme and language preferences
-- Optional GeoIP, cache, metrics, Tor, I2P, and MCP services
+- Optional GeoIP, cache, metrics, Tor, and I2P services; MCP is always available
 - Scheduled GeoIP, threat-list, CVE, certificate, log, and backup maintenance
 - Server rendered pages and a companion `ipgaze-cli` client
 
@@ -38,9 +38,10 @@ Optional services and their defaults are documented in
 [Configuration](configuration.md) and [Integrations](integrations.md).
 
 Visitors can change theme, language, lookup example, cookie consent, and the
-data-sale opt-out from `/server/preferences`. That page also exports a portable
-preference link/code, accepts one during save, and offers a reset that clears
-site cookies and browser storage while preserving security credentials.
+data-sale opt-out from `/server/preferences`. The separate
+`/server/preferences/sync` page exports or imports a portable preference
+link/code. Reset clears site cookies and browser storage while preserving
+security credentials.
 
 ## Documentation
 

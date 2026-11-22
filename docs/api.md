@@ -72,7 +72,7 @@ Health endpoints are the exception and return the bare health document.
 | `GET /api/v1/version` | Version, commit, and build date |
 | `GET /api/v1/server/about` | Application information |
 | `GET /api/v1/server/help` | Help sections |
-| `GET /server/help/mcp` | MCP setup guide when MCP is enabled |
+| `GET /server/help/mcp` | MCP setup guide |
 | `GET /api/v1/server/help/mcp` | MCP setup data in the standard JSON envelope |
 | `GET /api/v1/server/privacy` | Current privacy and tracking configuration |
 | `GET /server/dpo` | Public Data Protection Officer contact page |
@@ -89,8 +89,11 @@ Health endpoints are the exception and return the bare health document.
 | `GET /server/security/report/{tracking_id}` | Researcher status page; requires the one-shot token when an acknowledgment email was delivered |
 | `GET /api/v1/server/preferences` | Current guest preferences |
 | `POST /api/v1/server/preferences` | Update guest preferences |
-| `GET /api/v1/server/preferences/export` | Export guest preferences |
-| `GET /api/v1/server/preferences/import` | Import guest preferences |
+| `GET /server/preferences/sync` | Export guest preferences as a URL and base64url code; negotiates HTML, text, and JSON. Consent and credentials are excluded |
+| `POST /server/preferences/sync` | Import guest preferences from the form's `code` field |
+| `GET /server/preferences/sync/import` | Apply guest preferences from direct query parameters or a code |
+| `GET /api/v1/server/preferences/sync` | Export guest preferences, including the full URL and code |
+| `GET /api/v1/server/preferences/sync/import` | Import guest preferences and return applied/ignored fields |
 | `POST /api/v1/server/contact` | Submit a report for review, then repeat its fields with the review token and confirmation to deliver it |
 | `POST /api/v1/server/consent` | Save cookie consent choices |
 | `POST /api/v1/server/ccpa` | Record a CCPA data-sale opt-out |
@@ -103,8 +106,8 @@ Health endpoints are the exception and return the bare health document.
 | `POST /api/v1/server/reports/error` | Submit a browser error report |
 | `POST /api/v1/server/reports/default` | Submit a generic browser report |
 | `GET /api/v1/server/swagger` | OpenAPI document |
-| `GET` or `POST /api/v1/server/graphql` | GraphQL endpoint when enabled |
-| `POST /api/v1/server/mcp` | MCP Streamable HTTP endpoint when enabled |
+| `GET` or `POST /api/v1/server/graphql` | GraphQL endpoint |
+| `POST /api/v1/server/mcp` | MCP Streamable HTTP endpoint |
 
 Contact submissions enforce the `max_length` values returned by the form
 definition, counting Unicode characters after trimming. Over-limit requests
@@ -114,7 +117,7 @@ HTTPS key URL has a separate 2048-character validation cap. The metadata keeps
 one `max_length` value per field.
 
 When an active PGP report-encryption key is configured, the security status
-response includes its full SHA-256 fingerprint and the public-key URL.
+response includes its 40-character OpenPGP v4 fingerprint and the public-key URL.
 Security report submission persists the encrypted report and returns its
 tracking ID even when SMTP is unavailable or delivery fails. In that case the
 researcher acknowledgment is skipped; use the returned tracking ID for follow-up.
@@ -158,8 +161,8 @@ filesystem paths.
 |---------|-------------|
 | `GET /server/docs/swagger` | Interactive Swagger UI |
 | `GET /api/swagger` | OpenAPI JSON, direct alias for the current API version |
-| `GET` or `POST /server/docs/graphql` | GraphiQL UI when GraphQL is enabled |
-| `GET` or `POST /api/graphql` | GraphQL direct alias when enabled |
+| `GET` or `POST /server/docs/graphql` | GraphiQL UI |
+| `GET` or `POST /api/graphql` | GraphQL direct alias |
 | `GET /api/autodiscover` | Server and client configuration discovery |
 | `GET /llms.txt` | Machine-readable service and API summary |
 | `GET /.well-known/llms.txt` | Well-known alias for the same summary |

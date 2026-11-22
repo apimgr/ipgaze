@@ -51,6 +51,15 @@ The following endpoints are accessible without authentication:
 | `GET /server/security/policy` | Coordinated disclosure policy |
 | `GET /server/security/thanks` | Public researcher acknowledgments |
 | `GET /server/security/report/{tracking_id}` | Researcher report status using the one-shot token in the private acknowledgment link |
+| `GET /server/preferences` | Guest preferences hub |
+| `POST /server/preferences` | Update guest preference cookies; CSRF-protected browser form |
+| `GET /server/preferences/sync` | Export guest preferences |
+| `POST /server/preferences/sync` | Import guest preferences; CSRF-protected browser form |
+| `GET /server/preferences/sync/import` | Apply preferences from a shared link |
+| `GET /api/v1/server/preferences` | Read guest preference state |
+| `POST /api/v1/server/preferences` | Update guest preference cookies without browser-session authority |
+| `GET /api/v1/server/preferences/sync` | Export guest preferences |
+| `GET /api/v1/server/preferences/sync/import` | Apply preferences from a code or query |
 | `GET /.well-known/security.txt` | RFC 9116 security contact information |
 | `GET /.well-known/pgp-key.asc` | Public report encryption key when configured |
 | `GET /robots.txt` | Robots policy |
@@ -59,8 +68,8 @@ The following endpoints are accessible without authentication:
 | `GET /sw.js` | Service worker |
 | `GET /server/docs/swagger` | OpenAPI documentation (HTML) |
 | `GET /api/swagger` | OpenAPI schema (JSON) |
-| `GET /server/docs/graphql` | GraphiQL UI when enabled |
-| `GET /api/graphql` | GraphQL endpoint when enabled |
+| `GET` or `POST /server/docs/graphql` | GraphiQL UI |
+| `GET` or `POST /api/graphql` | GraphQL endpoint |
 
 Metrics endpoints are internal operational interfaces, not public endpoints.
 When enabled, every service route requires its service-specific bearer token
@@ -82,9 +91,9 @@ ipgaze serves the following well-known endpoints:
 The canonical security contact file is `/.well-known/security.txt` and follows
 [RFC 9116](https://www.rfc-editor.org/rfc/rfc9116). `/security.txt` is not a
 supported canonical route. Unknown `/.well-known/*` paths return `404`.
-When a PGP key is active, the file also includes its full SHA-256 fingerprint
-as a comment; `GET /api/v1/server/security` returns the same fingerprint with
-the public-key URL.
+When a PGP key is active, the file also includes its 40-character OpenPGP v4
+fingerprint as a comment; `GET /api/v1/server/security` returns the same
+fingerprint with the public-key URL.
 
 ---
 

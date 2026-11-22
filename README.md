@@ -23,6 +23,7 @@ https://ifcfg.us
 - **RESTful API** - Versioned API at `/api/v1`
 - **Multiple Output Formats** - JSON, plain text, or server-rendered HTML
 - **Built-In Languages** - Interface and CLI translations in English, Spanish, French, German, Italian, Chinese, Arabic, and Japanese
+- **Guest Preferences** - Cookie-based theme, language, and lookup-widget choices with a separate portable URL/code sync page
 - **Auto-Updating GeoIP** - Weekly automatic database updates
 - **Mobile-Friendly** - Responsive web interface
 - **Fast & Lightweight** - Self-contained static binaries that manage their runtime data
