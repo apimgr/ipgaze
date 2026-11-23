@@ -632,10 +632,13 @@ pipelines can replace the rolling `devel` release and tag. Go builds run in
 # Run Go vet, the vulnerability scan, and tests in Docker with coverage enforcement
 make test
 
-# Run integration tests (Incus also verifies the systemd privilege drop)
+# Run the Docker integration tests
 ./tests/run_tests.sh
 
-# Run integration tests in Docker directly
+# Run the optional Incus systemd and privilege-drop tests
+./tests/incus.sh
+
+# Run the Docker tests directly
 ./tests/docker.sh
 ```
 

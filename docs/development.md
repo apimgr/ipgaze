@@ -162,6 +162,9 @@ make test
 
 ### Integration Tests
 
+The basic integration runner is Docker-only. Incus systemd and privilege-drop
+coverage is a separate opt-in check via `tests/incus.sh`.
+
 ```bash
 ./tests/run_tests.sh
 ```
