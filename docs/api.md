@@ -200,6 +200,43 @@ filesystem paths.
 | `GET /llms.txt` | Machine-readable service and API summary |
 | `GET /.well-known/llms.txt` | Well-known alias for the same summary |
 
+## Server-Rendered Pages
+
+These public pages render HTML for browsers and use the same frontend content
+negotiation as the lookup pages. Forms submit through server routes, so their
+core flows work without JavaScript.
+
+| Page | Purpose |
+|------|---------|
+| `GET /` | Look up the visitor's address and show the lookup interface |
+| `GET /server` | Redirect to the server About page |
+| `GET /server/about` | Application and service information |
+| `GET /server/help` | Usage help |
+| `GET /server/help/mcp` | MCP client setup instructions |
+| `GET /server/healthz` | Public server health page |
+| `GET /server/privacy` | Privacy and tracking information |
+| `GET /server/terms` | Terms of service |
+| `GET /server/contact` | Contact and typed report forms; submissions use `POST /server/contact` |
+| `GET /server/dpo` | Data protection contact information |
+| `GET /server/security` | Security overview and reporting links |
+| `GET /server/security/policy` | Coordinated disclosure policy |
+| `GET /server/security/thanks` | Public researcher acknowledgments |
+| `GET /server/security/report/{tracking_id}` | Private researcher report status |
+| `GET /server/preferences` | Guest theme, language, consent, and lookup preferences |
+| `GET /server/preferences/tokens` | Owner and linked token management; credentials gate actions |
+| `GET /server/preferences/sync` | Export or import portable guest preferences |
+| `GET /server/docs/swagger` | Interactive REST API documentation |
+| `GET /server/docs/graphql` | Interactive GraphQL explorer |
+
+`GET /theme.css` serves the shared, build-versioned theme variables as an
+external stylesheet. The Swagger and GraphQL theme stylesheets are served at
+`GET /server/docs/swagger/theme.css` and
+`GET /server/docs/graphql/theme.css`; both use the selected theme. These are
+page assets rather than navigable pages. `/server/tracking.js` is a
+consent-gated script endpoint, not a page. The service worker and other static
+or machine-readable resources are listed in the relevant API and integration
+sections.
+
 ## Errors and Limits
 
 Invalid IP addresses return a client error. Rate-limited requests return

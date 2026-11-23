@@ -166,13 +166,13 @@ docker run -d \
   ghcr.io/apimgr/ipgaze:latest
 ```
 
-## Server CLI
+### Server CLI
 
 `ipgaze --help` prints the full reference. Detailed help is available with
 `ipgaze --service --help`, `ipgaze --maintenance --help`,
 `ipgaze --shell --help`, and `ipgaze --update --help`.
 
-### Flags
+#### Flags
 
 | Flag | Description |
 |------|-------------|
@@ -194,7 +194,7 @@ docker run -d \
 | `--color {auto\|yes\|no}` | Color output (default: `auto`; `NO_COLOR` honored) |
 | `--lang CODE` | Language for output (default: auto-detect from `LANG`; supported (8): `en`, `es`, `fr`, `de`, `it`, `zh`, `ar`, `ja`) |
 
-### Subcommands
+#### Subcommands
 
 | Command | Description |
 |---------|-------------|
