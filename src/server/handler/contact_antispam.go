@@ -348,9 +348,6 @@ func contactLinkHostAllowed(host string, h *PagesHandler, r *http.Request) bool 
 	if h.Config != nil && h.Config.Server.FQDN != "" {
 		domains = append(domains, h.Config.Server.FQDN)
 	}
-	if h.Config != nil && h.Config.Tor.OnionAddress != "" {
-		domains = append(domains, h.Config.Tor.OnionAddress)
-	}
 	for _, domain := range domains {
 		if strings.EqualFold(host, strings.TrimSpace(domain)) {
 			return true

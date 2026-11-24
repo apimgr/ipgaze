@@ -154,14 +154,14 @@ func TestGetMyIP_ServerError(t *testing.T) {
 func TestGetMyIPJSON_DecodesResponse(t *testing.T) {
 	eu, vpn, proxy, tor, hidden := true, true, false, true, false
 	payload := IPResponse{
-		IP:         "203.0.113.1",
-		Country:    "Elbonia",
-		CountryISO: "EB",
-		City:       "Bornyasherk",
-		CountryEU:  &eu,
-		IsVPN:      &vpn,
-		IsProxy:    &proxy,
-		IsTor:      &tor,
+		IP:                 "203.0.113.1",
+		Country:            "Elbonia",
+		CountryISO:         "EB",
+		City:               "Bornyasherk",
+		CountryEU:          &eu,
+		IsVPN:              &vpn,
+		IsProxy:            &proxy,
+		IsTor:              &tor,
 		IsTorHiddenService: &hidden,
 	}
 	srv := newTestServer(t, routeMap{
@@ -286,15 +286,14 @@ func TestGetField_ServerError(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestAutodiscover_DecodesResponse(t *testing.T) {
-	payload := AutodiscoverResponse{
-		ServerName: "ipgaze",
-		Version:    "1.2.3",
-		APIVersion: "v1",
-		BaseURL:    "https://ifcfg.us",
-		CLIVersions: map[string]CLIVersionEntry{
-			"linux-amd64": {Version: "1.2.3", SHA256: "abc123"},
+	payload := map[string]interface{}{
+		"ok": true,
+		"data": map[string]interface{}{
+			"name": "ipgaze", "version": "1.2.3", "api": map[string]string{"current_version": "v1"},
+			"urls":            []string{"https://ifcfg.us"},
+			"cli_versions":    map[string]interface{}{"linux-amd64": map[string]string{"version": "1.2.3", "sha256": "abc123"}},
+			"cli_min_version": "1.0.0",
 		},
-		CLIMinVersion: "1.0.0",
 	}
 	srv := newTestServer(t, routeMap{
 		"/api/autodiscover": jsonHandler(payload),
@@ -306,8 +305,8 @@ func TestAutodiscover_DecodesResponse(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Autodiscover: %v", err)
 	}
-	if got.ServerName != "ipgaze" {
-		t.Errorf("ServerName = %q, want ipgaze", got.ServerName)
+	if got.Name != "ipgaze" || got.ServerName != "ipgaze" {
+		t.Errorf("Name/ServerName = %q/%q, want ipgaze", got.Name, got.ServerName)
 	}
 	if got.Version != "1.2.3" {
 		t.Errorf("Version = %q, want 1.2.3", got.Version)
@@ -321,6 +320,9 @@ func TestAutodiscover_DecodesResponse(t *testing.T) {
 	}
 	if got.CLIMinVersion != "1.0.0" {
 		t.Errorf("CLIMinVersion = %q, want 1.0.0", got.CLIMinVersion)
+	}
+	if got.APIVersion != "v1" || got.BaseURL != "https://ifcfg.us" || len(got.URLs) != 1 {
+		t.Errorf("discovery API/URL data = %q %q %#v", got.APIVersion, got.BaseURL, got.URLs)
 	}
 }
 

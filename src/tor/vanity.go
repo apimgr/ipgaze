@@ -159,7 +159,7 @@ type VanityStatus struct {
 	Attempts       uint64   `json:"attempts"`
 	Rate           float64  `json:"rate"`
 	ElapsedSeconds float64  `json:"elapsed_seconds"`
-	Candidates     []string `json:"candidates,omitempty"`
+	Candidates     []string `json:"candidates"`
 	LastError      string   `json:"last_error,omitempty"`
 }
 
@@ -218,7 +218,7 @@ func (m *TorManager) StartVanitySearch(prefix string, workers int) error {
 		workers = DefaultVanityWorkers()
 	}
 	if max := runtime.NumCPU(); workers > max {
-		workers = max
+		return fmt.Errorf("vanity worker count %d exceeds logical CPU count %d", workers, max)
 	}
 
 	m.mu.Lock()
@@ -383,7 +383,7 @@ func WriteKeySet(dir string, pub ed25519.PublicKey, priv ed25519.PrivateKey) err
 // VanitySearchStatus reports the current search progress and any candidates
 // already found, including candidates persisted by an earlier search.
 func (m *TorManager) VanitySearchStatus() VanityStatus {
-	st := VanityStatus{State: VanityStateIdle}
+	st := VanityStatus{State: VanityStateIdle, Candidates: []string{}}
 	m.mu.RLock()
 	vs := m.vanity
 	m.mu.RUnlock()

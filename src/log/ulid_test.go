@@ -33,13 +33,14 @@ func TestNewULID_Unique(t *testing.T) {
 	}
 }
 
-func TestNewAuditID_PrefixAndLength(t *testing.T) {
+func TestNewAuditID_Format(t *testing.T) {
 	id := NewAuditID()
-	if !strings.HasPrefix(id, "audit_") {
-		t.Errorf("NewAuditID() = %q, want prefix %q", id, "audit_")
+	if len(id) != 26 {
+		t.Fatalf("NewAuditID() length = %d, want 26 (got %q)", len(id), id)
 	}
-	rest := strings.TrimPrefix(id, "audit_")
-	if len(rest) != 26 {
-		t.Errorf("NewAuditID() ULID portion length = %d, want 26 (got %q)", len(rest), rest)
+	for _, c := range id {
+		if !strings.ContainsRune(crockford, c) {
+			t.Errorf("NewAuditID() contains char %q outside the Crockford alphabet", c)
+		}
 	}
 }

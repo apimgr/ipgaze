@@ -44,6 +44,12 @@ func SendAPIResponseCreated(w http.ResponseWriter, data interface{}) {
 	sendAPIResponse(w, http.StatusCreated, &APIResponse{OK: true, Data: data})
 }
 
+// SendAPIResponseAccepted writes a 202 JSON success envelope for accepted
+// asynchronous work.
+func SendAPIResponseAccepted(w http.ResponseWriter, data interface{}) {
+	sendAPIResponse(w, http.StatusAccepted, &APIResponse{OK: true, Data: data})
+}
+
 // SendAPIResponseError writes a JSON error envelope with the given status code,
 // UPPER_SNAKE_CASE error code, human-readable message, and optional structured
 // details, per AI.md PART 14's canonical error shape.

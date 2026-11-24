@@ -125,7 +125,7 @@ func AbuseMiddleware(db *sql.DB, policy AbusePolicy, trust *netutil.TrustResolve
 						if policy.AutoBlockIP {
 							result = "blocked"
 						}
-						logs.WriteAuditEvent("", "abuse.request_flood", "security", "warn", result, ip.String(), map[string]any{
+						logs.WriteAnonymousAuditEvent("abuse.request_flood", "security", "warn", result, ip.String(), map[string]any{
 							"class": string(class), "count": count, "block_duration": policy.BlockDuration.String(),
 						})
 					}

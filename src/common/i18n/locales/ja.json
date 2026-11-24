@@ -637,7 +637,20 @@
     "header_flag": "このヘッダーをリモート IP として信頼する（繰り返し可能）",
     "status_flag": "ヘルスチェック（終了コード 0=正常、1=異常）",
     "service_flag": "サービス管理",
-    "maintenance_flag": "メンテナンス操作"
+    "maintenance_flag": "メンテナンス操作",
+    "email_test_usage": "使用方法: ipgaze --maintenance email test [--to ADDRESS] [--dry-run]",
+    "email_auth_required": "認証が必要です: 管理者として実行するか、有効なオペレータートークンを指定してください。",
+    "email_smtp_required": "メール機能には SMTP 設定が必要です",
+    "email_sending": "{recipient} にテンプレート test を使用して送信しています: {subject}",
+    "email_sent": "テストメールを送信しました。",
+    "email_invalid_recipient": "受信者アドレスが無効です",
+    "email_recipient_required": "server.notifications.email.reply_to を設定するか、--to ADDRESS を指定してください",
+    "email_smtp_failed": "SMTP 接続に失敗しました: {error}",
+    "email_render_failed": "テストメールをレンダリングできません: {error}",
+    "email_audit_failed": "監査ログを開けません: {error}",
+    "email_send_failed": "テストメールの送信に失敗しました: {error}",
+    "email_preview_template": "テンプレート: {name}",
+    "email_preview_subject": "件名: {subject}"
   },
   "accessibility": {
     "skip_to_content": "コンテンツへスキップ",
@@ -959,7 +972,12 @@
       "update_available": "アップデートがあります - {app_name}",
       "update_installed": "アップデートを適用しました - {app_name}",
       "update_failed": "アップデートに失敗しました - {app_name}",
-      "test_email": "テストメール - {app_name}"
+      "test_email": "テストメール - {app_name}",
+      "startup": "サーバーが起動しました - {app_name}",
+      "shutdown": "サーバーが停止しました - {app_name}",
+      "disk_low": "ディスク容量不足 - {app_name}",
+      "database_error": "データベース接続の問題 - {app_name}",
+      "update_staged": "更新を準備しました - {app_name}"
     },
     "body": {
       "from": "差出人: {app_name} ({fqdn})",
@@ -1014,7 +1032,28 @@
       "update_available_action": "更新する前にリリースノートを確認してください。手動コマンド: {command}",
       "update_installed_action": "対応は不要です。",
       "update_failed_action": "エラーを確認し、アップデートを手動でインストールしてください。",
-      "test_action": "このメッセージが届いていれば、送信メールの設定は正しく構成されています。"
+      "test_action": "このメッセージが届いていれば、送信メールの設定は正しく構成されています。",
+      "startup_heading": "サーバー起動",
+      "shutdown_heading": "サーバー停止",
+      "disk_low_heading": "ディスク容量不足",
+      "database_error_heading": "データベース接続の問題",
+      "update_staged_heading": "更新準備完了",
+      "label_mode": "モード：",
+      "label_reason": "理由：",
+      "label_path": "パス：",
+      "label_used_percent": "使用量：",
+      "label_free_space": "空き容量：",
+      "label_threshold": "しきい値：",
+      "startup_intro": "サーバーは正常に起動しました。",
+      "shutdown_intro": "サーバーは停止しました。",
+      "disk_low_intro": "監視対象のボリュームの空き容量が少なくなっています。",
+      "database_error_intro": "データベースに接続できません。",
+      "update_staged_intro": "サーバー更新を準備しました。適用には再起動が必要です。",
+      "startup_action": "対応は不要です。",
+      "shutdown_action": "予期しない停止の場合はサーバーログを確認してください。",
+      "disk_low_action": "空き容量を増やすか、ボリュームを拡張してください。",
+      "database_error_action": "データベースの稼働状況と接続を確認してください。",
+      "update_staged_action": "更新を適用するにはサーバーを再起動してください。"
     }
   },
   "swagger": {

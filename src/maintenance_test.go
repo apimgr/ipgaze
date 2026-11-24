@@ -104,7 +104,7 @@ func TestMaintenanceCompliance_ReportsConfiguredValues(t *testing.T) {
 	cfg.Server.Privacy.Data.Sold = false
 	cfg.Server.Privacy.Retention.Period = "90d"
 	logsDir := t.TempDir()
-	out := captureStdout(func() { maintenanceCompliance(nil, cfg, logsDir) })
+	out := captureStdout(func() { maintenanceCompliance(nil, cfg, logsDir, nil) })
 	if !strings.Contains(out, "IPGaze Compliance Report") {
 		t.Errorf("output missing report header: %q", out)
 	}
@@ -119,9 +119,48 @@ func TestMaintenanceCompliance_ReportsConfiguredValues(t *testing.T) {
 func TestMaintenanceCompliance_ReportSubcommandAccepted(t *testing.T) {
 	cfg := config.DefaultConfig()
 	logsDir := t.TempDir()
-	out := captureStdout(func() { maintenanceCompliance([]string{"report"}, cfg, logsDir) })
+	out := captureStdout(func() { maintenanceCompliance([]string{"report"}, cfg, logsDir, nil) })
 	if !strings.Contains(out, "IPGaze Compliance Report") {
 		t.Errorf("output missing report header: %q", out)
+	}
+}
+
+func TestComplianceCountsAreOwnerScopedAndExcludeClosedReports(t *testing.T) {
+	conn := openTestDB(t)
+	if _, err := conn.Exec(`INSERT INTO owners(id) VALUES ('owner-a'), ('owner-b')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := conn.Exec(`INSERT INTO api_tokens(owner_id, kind, token_hash, token_prefix, token_last4, token_enc) VALUES ('owner-a','primary','h-a','prefix-a','last','enc')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := conn.Exec(`INSERT INTO security_reports(tracking_id, severity, component, body_enc, body_alg, token_hash, closed_at) VALUES ('open','low','api',X'00','aes-256-gcm','h1',NULL), ('closed','low','api',X'00','aes-256-gcm','h2',1)`); err != nil {
+		t.Fatal(err)
+	}
+	owners, tokens, reports, err := complianceCounts(conn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if owners != 2 || tokens != 1 || reports != 1 {
+		t.Fatalf("counts = owners:%d tokens:%d reports:%d", owners, tokens, reports)
+	}
+}
+
+func TestVerifyAuditLogIntegrityChecksHashChain(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "audit.log")
+	first := `{"prev":"` + strings.Repeat("0", 64) + `","event":"one"}`
+	if err := os.WriteFile(path, []byte(first+"\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	entries, brokenLine, err := verifyAuditLogIntegrity(path)
+	if err != nil || entries != 1 || brokenLine != 0 {
+		t.Fatalf("valid one-entry chain = (%d,%d,%v)", entries, brokenLine, err)
+	}
+	if err := os.WriteFile(path, []byte(first+"\n"+`{"prev":"wrong","event":"two"}`+"\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	entries, brokenLine, err = verifyAuditLogIntegrity(path)
+	if err != nil || entries != 2 || brokenLine != 2 {
+		t.Fatalf("broken chain = (%d,%d,%v), want broken line 2", entries, brokenLine, err)
 	}
 }
 
@@ -186,7 +225,7 @@ func TestMaintenanceTokenRevoke_RevokesMatchingToken(t *testing.T) {
 	}
 }
 
-func TestMaintenanceDataExport_ReportsTableCountsAndPolicy(t *testing.T) {
+func TestMaintenanceDataExport_WritesOwnerScopedDisclosure(t *testing.T) {
 	conn := openTestDB(t)
 	if _, err := conn.Exec(`INSERT INTO owners(id) VALUES ('owner-export-test')`); err != nil {
 		t.Fatalf("insert owner: %v", err)
@@ -194,61 +233,94 @@ func TestMaintenanceDataExport_ReportsTableCountsAndPolicy(t *testing.T) {
 	if _, err := conn.Exec(`INSERT INTO api_tokens (owner_id, kind, token_hash, token_prefix, token_last4, token_enc) VALUES ('owner-export-test','primary','h1','abc','last','encrypted')`); err != nil {
 		t.Fatalf("insert token: %v", err)
 	}
-	cfg := config.DefaultConfig()
-	cfg.Server.Privacy.Data.Sold = false
-	cfg.Server.Privacy.Retention.Period = "30d"
-	out := captureStdout(func() { maintenanceDataExport(conn, cfg) })
+	if _, err := conn.Exec(`INSERT INTO owners(id) VALUES ('owner-other-test')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := conn.Exec(`INSERT INTO api_tokens (owner_id, kind, token_hash, token_prefix, token_last4, token_enc) VALUES ('owner-other-test','primary','h2','other-prefix','last','other-encrypted')`); err != nil {
+		t.Fatal(err)
+	}
+	outputPath := filepath.Join(t.TempDir(), "owner-export.json")
+	if err := maintenanceDataExport(conn, "owner-export-test", outputPath, t.TempDir(), config.DefaultConfig()); err != nil {
+		t.Fatal(err)
+	}
+	contents, err := os.ReadFile(outputPath)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	var report map[string]any
-	if err := json.Unmarshal([]byte(out), &report); err != nil {
-		t.Fatalf("output is not valid JSON: %v\noutput: %s", err, out)
+	if err := json.Unmarshal(contents, &report); err != nil {
+		t.Fatalf("output is not valid JSON: %v\noutput: %s", err, contents)
 	}
-	policy, ok := report["privacy_policy"].(map[string]any)
-	if !ok {
-		t.Fatalf("privacy_policy missing or wrong type: %v", report["privacy_policy"])
+	if report["format"] != float64(1) || report["owner"].(map[string]any)["id"] != "owner-export-test" {
+		t.Errorf("unexpected owner disclosure: %v", report)
 	}
-	if policy["retention_period"] != "30d" {
-		t.Errorf("retention_period = %v, want 30d", policy["retention_period"])
+	if report["resources"].([]any) == nil || len(report["resources"].([]any)) != 0 {
+		t.Errorf("resources = %v, want empty list for this stateless product", report["resources"])
 	}
-	counts, ok := report["table_row_counts"].(map[string]any)
-	if !ok {
-		t.Fatalf("table_row_counts missing or wrong type: %v", report["table_row_counts"])
+	if strings.Contains(string(contents), "encrypted") || !strings.Contains(string(contents), "abc") {
+		t.Errorf("export leaked token material or omitted prefix: %s", contents)
 	}
-	if counts["api_tokens"] != float64(1) {
-		t.Errorf("table_row_counts[api_tokens] = %v, want 1", counts["api_tokens"])
+	if strings.Contains(string(contents), "owner-other-test") || strings.Contains(string(contents), "other-prefix") {
+		t.Errorf("export included another owner's data: %s", contents)
+	}
+	info, err := os.Stat(outputPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0600 {
+		t.Errorf("export permissions = %04o, want 0600", info.Mode().Perm())
 	}
 }
 
-func TestMaintenanceDataDelete_CancelledWithoutConfirmation(t *testing.T) {
+func TestMaintenanceDataDelete_DeletesOnlyOwnerAndTokens(t *testing.T) {
 	conn := openTestDB(t)
-	if _, err := conn.Exec(`INSERT INTO rate_limits (key, count) VALUES ('1.2.3.4','1')`); err != nil {
-		t.Fatalf("insert rate_limits: %v", err)
+	for _, owner := range []string{"owner-delete-test", "owner-keep-test"} {
+		if _, err := conn.Exec(`INSERT INTO owners(id) VALUES (?)`, owner); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := conn.Exec(`INSERT INTO api_tokens(owner_id, kind, token_hash, token_prefix, token_last4, token_enc) VALUES (?, 'primary', ?, ?, 'last', 'encrypted')`, owner, owner+"-hash", owner+"-prefix"); err != nil {
+			t.Fatal(err)
+		}
 	}
-	if _, err := conn.Exec(`INSERT INTO rate_limit_events (bucket_key, occurred_at) VALUES ('read|ip:1.2.3.4', strftime('%s','now'))`); err != nil {
-		t.Fatalf("insert rate_limit_events: %v", err)
+	if err := maintenanceDataDelete(conn, "owner-delete-test", t.TempDir(), config.DefaultConfig()); err != nil {
+		t.Fatal(err)
 	}
-	logsDir := t.TempDir()
-	cfg := config.DefaultConfig()
-
-	// requireTypedConfirmation reads from os.Stdin; with nothing piped in the
-	// test process it reads EOF immediately, which never matches the expected
-	// phrase, exercising the "cancelled" branch without any os.Exit path.
-	out := captureStdout(func() { maintenanceDataDelete(conn, logsDir, cfg) })
-	if !strings.Contains(out, "Data delete cancelled.") {
-		t.Errorf("output = %q, want cancellation message", out)
+	var owners, tokens int
+	if err := conn.QueryRow(`SELECT COUNT(*) FROM owners WHERE id = 'owner-delete-test'`).Scan(&owners); err != nil {
+		t.Fatal(err)
 	}
-	var count int
-	if err := conn.QueryRow(`SELECT COUNT(*) FROM rate_limits`).Scan(&count); err != nil {
-		t.Fatalf("count rate_limits: %v", err)
+	if err := conn.QueryRow(`SELECT COUNT(*) FROM api_tokens WHERE owner_id = 'owner-delete-test'`).Scan(&tokens); err != nil {
+		t.Fatal(err)
 	}
-	if count != 1 {
-		t.Errorf("rate_limits count = %d, want 1 (delete should have been cancelled)", count)
+	if owners != 0 || tokens != 0 {
+		t.Fatalf("deleted owner/tokens remain: %d/%d", owners, tokens)
 	}
-	if err := conn.QueryRow(`SELECT COUNT(*) FROM rate_limit_events`).Scan(&count); err != nil {
-		t.Fatalf("count rate_limit_events: %v", err)
+	if err := conn.QueryRow(`SELECT COUNT(*) FROM owners WHERE id = 'owner-keep-test'`).Scan(&owners); err != nil {
+		t.Fatal(err)
 	}
-	if count != 1 {
-		t.Errorf("rate_limit_events count = %d, want 1 (delete should have been cancelled)", count)
+	if owners != 1 {
+		t.Fatalf("unrelated owner count = %d, want 1", owners)
+	}
+	var auditCount int
+	if err := conn.QueryRow(`SELECT COUNT(*) FROM audit_log`).Scan(&auditCount); err != nil {
+		t.Fatal(err)
+	}
+	if auditCount != 0 {
+		t.Errorf("data deletion rewrote the append-only database audit log: count %d", auditCount)
+	}
+	var rateLimits int
+	if err := conn.QueryRow(`SELECT COUNT(*) FROM rate_limits`).Scan(&rateLimits); err != nil {
+		t.Fatal(err)
+	}
+	if rateLimits != 0 {
+		t.Errorf("unexpected rate-limit rows: %d", rateLimits)
+	}
+	if _, err := conn.Exec(`INSERT INTO rate_limits(key, count) VALUES('preserve','1')`); err != nil {
+		t.Fatal(err)
+	}
+	if err := conn.QueryRow(`SELECT COUNT(*) FROM rate_limits`).Scan(&rateLimits); err != nil || rateLimits != 1 {
+		t.Errorf("operational data unexpectedly affected: count=%d err=%v", rateLimits, err)
 	}
 }
 
@@ -514,5 +586,48 @@ func TestGenerateOperatorToken_UniqueAndPrefixed(t *testing.T) {
 	}
 	if !strings.HasPrefix(metricsToken, "mtr_") {
 		t.Errorf("metrics token %q missing mtr_ prefix", metricsToken)
+	}
+}
+
+func TestParseEmailTestArgs_DefaultAndExplicitRecipients(t *testing.T) {
+	options, err := parseEmailTestArgs([]string{"test"}, "operator@example.test", "en")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if options.recipient != "operator@example.test" || options.dryRun {
+		t.Fatalf("options = %#v", options)
+	}
+	options, err = parseEmailTestArgs([]string{"test", "--to", "other@example.test", "--dry-run"}, "", "en")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if options.recipient != "other@example.test" || !options.dryRun {
+		t.Fatalf("options = %#v", options)
+	}
+}
+
+func TestParseEmailTestArgs_RequiresRecipientForSend(t *testing.T) {
+	if _, err := parseEmailTestArgs([]string{"test"}, "", "en"); err == nil {
+		t.Fatal("missing recipient accepted")
+	}
+	if _, err := parseEmailTestArgs([]string{"test", "--to", "bad address"}, "", "en"); err == nil {
+		t.Fatal("invalid recipient accepted")
+	}
+}
+
+func TestParseEmailTestArgs_RejectsUnknownOperation(t *testing.T) {
+	if _, err := parseEmailTestArgs([]string{"send"}, "operator@example.test", "en"); err == nil {
+		t.Fatal("unknown operation accepted")
+	}
+}
+
+func TestEmailTestSampleVariablesUsesConfiguredIdentity(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Server.Branding.Title = "Test IPGaze"
+	cfg.Server.FQDN = "ips.example.test"
+	cfg.Server.Notifications.Email.ReplyTo = "ops@example.test"
+	variables := emailTestSampleVariables(cfg)
+	if variables["app_name"] != "Test IPGaze" || variables["app_url"] != "https://ips.example.test" || variables["notification_reply_to"] != "ops@example.test" {
+		t.Fatalf("sample variables = %#v", variables)
 	}
 }

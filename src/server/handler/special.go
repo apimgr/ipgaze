@@ -3,10 +3,15 @@
 package handler
 
 import (
+	"encoding/json"
 	"fmt"
+	"html"
 	htmltemplate "html/template"
+	"log"
 	"net/http"
+	"net/url"
 	"os"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -24,7 +29,7 @@ type SpecialHandler struct {
 	// OnionAddress is the .onion hostname from tor.onion_address (AI.md PART 12).
 	// When non-empty, SecurityTxtHandler serves the Tor variant for matching requests.
 	OnionAddress string
-	// TorContactEmail is the contact email from tor.contact_email (AI.md PART 12).
+	// TorContactEmail is the contact email from server.tor.contact_email (AI.md PART 12).
 	// Shown only on Tor responses; never falls back to the clearnet contact email.
 	TorContactEmail string
 	// SecurityContact is web.security.contact (AI.md PART 11): the mailto: CC
@@ -167,7 +172,7 @@ func (h *SpecialHandler) PGPKeyAvailable() bool {
 // SecurityTxtHandler serves security.txt.
 // When the request is a Tor request (Host matches tor.onion_address), a Tor-safe
 // variant is served per AI.md PART 12: all URLs use the onion address, no clearnet
-// FQDN appears, Preferred-Languages is omitted, and tor.contact_email is used if set.
+// FQDN appears, Preferred-Languages is omitted, and server.tor.contact_email is used if set.
 // The Encryption: line (AI.md PART 11) is emitted only when a project PGP keypair
 // exists and web.security.publish_pgp_key is enabled.
 func (h *SpecialHandler) SecurityTxtHandler(w http.ResponseWriter, r *http.Request) {
@@ -569,9 +574,37 @@ Versioned API base URL: ` + apiBaseURL + `
 Echoip-compatible routes use the site root.
 Authentication: None required for public endpoints
 `
-	content += "Read rate limit: " + llmsReadRateLimit(config.Get()) + "\n\n## Endpoints\n"
-	for _, endpoint := range llmsAPIEndpoints(spec.Paths, h.APIV1OperationIDs) {
-		content += "- " + endpoint + "\n"
+	cfg := config.Get()
+	if cfg != nil {
+		apiContact := cfg.Server.Contact.General.Email
+		securityContact := cfg.Server.Contact.Security.Email
+		content += "Read rate limit: " + llmsReadRateLimit(cfg) + "\n"
+		content += "MCP: " + strings.TrimSuffix(netutil.BuildURL(r, h.Trust, ""), "/") + "/mcp (Streamable HTTP; Bearer token required)\n\n"
+		content += "## Contact\nAPI issues: " + llmsContact(apiContact) + "\nSecurity: " + llmsContact(securityContact) + "\n"
+		if cfg.Web.LLMs.IncludeEndpoints {
+			content += "\n## Endpoints\n"
+			for _, endpoint := range llmsAPIEndpoints(spec.Paths, h.APIV1OperationIDs) {
+				content += "- " + endpoint + "\n"
+			}
+		}
+		if cfg.Web.LLMs.IncludeSchemas && len(spec.Components.Schemas) > 0 {
+			content += "\n## Schemas\n"
+			names := make([]string, 0, len(spec.Components.Schemas))
+			for name := range spec.Components.Schemas {
+				names = append(names, name)
+			}
+			sort.Strings(names)
+			for _, name := range names {
+				schema := spec.Components.Schemas[name]
+				encoded, err := json.MarshalIndent(schema, "", "  ")
+				if err == nil {
+					content += "\n### " + name + "\n```json\n" + string(encoded) + "\n```\n"
+				}
+			}
+		}
+		for _, section := range validLLMCustomSections(cfg.Web.LLMs.CustomSections) {
+			content += "\n## " + html.EscapeString(section.Title) + "\n\n" + safeLLMMarkdown(section.Content) + "\n"
+		}
 	}
 	content += `
 ## Capabilities
@@ -582,6 +615,7 @@ Authentication: None required for public endpoints
 - echoip-compatible API surface
 - GraphQL endpoint for flexible queries
 - OpenAPI/Swagger documentation at /swagger
+- Streamable HTTP MCP endpoint at /mcp (Bearer token required)
 - Prometheus metrics at /metrics (when enabled)
 
 ## Content Negotiation
@@ -589,11 +623,51 @@ Authentication: None required for public endpoints
 - Browsers receive HTML
 - Accept: application/json returns JSON
 
-## Source
-Repository: https://github.com/apimgr/ipgaze
-License: MIT
 `
+	content += "\n## Source\nRepository: https://github.com/apimgr/ipgaze\nLicense: MIT\n"
 	_, _ = fmt.Fprint(w, content)
+}
+
+var llmMarkdownLink = regexp.MustCompile(`\]\(([^)]*)\)`)
+
+func llmsContact(email string) string {
+	if strings.TrimSpace(email) == "" {
+		return "not configured"
+	}
+	return "mailto:" + email
+}
+
+func validLLMCustomSections(sections []config.LLMCustomSection) []config.LLMCustomSection {
+	capacity := len(sections)
+	if capacity > 10 {
+		capacity = 10
+	}
+	valid := make([]config.LLMCustomSection, 0, capacity)
+	for index, section := range sections {
+		title := strings.TrimSpace(section.Title)
+		content := strings.TrimSpace(section.Content)
+		if index >= 10 || title == "" || len([]rune(title)) > 80 || strings.ContainsAny(title, "\r\n") || len([]rune(content)) > 4096 || content == "" {
+			log.Printf("web.llms.custom_sections[%d] skipped: section exceeds content rules", index)
+			continue
+		}
+		valid = append(valid, config.LLMCustomSection{Title: title, Content: content})
+	}
+	return valid
+}
+
+func safeLLMMarkdown(content string) string {
+	content = html.EscapeString(content)
+	return llmMarkdownLink.ReplaceAllStringFunc(content, func(match string) string {
+		parts := llmMarkdownLink.FindStringSubmatch(match)
+		if len(parts) != 2 {
+			return "](#)"
+		}
+		parsed, err := url.Parse(strings.TrimSpace(parts[1]))
+		if err != nil || parsed.IsAbs() && parsed.Scheme != "https" || strings.HasPrefix(parts[1], "//") {
+			return "](#)"
+		}
+		return "](" + parts[1] + ")"
+	})
 }
 
 func llmsReadRateLimit(cfg *config.AppConfig) string {

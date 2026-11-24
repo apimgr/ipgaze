@@ -637,7 +637,20 @@
     "header_flag": "信任此标头作为远程 IP（可重复）",
     "status_flag": "健康检查（退出 0=健康，1=不健康）",
     "service_flag": "服务管理",
-    "maintenance_flag": "维护操作"
+    "maintenance_flag": "维护操作",
+    "email_test_usage": "用法：ipgaze --maintenance email test [--to ADDRESS] [--dry-run]",
+    "email_auth_required": "需要授权：请以管理员身份运行，或提供有效的操作员令牌。",
+    "email_smtp_required": "电子邮件功能需要 SMTP 配置",
+    "email_sending": "正在使用模板 test 向 {recipient} 发送：{subject}",
+    "email_sent": "测试邮件已发送。",
+    "email_invalid_recipient": "收件人地址无效",
+    "email_recipient_required": "请设置 server.notifications.email.reply_to 或传入 --to ADDRESS",
+    "email_smtp_failed": "SMTP 连接失败：{error}",
+    "email_render_failed": "无法渲染测试邮件：{error}",
+    "email_audit_failed": "无法打开审计日志：{error}",
+    "email_send_failed": "测试邮件发送失败：{error}",
+    "email_preview_template": "模板：{name}",
+    "email_preview_subject": "主题：{subject}"
   },
   "accessibility": {
     "skip_to_content": "跳转到内容",
@@ -959,7 +972,12 @@
       "update_available": "有可用更新 - {app_name}",
       "update_installed": "更新已安装 - {app_name}",
       "update_failed": "更新失败 - {app_name}",
-      "test_email": "测试邮件 - {app_name}"
+      "test_email": "测试邮件 - {app_name}",
+      "startup": "服务器已启动 - {app_name}",
+      "shutdown": "服务器已停止 - {app_name}",
+      "disk_low": "磁盘空间不足 - {app_name}",
+      "database_error": "数据库连接问题 - {app_name}",
+      "update_staged": "更新已暂存 - {app_name}"
     },
     "body": {
       "from": "发件人：{app_name}（{fqdn}）",
@@ -1014,7 +1032,28 @@
       "update_available_action": "更新前请先查看发行说明。手动命令：{command}",
       "update_installed_action": "无需任何操作。",
       "update_failed_action": "检查错误并手动安装更新。",
-      "test_action": "收到此邮件表示外发邮件设置正确。"
+      "test_action": "收到此邮件表示外发邮件设置正确。",
+      "startup_heading": "服务器已启动",
+      "shutdown_heading": "服务器已停止",
+      "disk_low_heading": "磁盘空间不足",
+      "database_error_heading": "数据库连接问题",
+      "update_staged_heading": "更新已暂存",
+      "label_mode": "模式：",
+      "label_reason": "原因：",
+      "label_path": "路径：",
+      "label_used_percent": "已用：",
+      "label_free_space": "可用空间：",
+      "label_threshold": "阈值：",
+      "startup_intro": "服务器已成功启动。",
+      "shutdown_intro": "服务器已停止。",
+      "disk_low_intro": "受监控卷的可用空间不足。",
+      "database_error_intro": "数据库连接不可用。",
+      "update_staged_intro": "服务器更新已暂存，需要重启才能应用。",
+      "startup_action": "无需采取操作。",
+      "shutdown_action": "如果停止并非预期，请检查服务器日志。",
+      "disk_low_action": "释放磁盘空间或扩展受影响的卷。",
+      "database_error_action": "检查数据库是否可用以及服务器连接。",
+      "update_staged_action": "重启服务器以应用暂存的更新。"
     }
   },
   "swagger": {

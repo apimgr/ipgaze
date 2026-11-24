@@ -260,3 +260,21 @@ func TestSecurityReportTokenOneUsePerDay(t *testing.T) {
 		t.Fatalf("next-day token access failed: %v", err)
 	}
 }
+
+func TestLoadSecurityReportPayloadReturnsEncryptedBytes(t *testing.T) {
+	db := openMemDB(t)
+	defer func() { _ = db.Close() }()
+	ciphertext := []byte("opaque encrypted bytes")
+	if err := StoreSecurityReport(db, SecurityReportMetadata{
+		TrackingID: "sec_0123456789abcdef", Ciphertext: ciphertext, Encryption: "pgp", Severity: "high",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	got, encryption, err := LoadSecurityReportPayload(db, "sec_0123456789abcdef")
+	if err != nil {
+		t.Fatalf("LoadSecurityReportPayload() error = %v", err)
+	}
+	if string(got) != string(ciphertext) || encryption != "pgp" {
+		t.Fatalf("payload = %q, encryption = %q", got, encryption)
+	}
+}

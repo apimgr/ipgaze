@@ -727,6 +727,41 @@ type Info struct {
 	Hostname string `json:"hostname,omitempty"`
 }
 
+// ControlStatus is the internal status view exposed only on the loopback
+// Tor control channel.
+type ControlStatus struct {
+	PID                int
+	Version            string
+	BootstrapPercent   int
+	CircuitEstablished bool
+}
+
+// GetControlStatus returns runtime details required by the internal control
+// API without exposing Tor's control connection or process object.
+func (m *TorManager) GetControlStatus() ControlStatus {
+	m.mu.RLock()
+	svc := m.svc
+	running := m.running && m.healthErr == nil
+	m.mu.RUnlock()
+	if svc == nil || !running {
+		return ControlStatus{}
+	}
+	status := ControlStatus{BootstrapPercent: 100, CircuitEstablished: true}
+	if svc.cmd != nil && svc.cmd.cmd != nil && svc.cmd.cmd.Process != nil {
+		status.PID = svc.cmd.cmd.Process.Pid
+	}
+	if svc.ctrl != nil {
+		if values, err := svc.ctrl.GetInfo("version"); err == nil {
+			for _, value := range values {
+				if value.Key == "version" {
+					status.Version = value.Val
+				}
+			}
+		}
+	}
+	return status
+}
+
 // GetInfo returns current tor info for API responses.
 func (m *TorManager) GetInfo() Info {
 	m.mu.RLock()

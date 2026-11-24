@@ -449,6 +449,15 @@ func parseMergedConfig(path string, data []byte) (*AppConfig, error) {
 		}
 		return nil, fmt.Errorf("%s: parse merged configuration: %w", path, err)
 	}
+	if cfg.Server.Tor.ContactEmail == "" {
+		cfg.Server.Tor.ContactEmail = cfg.Tor.ContactEmail
+	}
+	if cfg.Server.Update.CLIMinVersion == "" {
+		cfg.Server.Update.CLIMinVersion = cfg.Server.CLIMinVersion
+	}
+	if cfg.Server.UpdateBranch != "" && cfg.Server.Update.Branch == "" {
+		cfg.Server.Update.Branch = cfg.Server.UpdateBranch
+	}
 	var mergedDoc yaml.Node
 	if err := yaml.Unmarshal(merged, &mergedDoc); err == nil && len(mergedDoc.Content) > 0 {
 		resolveDatabaseDriverFromURL(cfg, mergedDoc.Content[0])

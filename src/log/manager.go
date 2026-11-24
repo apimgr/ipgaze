@@ -4,10 +4,12 @@
 package log
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 )
@@ -56,11 +58,14 @@ type AuditEvent struct {
 	Target   *AuditTarget   `json:"target,omitempty"`
 	Details  map[string]any `json:"details,omitempty"`
 	Result   string         `json:"result"`
+	Prev     string         `json:"prev"`
 	Reason   string         `json:"reason,omitempty"`
 }
 
 // AuditActor describes who performed the audited action.
 type AuditActor struct {
+	Type      string `json:"type"`
+	ID        string `json:"id,omitempty"`
 	IP        string `json:"ip,omitempty"`
 	UserID    string `json:"user_id,omitempty"`
 	TokenHash string `json:"token_hash,omitempty"`
@@ -104,24 +109,26 @@ type writer struct {
 	rotate rotatePolicy
 	keep   keepPolicy
 	// compress gzips each archive immediately after rotation.
-	compress bool
+	compress     bool
+	lastLineHash string
+	onRotate     func(string, string) error
 }
 
 // write appends line (with newline) to the file, rotating first when the
 // configured policy is due. Empty lines are dropped so a formatting failure
 // never produces a blank record.
-func (w *writer) write(line string) {
+func (w *writer) write(line string) bool {
 	if w == nil {
-		return
+		return false
 	}
 	line = sanitizeLine(line)
 	if line == "" {
-		return
+		return false
 	}
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	if w.file == nil {
-		return
+		return false
 	}
 
 	now := time.Now()
@@ -132,12 +139,16 @@ func (w *writer) write(line string) {
 		_ = w.rotateLocked(now)
 	}
 	if w.file == nil {
-		return
+		return false
 	}
 	written, err := fmt.Fprintln(w.file, line)
 	if err == nil {
 		w.size += int64(written)
+		digest := sha256.Sum256([]byte(line))
+		w.lastLineHash = fmt.Sprintf("%x", digest)
+		return true
 	}
+	return false
 }
 
 // close closes the underlying file.
@@ -168,6 +179,8 @@ func (w *writer) replace(next *writer) {
 	w.rotate = next.rotate
 	w.keep = next.keep
 	w.compress = next.compress
+	w.lastLineHash = next.lastLineHash
+	w.onRotate = next.onRotate
 	if oldFile != nil {
 		_ = oldFile.Close()
 	}
@@ -181,15 +194,18 @@ type Manager struct {
 	// program is the process name used in syslog and CEF records.
 	program string
 	// version is the product version used in CEF records.
-	version  string
-	access   *writer
-	server   *writer
-	errLog   *writer
-	app      *writer
-	auth     *writer
-	audit    *writer
-	security *writer
-	debug    *writer
+	version           string
+	access            *writer
+	server            *writer
+	errLog            *writer
+	app               *writer
+	auth              *writer
+	audit             *writer
+	security          *writer
+	debug             *writer
+	auditChainMu      sync.Mutex
+	auditHash         string
+	pendingAuditChain *auditChainBreak
 }
 
 // openWriter opens (or creates) a log file in logDir and returns a
@@ -343,6 +359,24 @@ func NewManager(logDir string, cfg LoggerConfig) (*Manager, error) {
 	if m.audit, err = openWriter(logDir, cfg.Audit.LogFileConfig, "json", cfg.Audit.Compress); err != nil {
 		return nil, err
 	}
+	if m.audit.file != nil {
+		m.auditHash, m.audit.lastLineHash, err = loadAuditChain(logDir, cfg.Audit.Filename)
+		if err != nil {
+			return nil, err
+		}
+		m.audit.onRotate = m.auditRotationHandler()
+		if brokenLine, reason := verifyAuditChainStatus(logDir, filepath.Join(logDir, cfg.Audit.Filename), ""); brokenLine > 0 {
+			if markAuditChainBrokenOnce(logDir, cfg.Audit.Filename, brokenLine) {
+				m.WriteAudit(AuditEvent{
+					Event: "security.audit_chain_broken", Category: "security", Severity: "critical", Result: "failure",
+					Actor:   AuditActor{Type: "system", ID: "server"},
+					Details: map[string]any{"filename": cfg.Audit.Filename, "line": brokenLine}, Reason: reason,
+				})
+			}
+		} else {
+			_ = os.Remove(filepath.Join(logDir, ".audit_chain_broken"))
+		}
+	}
 	if m.security, err = openWriter(logDir, cfg.Security, "fail2ban", false); err != nil {
 		return nil, err
 	}
@@ -384,6 +418,9 @@ func (m *Manager) Reconfigure(cfg LoggerConfig) error {
 	m.app.replace(replacement.app)
 	m.auth.replace(replacement.auth)
 	m.audit.replace(replacement.audit)
+	m.audit.mu.Lock()
+	m.audit.onRotate = m.auditRotationHandler()
+	m.audit.mu.Unlock()
 	m.security.replace(replacement.security)
 	m.debug.replace(replacement.debug)
 	replacement.Close()
@@ -401,11 +438,17 @@ func (m *Manager) Rotate() error {
 	}
 	now := time.Now()
 	var firstErr error
-	for _, w := range []*writer{m.access, m.server, m.errLog, m.app, m.auth, m.audit, m.security, m.debug} {
+	for _, w := range []*writer{m.access, m.server, m.errLog, m.app, m.auth, m.security, m.debug} {
 		if err := w.rotateIfDue(now); err != nil && firstErr == nil {
 			firstErr = err
 		}
 	}
+	m.auditChainMu.Lock()
+	if err := m.audit.rotateIfDue(now); err != nil && firstErr == nil {
+		firstErr = err
+	}
+	m.flushPendingAuditChainLocked()
+	m.auditChainMu.Unlock()
 	return firstErr
 }
 
@@ -541,17 +584,61 @@ func (m *Manager) WriteAudit(evt AuditEvent) {
 	if m == nil {
 		return
 	}
+	m.auditChainMu.Lock()
+	defer m.auditChainMu.Unlock()
+	m.writeAuditLocked(evt)
+	m.flushPendingAuditChainLocked()
+}
+
+func (m *Manager) writeAuditLocked(evt AuditEvent) {
 	if evt.ID == "" {
 		evt.ID = NewAuditID()
 	}
 	if evt.Time == "" {
 		evt.Time = time.Now().UTC().Format(time.RFC3339Nano)
 	}
+	if evt.Actor.Type == "" {
+		evt.Actor.Type = "system"
+	}
+	if evt.Actor.Type == "system" && evt.Actor.ID == "" {
+		evt.Actor.ID = "server"
+	}
+	if evt.Prev == "" {
+		evt.Prev = m.auditHash
+	}
 	b, err := json.Marshal(evt)
 	if err != nil {
 		return
 	}
-	m.audit.write(string(b))
+	if m.audit.write(string(b)) {
+		digest := sha256.Sum256(b)
+		m.auditHash = fmt.Sprintf("%x", digest)
+	}
+}
+
+func (m *Manager) flushPendingAuditChainLocked() {
+	pending := m.pendingAuditChain
+	if pending == nil {
+		return
+	}
+	m.pendingAuditChain = nil
+	m.writeAuditLocked(AuditEvent{
+		Event: "security.audit_chain_broken", Category: "security", Severity: "critical", Result: "failure",
+		Actor:   AuditActor{Type: "system", ID: "server"},
+		Details: map[string]any{"filename": pending.filename, "line": pending.line}, Reason: pending.reason,
+	})
+}
+
+func (m *Manager) auditRotationHandler() func(string, string) error {
+	return func(archivePath, lastHash string) error {
+		archiveName := filepath.Base(archivePath)
+		if line, reason := verifyAuditChainStatus(m.logDir, archivePath, lastHash); line > 0 {
+			if markAuditChainBrokenOnce(m.logDir, archiveName, line) {
+				m.pendingAuditChain = &auditChainBreak{filename: archiveName, line: line, reason: reason}
+			}
+		}
+		return writeAuditAnchor(m.logDir, lastHash)
+	}
 }
 
 // WriteAuditEvent is a convenience wrapper that fills required fields.
@@ -559,16 +646,66 @@ func (m *Manager) WriteAuditEvent(id, event, category, severity, result, ip stri
 	if m == nil {
 		return
 	}
+	if severity == "warning" {
+		severity = "warn"
+	}
+	if !isAuditULID(id) {
+		id = ""
+	}
+	actor := AuditActor{Type: "system", ID: "server"}
+	source := ""
+	if ip != "" {
+		actor = AuditActor{Type: "operator", IP: ip}
+		source = "cli"
+	}
 	m.WriteAudit(AuditEvent{
 		ID:       id,
 		Time:     time.Now().UTC().Format(time.RFC3339Nano),
 		Event:    event,
+		Source:   source,
 		Category: category,
 		Severity: severity,
-		Actor:    AuditActor{IP: ip},
+		Actor:    actor,
 		Details:  details,
 		Result:   result,
 	})
+}
+
+// WriteAnonymousAuditEvent records an unauthenticated web request with its
+// client address and the required anonymous actor classification.
+func (m *Manager) WriteAnonymousAuditEvent(event, category, severity, result, ip string, details map[string]any) {
+	if severity == "warning" {
+		severity = "warn"
+	}
+	m.WriteAudit(AuditEvent{
+		Event: event, Source: "web", Category: category, Severity: severity,
+		Actor: AuditActor{Type: "anonymous", IP: ip}, Details: details, Result: result,
+	})
+}
+
+// WriteOwnerAuditEvent records an operator initiated event on behalf of an
+// owner, keeping the owner ID in actor.id rather than using it as event ID.
+func (m *Manager) WriteOwnerAuditEvent(ownerID, event, category, severity, result string, details map[string]any) {
+	if severity == "warning" {
+		severity = "warn"
+	}
+	m.WriteAudit(AuditEvent{
+		Event: event, Category: category, Severity: severity,
+		Actor:  AuditActor{Type: "owner", ID: ownerID},
+		Source: "cli", Details: details, Result: result,
+	})
+}
+
+func isAuditULID(id string) bool {
+	if len(id) != 26 {
+		return false
+	}
+	for _, char := range id {
+		if !strings.ContainsRune(crockford, char) {
+			return false
+		}
+	}
+	return true
 }
 
 // WriteSecurity writes one security event to security.log in the configured

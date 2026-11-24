@@ -195,6 +195,20 @@ func (w *writer) rotateLocked(now time.Time) error {
 		}
 		return err
 	}
+	if w.onRotate != nil {
+		if err := w.onRotate(archive, w.lastLineHash); err != nil {
+			if renameErr := os.Rename(archive, path); renameErr != nil {
+				return errors.Join(fmt.Errorf("write audit anchor before rotation: %w", err), renameErr)
+			}
+			f, openErr := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o640)
+			if openErr == nil {
+				w.file = f
+				w.size = fileSize(f)
+				w.opened = now
+			}
+			return fmt.Errorf("write audit anchor before rotation: %w", err)
+		}
+	}
 	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o640)
 	if err != nil {
 		return err

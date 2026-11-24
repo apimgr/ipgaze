@@ -10,7 +10,7 @@ const crockford = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
 
 // newULID returns a canonical 26-character ULID: a 48-bit millisecond timestamp
 // followed by 80 bits of cryptographic randomness, encoded in Crockford base32.
-// Per AI.md PART 11 audit events use ULIDs prefixed with "audit_".
+// Per AI.md PART 11 audit event IDs use canonical ULIDs.
 func newULID() string {
 	var b [16]byte
 	ms := uint64(time.Now().UnixMilli())
@@ -54,7 +54,7 @@ func newULID() string {
 	return string(dst)
 }
 
-// NewAuditID returns a ULID prefixed with "audit_" for audit-log event IDs.
+// NewAuditID returns a canonical ULID for an audit-log event ID.
 func NewAuditID() string {
-	return "audit_" + newULID()
+	return newULID()
 }

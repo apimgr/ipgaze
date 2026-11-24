@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -207,23 +208,15 @@ func (rl *RateLimiter) AuthFailureBlocked(clientIP string) (bool, time.Duration)
 		return false, 0
 	}
 	if rl.db != nil {
-		window := int64(rl.config.AuthFailures.effectiveWindow().Seconds())
-		now := time.Now().Unix()
-		var count int
-		if err := rl.db.QueryRow(`SELECT COUNT(*) FROM rate_limit_events WHERE bucket_key = ? AND occurred_at > ?`, "auth_failures|ip:"+clientIP, now-window).Scan(&count); err == nil && count >= rl.config.AuthFailures.Limit {
-			if count == 0 {
-				return false, 0
-			}
-			var oldest int64
-			if err := rl.db.QueryRow(`SELECT occurred_at FROM rate_limit_events WHERE bucket_key = ? AND occurred_at > ? ORDER BY occurred_at LIMIT 1 OFFSET ?`, "auth_failures|ip:"+clientIP, now-window, count-rl.config.AuthFailures.Limit).Scan(&oldest); err != nil {
-				return true, rl.config.AuthFailures.effectiveWindow()
-			}
-			retry := time.Duration(oldest+window-now) * time.Second
-			if retry < time.Second {
-				retry = time.Second
-			}
-			return true, retry
+		now := time.Now()
+		count, windowStart, err := rateLimitDBWindow(rl.db, "auth_failures|ip:"+clientIP, now, rl.config.AuthFailures.effectiveWindow(), rl.config.AuthFailures.Limit, false)
+		if err != nil {
+			return true, rl.config.AuthFailures.effectiveWindow()
 		}
+		if count >= int64(rl.config.AuthFailures.Limit) {
+			return true, rateLimitRetryAfter(windowStart, rl.config.AuthFailures.effectiveWindow(), now)
+		}
+		return false, 0
 	}
 	rl.mu.Lock()
 	defer rl.mu.Unlock()
@@ -254,7 +247,7 @@ func (rl *RateLimiter) RecordAuthFailure(clientIP string) {
 		return
 	}
 	if rl.db != nil {
-		_, _ = rl.db.Exec(`INSERT INTO rate_limit_events(bucket_key, occurred_at) VALUES(?, ?)`, "auth_failures|ip:"+clientIP, time.Now().Unix())
+		_, _, _ = rateLimitDBWindow(rl.db, "auth_failures|ip:"+clientIP, time.Now(), rl.config.AuthFailures.effectiveWindow(), rl.config.AuthFailures.Limit+1, true)
 		return
 	}
 	rl.mu.Lock()
@@ -291,6 +284,57 @@ func (rl *RateLimiter) SetWindowCounter(counter rateLimitWindowCounter) {
 // The boolean indicates whether the token was valid; invalid credentials remain per-IP.
 func (rl *RateLimiter) SetTokenIdentityResolver(resolve func(string, bool) (string, bool)) {
 	rl.identityForToken = resolve
+}
+
+func rateLimitDBWindow(db *sql.DB, key string, now time.Time, window time.Duration, threshold int, add bool) (int64, time.Time, error) {
+	tx, err := db.Begin()
+	if err != nil {
+		return 0, time.Time{}, err
+	}
+	count, start, err := rateLimitDBWindowTx(tx, key, now, window, threshold, add)
+	if err != nil {
+		_ = tx.Rollback()
+		return 0, time.Time{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, time.Time{}, err
+	}
+	return count, start, nil
+}
+
+func rateLimitDBWindowTx(tx *sql.Tx, key string, now time.Time, window time.Duration, threshold int, add bool) (int64, time.Time, error) {
+	_ = threshold
+	windowSeconds := int64(window.Seconds())
+	if windowSeconds < 1 {
+		windowSeconds = 1
+	}
+	nowSeconds := now.Unix()
+	currentStart := nowSeconds - nowSeconds%windowSeconds
+	if _, err := tx.Exec(`INSERT INTO rate_limits(key, count, prev_count, window_start, updated_at) VALUES(?, 0, 0, ?, ?) ON CONFLICT(key) DO NOTHING`, key, currentStart, nowSeconds); err != nil {
+		return 0, time.Time{}, err
+	}
+	var count, previousCount, start int64
+	if err := tx.QueryRow(`SELECT count, prev_count, window_start FROM rate_limits WHERE key = ?`, key).Scan(&count, &previousCount, &start); err != nil {
+		return 0, time.Time{}, err
+	}
+	if currentStart > start {
+		if currentStart-start >= 2*windowSeconds {
+			previousCount = 0
+		} else {
+			previousCount = count
+		}
+		count = 0
+		start = currentStart
+	}
+	if add {
+		count++
+	}
+	if _, err := tx.Exec(`UPDATE rate_limits SET count = ?, prev_count = ?, window_start = ?, updated_at = ? WHERE key = ?`, count, previousCount, start, nowSeconds, key); err != nil {
+		return 0, time.Time{}, err
+	}
+	elapsed := float64(nowSeconds-start) / float64(windowSeconds)
+	effective := float64(previousCount)*(1-elapsed) + float64(count)
+	return int64(math.Ceil(effective)), time.Unix(start, 0), nil
 }
 
 func (rl *RateLimiter) requestSubject(r *http.Request, class rateClass) string {
@@ -343,7 +387,7 @@ func (rl *RateLimiter) allowPersisted(class rateClass, subject string) bool {
 			slog.Warn("rate limit transaction rollback failed", "error", rollbackErr)
 		}
 	}()
-	now := time.Now().Unix()
+	now := time.Now()
 	keys := []struct {
 		name   string
 		bucket RateLimitBucket
@@ -357,22 +401,13 @@ func (rl *RateLimiter) allowPersisted(class rateClass, subject string) bool {
 	allowed := true
 	for _, key := range keys {
 		bucketKey := key.name + "|" + subject
-		window := int64(key.bucket.effectiveWindow().Seconds())
-		var count int
-		if err := tx.QueryRow(`SELECT COUNT(*) FROM rate_limit_events WHERE bucket_key = ? AND occurred_at > ?`, bucketKey, now-window).Scan(&count); err != nil {
+		count, _, err := rateLimitDBWindowTx(tx, bucketKey, now, key.bucket.effectiveWindow(), key.bucket.Limit+1, true)
+		if err != nil {
 			return false
 		}
-		if count >= key.bucket.Limit {
+		if count > int64(key.bucket.Limit) {
 			allowed = false
-			if class == rateClassStrict && key.name == string(rateClassStrict) {
-				if _, err := tx.Exec(`INSERT INTO rate_limit_events(bucket_key, occurred_at) VALUES(?, ?)`, bucketKey, now); err != nil {
-					return false
-				}
-			}
 			break
-		}
-		if _, err := tx.Exec(`INSERT INTO rate_limit_events(bucket_key, occurred_at) VALUES(?, ?)`, bucketKey, now); err != nil {
-			return false
 		}
 	}
 	if err := tx.Commit(); err != nil {
@@ -411,7 +446,7 @@ func (rl *RateLimiter) retryAfter(class rateClass, subject string) time.Duration
 	if rl.db == nil {
 		return rl.config.bucketFor(class).effectiveWindow()
 	}
-	now := time.Now().Unix()
+	now := time.Now()
 	windows := []struct {
 		class  rateClass
 		bucket RateLimitBucket
@@ -424,16 +459,11 @@ func (rl *RateLimiter) retryAfter(class rateClass, subject string) time.Duration
 	}
 	var retry time.Duration
 	for _, item := range windows {
-		var count int
-		if err := rl.db.QueryRow(`SELECT COUNT(*) FROM rate_limit_events WHERE bucket_key = ?`, fmt.Sprintf("%s|%s", item.class, subject)).Scan(&count); err != nil || count < item.bucket.Limit {
+		count, windowStart, err := rateLimitDBWindow(rl.db, fmt.Sprintf("%s|%s", item.class, subject), now, item.bucket.effectiveWindow(), item.bucket.Limit+1, false)
+		if err != nil || count <= int64(item.bucket.Limit) {
 			continue
 		}
-		var oldest int64
-		window := int64(item.bucket.effectiveWindow().Seconds())
-		if err := rl.db.QueryRow(`SELECT occurred_at FROM rate_limit_events WHERE bucket_key = ? ORDER BY occurred_at LIMIT 1 OFFSET ?`, fmt.Sprintf("%s|%s", item.class, subject), count-item.bucket.Limit).Scan(&oldest); err != nil {
-			continue
-		}
-		remaining := time.Duration(oldest+window-now) * time.Second
+		remaining := windowStart.Add(item.bucket.effectiveWindow()).Sub(now)
 		if remaining > retry {
 			retry = remaining
 		}
@@ -484,7 +514,7 @@ func (rl *RateLimiter) cleanup() {
 	}
 	if rl.db != nil {
 		cutoffUnix := time.Now().Add(-rl.retentionDuration()).Unix()
-		_, _ = rl.db.Exec(`DELETE FROM rate_limit_events WHERE occurred_at <= ?`, cutoffUnix)
+		_, _ = rl.db.Exec(`DELETE FROM rate_limits WHERE window_start <= ?`, cutoffUnix)
 	}
 }
 

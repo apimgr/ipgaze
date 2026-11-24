@@ -110,9 +110,136 @@ func TestManager_AuditJSON(t *testing.T) {
 	if evt.Actor.IP != "10.0.0.1" {
 		t.Errorf("Actor.IP: got %q, want %q", evt.Actor.IP, "10.0.0.1")
 	}
+	if evt.Actor.Type != "operator" {
+		t.Errorf("Actor.Type: got %q, want operator", evt.Actor.Type)
+	}
+	if len(evt.ID) != 26 {
+		t.Errorf("ID: got %q, want a canonical 26-character ULID", evt.ID)
+	}
+	if evt.Prev != emptyAuditHash {
+		t.Errorf("Prev = %q, want the zero hash for the first entry", evt.Prev)
+	}
 	// Time must be valid RFC3339
 	if _, err := time.Parse(time.RFC3339Nano, evt.Time); err != nil {
 		t.Errorf("Time not valid RFC3339: %q", evt.Time)
+	}
+}
+
+func TestAuditHashChainContinuesAcrossRotation(t *testing.T) {
+	dir := t.TempDir()
+	cfg := DefaultConfig()
+	cfg.Audit.Keep = "forever"
+	m, err := NewManager(dir, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.WriteAuditEvent("", "one", "server", "info", "success", "", nil)
+	m.audit.mu.Lock()
+	m.audit.opened = time.Now().Add(-48 * time.Hour)
+	m.audit.mu.Unlock()
+	m.WriteAuditEvent("", "two", "server", "info", "success", "", nil)
+	m.Close()
+	if broken := verifyAuditChainAt(dir, "audit.log"); broken != 0 {
+		t.Fatalf("current audit chain broken at line %d", broken)
+	}
+	anchor, err := os.ReadFile(filepath.Join(dir, "audit.anchor"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(strings.TrimSpace(string(anchor))) != 64 {
+		t.Fatalf("anchor = %q, want 64 lowercase hex characters", anchor)
+	}
+	info, err := os.Stat(filepath.Join(dir, "audit.anchor"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0600 {
+		t.Errorf("anchor permissions = %04o, want 0600", info.Mode().Perm())
+	}
+}
+
+func TestAuditRotationReportsTamperedClosedFile(t *testing.T) {
+	dir := t.TempDir()
+	cfg := DefaultConfig()
+	cfg.Audit.Keep = "forever"
+	m, err := NewManager(dir, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.WriteAuditEvent("", "before", "server", "info", "success", "", nil)
+	activePath := filepath.Join(dir, "audit.log")
+	line, err := os.ReadFile(activePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tampered := strings.Replace(string(line), `"event":"before"`, `"event":"changed"`, 1)
+	if tampered == string(line) {
+		t.Fatal("could not prepare audit tamper fixture")
+	}
+	if err := os.WriteFile(activePath, []byte(tampered), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	m.audit.mu.Lock()
+	m.audit.opened = time.Now().Add(-48 * time.Hour)
+	m.audit.mu.Unlock()
+	m.WriteAuditEvent("", "after", "server", "info", "success", "", nil)
+	m.Close()
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	archive := ""
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), "audit-") && strings.HasSuffix(entry.Name(), ".log") {
+			archive = entry.Name()
+			break
+		}
+	}
+	if archive == "" {
+		t.Fatal("audit rotation did not create an archive")
+	}
+	current, err := os.ReadFile(activePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(current), `"event":"security.audit_chain_broken"`) || !strings.Contains(string(current), archive) {
+		t.Fatalf("rotation did not report the tampered closed file: %s", current)
+	}
+	if broken := verifyAuditChainAt(dir, "audit.log"); broken != 0 {
+		t.Fatalf("current chain broken at %d after rotation warning", broken)
+	}
+}
+
+func TestNewManagerReportsBrokenAuditChainOnce(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "audit.log"), []byte(`{"event":"edited"}`+"\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := DefaultConfig()
+	m, err := NewManager(dir, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.Close()
+	first, err := os.ReadFile(filepath.Join(dir, "audit.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(first), `"event":"security.audit_chain_broken"`) {
+		t.Fatalf("broken-chain event missing: %s", first)
+	}
+	m, err = NewManager(dir, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.Close()
+	second, err := os.ReadFile(filepath.Join(dir, "audit.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(string(second), `"event":"security.audit_chain_broken"`) != 1 {
+		t.Fatalf("broken-chain warning was repeated: %s", second)
 	}
 }
 

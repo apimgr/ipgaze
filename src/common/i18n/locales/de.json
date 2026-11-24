@@ -643,7 +643,20 @@
     "header_flag": "Diesem Header für Remote-IP vertrauen (wiederholbar)",
     "status_flag": "Gesundheitsprüfung (Exit 0=gesund, 1=nicht gesund)",
     "service_flag": "Dienstverwaltung",
-    "maintenance_flag": "Wartungsoperationen"
+    "maintenance_flag": "Wartungsoperationen",
+    "email_test_usage": "Verwendung: ipgaze --maintenance email test [--to ADDRESS] [--dry-run]",
+    "email_auth_required": "Autorisierung erforderlich: als Administrator ausführen oder ein gültiges Betreiber-Token angeben.",
+    "email_smtp_required": "E-Mail-Funktionen erfordern eine SMTP-Konfiguration",
+    "email_sending": "Sende an {recipient} mit Vorlage test: {subject}",
+    "email_sent": "Test-E-Mail gesendet.",
+    "email_invalid_recipient": "Ungültige Empfängeradresse",
+    "email_recipient_required": "Setze server.notifications.email.reply_to oder übergib --to ADDRESS",
+    "email_smtp_failed": "SMTP-Verbindung fehlgeschlagen: {error}",
+    "email_render_failed": "Test-E-Mail kann nicht gerendert werden: {error}",
+    "email_audit_failed": "Audit-Protokoll kann nicht geöffnet werden: {error}",
+    "email_send_failed": "Test-E-Mail fehlgeschlagen: {error}",
+    "email_preview_template": "Vorlage: {name}",
+    "email_preview_subject": "Betreff: {subject}"
   },
   "accessibility": {
     "skip_to_content": "Zum Inhalt springen",
@@ -965,7 +978,12 @@
       "update_available": "Aktualisierung verfügbar – {app_name}",
       "update_installed": "Aktualisierung installiert – {app_name}",
       "update_failed": "Aktualisierung fehlgeschlagen – {app_name}",
-      "test_email": "Test-E-Mail – {app_name}"
+      "test_email": "Test-E-Mail – {app_name}",
+      "startup": "Server gestartet - {app_name}",
+      "shutdown": "Server beendet - {app_name}",
+      "disk_low": "Wenig Speicherplatz - {app_name}",
+      "database_error": "Datenbankverbindungsproblem - {app_name}",
+      "update_staged": "Update bereitgestellt - {app_name}"
     },
     "body": {
       "from": "Von: {app_name} ({fqdn})",
@@ -1020,7 +1038,28 @@
       "update_available_action": "Lesen Sie die Versionshinweise, bevor Sie aktualisieren. Manueller Befehl: {command}",
       "update_installed_action": "Es ist keine Aktion erforderlich.",
       "update_failed_action": "Prüfen Sie den Fehler und installieren Sie das Update manuell.",
-      "test_action": "Der Empfang dieser Nachricht bestätigt, dass die Einstellungen für den Postausgang korrekt sind."
+      "test_action": "Der Empfang dieser Nachricht bestätigt, dass die Einstellungen für den Postausgang korrekt sind.",
+      "startup_heading": "SERVER GESTARTET",
+      "shutdown_heading": "SERVER BEENDET",
+      "disk_low_heading": "WENIG SPEICHERPLATZ",
+      "database_error_heading": "DATENBANKVERBINDUNGSPROBLEM",
+      "update_staged_heading": "UPDATE BEREITGESTELLT",
+      "label_mode": "Modus:",
+      "label_reason": "Grund:",
+      "label_path": "Pfad:",
+      "label_used_percent": "Belegt:",
+      "label_free_space": "Verfügbar:",
+      "label_threshold": "Grenzwert:",
+      "startup_intro": "Der Server wurde erfolgreich gestartet.",
+      "shutdown_intro": "Der Server wurde beendet.",
+      "disk_low_intro": "Auf einem überwachten Datenträger ist wenig Speicherplatz verfügbar.",
+      "database_error_intro": "Die Datenbankverbindung ist nicht verfügbar.",
+      "update_staged_intro": "Ein Serverupdate wurde bereitgestellt und erfordert einen Neustart.",
+      "startup_action": "Keine Aktion erforderlich.",
+      "shutdown_action": "Prüfen Sie die Serverprotokolle, falls das Beenden unerwartet war.",
+      "disk_low_action": "Geben Sie Speicherplatz frei oder erweitern Sie den Datenträger.",
+      "database_error_action": "Prüfen Sie die Datenbankverfügbarkeit und Serververbindung.",
+      "update_staged_action": "Starten Sie den Server neu, um das Update anzuwenden."
     }
   },
   "swagger": {

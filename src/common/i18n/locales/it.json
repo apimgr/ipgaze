@@ -649,7 +649,20 @@
     "header_flag": "Considera attendibile questa intestazione per l'IP remoto (ripetibile)",
     "status_flag": "Controlla lo stato (uscita 0=operativo, 1=non operativo)",
     "service_flag": "Gestione del servizio",
-    "maintenance_flag": "Operazioni di manutenzione"
+    "maintenance_flag": "Operazioni di manutenzione",
+    "email_test_usage": "Uso: ipgaze --maintenance email test [--to ADDRESS] [--dry-run]",
+    "email_auth_required": "Autorizzazione richiesta: esegui come amministratore o fornisci un token operatore valido.",
+    "email_smtp_required": "Le funzioni email richiedono la configurazione SMTP",
+    "email_sending": "Invio a {recipient} con il modello test: {subject}",
+    "email_sent": "Email di test inviata.",
+    "email_invalid_recipient": "Indirizzo del destinatario non valido",
+    "email_recipient_required": "Imposta server.notifications.email.reply_to o passa --to ADDRESS",
+    "email_smtp_failed": "Connessione SMTP non riuscita: {error}",
+    "email_render_failed": "Impossibile generare l’email di test: {error}",
+    "email_audit_failed": "Impossibile aprire il registro di audit: {error}",
+    "email_send_failed": "Invio dell’email di test non riuscito: {error}",
+    "email_preview_template": "Modello: {name}",
+    "email_preview_subject": "Oggetto: {subject}"
   },
   "accessibility": {
     "skip_to_content": "Vai al contenuto",
@@ -971,7 +984,12 @@
       "update_available": "Aggiornamento disponibile - {app_name}",
       "update_installed": "Aggiornamento installato - {app_name}",
       "update_failed": "Aggiornamento non riuscito - {app_name}",
-      "test_email": "Email di prova - {app_name}"
+      "test_email": "Email di prova - {app_name}",
+      "startup": "Server avviato - {app_name}",
+      "shutdown": "Server arrestato - {app_name}",
+      "disk_low": "Spazio su disco insufficiente - {app_name}",
+      "database_error": "Problema di connessione al database - {app_name}",
+      "update_staged": "Aggiornamento preparato - {app_name}"
     },
     "body": {
       "from": "Da: {app_name} ({fqdn})",
@@ -1026,7 +1044,28 @@
       "update_available_action": "Rivedere le note sulla versione prima dell'aggiornamento. Comando manuale: {command}",
       "update_installed_action": "Non è richiesta alcuna azione.",
       "update_failed_action": "Controllare l’errore e installare manualmente l’aggiornamento.",
-      "test_action": "La ricezione di questo messaggio conferma che le impostazioni della posta in uscita sono corrette."
+      "test_action": "La ricezione di questo messaggio conferma che le impostazioni della posta in uscita sono corrette.",
+      "startup_heading": "SERVER AVVIATO",
+      "shutdown_heading": "SERVER ARRESTATO",
+      "disk_low_heading": "SPAZIO SU DISCO INSUFFICIENTE",
+      "database_error_heading": "PROBLEMA DI CONNESSIONE AL DATABASE",
+      "update_staged_heading": "AGGIORNAMENTO PREPARATO",
+      "label_mode": "Modalità:",
+      "label_reason": "Motivo:",
+      "label_path": "Percorso:",
+      "label_used_percent": "Utilizzato:",
+      "label_free_space": "Disponibile:",
+      "label_threshold": "Soglia:",
+      "startup_intro": "Il server è stato avviato correttamente.",
+      "shutdown_intro": "Il server è stato arrestato.",
+      "disk_low_intro": "Un volume monitorato ha poco spazio disponibile.",
+      "database_error_intro": "La connessione al database non è disponibile.",
+      "update_staged_intro": "È stato preparato un aggiornamento del server che richiede un riavvio.",
+      "startup_action": "Non è richiesta alcuna azione.",
+      "shutdown_action": "Controlla i log se l’arresto è inatteso.",
+      "disk_low_action": "Libera spazio o aumenta la capacità del volume.",
+      "database_error_action": "Verifica la disponibilità del database e la connessione.",
+      "update_staged_action": "Riavvia il server per applicare l’aggiornamento."
     }
   },
   "swagger": {

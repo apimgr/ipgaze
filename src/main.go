@@ -7,6 +7,7 @@ import (
 	"compress/gzip"
 	"context"
 	cryptorand "crypto/rand"
+	"crypto/sha256"
 	"crypto/subtle"
 	"crypto/tls"
 	"database/sql"
@@ -19,9 +20,11 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/mail"
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -289,7 +292,7 @@ func runMain() {
 	serviceCmd := flag.String("service", "", "Service commands: start, stop, restart, reload, status, --install, --uninstall, --disable, --help")
 
 	// Maintenance commands
-	maintenanceCmd := flag.String("maintenance", "", "Maintenance commands: backup, restore, update, mode, setup, pgp, secret, security, token, data, compliance")
+	maintenanceCmd := flag.String("maintenance", "", "Maintenance commands: backup, restore, update, mode, setup, pgp, secret, security, token, data, compliance, email, tor")
 
 	// Backup content opt-ins (AI.md PART 21) — backups exclude SSL private
 	// keys and the full data directory by default (non-credential by default).
@@ -541,7 +544,7 @@ func runMain() {
 
 	// Handle maintenance commands
 	if *maintenanceCmd != "" {
-		handleMaintenanceCommand(*maintenanceCmd, configDir, dataDirPath, dirs.Logs, configPath, cfg, *includeSSLFlag, *includeDataFlag)
+		handleMaintenanceCommand(*maintenanceCmd, configDir, dataDirPath, dirs.Logs, configPath, cfg, *includeSSLFlag, *includeDataFlag, lang, resolvePIDFilePath(*pidFileFlag, dirs.PID))
 		return
 	}
 
@@ -1729,14 +1732,8 @@ func runMain() {
 		bareListenIP = "::"
 	}
 	trust := netutil.NewTrustResolver(cfg.Server.TrustedProxies, bareListenIP)
-	// Wire Tor onion address for priority-0 Tor request detection (AI.md PART 12).
-	// Prefer the address the running hidden service actually generated over the
-	// static server.yml value — the .onion address is auto-generated on first
-	// run (AI.md PART 31 "App handles EVERYTHING"), so requiring an operator to
-	// manually copy it into tor.onion_address would leave Tor request detection
-	// (FQDN resolution, clearnet URL/email suppression, CORS, security.txt)
-	// permanently inert on every fresh deployment.
-	trust.SetOnionAddress(cfg.Tor.OnionAddress)
+	// Wire the generated onion address at startup; it is runtime Tor state, never
+	// an operator-supplied configuration value.
 	if hostname := torMgr.GetHostname(); hostname != "" {
 		trust.SetOnionAddress(hostname)
 	}
@@ -2715,7 +2712,7 @@ _arguments \
     '--daemon[Run as daemon]' \
     '--color[Color output]:(auto yes no)' \
     '--service[Service command]:(start stop restart reload status --install --uninstall --disable --help)' \
-    '--maintenance[Maintenance command]:(backup restore update mode setup pgp secret security token data compliance)' \
+	    '--maintenance[Maintenance command]:(backup restore update mode setup pgp secret security token data compliance email tor)' \
     '--update[Update command]:(check yes branch --help)' \
     '--shell[Shell command]:(completions init --help)'
 `, binaryName)
@@ -3734,10 +3731,11 @@ func rotateEncryptionKey(conn *sql.DB, configDir string, cfg *config.AppConfig, 
 
 func handleSecurityMaintenance(args []string, logsDir string, cfg *config.AppConfig) {
 	if len(args) == 0 || args[0] == "--help" || args[0] == "help" {
-		fmt.Println("Usage: ipgaze --maintenance security <list|show|update>")
+		fmt.Println("Usage: ipgaze --maintenance security <list|show|update|export>")
 		fmt.Println("  list [--status STATUS]: list report metadata without report content")
 		fmt.Println("  show <tracking_id>: show metadata, researcher comment, and disclosure date")
 		fmt.Println("  update <tracking_id> [--status STATUS] [--comment TEXT] [--disclosure-date YYYY-MM-DD]")
+		fmt.Println("  export <tracking_id> [--output FILE]: write the encrypted notification payload")
 		return
 	}
 	if !requireOperatorAuth(cfg, "This is a sensitive security operation. Enter operator token to confirm: ") {
@@ -3777,8 +3775,58 @@ func handleSecurityMaintenance(args []string, logsDir string, cfg *config.AppCon
 			fmt.Println("Usage: ipgaze --maintenance security update <tracking_id> [--status STATUS] [--comment TEXT] [--disclosure-date YYYY-MM-DD]")
 			os.Exit(exUsage)
 		}
+	case "export":
+		if len(args) < 2 {
+			fmt.Fprintln(os.Stderr, "Usage: ipgaze --maintenance security export <tracking_id> [--output FILE]")
+			os.Exit(exUsage)
+		}
+		flags := flag.NewFlagSet("maintenance security export", flag.ContinueOnError)
+		flags.SetOutput(io.Discard)
+		output := flags.String("output", args[1]+".asc", "Encrypted payload output path, or - for stdout")
+		if err := flags.Parse(args[2:]); err != nil || flags.NArg() != 0 {
+			fmt.Fprintln(os.Stderr, "Usage: ipgaze --maintenance security export <tracking_id> [--output FILE]")
+			os.Exit(exUsage)
+		}
+		payload, encryption, err := security.LoadSecurityReportPayload(conn, args[1])
+		if err != nil {
+			log.Printf("security: export report: %v", err)
+			os.Exit(exIoErr)
+		}
+		if *output == "-" {
+			if _, err := os.Stdout.Write(payload); err != nil {
+				log.Printf("security: write encrypted report to stdout: %v", err)
+				os.Exit(exIoErr)
+			}
+		} else {
+			file, err := os.OpenFile(*output, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
+			if err != nil {
+				log.Printf("security: create encrypted report export: %v", err)
+				os.Exit(exIoErr)
+			}
+			if chmodErr := file.Chmod(0600); chmodErr != nil {
+				err = chmodErr
+			} else {
+				_, err = file.Write(payload)
+			}
+			closeErr := file.Close()
+			if err != nil || closeErr != nil {
+				log.Printf("security: write encrypted report export: %v", errors.Join(err, closeErr))
+				os.Exit(exIoErr)
+			}
+		}
+		logMgr, logErr := applog.NewManager(logsDir, buildLogConfig(cfg))
+		if logErr == nil {
+			logMgr.WriteAuditEvent("", "security.report_exported", "security", "warning", "success", maintenanceOperatorIP(), map[string]any{
+				"tracking_id": args[1], "encryption": encryption,
+			})
+			logMgr.Close()
+		}
+		if *output != "-" {
+			fmt.Printf("Exported encrypted %s report payload to %s.\n", encryption, *output)
+		}
+		return
 	default:
-		fmt.Println("Usage: ipgaze --maintenance security <list|show|update>")
+		fmt.Println("Usage: ipgaze --maintenance security <list|show|update|export>")
 		os.Exit(exUsage)
 	}
 	trackingID, status, comment, disclosureDate, err := parseSecurityReportUpdateArgs(args[1:])
@@ -3992,13 +4040,13 @@ func showSecurityReport(conn *sql.DB, out io.Writer, trackingID string) error {
 	return err
 }
 
-func handleMaintenanceCommand(cmd, configDir, dataDir, logsDir, configPath string, cfg *config.AppConfig, includeSSL, includeData bool) {
+func handleMaintenanceCommand(cmd, configDir, dataDir, logsDir, configPath string, cfg *config.AppConfig, includeSSL, includeData bool, lang, pidFile string) {
 	args := flag.Args()
 	dirs := paths.GetDirectories()
 
 	switch cmd {
 	case "--help":
-		fmt.Println(`Maintenance commands: backup, restore, update, mode, setup, pgp, secret, security, token, data, compliance
+		fmt.Println(`Maintenance commands: backup, restore, update, mode, setup, pgp, secret, security, token, data, compliance, email, tor
 
 Backup:
   --maintenance backup [file]     Create a backup archive
@@ -4031,6 +4079,11 @@ Restore:
       Shows metadata, researcher comment, and disclosure date (never the report body).
   --maintenance security update <tracking_id> [--status STATUS] [--comment TEXT] [--disclosure-date YYYY-MM-DD]
       Updates researcher-visible triage fields.
+      Requires operator authorization.
+
+Email:
+  --maintenance email test [--to ADDRESS] [--dry-run]
+      Send a test email or preview and validate all configured templates.
       Requires operator authorization.`)
 		return
 	case "backup":
@@ -4102,12 +4155,168 @@ Restore:
 	case "data":
 		maintenanceData(args, cfg, logsDir, dirs)
 	case "compliance":
-		maintenanceCompliance(args, cfg, logsDir)
+		conn, err := openMaintenanceDB(cfg, dirs)
+		if err != nil {
+			log.Printf("compliance: failed to open database: %v", err)
+			os.Exit(exIoErr)
+		}
+		defer func() { _ = conn.Close() }()
+		maintenanceCompliance(args, cfg, logsDir, conn)
+	case "email":
+		handleEmailMaintenance(args, configDir, logsDir, cfg, lang)
+	case "tor":
+		handleTorCommand(args, configDir, dataDir, logsDir, pidFile, cfg)
 	default:
 		fmt.Printf("Unknown maintenance command: %s\n", cmd)
-		fmt.Println("Available commands: backup, restore, update, mode, setup, pgp, secret, security, token, data, compliance")
+		fmt.Println("Available commands: backup, restore, update, mode, setup, pgp, secret, security, token, data, compliance, email, tor")
 		os.Exit(exUsage)
 	}
+}
+
+type emailTestOptions struct {
+	recipient string
+	dryRun    bool
+}
+
+func parseEmailTestArgs(args []string, defaultRecipient, lang string) (emailTestOptions, error) {
+	if len(args) == 0 || args[0] != "test" {
+		return emailTestOptions{}, fmt.Errorf("%s", i18n.Translate(lang, "cli.email_test_usage"))
+	}
+	flags := flag.NewFlagSet("maintenance email test", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	to := flags.String("to", defaultRecipient, "Test email recipient")
+	dryRun := flags.Bool("dry-run", false, "Preview and validate templates without sending")
+	if err := flags.Parse(args[1:]); err != nil || flags.NArg() != 0 {
+		return emailTestOptions{}, fmt.Errorf("%s", i18n.Translate(lang, "cli.email_test_usage"))
+	}
+	recipient := strings.TrimSpace(*to)
+	if recipient != "" {
+		parsed, err := mail.ParseAddress(recipient)
+		if err != nil || parsed.Address != recipient {
+			return emailTestOptions{}, fmt.Errorf("%s", i18n.Translate(lang, "cli.email_invalid_recipient"))
+		}
+	}
+	if !*dryRun && recipient == "" {
+		return emailTestOptions{}, fmt.Errorf("%s", i18n.Translate(lang, "cli.email_recipient_required"))
+	}
+	return emailTestOptions{recipient: recipient, dryRun: *dryRun}, nil
+}
+
+func emailTestSampleVariables(cfg *config.AppConfig) map[string]string {
+	appName := projectName
+	fqdn := "localhost"
+	appURL := "http://localhost"
+	var replyTo string
+	if cfg != nil {
+		if title := strings.TrimSpace(cfg.Server.Branding.Title); title != "" {
+			appName = title
+		}
+		if host := strings.TrimSpace(cfg.Server.FQDN); host != "" {
+			fqdn = host
+			appURL = "https://" + host
+		}
+		replyTo = cfg.Server.Notifications.Email.ReplyTo
+	}
+	variables := map[string]string{
+		"action": "Review the application status.", "app_name": appName, "app_url": appURL,
+		"channel": "stable", "current_version": Version, "days": "7", "days_until_expiry": "7",
+		"details": "Sample details", "domain": fqdn, "error": "Sample error", "event": "Test event",
+		"expiry": "2030-01-01", "expiry_date": "2030-01-01", "filename": "backup.tar.gz", "fqdn": fqdn,
+		"free": "1 GiB", "from_line": fmt.Sprintf("From: %s (%s)", appName, fqdn), "heading": "TEST EMAIL",
+		"hostname": fqdn, "intro": "This is a test message.", "ip": "192.168.1.100",
+		"i2p_address": "", "i2p_url": "", "label_channel": "Channel:", "label_current_version": "Current version:",
+		"label_days_remaining": "Days remaining:", "label_days_until_expiry": "Days until expiry:", "label_domain": "Domain:",
+		"label_error": "Error:", "label_event": "Event:", "label_expires": "Expires:", "label_filename": "Filename:",
+		"label_ip": "IP:", "label_new_expiry": "New expiry:", "label_new_version": "New version:",
+		"label_mode": "Mode:", "label_path": "Path:", "label_reason": "Reason:",
+		"label_free_space": "Free space:", "label_threshold": "Threshold:", "label_used_percent": "Used:",
+		"label_next_retry": "Next retry:", "label_next_run": "Next run:", "label_previous_version": "Previous version:",
+		"label_size": "Size:", "label_task": "Task:", "label_time": "Time:", "message": "Sample message",
+		"mode": "production", "new_version": Version, "next_retry": "in one hour", "next_run": "in one hour",
+		"notification_reply_to": replyTo, "onion_address": "", "onion_url": "", "path": "/data",
+		"previous_version": Version, "reason": "service stop", "size": "1 MiB", "since": "now",
+		"staged_version": Version, "subject": "Test Email - " + appName, "task": "sample task", "task_name": "sample task",
+		"threshold_percent": "90", "time": time.Now().UTC().Format(time.RFC3339), "timestamp": time.Now().UTC().Format(time.RFC3339),
+		"used_percent": "10", "valid_until": "2030-01-01", "version": Version, "year": time.Now().UTC().Format("2006"),
+	}
+	return variables
+}
+
+func handleEmailMaintenance(args []string, configDir, logsDir string, cfg *config.AppConfig, lang string) {
+	if len(args) == 0 || args[0] == "--help" || args[0] == "help" {
+		fmt.Println(i18n.Translate(lang, "cli.email_test_usage"))
+		return
+	}
+	options, err := parseEmailTestArgs(args, cfg.Server.Notifications.Email.ReplyTo, lang)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(exUsage)
+	}
+	if !requireOperatorAuth(cfg, "Email maintenance requires authorization. Enter operator token to confirm: ") {
+		fmt.Fprintln(os.Stderr, i18n.Translate(lang, "cli.email_auth_required"))
+		os.Exit(exNoPerm)
+	}
+	manager := email.NewEmailManager(email.SMTPConfig{}, configDir)
+	variables := emailTestSampleVariables(cfg)
+	if options.dryRun {
+		previews, validationErrors := manager.PreviewTemplates(variables, lang)
+		for _, preview := range previews {
+			fmt.Printf("=== %s ===\n%s\n\n%s\n\n",
+				i18n.TranslateFormat(lang, "cli.email_preview_template", "name", preview.Name),
+				i18n.TranslateFormat(lang, "cli.email_preview_subject", "subject", preview.Subject), preview.Body)
+		}
+		for _, validationErr := range validationErrors {
+			fmt.Fprintln(os.Stderr, validationErr)
+		}
+		if len(validationErrors) > 0 {
+			os.Exit(65)
+		}
+		return
+	}
+
+	emailConfig := cfg.Server.Notifications.Email
+	smtpConfig := email.SMTPConfig{
+		Enabled: emailConfig.Enabled, Host: emailConfig.SMTP.Host, Port: emailConfig.SMTP.Port,
+		Username: emailConfig.SMTP.Username, Password: emailConfig.SMTP.Password, TLS: emailConfig.SMTP.TLS,
+		From: emailConfig.From.Email, FromName: emailConfig.From.Name,
+	}
+	email.ApplyEnvOverrides(&smtpConfig)
+	if smtpConfig.Host == "" {
+		fmt.Fprintln(os.Stderr, i18n.Translate(lang, "cli.email_smtp_required"))
+		os.Exit(exConfig)
+	}
+	if err := email.TestConnection(smtpConfig); err != nil {
+		fmt.Fprintln(os.Stderr, i18n.TranslateFormat(lang, "cli.email_smtp_failed", "error", err.Error()))
+		os.Exit(exIoErr)
+	}
+	smtpConfig.Enabled = true
+	manager = email.NewEmailManager(smtpConfig, configDir)
+	subject, body, err := manager.RenderLocalizedTemplate("test", lang, variables)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, i18n.TranslateFormat(lang, "cli.email_render_failed", "error", err.Error()))
+		os.Exit(exIoErr)
+	}
+	subject = "[TEST] " + subject
+	fmt.Println(i18n.TranslateFormat(lang, "cli.email_sending", "recipient", options.recipient, "subject", subject))
+	logManager, err := applog.NewManager(logsDir, buildLogConfig(cfg))
+	if err != nil {
+		fmt.Fprintln(os.Stderr, i18n.TranslateFormat(lang, "cli.email_audit_failed", "error", err.Error()))
+		os.Exit(exIoErr)
+	}
+	defer logManager.Close()
+	result := "success"
+	sendErr := manager.SendDirect(&email.Message{To: []string{options.recipient}, ReplyTo: emailConfig.ReplyTo, Subject: subject, Body: body})
+	if sendErr != nil {
+		result = "failure"
+	}
+	logManager.WriteAuditEvent("", "email.test", "email", "info", result, maintenanceOperatorIP(), map[string]any{
+		"recipient": options.recipient, "template": "test", "subject": subject,
+	})
+	if sendErr != nil {
+		fmt.Fprintln(os.Stderr, i18n.TranslateFormat(lang, "cli.email_send_failed", "error", sendErr.Error()))
+		os.Exit(exIoErr)
+	}
+	fmt.Println(i18n.Translate(lang, "cli.email_sent"))
 }
 
 // isDatabaseEmpty reports whether this looks like a fresh install — no audit
@@ -4322,13 +4531,10 @@ func maintenanceTokenRevoke(conn *sql.DB, prefix, logsDir string, cfg *config.Ap
 	fmt.Printf("Token %s revoked.\n", prefix)
 }
 
-// maintenanceData implements `--maintenance data <export|delete>`. This
-// project has no per-user PII table (see AI.md PART 21), so export/delete
-// operate on the operational data that can carry PII: rate_limits and
-// audit_log rows (IP addresses), plus the configured privacy policy.
+// maintenanceData implements owner-scoped data subject export and deletion.
 func maintenanceData(args []string, cfg *config.AppConfig, logsDir string, dirs paths.Directories) {
 	if len(args) == 0 {
-		fmt.Println("Usage: ipgaze --maintenance data <export|delete>")
+		fmt.Println("Usage: ipgaze --maintenance data <export|delete> --owner <prefix> [--output FILE] [--yes]")
 		os.Exit(exUsage)
 	}
 	if !requireOperatorAuth(cfg, "Data operations require authorization. Enter operator token to confirm: ") {
@@ -4343,94 +4549,219 @@ func maintenanceData(args []string, cfg *config.AppConfig, logsDir string, dirs 
 	}
 	defer func() { _ = conn.Close() }()
 
-	switch args[0] {
+	command := args[0]
+	var ownerPrefix, output string
+	yes := false
+	for i := 1; i < len(args); i++ {
+		switch args[i] {
+		case "--owner", "--output":
+			if i+1 >= len(args) {
+				fmt.Printf("%s requires a value.\n", args[i])
+				os.Exit(exUsage)
+			}
+			value := args[i+1]
+			i++
+			if args[i-1] == "--owner" {
+				ownerPrefix = value
+			} else {
+				output = value
+			}
+		case "--yes":
+			yes = true
+		default:
+			fmt.Printf("Unknown data option: %s\n", args[i])
+			os.Exit(exUsage)
+		}
+	}
+	if (command != "export" && command != "delete") || ownerPrefix == "" || (command == "delete" && output != "") || (command == "export" && yes) {
+		fmt.Println("A token prefix is required with --owner; --output is only valid for export.")
+		os.Exit(exUsage)
+	}
+	ownerID, err := resolveDataOwner(conn, ownerPrefix)
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(exUsage)
+	}
+	switch command {
 	case "export":
-		maintenanceDataExport(conn, cfg)
+		if err := maintenanceDataExport(conn, ownerID, output, logsDir, cfg); err != nil {
+			log.Printf("data export: %v", err)
+			os.Exit(exIoErr)
+		}
 	case "delete":
-		maintenanceDataDelete(conn, logsDir, cfg)
+		if !yes && !requireTypedConfirmation(ownerID, fmt.Sprintf("Delete owner %s and its tokens? Type the owner id to confirm: ", ownerID)) {
+			fmt.Println("Data delete cancelled.")
+			return
+		}
+		if err := maintenanceDataDelete(conn, ownerID, logsDir, cfg); err != nil {
+			log.Printf("data delete: %v", err)
+			os.Exit(exIoErr)
+		}
 	default:
 		fmt.Printf("Unknown data command: %s\n", args[0])
 		os.Exit(exUsage)
 	}
 }
 
-// maintenanceDataExport prints a JSON disclosure of the configured privacy
-// policy plus a row-count inventory of every table that may hold operator
-// or visitor data, per AI.md PART 21 GDPR/CCPA "data export" behaviors.
-func maintenanceDataExport(conn *sql.DB, cfg *config.AppConfig) {
-	tables := []string{"config", "rate_limits", "rate_limit_events", "audit_log", "scheduler_history", "backups", "api_tokens", "pgp_keypairs"}
-	counts := map[string]int{}
-	ctx, cancel := context.WithTimeout(context.Background(), simpleSelectTimeout)
-	defer cancel()
-	for _, t := range tables {
-		var n int
-		if err := conn.QueryRowContext(ctx, "SELECT COUNT(*) FROM "+t).Scan(&n); err == nil { //nolint:gosec
-			counts[t] = n
-		}
-	}
-
-	report := map[string]any{
-		"generated_at": time.Now().UTC().Format(time.RFC3339),
-		"privacy_policy": map[string]any{
-			"data_sold":             cfg.Server.Privacy.Data.Sold,
-			"data_stored_on_server": cfg.Server.Privacy.Data.StoredOnServer,
-			"retention_period":      cfg.Server.Privacy.Retention.Period,
-			"retention_export":      cfg.Server.Privacy.Retention.ExportAvailable,
-			"retention_deletion":    cfg.Server.Privacy.Retention.DeletionAvailable,
-		},
-		"table_row_counts": counts,
-	}
-	out, err := json.MarshalIndent(report, "", "  ")
+func resolveDataOwner(conn *sql.DB, prefix string) (string, error) {
+	rows, err := conn.Query(`SELECT DISTINCT owner_id FROM api_tokens WHERE substr(token_prefix, 1, length(?)) = ? ORDER BY owner_id`, prefix, prefix)
 	if err != nil {
-		log.Printf("data export: marshal failed: %v", err)
-		os.Exit(exSoftware)
+		return "", err
 	}
-	fmt.Println(string(out))
+	defer func() { _ = rows.Close() }()
+	var matches []string
+	for rows.Next() {
+		var ownerID string
+		if err := rows.Scan(&ownerID); err != nil {
+			return "", err
+		}
+		matches = append(matches, ownerID)
+	}
+	if err := rows.Err(); err != nil {
+		return "", err
+	}
+	if len(matches) == 0 {
+		return "", fmt.Errorf("no owner found for token prefix %q", prefix)
+	}
+	if len(matches) != 1 {
+		return "", fmt.Errorf("token prefix %q is ambiguous; provide a longer prefix", prefix)
+	}
+	return matches[0], nil
 }
 
-// maintenanceDataDelete purges rate_limits and audit_log rows (the tables
-// that can carry visitor/operator IP addresses), preserving config, PGP
-// keys, and issued tokens. Destructive — requires typed confirmation and is
-// itself audit-logged (to a fresh log entry recorded before the purge).
-func maintenanceDataDelete(conn *sql.DB, logsDir string, cfg *config.AppConfig) {
-	if !requireTypedConfirmation("DELETE OPERATIONAL DATA",
-		"WARNING: this permanently deletes rate-limit and audit-log history.\n"+
-			"Configuration, PGP keys, and issued tokens are preserved.\n"+
-			"Type DELETE OPERATIONAL DATA to confirm: ") {
-		fmt.Println("Data delete cancelled.")
-		return
-	}
-
-	logMgr, logMgrErr := applog.NewManager(logsDir, buildLogConfig(cfg))
-	if logMgrErr == nil {
-		logMgr.WriteAuditEvent("", "cli.data_deleted", "security", "warn", "success", "", map[string]any{
-			"tables": []string{"rate_limits", "rate_limit_events", "audit_log"},
-		})
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), writeQueryTimeout)
+func maintenanceDataExport(conn *sql.DB, ownerID, outputPath, logsDir string, cfg *config.AppConfig) error {
+	ctx, cancel := context.WithTimeout(context.Background(), simpleSelectTimeout)
 	defer cancel()
-	if _, err := conn.ExecContext(ctx, "DELETE FROM rate_limits"); err != nil {
-		log.Printf("data delete: failed to clear rate_limits: %v", err)
-		os.Exit(exIoErr)
+	var createdAt, lastSeenAt int64
+	if err := conn.QueryRowContext(ctx, `SELECT created_at, last_seen_at FROM owners WHERE id = ?`, ownerID).Scan(&createdAt, &lastSeenAt); err != nil {
+		return err
 	}
-	if _, err := conn.ExecContext(ctx, "DELETE FROM rate_limit_events"); err != nil {
-		log.Printf("data delete: failed to clear rate_limit_events: %v", err)
-		os.Exit(exIoErr)
+	rows, err := conn.QueryContext(ctx, `SELECT token_prefix, kind, COALESCE(name,''), created_at, last_used_at, expires_at, revoked_at FROM api_tokens WHERE owner_id = ? ORDER BY created_at, id`, ownerID)
+	if err != nil {
+		return err
 	}
-	if _, err := conn.ExecContext(ctx, "DELETE FROM audit_log"); err != nil {
-		log.Printf("data delete: failed to clear audit_log: %v", err)
-		os.Exit(exIoErr)
+	tokens := make([]map[string]any, 0)
+	for rows.Next() {
+		var prefix, kind, name string
+		var created int64
+		var lastUsed, expires, revoked sql.NullInt64
+		if err := rows.Scan(&prefix, &kind, &name, &created, &lastUsed, &expires, &revoked); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		status := "active"
+		if revoked.Valid {
+			status = "revoked"
+		} else if expires.Valid && expires.Int64 <= time.Now().Unix() {
+			status = "expired"
+		}
+		tokens = append(tokens, map[string]any{"prefix": prefix, "kind": kind, "name": name, "created": created, "last_used": nullableInt64Value(lastUsed), "expires": nullableInt64Value(expires), "status": status})
 	}
-	if logMgrErr == nil {
-		logMgr.Close()
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return err
 	}
-	fmt.Println("Operational data (rate_limits, rate_limit_events, audit_log) deleted.")
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	report := map[string]any{"format": 1, "owner": map[string]any{"id": ownerID, "created": createdAt, "last_seen": lastSeenAt}, "tokens": tokens, "resources": []any{}}
+	out, err := json.MarshalIndent(report, "", "  ")
+	if err != nil {
+		return err
+	}
+	var requestBytes [16]byte
+	if _, err := cryptorand.Read(requestBytes[:]); err != nil {
+		return err
+	}
+	requestID := fmt.Sprintf("%x", requestBytes[:])
+	logMgr, logErr := applog.NewManager(logsDir, buildLogConfig(cfg))
+	if logErr != nil {
+		return fmt.Errorf("open audit log: %w", logErr)
+	}
+	defer logMgr.Close()
+	logMgr.WriteOwnerAuditEvent(ownerID, "compliance.data_export_requested", "compliance", "info", "success", map[string]any{"request_id": requestID})
+	if outputPath == "" {
+		outputPath = fmt.Sprintf("%s-export-%s-%s.json", projectName, ownerID, time.Now().UTC().Format("20060102"))
+	}
+	if outputPath == "-" {
+		if _, err := fmt.Fprintln(os.Stdout, string(out)); err != nil {
+			return err
+		}
+	} else {
+		file, err := os.OpenFile(outputPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0600)
+		if err != nil {
+			return err
+		}
+		if err := file.Chmod(0600); err != nil {
+			_ = file.Close()
+			return err
+		}
+		if _, err := file.Write(append(out, '\n')); err != nil {
+			_ = file.Close()
+			return err
+		}
+		if err := file.Close(); err != nil {
+			return err
+		}
+		fmt.Printf("Data export written to %s (mode 0600).\n", outputPath)
+	}
+	logMgr.WriteOwnerAuditEvent(ownerID, "compliance.data_export_completed", "compliance", "info", "success", map[string]any{"request_id": requestID, "file_size": len(out) + 1})
+	return nil
+}
+
+func nullableInt64Value(value sql.NullInt64) any {
+	if !value.Valid {
+		return nil
+	}
+	return value.Int64
+}
+
+func maintenanceDataDelete(conn *sql.DB, ownerID, logsDir string, cfg *config.AppConfig) error {
+	ctx, cancel := context.WithTimeout(context.Background(), simpleSelectTimeout)
+	defer cancel()
+	logMgr, err := applog.NewManager(logsDir, buildLogConfig(cfg))
+	if err != nil {
+		return fmt.Errorf("open audit log: %w", err)
+	}
+	defer logMgr.Close()
+	tx, err := conn.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	var tokenCount int64
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM api_tokens WHERE owner_id = ?`, ownerID).Scan(&tokenCount); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM api_tokens WHERE owner_id = ?`, ownerID); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	result, err := tx.ExecContext(ctx, `DELETE FROM owners WHERE id = ?`, ownerID)
+	if err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	deleted, err := result.RowsAffected()
+	if err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	if deleted == 0 {
+		_ = tx.Rollback()
+		return fmt.Errorf("owner %q no longer exists", ownerID)
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	logMgr.WriteOwnerAuditEvent(ownerID, "compliance.data_deletion_completed", "compliance", "info", "success", map[string]any{"deleted": tokenCount + 1, "anonymized": 0, "tokens": tokenCount, "resources": 0})
+	fmt.Printf("Owner data deleted: %d items deleted, 0 anonymized.\n", tokenCount+1)
+	return nil
 }
 
 // maintenanceCompliance implements `--maintenance compliance report` per
 // AI.md PART 11: a read-only summary of configured standards and controls.
-func maintenanceCompliance(args []string, cfg *config.AppConfig, logsDir string) {
+func maintenanceCompliance(args []string, cfg *config.AppConfig, logsDir string, conn *sql.DB) {
 	if len(args) > 0 && args[0] != "report" {
 		fmt.Printf("Unknown compliance command: %s\n", args[0])
 		fmt.Println("Usage: ipgaze --maintenance compliance report")
@@ -4463,6 +4794,176 @@ func maintenanceCompliance(args []string, cfg *config.AppConfig, logsDir string)
 	fmt.Printf("Let's Encrypt:     %t\n", cfg.Server.SSL.LetsEncrypt.Enabled)
 	fmt.Printf("PGP key published: %t\n", cfg.Web.Security.PublishPGPKey)
 	fmt.Printf("Audit logging level: %s\n", cfg.Server.Logging.Level)
+	owners, activeTokens, openReports, err := complianceCounts(conn)
+	if err != nil {
+		log.Printf("compliance report counts: %v", err)
+	}
+	fmt.Printf("Owners: %d\n", owners)
+	fmt.Printf("Active tokens: %d\n", activeTokens)
+	fmt.Printf("Open security reports: %d\n", openReports)
+	fmt.Printf("Resources: %d\n", 0)
+	events, eventErr := recentComplianceEvents(filepath.Join(logsDir, configuredAuditFilename(cfg)), time.Now().UTC().Add(-30*24*time.Hour))
+	if eventErr != nil {
+		log.Printf("compliance report events: %v", eventErr)
+	}
+	fmt.Println("Compliance events (last 30 days):")
+	if len(events) == 0 {
+		fmt.Println("  none")
+	} else {
+		names := make([]string, 0, len(events))
+		for name := range events {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		for _, name := range names {
+			fmt.Printf("  %s: %d\n", name, events[name])
+		}
+	}
+	if conn != nil {
+		var lastBackup sql.NullInt64
+		if err := conn.QueryRow(`SELECT MAX(created_at) FROM backups`).Scan(&lastBackup); err != nil {
+			log.Printf("compliance report last backup: %v", err)
+		}
+		if lastBackup.Valid {
+			fmt.Printf("Last backup: %s\n", time.Unix(lastBackup.Int64, 0).UTC().Format(time.RFC3339))
+		} else {
+			fmt.Println("Last backup: none")
+		}
+	} else {
+		fmt.Println("Last backup: unavailable")
+	}
+	entries, brokenLine, integrityErr := verifyAuditLogIntegrity(filepath.Join(logsDir, configuredAuditFilename(cfg)))
+	if integrityErr != nil {
+		brokenLine = 1
+		log.Printf("compliance report audit verification failed: %v", integrityErr)
+	}
+	if brokenLine > 0 {
+		fmt.Printf("Audit log integrity: broken at %s:%d\n", configuredAuditFilename(cfg), brokenLine)
+	} else {
+		fmt.Printf("Audit log integrity: intact (%d entries)\n", entries)
+	}
+}
+
+func complianceCounts(conn *sql.DB) (owners, activeTokens, openReports int64, err error) {
+	if conn == nil {
+		return 0, 0, 0, nil
+	}
+	queries := []struct {
+		query  string
+		target *int64
+	}{
+		{`SELECT COUNT(*) FROM owners`, &owners},
+		{`SELECT COUNT(*) FROM api_tokens WHERE revoked_at IS NULL AND (expires_at IS NULL OR expires_at > strftime('%s','now'))`, &activeTokens},
+		{`SELECT COUNT(*) FROM security_reports WHERE closed_at IS NULL`, &openReports},
+	}
+	for _, item := range queries {
+		if err := conn.QueryRow(item.query).Scan(item.target); err != nil {
+			return owners, activeTokens, openReports, err
+		}
+	}
+	return owners, activeTokens, openReports, nil
+}
+
+func configuredAuditFilename(cfg *config.AppConfig) string {
+	filename := strings.TrimSpace(cfg.Server.Logging.Audit.Filename)
+	if filename == "" {
+		return "audit.log"
+	}
+	return filepath.Base(filename)
+}
+
+func recentComplianceEvents(path string, since time.Time) (map[string]int, error) {
+	events := make(map[string]int)
+	paths := []string{path}
+	archives, err := filepath.Glob(path + ".*")
+	if err != nil {
+		return nil, err
+	}
+	paths = append(paths, archives...)
+	for _, entryPath := range paths {
+		file, err := os.Open(entryPath)
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return nil, err
+		}
+		var input io.Reader = file
+		var zipped *gzip.Reader
+		if strings.HasSuffix(entryPath, ".gz") {
+			zipped, err = gzip.NewReader(file)
+			if err != nil {
+				_ = file.Close()
+				return nil, err
+			}
+			input = zipped
+		}
+		scanner := bufio.NewScanner(input)
+		scanner.Buffer(make([]byte, 64*1024), 4*1024*1024)
+		for scanner.Scan() {
+			var event struct {
+				Time     string `json:"time"`
+				Event    string `json:"event"`
+				Category string `json:"category"`
+			}
+			if json.Unmarshal(scanner.Bytes(), &event) != nil || event.Category != "compliance" {
+				continue
+			}
+			at, err := time.Parse(time.RFC3339Nano, event.Time)
+			if err == nil && !at.Before(since) {
+				events[event.Event]++
+			}
+		}
+		scanErr := scanner.Err()
+		if zipped != nil {
+			_ = zipped.Close()
+		}
+		_ = file.Close()
+		if scanErr != nil {
+			return nil, scanErr
+		}
+	}
+	return events, nil
+}
+
+func verifyAuditLogIntegrity(path string) (entries int, brokenLine int, err error) {
+	file, err := os.Open(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return 0, 0, nil
+		}
+		return 0, 0, err
+	}
+	defer func() {
+		if closeErr := file.Close(); err == nil && closeErr != nil {
+			err = closeErr
+		}
+	}()
+	anchor := strings.Repeat("0", 64)
+	if data, readErr := os.ReadFile(filepath.Join(filepath.Dir(path), "audit.anchor")); readErr == nil {
+		anchor = strings.TrimSpace(string(data))
+	} else if !os.IsNotExist(readErr) {
+		return 0, 0, readErr
+	}
+	scanner := bufio.NewScanner(file)
+	scanner.Buffer(make([]byte, 64*1024), 4*1024*1024)
+	previous := anchor
+	for scanner.Scan() {
+		entries++
+		line := append([]byte(nil), scanner.Bytes()...)
+		var entry struct {
+			Prev string `json:"prev"`
+		}
+		if json.Unmarshal(line, &entry) != nil || entry.Prev != previous {
+			return entries, entries, nil
+		}
+		digest := sha256.Sum256(line)
+		previous = fmt.Sprintf("%x", digest)
+	}
+	if err := scanner.Err(); err != nil {
+		return entries, 0, err
+	}
+	return entries, 0, nil
 }
 
 // scheduleFor returns the configured schedule override if non-empty, otherwise the default.
@@ -5929,35 +6430,58 @@ type torVanityData struct {
 // torControlData is the union of every payload the /server/tor/* endpoints
 // produce; each endpoint fills only the fields that apply to it.
 type torControlData struct {
-	Enabled     bool          `json:"enabled"`
-	Running     bool          `json:"running"`
-	Status      string        `json:"status"`
-	Hostname    string        `json:"hostname"`
-	BackendPort int           `json:"backend_port"`
-	TorrcPath   string        `json:"torrc_path"`
-	SiteDir     string        `json:"site_dir"`
-	Valid       bool          `json:"valid"`
-	Problem     string        `json:"problem"`
-	Action      string        `json:"action"`
-	Message     string        `json:"message"`
-	Vanity      torVanityData `json:"vanity"`
+	Running            bool          `json:"running"`
+	PID                *int          `json:"pid"`
+	Version            string        `json:"version"`
+	OnionAddress       string        `json:"onion_address"`
+	BootstrapPercent   int           `json:"bootstrap_percent"`
+	CircuitEstablished bool          `json:"circuit_established"`
+	Valid              bool          `json:"valid"`
+	Errors             []torError    `json:"errors"`
+	Restarted          bool          `json:"restarted"`
+	PreviousAddress    string        `json:"previous_address"`
+	State              string        `json:"state"`
+	Prefix             string        `json:"prefix"`
+	Workers            int           `json:"workers"`
+	Stopped            bool          `json:"stopped"`
+	Candidates         []string      `json:"candidates"`
+	Vanity             torVanityData `json:"vanity"`
+}
+
+type torError struct {
+	Field   string `json:"field"`
+	Message string `json:"message"`
 }
 
 // torControlEnvelope is the canonical API envelope of AI.md PART 14 as the
 // Tor control endpoints return it.
 type torControlEnvelope struct {
-	OK      bool              `json:"ok"`
-	Data    torControlData    `json:"data"`
-	Error   string            `json:"error"`
-	Message string            `json:"message"`
-	Details map[string]string `json:"details"`
+	OK      bool           `json:"ok"`
+	Data    torControlData `json:"data"`
+	Error   string         `json:"error"`
+	Message string         `json:"message"`
+	Details map[string]any `json:"details"`
 }
 
 // failure renders the envelope's error for the terminal, preferring the
 // specific reason the server put in details over the generic message.
 func (e *torControlEnvelope) failure() string {
-	if reason, ok := e.Details["reason"]; ok && reason != "" {
+	if reason, ok := e.Details["reason"].(string); ok && reason != "" {
 		return reason
+	}
+	if prefix, ok := e.Details["prefix"].(string); ok && prefix != "" {
+		return "a vanity search is already running for prefix " + prefix
+	}
+	if candidates, ok := e.Details["candidates"].([]any); ok && len(candidates) > 0 {
+		values := make([]string, 0, len(candidates))
+		for _, candidate := range candidates {
+			if value, ok := candidate.(string); ok {
+				values = append(values, value)
+			}
+		}
+		if len(values) > 0 {
+			return "ambiguous candidate prefix; matches: " + strings.Join(values, ", ")
+		}
 	}
 	if e.Message != "" {
 		return e.Message
@@ -6047,7 +6571,7 @@ func torRequireServer(pidFile, port string) {
 
 // printTorUsage prints the `ipgaze tor` help text.
 func printTorUsage() {
-	fmt.Println("Usage: ipgaze tor <subcommand>")
+	fmt.Println("Usage: ipgaze --maintenance tor <subcommand>")
 	fmt.Println("")
 	fmt.Println("Tor is owned by the running server; these subcommands drive it")
 	fmt.Println("through the server's loopback-only control channel.")
@@ -6066,11 +6590,11 @@ func printTorUsage() {
 	fmt.Println("every other subcommand requires a running server.")
 	fmt.Println("")
 	fmt.Println("Examples:")
-	fmt.Println("  ipgaze tor status")
-	fmt.Println("  ipgaze tor vanity start news -w 4")
-	fmt.Println("  ipgaze tor vanity stop")
-	fmt.Println("  ipgaze tor vanity apply newsxyz")
-	fmt.Println("  ipgaze tor import-keys /path/to/keys/")
+	fmt.Println("  ipgaze --maintenance tor status")
+	fmt.Println("  ipgaze --maintenance tor vanity start news -w 4")
+	fmt.Println("  ipgaze --maintenance tor vanity stop")
+	fmt.Println("  ipgaze --maintenance tor vanity apply newsxyz")
+	fmt.Println("  ipgaze --maintenance tor import-keys /path/to/keys/")
 }
 
 // printTorVanityStatus renders the vanity search section of `tor status`.
@@ -6199,17 +6723,25 @@ func handleTorVanityCommand(args []string, pidFile, port string) {
 		env := torVanityCall(port, "/server/tor/vanity/start", body)
 		fmt.Printf("Vanity search started for prefix %q\n", prefix)
 		fmt.Println("Check progress with: ipgaze tor status")
-		if env.Data.Message != "" {
-			fmt.Printf("  %s\n", env.Data.Message)
-		}
+		fmt.Printf("  Workers: %d\n", env.Data.Workers)
 	case "stop":
+		if len(args) != 1 {
+			fmt.Fprintln(os.Stderr, "Usage: ipgaze --maintenance tor vanity stop")
+			os.Exit(exUsage)
+		}
 		torRequireServer(pidFile, port)
 		env := torVanityCall(port, "/server/tor/vanity/stop", nil)
-		if env.Data.Message != "" {
-			fmt.Println(env.Data.Message)
+		if env.Data.Stopped {
+			fmt.Println("Vanity search cancelled.")
+		} else {
+			fmt.Println("No vanity search was running.")
 		}
 		fmt.Println("Candidates already written to disk are kept.")
 	case "apply":
+		if len(args) > 2 {
+			fmt.Fprintln(os.Stderr, "Usage: ipgaze --maintenance tor vanity apply [address]")
+			os.Exit(exUsage)
+		}
 		address := ""
 		if len(args) > 1 {
 			address = args[1]
@@ -6225,10 +6757,9 @@ func handleTorVanityCommand(args []string, pidFile, port string) {
 			return
 		}
 		env := torVanityCall(port, "/server/tor/vanity/apply",
-			map[string]interface{}{"address": address})
+			map[string]interface{}{"address": address, "confirm": true})
 		fmt.Println("Vanity address applied")
-		fmt.Printf("  Address: %s\n", env.Data.Hostname)
-		fmt.Printf("  Status:  %s\n", env.Data.Status)
+		fmt.Printf("  Address: %s\n", env.Data.OnionAddress)
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown vanity subcommand: %s\n", args[0])
 		os.Exit(exUsage)
@@ -6244,6 +6775,10 @@ func handleTorCommand(args []string, configDir, dataDir, logDir, pidFile string,
 		printTorUsage()
 		return
 	}
+	if !requireOperatorAuth(cfg, "Tor maintenance requires authorization. Enter operator token to confirm: ") {
+		fmt.Fprintln(os.Stderr, "Authorization required: run as root/administrator, or provide a valid operator token.")
+		os.Exit(exNoPerm)
+	}
 
 	sub := args[0]
 	subArgs := args[1:]
@@ -6251,51 +6786,64 @@ func handleTorCommand(args []string, configDir, dataDir, logDir, pidFile string,
 
 	switch sub {
 	case "status":
+		if len(subArgs) != 0 {
+			fmt.Fprintln(os.Stderr, "Usage: ipgaze --maintenance tor status")
+			os.Exit(exUsage)
+		}
 		if !torServerRunning(pidFile, port) {
 			torStatusFromDisk(configDir, dataDir, logDir)
 			return
 		}
 		env := torControlRequire(port, http.MethodGet, "/server/tor/status", nil)
 		fmt.Println("Tor Hidden Service")
-		fmt.Printf("  Status:   %s\n", env.Data.Status)
-		if env.Data.Hostname != "" {
-			fmt.Printf("  Address:  %s\n", env.Data.Hostname)
+		fmt.Printf("  Running:  %t\n", env.Data.Running)
+		fmt.Printf("  Version:  %s\n", env.Data.Version)
+		if env.Data.PID != nil {
+			fmt.Printf("  PID:      %d\n", *env.Data.PID)
+		}
+		if env.Data.OnionAddress != "" {
+			fmt.Printf("  Address:  %s\n", env.Data.OnionAddress)
 		} else {
 			fmt.Println("  Address:  (not yet generated)")
 		}
-		if env.Data.BackendPort > 0 {
-			fmt.Printf("  Backend:  127.0.0.1:%d\n", env.Data.BackendPort)
-		}
-		fmt.Printf("  Config:   %s\n", env.Data.TorrcPath)
-		fmt.Printf("  Data:     %s\n", filepath.Join(dataDir, "tor"))
-		fmt.Printf("  Log:      %s\n", filepath.Join(logDir, "tor.log"))
+		fmt.Printf("  Bootstrap: %d%%\n", env.Data.BootstrapPercent)
+		fmt.Printf("  Circuit:   %t\n", env.Data.CircuitEstablished)
 		printTorVanityStatus(env.Data.Vanity)
 
 	case "validate":
+		if len(subArgs) != 0 {
+			fmt.Fprintln(os.Stderr, "Usage: ipgaze --maintenance tor validate")
+			os.Exit(exUsage)
+		}
 		if !torServerRunning(pidFile, port) {
 			torValidateFromDisk(configDir, dataDir, cfg)
 			return
 		}
 		env := torControlRequire(port, http.MethodPost, "/server/tor/validate", nil)
 		fmt.Println("Tor configuration")
-		fmt.Printf("  Config:   %s\n", env.Data.TorrcPath)
-		fmt.Printf("  Site:     %s\n", env.Data.SiteDir)
 		if !env.Data.Valid {
-			fmt.Printf("  Result:   invalid — %s\n", env.Data.Problem)
+			for _, item := range env.Data.Errors {
+				fmt.Printf("  %s: %s\n", item.Field, item.Message)
+			}
 			os.Exit(exOsErr)
 		}
 		fmt.Println("  Result:   valid")
 
 	case "restart":
+		if len(subArgs) != 0 {
+			fmt.Fprintln(os.Stderr, "Usage: ipgaze --maintenance tor restart")
+			os.Exit(exUsage)
+		}
 		torRequireServer(pidFile, port)
 		env := torControlRequire(port, http.MethodPost, "/server/tor/restart", nil)
 		fmt.Println("Tor restarted successfully")
-		fmt.Printf("  Status:   %s\n", env.Data.Status)
-		if env.Data.Hostname != "" {
-			fmt.Printf("  Address:  %s\n", env.Data.Hostname)
-		}
+		fmt.Printf("  Address:  %s\n", env.Data.OnionAddress)
 
 	case "regenerate":
+		if len(subArgs) != 0 {
+			fmt.Fprintln(os.Stderr, "Usage: ipgaze --maintenance tor regenerate")
+			os.Exit(exUsage)
+		}
 		torRequireServer(pidFile, port)
 		fmt.Println("WARNING: This will destroy the current .onion address and generate a new one.")
 		fmt.Println("Any bookmarks or links to the current address will stop working.")
@@ -6306,17 +6854,16 @@ func handleTorCommand(args []string, configDir, dataDir, logDir, pidFile string,
 			fmt.Println("Regeneration cancelled.")
 			return
 		}
-		env := torControlRequire(port, http.MethodPost, "/server/tor/regenerate", nil)
+		env := torControlRequire(port, http.MethodPost, "/server/tor/regenerate", map[string]interface{}{"confirm": true})
 		fmt.Println("New .onion address generated")
-		fmt.Printf("  Address:  %s\n", env.Data.Hostname)
-		fmt.Printf("  Status:   %s\n", env.Data.Status)
+		fmt.Printf("  Address:  %s\n", env.Data.OnionAddress)
 
 	case "vanity":
 		handleTorVanityCommand(subArgs, pidFile, port)
 
 	case "import-keys":
-		if len(subArgs) == 0 {
-			fmt.Fprintln(os.Stderr, "Usage: ipgaze tor import-keys <path>")
+		if len(subArgs) != 1 {
+			fmt.Fprintln(os.Stderr, "Usage: ipgaze --maintenance tor import-keys <path>")
 			os.Exit(exUsage)
 		}
 		srcDir, err := filepath.Abs(subArgs[0])
@@ -6324,12 +6871,17 @@ func handleTorCommand(args []string, configDir, dataDir, logDir, pidFile string,
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(exUsage)
 		}
+		fmt.Println("WARNING: This replaces the current .onion address with imported keys.")
+		fmt.Println("Any bookmarks or links to the current address may stop working.")
+		if !requireTypedConfirmation("yes", "Type 'yes' to confirm: ") {
+			fmt.Println("Key import cancelled.")
+			return
+		}
 		torRequireServer(pidFile, port)
 		env := torControlRequire(port, http.MethodPost, "/server/tor/import-keys",
-			map[string]interface{}{"path": srcDir})
+			map[string]interface{}{"path": srcDir, "confirm": true})
 		fmt.Printf("Imported hidden service keys from %s\n", srcDir)
-		fmt.Printf("  Address:  %s\n", env.Data.Hostname)
-		fmt.Printf("  Status:   %s\n", env.Data.Status)
+		fmt.Printf("  Address:  %s\n", env.Data.OnionAddress)
 
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown tor subcommand: %s\n", sub)

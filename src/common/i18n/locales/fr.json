@@ -643,7 +643,20 @@
     "header_flag": "Faire confiance à cet en-tête pour l'IP distante (répétable)",
     "status_flag": "Vérification de santé (sortie 0=sain, 1=défectueux)",
     "service_flag": "Gestion des services",
-    "maintenance_flag": "Opérations de maintenance"
+    "maintenance_flag": "Opérations de maintenance",
+    "email_test_usage": "Utilisation : ipgaze --maintenance email test [--to ADDRESS] [--dry-run]",
+    "email_auth_required": "Autorisation requise : exécutez en tant qu’administrateur ou fournissez un jeton opérateur valide.",
+    "email_smtp_required": "Les fonctions de messagerie nécessitent une configuration SMTP",
+    "email_sending": "Envoi à {recipient} avec le modèle test : {subject}",
+    "email_sent": "E-mail de test envoyé.",
+    "email_invalid_recipient": "Adresse du destinataire invalide",
+    "email_recipient_required": "Définissez server.notifications.email.reply_to ou indiquez --to ADDRESS",
+    "email_smtp_failed": "Échec de la connexion SMTP : {error}",
+    "email_render_failed": "Impossible de générer l’e-mail de test : {error}",
+    "email_audit_failed": "Impossible d’ouvrir le journal d’audit : {error}",
+    "email_send_failed": "Échec de l’envoi de l’e-mail de test : {error}",
+    "email_preview_template": "Modèle : {name}",
+    "email_preview_subject": "Objet : {subject}"
   },
   "accessibility": {
     "skip_to_content": "Aller au contenu",
@@ -965,7 +978,12 @@
       "update_available": "Mise à jour disponible - {app_name}",
       "update_installed": "Mise à jour installée - {app_name}",
       "update_failed": "Échec de la mise à jour - {app_name}",
-      "test_email": "E-mail de test - {app_name}"
+      "test_email": "E-mail de test - {app_name}",
+      "startup": "Serveur démarré - {app_name}",
+      "shutdown": "Serveur arrêté - {app_name}",
+      "disk_low": "Espace disque faible - {app_name}",
+      "database_error": "Problème de connexion à la base de données - {app_name}",
+      "update_staged": "Mise à jour préparée - {app_name}"
     },
     "body": {
       "from": "De : {app_name} ({fqdn})",
@@ -1020,7 +1038,28 @@
       "update_available_action": "Consultez les notes de version avant de mettre à jour. Commande manuelle : {command}",
       "update_installed_action": "Aucune action n'est requise.",
       "update_failed_action": "Examinez l’erreur et installez la mise à jour manuellement.",
-      "test_action": "La réception de ce message confirme que les paramètres du courrier sortant sont corrects."
+      "test_action": "La réception de ce message confirme que les paramètres du courrier sortant sont corrects.",
+      "startup_heading": "SERVEUR DÉMARRÉ",
+      "shutdown_heading": "SERVEUR ARRÊTÉ",
+      "disk_low_heading": "ESPACE DISQUE FAIBLE",
+      "database_error_heading": "PROBLÈME DE CONNEXION À LA BASE DE DONNÉES",
+      "update_staged_heading": "MISE À JOUR PRÉPARÉE",
+      "label_mode": "Mode :",
+      "label_reason": "Motif :",
+      "label_path": "Chemin :",
+      "label_used_percent": "Utilisé :",
+      "label_free_space": "Disponible :",
+      "label_threshold": "Seuil :",
+      "startup_intro": "Le serveur a démarré correctement.",
+      "shutdown_intro": "Le serveur est arrêté.",
+      "disk_low_intro": "Un volume surveillé manque d’espace libre.",
+      "database_error_intro": "La connexion à la base de données est indisponible.",
+      "update_staged_intro": "Une mise à jour du serveur est prête et nécessite un redémarrage.",
+      "startup_action": "Aucune action requise.",
+      "shutdown_action": "Consultez les journaux si cet arrêt est inattendu.",
+      "disk_low_action": "Libérez de l’espace ou augmentez la capacité du volume.",
+      "database_error_action": "Vérifiez la disponibilité de la base et la connexion du serveur.",
+      "update_staged_action": "Redémarrez le serveur pour appliquer la mise à jour."
     }
   },
   "swagger": {

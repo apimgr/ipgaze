@@ -3,9 +3,9 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"math"
 	"net/http"
 	"net/http/httptest"
-	"sort"
 	"sync"
 	"testing"
 	"time"
@@ -15,8 +15,14 @@ import (
 )
 
 type testRateLimitWindowCounter struct {
-	mu     sync.Mutex
-	events map[string][]time.Time
+	mu      sync.Mutex
+	windows map[string]testRateWindow
+}
+
+type testRateWindow struct {
+	count    int64
+	previous int64
+	start    int64
 }
 
 func (c *testRateLimitWindowCounter) SupportsRateLimitWindow() bool { return true }
@@ -24,26 +30,31 @@ func (c *testRateLimitWindowCounter) SupportsRateLimitWindow() bool { return tru
 func (c *testRateLimitWindowCounter) RateLimitWindow(_ context.Context, key string, now time.Time, window time.Duration, threshold int, add bool) (int64, time.Time, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if c.events == nil {
-		c.events = make(map[string][]time.Time)
+	if c.windows == nil {
+		c.windows = make(map[string]testRateWindow)
 	}
-	cutoff := now.Add(-window)
-	active := c.events[key][:0]
-	for _, event := range c.events[key] {
-		if event.After(cutoff) {
-			active = append(active, event)
+	windowSeconds := int64(window.Seconds())
+	if windowSeconds < 1 {
+		windowSeconds = 1
+	}
+	nowSeconds := now.Unix()
+	currentStart := nowSeconds - nowSeconds%windowSeconds
+	state := c.windows[key]
+	if currentStart > state.start {
+		if currentStart-state.start >= 2*windowSeconds {
+			state.previous = 0
+		} else {
+			state.previous = state.count
 		}
+		state.count = 0
+		state.start = currentStart
 	}
 	if add {
-		active = append(active, now)
+		state.count++
 	}
-	sort.Slice(active, func(i, j int) bool { return active[i].Before(active[j]) })
-	c.events[key] = active
-	count := int64(len(active))
-	if threshold > 0 && len(active) >= threshold {
-		return count, active[len(active)-threshold], nil
-	}
-	return count, time.Time{}, nil
+	c.windows[key] = state
+	weight := float64(state.previous) * (1 - float64(nowSeconds-state.start)/float64(windowSeconds))
+	return int64(math.Ceil(weight + float64(state.count))), time.Unix(state.start, 0), nil
 }
 
 func TestRateLimiterUsesExternalSlidingWindowCounter(t *testing.T) {
@@ -68,6 +79,30 @@ func TestRateLimiterUsesExternalSlidingWindowCounter(t *testing.T) {
 	limiter.RecordAuthFailure("192.0.2.20")
 	if blocked, retry := limiter.AuthFailureBlocked("192.0.2.20"); !blocked || retry <= 0 {
 		t.Fatalf("external-cache auth lockout = %v, retry=%v; want blocked with positive retry", blocked, retry)
+	}
+}
+
+func TestRateLimitDBWindowWeightsPreviousWindow(t *testing.T) {
+	database := newAbuseTestDB(t)
+	window := time.Minute
+	start := time.Unix(120, 0)
+	for i := 1; i <= 3; i++ {
+		count, _, err := rateLimitDBWindow(database, "ip:192.0.2.1:read", start, window, 100, true)
+		if err != nil || count != int64(i) {
+			t.Fatalf("current-window request %d: count=%d err=%v", i, count, err)
+		}
+	}
+	count, _, err := rateLimitDBWindow(database, "ip:192.0.2.1:read", start.Add(window), window, 100, false)
+	if err != nil || count != 3 {
+		t.Fatalf("new window start: count=%d err=%v, want 3", count, err)
+	}
+	count, _, err = rateLimitDBWindow(database, "ip:192.0.2.1:read", start.Add(90*time.Second), window, 100, false)
+	if err != nil || count != 2 {
+		t.Fatalf("half-window weighted count=%d err=%v, want ceil(1.5)=2", count, err)
+	}
+	count, _, err = rateLimitDBWindow(database, "ip:192.0.2.1:read", start.Add(2*window), window, 100, false)
+	if err != nil || count != 0 {
+		t.Fatalf("two-window count=%d err=%v, want 0", count, err)
 	}
 }
 

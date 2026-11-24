@@ -132,25 +132,25 @@ func (c *APIClient) SetTimeout(d time.Duration) {
 
 // IPResponse represents the server's IP lookup response.
 type IPResponse struct {
-	IP         string  `json:"ip"`
-	IPDecimal  uint64  `json:"ip_decimal,omitempty"`
-	Country    string  `json:"country,omitempty"`
-	CountryISO string  `json:"country_iso,omitempty"`
-	CountryEU  *bool   `json:"country_eu,omitempty"`
-	City       string  `json:"city,omitempty"`
-	RegionName string  `json:"region_name,omitempty"`
-	RegionCode string  `json:"region_code,omitempty"`
-	PostalCode string  `json:"zip_code,omitempty"`
-	Latitude   float64 `json:"latitude,omitempty"`
-	Longitude  float64 `json:"longitude,omitempty"`
-	Timezone   string  `json:"time_zone,omitempty"`
-	ASN        string  `json:"asn,omitempty"`
-	ASNOrg     string  `json:"asn_org,omitempty"`
-	Hostname   string  `json:"hostname,omitempty"`
-	IsVPN      *bool   `json:"is_vpn,omitempty"`
-	IsProxy    *bool   `json:"is_proxy,omitempty"`
-	IsTor      *bool   `json:"is_tor,omitempty"`
-	IsTorHiddenService *bool `json:"is_tor_hidden_service,omitempty"`
+	IP                 string  `json:"ip"`
+	IPDecimal          uint64  `json:"ip_decimal,omitempty"`
+	Country            string  `json:"country,omitempty"`
+	CountryISO         string  `json:"country_iso,omitempty"`
+	CountryEU          *bool   `json:"country_eu,omitempty"`
+	City               string  `json:"city,omitempty"`
+	RegionName         string  `json:"region_name,omitempty"`
+	RegionCode         string  `json:"region_code,omitempty"`
+	PostalCode         string  `json:"zip_code,omitempty"`
+	Latitude           float64 `json:"latitude,omitempty"`
+	Longitude          float64 `json:"longitude,omitempty"`
+	Timezone           string  `json:"time_zone,omitempty"`
+	ASN                string  `json:"asn,omitempty"`
+	ASNOrg             string  `json:"asn_org,omitempty"`
+	Hostname           string  `json:"hostname,omitempty"`
+	IsVPN              *bool   `json:"is_vpn,omitempty"`
+	IsProxy            *bool   `json:"is_proxy,omitempty"`
+	IsTor              *bool   `json:"is_tor,omitempty"`
+	IsTorHiddenService *bool   `json:"is_tor_hidden_service,omitempty"`
 }
 
 // GetMyIP returns the caller's IP address as a plain string.
@@ -211,14 +211,73 @@ func (c *APIClient) GetIPField(ctx context.Context, ip, field string) (string, e
 	return strings.TrimSpace(string(body)), nil
 }
 
-// AutodiscoverResponse is the response from /api/autodiscover (AI.md PART 32).
+// AutodiscoverResponse contains the public discovery data from /api/autodiscover.
 type AutodiscoverResponse struct {
-	ServerName    string                     `json:"server_name"`
+	Name          string                     `json:"name"`
 	Version       string                     `json:"version"`
-	APIVersion    string                     `json:"api_version"`
-	BaseURL       string                     `json:"base_url"`
+	APIVersion    string                     `json:"-"`
+	BaseURL       string                     `json:"-"`
+	URLs          []string                   `json:"urls"`
+	Onion         string                     `json:"onion,omitempty"`
+	I2P           string                     `json:"i2p,omitempty"`
 	CLIVersions   map[string]CLIVersionEntry `json:"cli_versions"`
 	CLIMinVersion string                     `json:"cli_min_version"`
+	ServerName    string                     `json:"-"`
+}
+
+func (r *AutodiscoverResponse) UnmarshalJSON(data []byte) error {
+	type apiVersion struct {
+		CurrentVersion string `json:"current_version"`
+	}
+	type payload struct {
+		Name          string                     `json:"name"`
+		Version       string                     `json:"version"`
+		API           apiVersion                 `json:"api"`
+		URLs          []string                   `json:"urls"`
+		Onion         string                     `json:"onion"`
+		I2P           string                     `json:"i2p"`
+		CLIVersions   map[string]CLIVersionEntry `json:"cli_versions"`
+		CLIMinVersion string                     `json:"cli_min_version"`
+		ServerName    string                     `json:"server_name"`
+		APIVersion    string                     `json:"api_version"`
+		BaseURL       string                     `json:"base_url"`
+	}
+	var envelope struct {
+		Data json.RawMessage `json:"data"`
+	}
+	if err := json.Unmarshal(data, &envelope); err != nil {
+		return err
+	}
+	payloadJSON := data
+	if len(envelope.Data) > 0 && string(envelope.Data) != "null" {
+		payloadJSON = envelope.Data
+	}
+	var decoded payload
+	if err := json.Unmarshal(payloadJSON, &decoded); err != nil {
+		return err
+	}
+	name := decoded.Name
+	if name == "" {
+		name = decoded.ServerName
+	}
+	apiVersionValue := decoded.API.CurrentVersion
+	if apiVersionValue == "" {
+		apiVersionValue = decoded.APIVersion
+	}
+	urls := decoded.URLs
+	if len(urls) == 0 && decoded.BaseURL != "" {
+		urls = []string{decoded.BaseURL}
+	}
+	baseURL := ""
+	if len(urls) > 0 {
+		baseURL = urls[0]
+	}
+	*r = AutodiscoverResponse{
+		Name: name, ServerName: name, Version: decoded.Version, APIVersion: apiVersionValue,
+		BaseURL: baseURL, URLs: urls, Onion: decoded.Onion, I2P: decoded.I2P,
+		CLIVersions: decoded.CLIVersions, CLIMinVersion: decoded.CLIMinVersion,
+	}
+	return nil
 }
 
 // CLIVersionEntry holds a platform-specific CLI version and its SHA-256 checksum.

@@ -512,32 +512,33 @@ func (r *redisCache) SupportsRateLimitWindow() bool { return true }
 func (r *redisCache) RateLimitWindow(ctx context.Context, key string, now time.Time, window time.Duration, threshold int, add bool) (int64, time.Time, error) {
 	const script = `
 local key = KEYS[1]
-local sequence = KEYS[2]
 local now = tonumber(ARGV[1])
 local window = tonumber(ARGV[2])
-local threshold = tonumber(ARGV[3])
 local add = tonumber(ARGV[4])
-redis.call('ZREMRANGEBYSCORE', key, '-inf', now - window)
+local current_start = math.floor(now / window) * window
+local count = tonumber(redis.call('HGET', key, 'count') or '0')
+local prev_count = tonumber(redis.call('HGET', key, 'prev_count') or '0')
+local window_start = tonumber(redis.call('HGET', key, 'window_start') or tostring(current_start))
+if current_start > window_start then
+  if current_start - window_start >= 2 * window then prev_count = 0 else prev_count = count end
+  count = 0
+  window_start = current_start
+end
 if add == 1 then
-  local id = redis.call('INCR', sequence)
-  redis.call('ZADD', key, now, tostring(now) .. ':' .. tostring(id))
-  redis.call('PEXPIRE', key, window + 1000)
-  redis.call('PEXPIRE', sequence, window + 1000)
+  count = count + 1
 end
-local count = redis.call('ZCARD', key)
-local oldest = 0
-if count >= threshold then
-  local offset = count - threshold
-  local entry = redis.call('ZRANGE', key, offset, offset, 'WITHSCORES')
-  if entry[2] then oldest = tonumber(entry[2]) end
-end
-return {count, oldest}
+redis.call('HSET', key, 'count', count, 'prev_count', prev_count, 'window_start', window_start)
+redis.call('PEXPIRE', key, 2 * window + 1000)
+local elapsed = (now - window_start) / window
+local effective = math.ceil(prev_count * (1 - elapsed) + count)
+return {effective, window_start}
 `
 	windowMillis := window.Milliseconds()
 	if windowMillis < 1 {
 		windowMillis = 1
 	}
-	result, err := r.client.Eval(ctx, script, []string{r.key("rate_limit:" + key), r.key("rate_limit:" + key + ":sequence")}, now.UnixMilli(), windowMillis, threshold, boolToInt(add)).Result()
+	_ = threshold
+	result, err := r.client.Eval(ctx, script, []string{r.key("rate_limit:" + key)}, now.UnixMilli(), windowMillis, threshold, boolToInt(add)).Result()
 	if err != nil {
 		return 0, time.Time{}, fmt.Errorf("cache: redis rate-limit window: %w", err)
 	}

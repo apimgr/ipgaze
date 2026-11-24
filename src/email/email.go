@@ -3,9 +3,11 @@ package email
 import (
 	"bytes"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"html"
 	"io/fs"
+	"log"
 	"mime"
 	"mime/multipart"
 	"mime/quotedprintable"
@@ -418,17 +420,40 @@ func (m *EmailManager) processQueue(stopCh chan struct{}) {
 // LoadTemplate loads a named template. Checks {config_dir}/template/email/ first,
 // then falls back to the embedded default templates.
 func (m *EmailManager) LoadTemplate(name string) (*Template, error) {
+	template, err := m.loadTemplateForPreview(name)
+	if err == nil {
+		return template, nil
+	}
+	if !errors.Is(err, fs.ErrNotExist) {
+		log.Printf("email template %q override invalid; using embedded default: %v", name, err)
+	}
+	return loadEmbeddedTemplate(name)
+}
+
+func (m *EmailManager) loadTemplateForPreview(name string) (*Template, error) {
 	filename := name + ".txt"
 
 	// Try config directory override first
 	if m.configDir != "" {
 		diskPath := filepath.Join(m.configDir, "template", "email", filename)
 		if data, err := os.ReadFile(diskPath); err == nil {
-			return parseTemplate(name, data)
+			template, parseErr := parseTemplate(name, data)
+			if parseErr != nil {
+				return nil, parseErr
+			}
+			if validationErrs := ValidateTemplate(template); len(validationErrs) > 0 {
+				return nil, errors.Join(validationErrs...)
+			}
+			return template, nil
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return nil, fmt.Errorf("read template %q override: %w", name, err)
 		}
 	}
+	return loadEmbeddedTemplate(name)
+}
 
-	// Fall back to embedded templates
+func loadEmbeddedTemplate(name string) (*Template, error) {
+	filename := name + ".txt"
 	data, err := fs.ReadFile(defaultTemplateFS, filename)
 	if err != nil {
 		return nil, fmt.Errorf("template %q not found: %w", name, err)
@@ -500,6 +525,24 @@ func (m *EmailManager) SendTemplate(templateName string, to []string, vars map[s
 	})
 }
 
+// RenderTemplate loads, validates, and renders one template without sending it.
+func (m *EmailManager) RenderTemplate(templateName string, vars map[string]string) (string, string, error) {
+	return m.RenderLocalizedTemplate(templateName, "en", vars)
+}
+
+// RenderLocalizedTemplate loads, validates, localizes, and renders one template without sending it.
+func (m *EmailManager) RenderLocalizedTemplate(templateName, lang string, vars map[string]string) (string, string, error) {
+	template, err := m.LoadTemplate(templateName)
+	if err != nil {
+		return "", "", err
+	}
+	if validationErrs := ValidateTemplate(template); len(validationErrs) > 0 {
+		return "", "", errors.Join(validationErrs...)
+	}
+	subject, body := template.Render(localizedTemplateVars(templateName, lang, vars))
+	return subject, body, nil
+}
+
 // localizedLabelKeys are the field labels every email template draws from the
 // email.body.* locale namespace rather than from caller-supplied data.
 var localizedLabelKeys = []string{
@@ -509,6 +552,7 @@ var localizedLabelKeys = []string{
 	"label_days_until_expiry", "label_next_retry", "label_next_run",
 	"label_channel", "label_current_version", "label_new_version",
 	"label_previous_version",
+	"label_mode", "label_reason", "label_path", "label_used_percent", "label_free_space", "label_threshold",
 }
 
 // emailLocaleStem maps a template file name to the stem the locale files use
@@ -516,6 +560,10 @@ var localizedLabelKeys = []string{
 // independently, so the mapping is explicit rather than derived.
 var emailLocaleStem = map[string]string{
 	"security_alert":     "security_alert",
+	"startup":            "startup",
+	"shutdown":           "shutdown",
+	"disk_low":           "disk_low",
+	"database_error":     "database_error",
 	"backup_complete":    "backup_completed",
 	"backup_failed":      "backup_failed",
 	"ssl_expiring":       "ssl_expiring",
@@ -525,6 +573,7 @@ var emailLocaleStem = map[string]string{
 	"update_available":   "update_available",
 	"update_installed":   "update_installed",
 	"update_failed":      "update_failed",
+	"update_staged":      "update_staged",
 	"test":               "test",
 }
 
@@ -545,6 +594,10 @@ func expandLocalizedVars(s string, vars map[string]string) string {
 // localized variable from the email.subjects.* / email.body.* locale
 // namespaces before falling through to the caller's data vars.
 func (m *EmailManager) SendLocalizedTemplate(templateName, lang string, to []string, vars map[string]string) error {
+	return m.SendTemplate(templateName, to, localizedTemplateVars(templateName, lang, vars))
+}
+
+func localizedTemplateVars(templateName, lang string, vars map[string]string) map[string]string {
 	stem := emailLocaleStem[templateName]
 	if stem == "" {
 		stem = templateName
@@ -566,6 +619,9 @@ func (m *EmailManager) SendLocalizedTemplate(templateName, lang string, to []str
 	}
 
 	merged := make(map[string]string, len(vars)+len(keys))
+	for k, v := range vars {
+		merged[k] = v
+	}
 	for name, key := range keys {
 		v := i18n.Translate(lang, key)
 		if v == "" || v == key {
@@ -573,10 +629,7 @@ func (m *EmailManager) SendLocalizedTemplate(templateName, lang string, to []str
 		}
 		merged[name] = expandLocalizedVars(v, vars)
 	}
-	for k, v := range vars {
-		merged[k] = v
-	}
-	return m.SendTemplate(templateName, to, merged)
+	return merged
 }
 
 // DefaultTemplateNames returns the names of all embedded templates.

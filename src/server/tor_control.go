@@ -1,10 +1,12 @@
 package server
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
+	"path/filepath"
 	"strings"
 
 	i18n "github.com/apimgr/ipgaze/src/common/i18n"
@@ -24,6 +26,7 @@ type TorController interface {
 	IsAvailable() bool
 	IsRunning() bool
 	GetInfo() tor.Info
+	GetControlStatus() tor.ControlStatus
 	GetHostname() string
 	BackendPort() int
 	TorrcPath() string
@@ -56,35 +59,42 @@ type torControlRequest struct {
 	Address string `json:"address,omitempty"`
 	// Path is the source directory for /server/tor/import-keys.
 	Path string `json:"path,omitempty"`
+	// Confirm must be true for destructive address or key replacement actions.
+	Confirm bool `json:"confirm,omitempty"`
 }
 
 // torStatusResponse is the payload of GET /server/tor/status.
 type torStatusResponse struct {
-	Enabled     bool             `json:"enabled"`
-	Running     bool             `json:"running"`
-	Status      string           `json:"status"`
-	Hostname    string           `json:"hostname,omitempty"`
-	BackendPort int              `json:"backend_port,omitempty"`
-	TorrcPath   string           `json:"torrc_path"`
-	SiteDir     string           `json:"site_dir"`
-	Vanity      tor.VanityStatus `json:"vanity"`
+	Running            bool             `json:"running"`
+	PID                *int             `json:"pid,omitempty"`
+	Version            string           `json:"version"`
+	OnionAddress       string           `json:"onion_address,omitempty"`
+	BootstrapPercent   int              `json:"bootstrap_percent"`
+	CircuitEstablished bool             `json:"circuit_established"`
+	Vanity             tor.VanityStatus `json:"vanity"`
 }
 
 // torActionResponse is the payload of the mutating control endpoints.
 type torActionResponse struct {
-	Action   string `json:"action"`
-	Running  bool   `json:"running"`
-	Status   string `json:"status"`
-	Hostname string `json:"hostname,omitempty"`
-	Message  string `json:"message,omitempty"`
+	Restarted       bool     `json:"restarted,omitempty"`
+	OnionAddress    string   `json:"onion_address,omitempty"`
+	PreviousAddress string   `json:"previous_address,omitempty"`
+	State           string   `json:"state,omitempty"`
+	Prefix          string   `json:"prefix,omitempty"`
+	Workers         int      `json:"workers,omitempty"`
+	Stopped         bool     `json:"stopped"`
+	Candidates      []string `json:"candidates"`
 }
 
 // torValidateResponse is the payload of POST /server/tor/validate.
 type torValidateResponse struct {
-	Valid     bool   `json:"valid"`
-	TorrcPath string `json:"torrc_path"`
-	SiteDir   string `json:"site_dir"`
-	Problem   string `json:"problem,omitempty"`
+	Valid  bool               `json:"valid"`
+	Errors []torValidateError `json:"errors"`
+}
+
+type torValidateError struct {
+	Field   string `json:"field"`
+	Message string `json:"message"`
 }
 
 // torControlRoute pairs a control endpoint with the single HTTP method it
@@ -132,8 +142,7 @@ func (s *Server) torControlEndpoint(method string, fn func(http.ResponseWriter, 
 			return
 		}
 		if r.Method != method {
-			handler.SendAPIResponseError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED",
-				i18n.T(r.Context(), "errors.method_not_allowed"), nil)
+			torControlNotFound(w, r)
 			return
 		}
 		if s.TorControl == nil {
@@ -156,17 +165,35 @@ func torControlNotFound(w http.ResponseWriter, r *http.Request) {
 // An empty body is valid and yields a zero-valued request.
 func decodeTorControlRequest(r *http.Request) (torControlRequest, error) {
 	var req torControlRequest
-	body, err := io.ReadAll(io.LimitReader(r.Body, torControlMaxBody))
+	body, err := io.ReadAll(io.LimitReader(r.Body, torControlMaxBody+1))
 	if err != nil {
 		return req, err
+	}
+	if len(body) > torControlMaxBody {
+		return req, errors.New("request body is too large")
 	}
 	if len(strings.TrimSpace(string(body))) == 0 {
 		return req, nil
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	mediaType := strings.ToLower(strings.TrimSpace(strings.SplitN(r.Header.Get("Content-Type"), ";", 2)[0]))
+	if mediaType != "application/json" {
+		return req, errors.New("Content-Type must be application/json")
+	}
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&req); err != nil {
 		return req, err
 	}
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		return req, errors.New("request body must contain one JSON object")
+	}
 	return req, nil
+}
+
+func torControlConfirmationRequired(w http.ResponseWriter, r *http.Request) {
+	handler.SendAPIResponseError(w, http.StatusBadRequest, "VALIDATION_FAILED",
+		i18n.T(r.Context(), "errors.required"), map[string]string{"field": "confirm"})
 }
 
 // torControlBadRequest reports a malformed or rejected control request,
@@ -186,34 +213,38 @@ func torControlFailed(w http.ResponseWriter, r *http.Request, reason string) {
 // torStatusHandler serves GET /server/tor/status.
 func torStatusHandler(w http.ResponseWriter, _ *http.Request, tc TorController) {
 	info := tc.GetInfo()
+	runtimeStatus := tc.GetControlStatus()
+	var pid *int
+	if runtimeStatus.PID > 0 {
+		pid = &runtimeStatus.PID
+	}
 	handler.SendAPIResponseOK(w, torStatusResponse{
-		Enabled:     info.Enabled,
-		Running:     info.Running,
-		Status:      info.Status,
-		Hostname:    info.Hostname,
-		BackendPort: tc.BackendPort(),
-		TorrcPath:   tc.TorrcPath(),
-		SiteDir:     tc.SiteDir(),
-		Vanity:      tc.VanitySearchStatus(),
+		Running: info.Running, PID: pid, Version: runtimeStatus.Version,
+		OnionAddress: info.Hostname, BootstrapPercent: runtimeStatus.BootstrapPercent,
+		CircuitEstablished: runtimeStatus.CircuitEstablished, Vanity: tc.VanitySearchStatus(),
 	}, nil)
 }
 
 // torValidateHandler serves POST /server/tor/validate.
-func torValidateHandler(w http.ResponseWriter, _ *http.Request, tc TorController) {
-	resp := torValidateResponse{
-		Valid:     true,
-		TorrcPath: tc.TorrcPath(),
-		SiteDir:   tc.SiteDir(),
+func torValidateHandler(w http.ResponseWriter, r *http.Request, tc TorController) {
+	if err := rejectTorControlBody(r); err != nil {
+		torControlBadRequest(w, r, err.Error())
+		return
 	}
+	resp := torValidateResponse{Valid: true, Errors: []torValidateError{}}
 	if err := tc.Validate(); err != nil {
 		resp.Valid = false
-		resp.Problem = err.Error()
+		resp.Errors = append(resp.Errors, torValidateError{Field: "torrc", Message: err.Error()})
 	}
 	handler.SendAPIResponseOK(w, resp, nil)
 }
 
 // torRestartHandler serves POST /server/tor/restart.
 func torRestartHandler(w http.ResponseWriter, r *http.Request, tc TorController) {
+	if err := rejectTorControlBody(r); err != nil {
+		torControlBadRequest(w, r, err.Error())
+		return
+	}
 	if !tc.IsAvailable() {
 		torControlFailed(w, r, "tor binary not found")
 		return
@@ -222,26 +253,47 @@ func torRestartHandler(w http.ResponseWriter, r *http.Request, tc TorController)
 		torControlFailed(w, r, err.Error())
 		return
 	}
-	torActionOK(w, "restart", tc, "")
+	handler.SendAPIResponseOK(w, torActionResponse{Restarted: true, OnionAddress: tc.GetHostname()}, nil)
+}
+
+// rejectTorControlBody enforces endpoint contracts whose request body is
+// explicitly `none` in AI.md PART 31.1.
+func rejectTorControlBody(r *http.Request) error {
+	body, err := io.ReadAll(io.LimitReader(r.Body, torControlMaxBody+1))
+	if err != nil {
+		return err
+	}
+	if len(body) > torControlMaxBody {
+		return errors.New("request body is too large")
+	}
+	if len(strings.TrimSpace(string(body))) != 0 {
+		return errors.New("request body is not allowed")
+	}
+	return nil
 }
 
 // torRegenerateHandler serves POST /server/tor/regenerate.
 func torRegenerateHandler(w http.ResponseWriter, r *http.Request, tc TorController) {
+	req, err := decodeTorControlRequest(r)
+	if err != nil {
+		torControlBadRequest(w, r, err.Error())
+		return
+	}
+	if !req.Confirm {
+		torControlConfirmationRequired(w, r)
+		return
+	}
 	if !tc.IsAvailable() {
 		torControlFailed(w, r, "tor binary not found")
 		return
 	}
+	previousAddress := tc.GetHostname()
 	address, err := tc.RegenerateAddress()
 	if err != nil {
 		torControlFailed(w, r, err.Error())
 		return
 	}
-	handler.SendAPIResponseOK(w, torActionResponse{
-		Action:   "regenerate",
-		Running:  tc.IsRunning(),
-		Status:   tc.GetInfo().Status,
-		Hostname: address,
-	}, nil)
+	handler.SendAPIResponseOK(w, torActionResponse{OnionAddress: address, PreviousAddress: previousAddress}, nil)
 }
 
 // torVanityStartHandler serves POST /server/tor/vanity/start.
@@ -251,38 +303,39 @@ func torVanityStartHandler(w http.ResponseWriter, r *http.Request, tc TorControl
 		torControlBadRequest(w, r, err.Error())
 		return
 	}
-	if err := tc.StartVanitySearch(strings.ToLower(strings.TrimSpace(req.Prefix)), req.Workers); err != nil {
+	prefix := strings.TrimSpace(req.Prefix)
+	if err := tor.ValidateVanityPrefix(prefix); err != nil {
+		handler.SendAPIResponseError(w, http.StatusBadRequest, "VALIDATION_FAILED", i18n.T(r.Context(), "errors.bad_request"), map[string]string{"field": "prefix", "reason": err.Error()})
+		return
+	}
+	if err := tc.StartVanitySearch(prefix, req.Workers); err != nil {
 		// One search at a time (AI.md PART 31.1): a second start is a
 		// conflict, not a malformed request.
 		if errors.Is(err, tor.ErrVanitySearchRunning) {
 			handler.SendAPIResponseError(w, http.StatusConflict, "CONFLICT",
-				i18n.T(r.Context(), "errors.conflict"), map[string]string{"reason": err.Error()})
+				i18n.T(r.Context(), "errors.conflict"), map[string]string{"prefix": tc.VanitySearchStatus().Prefix})
 			return
 		}
-		torControlBadRequest(w, r, err.Error())
+		handler.SendAPIResponseError(w, http.StatusBadRequest, "VALIDATION_FAILED", i18n.T(r.Context(), "errors.bad_request"), map[string]string{"field": "prefix", "reason": err.Error()})
 		return
 	}
-	handler.SendAPIResponseOK(w, torActionResponse{
-		Action:  "vanity/start",
-		Running: tc.IsRunning(),
-		Status:  tc.GetInfo().Status,
-		Message: "vanity search started",
-	}, nil)
+	status := tc.VanitySearchStatus()
+	handler.SendAPIResponseAccepted(w, torActionResponse{State: "running", Prefix: status.Prefix, Workers: status.Workers})
 }
 
 // torVanityStopHandler serves POST /server/tor/vanity/stop. Stopping when no
 // search is running is a no-op, not an error (AI.md PART 31.1).
-func torVanityStopHandler(w http.ResponseWriter, _ *http.Request, tc TorController) {
-	message := "no vanity search is running"
-	if tc.StopVanitySearch() {
-		message = "vanity search cancelled"
+func torVanityStopHandler(w http.ResponseWriter, r *http.Request, tc TorController) {
+	if err := rejectTorControlBody(r); err != nil {
+		torControlBadRequest(w, r, err.Error())
+		return
 	}
-	handler.SendAPIResponseOK(w, torActionResponse{
-		Action:  "vanity/stop",
-		Running: tc.IsRunning(),
-		Status:  tc.GetInfo().Status,
-		Message: message,
-	}, nil)
+	stopped := tc.StopVanitySearch()
+	candidates := tc.VanitySearchStatus().Candidates
+	if candidates == nil {
+		candidates = []string{}
+	}
+	handler.SendAPIResponseOK(w, torActionResponse{Stopped: stopped, Candidates: candidates}, nil)
 }
 
 // torVanityApplyHandler serves POST /server/tor/vanity/apply.
@@ -292,17 +345,30 @@ func torVanityApplyHandler(w http.ResponseWriter, r *http.Request, tc TorControl
 		torControlBadRequest(w, r, err.Error())
 		return
 	}
-	address, err := tc.ApplyVanityAddress(strings.ToLower(strings.TrimSpace(req.Address)))
-	if err != nil {
-		torControlBadRequest(w, r, err.Error())
+	if !req.Confirm {
+		torControlConfirmationRequired(w, r)
 		return
 	}
-	handler.SendAPIResponseOK(w, torActionResponse{
-		Action:   "vanity/apply",
-		Running:  tc.IsRunning(),
-		Status:   tc.GetInfo().Status,
-		Hostname: address,
-	}, nil)
+	address, err := tc.ApplyVanityAddress(strings.TrimSpace(req.Address))
+	if err != nil {
+		if strings.Contains(err.Error(), "multiple vanity candidates") || strings.Contains(err.Error(), "matches multiple vanity candidates") {
+			var candidates []string
+			for _, candidate := range tc.VanitySearchStatus().Candidates {
+				if req.Address == "" || strings.HasPrefix(candidate, strings.TrimSpace(req.Address)) {
+					candidates = append(candidates, candidate)
+				}
+			}
+			handler.SendAPIResponseError(w, http.StatusConflict, "CONFLICT", i18n.T(r.Context(), "errors.conflict"), map[string]any{"candidates": candidates})
+			return
+		}
+		if strings.Contains(err.Error(), "no vanity candidates") || strings.Contains(err.Error(), "no vanity candidate matches") || (strings.Contains(err.Error(), "candidate") && strings.Contains(err.Error(), "not found")) {
+			handler.SendAPIResponseError(w, http.StatusNotFound, "NOT_FOUND", i18n.T(r.Context(), "errors.not_found"), nil)
+			return
+		}
+		torControlFailed(w, r, err.Error())
+		return
+	}
+	handler.SendAPIResponseOK(w, torActionResponse{OnionAddress: address}, nil)
 }
 
 // torImportKeysHandler serves POST /server/tor/import-keys.
@@ -312,31 +378,19 @@ func torImportKeysHandler(w http.ResponseWriter, r *http.Request, tc TorControll
 		torControlBadRequest(w, r, err.Error())
 		return
 	}
+	if !req.Confirm {
+		torControlConfirmationRequired(w, r)
+		return
+	}
 	path := strings.TrimSpace(req.Path)
-	if path == "" {
-		torControlBadRequest(w, r, "import path must not be empty")
+	if path == "" || !filepath.IsAbs(path) {
+		handler.SendAPIResponseError(w, http.StatusBadRequest, "VALIDATION_FAILED", i18n.T(r.Context(), "errors.bad_request"), map[string]string{"field": "path", "reason": "import path must be absolute"})
 		return
 	}
 	address, err := tc.ImportKeys(path)
 	if err != nil {
-		torControlBadRequest(w, r, err.Error())
+		handler.SendAPIResponseError(w, http.StatusBadRequest, "VALIDATION_FAILED", i18n.T(r.Context(), "errors.bad_request"), map[string]string{"field": "path", "reason": err.Error()})
 		return
 	}
-	handler.SendAPIResponseOK(w, torActionResponse{
-		Action:   "import-keys",
-		Running:  tc.IsRunning(),
-		Status:   tc.GetInfo().Status,
-		Hostname: address,
-	}, nil)
-}
-
-// torActionOK writes the standard success payload for a control action.
-func torActionOK(w http.ResponseWriter, action string, tc TorController, message string) {
-	handler.SendAPIResponseOK(w, torActionResponse{
-		Action:   action,
-		Running:  tc.IsRunning(),
-		Status:   tc.GetInfo().Status,
-		Hostname: tc.GetHostname(),
-		Message:  message,
-	}, nil)
+	handler.SendAPIResponseOK(w, torActionResponse{OnionAddress: address}, nil)
 }

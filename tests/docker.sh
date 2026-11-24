@@ -18,7 +18,7 @@ else
     DOCKER_GO_BUILD="${DOCKER_GO_BUILD:-$HOME/.cache/go-build/${DOCKER_PROJECT_NAME}}"
     mkdir -p "$DOCKER_GO_CACHE" "$DOCKER_GO_BUILD" binaries
     docker run --rm \
-      --name "${DOCKER_PROJECT_NAME}-$(tr -dc 'a-z0-9' </dev/urandom | head -c8)" \
+      --name "${DOCKER_PROJECT_NAME}-$(od -An -N4 -tx1 /dev/urandom | tr -d ' \n')" \
       -v "$PWD:/app" \
       -v "$DOCKER_GO_CACHE:/usr/local/share/go/pkg/mod" \
       -v "$DOCKER_GO_BUILD:/usr/local/share/go/cache" \
@@ -26,7 +26,7 @@ else
       casjaysdev/go:latest go build -buildvcs=false -trimpath -ldflags "-s -w" -o "/app/binaries/${DOCKER_PROJECT_NAME}" ./src
     if [ -d "src/client" ]; then
         docker run --rm \
-          --name "${DOCKER_PROJECT_NAME}-$(tr -dc 'a-z0-9' </dev/urandom | head -c8)" \
+          --name "${DOCKER_PROJECT_NAME}-$(od -An -N4 -tx1 /dev/urandom | tr -d ' \n')" \
           -v "$PWD:/app" \
           -v "$DOCKER_GO_CACHE:/usr/local/share/go/pkg/mod" \
           -v "$DOCKER_GO_BUILD:/usr/local/share/go/cache" \
@@ -37,7 +37,7 @@ fi
 
 echo "Testing in Docker (Alpine)..."
 docker run --rm \
-  --name "${DOCKER_PROJECT_NAME}-$(tr -dc 'a-z0-9' </dev/urandom | head -c8)" \
+  --name "${DOCKER_PROJECT_NAME}-$(od -An -N4 -tx1 /dev/urandom | tr -d ' \n')" \
   -v "$PWD/binaries:/app" \
   alpine:latest sh -c "
     set -e
@@ -114,7 +114,7 @@ docker run --rm \
     curl -q -LSsf http://localhost:64580/api/v1/ip || { echo 'FAILED: /api/v1/ip'; exit 1; }
 
     # Autodiscover (PART 13/14) — required fields
-    curl -q -LSsf http://localhost:64580/api/autodiscover | jq -e '.api_version and .version and .server_name and .cli_min_version' >/dev/null \
+    curl -q -LSsf http://localhost:64580/api/autodiscover | jq -e '.ok == true and (.data.name | length > 0) and (.data.version | length > 0) and (.data.api.current_version | length > 0) and (.data.cli_min_version != null)' >/dev/null \
         || { echo 'FAILED: /api/autodiscover missing required fields'; exit 1; }
 
     echo '=== Content Negotiation Tests ==='

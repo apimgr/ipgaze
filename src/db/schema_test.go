@@ -38,7 +38,6 @@ func TestEnsureSchema_CreatesAllTables(t *testing.T) {
 		"config",
 		"config_meta",
 		"rate_limits",
-		"rate_limit_events",
 		"audit_log",
 		"scheduler_tasks",
 		"scheduler_history",
@@ -64,6 +63,34 @@ func TestEnsureSchema_Idempotent(t *testing.T) {
 	}
 	if err := EnsureSchema(db); err != nil {
 		t.Fatalf("second EnsureSchema (idempotency): %v", err)
+	}
+}
+
+func TestEnsureSchema_AddsPreviousRateLimitWindow(t *testing.T) {
+	db := openMemDB(t)
+	if _, err := db.Exec(`CREATE TABLE rate_limits (
+		key TEXT PRIMARY KEY,
+		count INTEGER NOT NULL DEFAULT 1,
+		window_start INTEGER NOT NULL DEFAULT 0,
+		updated_at INTEGER NOT NULL DEFAULT 0
+	)`); err != nil {
+		t.Fatalf("create legacy rate_limits table: %v", err)
+	}
+	if err := EnsureSchema(db); err != nil {
+		t.Fatalf("EnsureSchema: %v", err)
+	}
+	var previousCount int
+	if err := db.QueryRow(`SELECT prev_count FROM rate_limits WHERE key='missing'`).Scan(&previousCount); err == nil {
+		t.Fatal("unexpected row in empty rate_limits table")
+	}
+	if _, err := db.Exec(`INSERT INTO rate_limits (key) VALUES ('test')`); err != nil {
+		t.Fatalf("insert rate limit row: %v", err)
+	}
+	if err := db.QueryRow(`SELECT prev_count FROM rate_limits WHERE key='test'`).Scan(&previousCount); err != nil {
+		t.Fatalf("read previous count: %v", err)
+	}
+	if previousCount != 0 {
+		t.Fatalf("prev_count = %d, want 0", previousCount)
 	}
 }
 
@@ -125,7 +152,6 @@ func TestEnsureSchema_CreatesIndexes(t *testing.T) {
 	expected := []string{
 		"idx_config_key_prefix",
 		"idx_rate_limits_window",
-		"idx_rate_limit_events_bucket_time",
 		"idx_audit_timestamp",
 		"idx_audit_category",
 		"idx_audit_actor_ip",

@@ -1,0 +1,19 @@
+Subject: {subject}
+---
+{heading}
+
+{from_line}
+{label_time} {time}
+
+{intro}
+
+{label_path} {path}
+{label_used_percent} {used_percent}%
+{label_free_space} {free}
+{label_threshold} {threshold_percent}%
+
+{action}
+
+--
+{app_name}
+{app_url}

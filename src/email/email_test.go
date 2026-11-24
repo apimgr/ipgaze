@@ -415,7 +415,11 @@ func TestDefaultTemplateNames_ReturnsKnownTemplates(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DefaultTemplateNames: %v", err)
 	}
-	expected := []string{"backup_complete", "backup_failed", "scheduler_error", "security_alert", "ssl_expiring", "ssl_renewed", "test"}
+	expected := []string{
+		"backup_complete", "backup_failed", "database_error", "disk_low", "scheduler_error",
+		"security_alert", "shutdown", "ssl_expiring", "ssl_renewal_failed", "ssl_renewed",
+		"startup", "test", "update_available", "update_failed", "update_installed", "update_staged",
+	}
 	nameSet := make(map[string]bool, len(names))
 	for _, n := range names {
 		nameSet[n] = true
@@ -424,6 +428,9 @@ func TestDefaultTemplateNames_ReturnsKnownTemplates(t *testing.T) {
 		if !nameSet[want] {
 			t.Errorf("expected template %q in DefaultTemplateNames, got: %v", want, names)
 		}
+	}
+	if len(names) != len(expected) {
+		t.Errorf("got %d templates, want all %d AI.md defaults: %v", len(names), len(expected), names)
 	}
 }
 
@@ -441,6 +448,46 @@ func TestDefaultTemplateNames_NoDuplicates(t *testing.T) {
 			t.Errorf("template %q appears %d times", n, count)
 		}
 	}
+}
+
+func TestPreviewTemplatesIncludesAllLocalizedDefaults(t *testing.T) {
+	manager := NewEmailManager(SMTPConfig{}, "")
+	previews, errs := manager.PreviewTemplates(map[string]string{"app_name": "Example", "app_url": "https://example.test"}, "en")
+	if len(errs) != 0 {
+		t.Fatalf("PreviewTemplates errors = %v", errs)
+	}
+	if len(previews) != 16 {
+		t.Fatalf("PreviewTemplates returned %d templates, want 16", len(previews))
+	}
+	seen := make(map[string]bool, len(previews))
+	for _, preview := range previews {
+		seen[preview.Name] = true
+		if strings.Contains(preview.Subject, "Test Email") && preview.Name != "test" {
+			t.Errorf("template %q got test subject %q", preview.Name, preview.Subject)
+		}
+	}
+	for _, name := range []string{"startup", "shutdown", "disk_low", "database_error", "update_staged"} {
+		if !seen[name] {
+			t.Errorf("preview missing %q", name)
+		}
+	}
+}
+
+func TestPreviewTemplatesUsesRequestedLocale(t *testing.T) {
+	manager := NewEmailManager(SMTPConfig{}, "")
+	previews, errs := manager.PreviewTemplates(map[string]string{"app_name": "Example", "subject": "English sample subject"}, "fr")
+	if len(errs) != 0 {
+		t.Fatalf("PreviewTemplates errors = %v", errs)
+	}
+	for _, preview := range previews {
+		if preview.Name == "startup" {
+			if !strings.Contains(preview.Subject, "Serveur démarré") || strings.Contains(preview.Subject, "English sample subject") {
+				t.Fatalf("startup subject = %q, want French translation", preview.Subject)
+			}
+			return
+		}
+	}
+	t.Fatal("startup template preview missing")
 }
 
 // --- Start / Stop idempotency ---
@@ -648,4 +695,46 @@ func TestBuildPlainTextBodyUsesReplyToWithoutHTMLPart(t *testing.T) {
 	if _, err := buildPlainTextBody("subject\r\nBcc: victim@example.net", "body", "from@example.com", []string{"to@example.com"}, "reporter@example.net"); err == nil {
 		t.Fatal("header injection subject was accepted")
 	}
+}
+
+func TestValidateTemplateRejectsUnknownVariable(t *testing.T) {
+	got := ValidateTemplate(&Template{Name: "bad", Subject: "Subject", Body: "Value: {foo}"})
+	if len(got) != 1 || got[0].Error() != "Unknown variable: {foo}. Did you mean {fqdn}?" {
+		t.Fatalf("ValidateTemplate errors = %v", got)
+	}
+}
+
+func TestValidateTemplateRequiresSubjectAndBody(t *testing.T) {
+	got := ValidateTemplate(&Template{Name: "empty"})
+	if len(got) != 2 {
+		t.Fatalf("ValidateTemplate errors = %v, want empty subject and body", got)
+	}
+	if got[0].Error() != "Subject cannot be empty" || got[1].Error() != "Body cannot be empty" {
+		t.Fatalf("ValidateTemplate errors = %v", got)
+	}
+}
+
+func TestPreviewTemplatesUsesEmbeddedDefaultAfterInvalidOverride(t *testing.T) {
+	dir := t.TempDir()
+	overrideDir := filepath.Join(dir, "template", "email")
+	if err := os.MkdirAll(overrideDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(overrideDir, "test.txt"), []byte("Subject: {unknown}\n---\nbody"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	manager := NewEmailManager(SMTPConfig{}, dir)
+	previews, errs := manager.PreviewTemplates(map[string]string{"subject": "Test Email"}, "en")
+	if len(errs) != 1 || errs[0].Error() != "Unknown variable: {unknown}" {
+		t.Fatalf("PreviewTemplates errors = %v", errs)
+	}
+	for _, preview := range previews {
+		if preview.Name == "test" {
+			if preview.Subject != "Test email - {app_name}" || !strings.Contains(preview.Body, "This is a test message") {
+				t.Fatalf("invalid override was not replaced by embedded default: %#v", preview)
+			}
+			return
+		}
+	}
+	t.Fatal("test template preview missing")
 }

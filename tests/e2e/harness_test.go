@@ -178,6 +178,7 @@ func startServer(binary, root string, port int) (func(), error) {
 		"--backup", dirs["backups"],
 		"--address", "127.0.0.1",
 		"--port", fmt.Sprintf("%d", port),
+		"--debug",
 	)
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
@@ -221,7 +222,7 @@ func writeE2EServerConfig(configDir string) error {
 	if err := os.MkdirAll(dropInDir, 0o700); err != nil {
 		return fmt.Errorf("create E2E config drop-in directory: %w", err)
 	}
-	content := []byte("server:\n  healthz:\n    root:\n      enabled: true\n  rate_limit:\n    read:\n      requests: 10000\n      window: 60\n    write:\n      requests: 10000\n      window: 60\n    health:\n      requests: 10000\n      window: 60\n    global_burst: 20000\n")
+	content := []byte("server:\n  token: e2e-debug-token\n  debug:\n    runtime_endpoints: true\n  healthz:\n    root:\n      enabled: true\n  rate_limit:\n    read:\n      requests: 10000\n      window: 60\n    write:\n      requests: 10000\n      window: 60\n    health:\n      requests: 10000\n      window: 60\n    global_burst: 20000\n")
 	if err := os.WriteFile(filepath.Join(dropInDir, "e2e.yml"), content, 0o600); err != nil {
 		return fmt.Errorf("write E2E server config: %w", err)
 	}

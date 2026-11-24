@@ -415,6 +415,22 @@ func TestLLMsTxtHandler(t *testing.T) {
 	}
 }
 
+func TestLLMCustomSectionValidationAndLinkSafety(t *testing.T) {
+	sections := []config.LLMCustomSection{
+		{Title: "Valid", Content: "[secure](https://example.test) and [relative](./guide)"},
+		{Title: "", Content: "invalid"},
+		{Title: "Unsafe", Content: "[bad](javascript:alert(1)) <script>"},
+	}
+	valid := validLLMCustomSections(sections)
+	if len(valid) != 2 {
+		t.Fatalf("validLLMCustomSections() returned %d sections, want 2", len(valid))
+	}
+	got := safeLLMMarkdown(valid[1].Content)
+	if strings.Contains(got, "<script>") || strings.Contains(got, "javascript:") || !strings.Contains(got, "](#)") {
+		t.Fatalf("unsafe section content = %q", got)
+	}
+}
+
 func TestLLMsReadRateLimitUsesConfiguration(t *testing.T) {
 	tests := []struct {
 		name string

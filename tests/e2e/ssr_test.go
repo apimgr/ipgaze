@@ -259,6 +259,20 @@ func TestSSRUnknownPathRendersThemedErrorPage(t *testing.T) {
 	}
 }
 
+func TestSSRDebugError500RendersThemedPage(t *testing.T) {
+	header := make(http.Header)
+	header.Set("Authorization", "Bearer e2e-debug-token")
+	status, body, responseHeader := getBody(t, "/debug/error500", header)
+	if status != http.StatusInternalServerError {
+		t.Fatalf("GET /debug/error500 returned %d, want 500; body=%s", status, body)
+	}
+	if ct := responseHeader.Get("Content-Type"); !strings.Contains(ct, "text/html") {
+		t.Fatalf("debug 500 Content-Type is %q, want text/html", ct)
+	}
+	mustContain(t, "debug-error500.html", body, `class="error-title">500`, "themed 500 page title")
+	mustContain(t, "debug-error500.html", body, `class="error-container"`, "themed 500 page container")
+}
+
 func TestSSRWellKnownAndMetadataEndpoints(t *testing.T) {
 	cases := []struct {
 		path     string

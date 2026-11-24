@@ -8,6 +8,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/apimgr/ipgaze/src/config"
 )
 
 func TestIPLookupHandler(t *testing.T) {
@@ -156,7 +158,13 @@ func TestAPIV1ScalarHandlersNegotiate(t *testing.T) {
 
 func TestAutodiscoverHandler(t *testing.T) {
 	log.SetOutput(io.Discard)
-	ts := httptest.NewServer(testServer().Handler())
+	s := testServer()
+	cfg := config.DefaultConfig()
+	cfg.Server.Tor.Expose = true
+	cfg.Server.Update.CLIMinVersion = "1.2.3"
+	s.SetConfig(cfg)
+	s.SetTorStatus(&stubTorController{})
+	ts := httptest.NewServer(s.Handler())
 	defer ts.Close()
 
 	out, status, err := httpGet(ts.URL+"/api/autodiscover", jsonMediaType, "")
@@ -166,15 +174,31 @@ func TestAutodiscoverHandler(t *testing.T) {
 	if status != http.StatusOK {
 		t.Errorf("status = %d, want 200", status)
 	}
-	var resp map[string]interface{}
-	if err := json.Unmarshal([]byte(out), &resp); err != nil {
+	var envelope struct {
+		OK   bool                   `json:"ok"`
+		Data map[string]interface{} `json:"data"`
+	}
+	if err := json.Unmarshal([]byte(out), &envelope); err != nil {
 		t.Fatalf("invalid JSON: %v\nbody: %s", err, out)
 	}
-	if _, ok := resp["api_version"]; !ok {
-		t.Error("response missing api_version field")
+	if !envelope.OK {
+		t.Error("response ok = false, want true")
 	}
-	if _, ok := resp["features"]; !ok {
-		t.Error("response missing features field")
+	if envelope.Data["name"] != "ipgaze" {
+		t.Errorf("data.name = %v, want ipgaze", envelope.Data["name"])
+	}
+	apiData, ok := envelope.Data["api"].(map[string]interface{})
+	if !ok || apiData["current_version"] != "v1" {
+		t.Errorf("data.api = %v, want current_version v1", envelope.Data["api"])
+	}
+	if _, ok := envelope.Data["urls"].([]interface{}); !ok {
+		t.Errorf("data.urls has type %T, want array", envelope.Data["urls"])
+	}
+	if envelope.Data["onion"] != "stub.onion" {
+		t.Errorf("data.onion = %v, want stub.onion when exposed", envelope.Data["onion"])
+	}
+	if envelope.Data["cli_min_version"] != "1.2.3" {
+		t.Errorf("data.cli_min_version = %v, want 1.2.3", envelope.Data["cli_min_version"])
 	}
 }
 

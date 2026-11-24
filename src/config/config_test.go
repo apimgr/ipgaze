@@ -47,8 +47,8 @@ func TestDefaultConfig_ServerDefaults(t *testing.T) {
 	if cfg.Server.UpdateBranch != "stable" {
 		t.Errorf("UpdateBranch: got %q, want %q", cfg.Server.UpdateBranch, "stable")
 	}
-	if cfg.Server.CLIMinVersion != "1.0.0" {
-		t.Errorf("CLIMinVersion: got %q, want %q", cfg.Server.CLIMinVersion, "1.0.0")
+	if cfg.Server.Update.CLIMinVersion != "" {
+		t.Errorf("Update.CLIMinVersion: got %q, want empty (no minimum enforced)", cfg.Server.Update.CLIMinVersion)
 	}
 	if cfg.Server.TrustedProxies.ClientIPHeader != "auto" {
 		t.Errorf("TrustedProxies.ClientIPHeader: got %q, want auto", cfg.Server.TrustedProxies.ClientIPHeader)
@@ -2419,33 +2419,47 @@ func TestPrivacyConfig_IsCCPAApplicable(t *testing.T) {
 
 func TestTorIdentityConfig_DefaultEmpty(t *testing.T) {
 	cfg := DefaultConfig()
-	if cfg.Tor.OnionAddress != "" {
-		t.Errorf("Tor.OnionAddress default = %q, want empty", cfg.Tor.OnionAddress)
-	}
-	if cfg.Tor.ContactEmail != "" {
-		t.Errorf("Tor.ContactEmail default = %q, want empty", cfg.Tor.ContactEmail)
+	if cfg.Server.Tor.ContactEmail != "" {
+		t.Errorf("Server.Tor.ContactEmail default = %q, want empty", cfg.Server.Tor.ContactEmail)
 	}
 }
 
 func TestTorIdentityConfig_YAMLRoundTrip(t *testing.T) {
 	cfg := DefaultConfig()
-	cfg.Tor.OnionAddress = "abc123def456.onion"
-	cfg.Tor.ContactEmail = "contact@abc123def456.onion"
+	cfg.Server.Tor.ContactEmail = "contact@abc123def456.onion"
+	cfg.Server.Tor.Expose = true
+	cfg.Server.I2P.Expose = true
+	cfg.Server.Update.CLIMinVersion = "2.0.0"
+	cfg.Web.LLMs.CustomSections = []LLMCustomSection{{Title: "Project", Content: "Details"}}
 
-	yaml := generateConfigYAML(cfg)
-	if !strings.Contains(yaml, "abc123def456.onion") {
-		t.Error("generated YAML missing onion_address value")
+	generated := generateConfigYAML(cfg)
+	for _, want := range []string{"contact_email: \"contact@abc123def456.onion\"", "expose: true", "cli_min_version: \"2.0.0\"", "custom_sections:", "Project", "Details"} {
+		if !strings.Contains(generated, want) {
+			t.Errorf("generated YAML missing %q", want)
+		}
 	}
-	if !strings.Contains(yaml, "contact@abc123def456.onion") {
-		t.Error("generated YAML missing contact_email value")
+	if strings.Contains(generated, "\ntor:\n") || strings.Contains(generated, "onion_address:") {
+		t.Error("generated YAML includes a deprecated top-level Tor identity setting")
 	}
 }
 
-func TestTorIdentityConfig_IsTopLevelKey(t *testing.T) {
-	empty := AppConfig{}
-	yaml := generateConfigYAML(&empty)
-	if !strings.Contains(yaml, "\ntor:\n") {
-		t.Error("generated YAML is missing top-level 'tor:' section")
+func TestTorIdentityConfig_LegacyEmailMigrates(t *testing.T) {
+	cfg, err := parseMergedConfig("server.yml", []byte("tor:\n  contact_email: legacy@example.test\n"))
+	if err != nil {
+		t.Fatalf("parse legacy Tor configuration: %v", err)
+	}
+	if cfg.Server.Tor.ContactEmail != "legacy@example.test" {
+		t.Errorf("server.tor.contact_email = %q, want legacy address", cfg.Server.Tor.ContactEmail)
+	}
+}
+
+func TestUpdateCLIMinVersionMigratesLegacyKey(t *testing.T) {
+	cfg, err := parseMergedConfig("server.yml", []byte("server:\n  cli_min_version: 1.2.3\n"))
+	if err != nil {
+		t.Fatalf("parse legacy CLI minimum version: %v", err)
+	}
+	if cfg.Server.Update.CLIMinVersion != "1.2.3" {
+		t.Errorf("server.update.cli_min_version = %q, want 1.2.3", cfg.Server.Update.CLIMinVersion)
 	}
 }
 

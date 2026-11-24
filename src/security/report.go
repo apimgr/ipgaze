@@ -247,6 +247,25 @@ func nullableBytes(value []byte) any {
 	return value
 }
 
+// LoadSecurityReportPayload returns the encrypted notification payload without
+// decrypting or transforming report content.
+func LoadSecurityReportPayload(db *sql.DB, trackingID string) ([]byte, string, error) {
+	if db == nil || trackingID == "" {
+		return nil, "", errors.New("security: invalid report export request")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	var payload []byte
+	var encryption string
+	if err := db.QueryRowContext(ctx, `SELECT body_enc, body_alg FROM security_reports WHERE tracking_id = ?`, trackingID).Scan(&payload, &encryption); err != nil {
+		return nil, "", fmt.Errorf("security: load encrypted report payload: %w", err)
+	}
+	if len(payload) == 0 || (encryption != "pgp" && encryption != "aes-256-gcm") {
+		return nil, "", errors.New("security: stored report payload is invalid")
+	}
+	return payload, encryption, nil
+}
+
 // SecurityReportContact contains the encrypted contact fields needed only for
 // researcher status notifications. Report content remains separately encrypted.
 type SecurityReportContact struct {

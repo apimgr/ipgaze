@@ -27,8 +27,12 @@ type stubTorController struct {
 
 func (s *stubTorController) IsAvailable() bool { return true }
 func (s *stubTorController) IsRunning() bool   { return true }
+func (s *stubTorController) Status() string    { return "running" }
 func (s *stubTorController) GetInfo() tor.Info {
 	return tor.Info{Enabled: true, Running: true, Status: "running", Hostname: "stub.onion"}
+}
+func (s *stubTorController) GetControlStatus() tor.ControlStatus {
+	return tor.ControlStatus{PID: 42, Version: "0.4.8.1", BootstrapPercent: 100, CircuitEstablished: true}
 }
 func (s *stubTorController) GetHostname() string { return "stub.onion" }
 func (s *stubTorController) BackendPort() int    { return 9061 }
@@ -52,6 +56,9 @@ func (s *stubTorController) StopVanitySearch() bool {
 	return s.vanityActive
 }
 func (s *stubTorController) VanitySearchStatus() tor.VanityStatus {
+	if s.vanityStart != "" {
+		return tor.VanityStatus{State: tor.VanityStateRunning, Prefix: s.vanityStart, Workers: 2}
+	}
 	return tor.VanityStatus{State: tor.VanityStateIdle}
 }
 func (s *stubTorController) ApplyVanityAddress(address string) (string, error) {
@@ -75,6 +82,9 @@ func newTorControlTestRouter(tc TorController) http.Handler {
 // torControlRequestFor builds a request to path from remoteAddr.
 func torControlRequestFor(method, path, remoteAddr, body string) *http.Request {
 	req := httptest.NewRequest(method, path, strings.NewReader(body))
+	if body != "" {
+		req.Header.Set("Content-Type", "application/json")
+	}
 	req.RemoteAddr = remoteAddr
 	return req
 }
@@ -130,6 +140,26 @@ func TestTorControlLoopbackGateIgnoresProxyHeaders(t *testing.T) {
 	}
 }
 
+func TestTorControlNoBodyEndpointsRejectRequestBodies(t *testing.T) {
+	controller := &stubTorController{}
+	router := newTorControlTestRouter(controller)
+	for _, path := range []string{"/server/tor/validate", "/server/tor/restart", "/server/tor/vanity/stop"} {
+		t.Run(path, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, torControlRequestFor(http.MethodPost, path, "127.0.0.1:5555", `{"unexpected":true}`))
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("body on %s returned %d, want 400", path, rec.Code)
+			}
+			if strings.Contains(rec.Body.String(), `"ok":true`) {
+				t.Fatalf("body on %s was silently accepted: %s", path, rec.Body.String())
+			}
+		})
+	}
+	if controller.restarts != 0 {
+		t.Fatalf("restart ran %d times for rejected requests", controller.restarts)
+	}
+}
+
 func TestTorControlAcceptsLoopback(t *testing.T) {
 	stub := &stubTorController{}
 	router := newTorControlTestRouter(stub)
@@ -143,15 +173,18 @@ func TestTorControlAcceptsLoopback(t *testing.T) {
 		var resp struct {
 			OK   bool `json:"ok"`
 			Data struct {
-				Running     bool   `json:"running"`
-				Hostname    string `json:"hostname"`
-				BackendPort int    `json:"backend_port"`
+				Running            bool   `json:"running"`
+				PID                int    `json:"pid"`
+				Version            string `json:"version"`
+				OnionAddress       string `json:"onion_address"`
+				BootstrapPercent   int    `json:"bootstrap_percent"`
+				CircuitEstablished bool   `json:"circuit_established"`
 			} `json:"data"`
 		}
 		if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 			t.Fatalf("decode status body: %v", err)
 		}
-		if !resp.OK || !resp.Data.Running || resp.Data.Hostname != "stub.onion" || resp.Data.BackendPort != 9061 {
+		if !resp.OK || !resp.Data.Running || resp.Data.PID != 42 || resp.Data.Version != "0.4.8.1" || resp.Data.OnionAddress != "stub.onion" || resp.Data.BootstrapPercent != 100 || !resp.Data.CircuitEstablished {
 			t.Fatalf("unexpected status payload: %s", rec.Body.String())
 		}
 	}
@@ -176,8 +209,8 @@ func TestTorControlWrongMethod(t *testing.T) {
 	for _, c := range cases {
 		rec := httptest.NewRecorder()
 		router.ServeHTTP(rec, torControlRequestFor(c.method, c.path, "127.0.0.1:5555", ""))
-		if rec.Code != http.StatusMethodNotAllowed {
-			t.Errorf("%s %s = %d, want 405", c.method, c.path, rec.Code)
+		if rec.Code != http.StatusNotFound {
+			t.Errorf("%s %s = %d, want 404", c.method, c.path, rec.Code)
 		}
 	}
 }
@@ -205,19 +238,19 @@ func TestTorControlActionsReachController(t *testing.T) {
 	}
 
 	rec = httptest.NewRecorder()
-	router.ServeHTTP(rec, torControlRequestFor(http.MethodPost, "/server/tor/vanity/start", "127.0.0.1:5555", `{"prefix":"Abc","workers":2}`))
-	if rec.Code != http.StatusOK || stub.vanityStart != "abc" {
+	router.ServeHTTP(rec, torControlRequestFor(http.MethodPost, "/server/tor/vanity/start", "127.0.0.1:5555", `{"prefix":"abc","workers":2}`))
+	if rec.Code != http.StatusAccepted || stub.vanityStart != "abc" {
 		t.Fatalf("vanity start: code=%d prefix=%q", rec.Code, stub.vanityStart)
 	}
 
 	rec = httptest.NewRecorder()
-	router.ServeHTTP(rec, torControlRequestFor(http.MethodPost, "/server/tor/import-keys", "127.0.0.1:5555", `{"path":"/keys"}`))
+	router.ServeHTTP(rec, torControlRequestFor(http.MethodPost, "/server/tor/import-keys", "127.0.0.1:5555", `{"path":"/keys","confirm":true}`))
 	if rec.Code != http.StatusOK || stub.imported != "/keys" {
 		t.Fatalf("import-keys: code=%d path=%q", rec.Code, stub.imported)
 	}
 
 	rec = httptest.NewRecorder()
-	router.ServeHTTP(rec, torControlRequestFor(http.MethodPost, "/server/tor/import-keys", "127.0.0.1:5555", `{}`))
+	router.ServeHTTP(rec, torControlRequestFor(http.MethodPost, "/server/tor/import-keys", "127.0.0.1:5555", `{"confirm":true}`))
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("import-keys with no path = %d, want 400", rec.Code)
 	}
@@ -232,8 +265,8 @@ func TestTorVanityStopHandler(t *testing.T) {
 	if rec.Code != http.StatusOK || stub.vanityStops != 1 {
 		t.Fatalf("vanity stop: code=%d stops=%d", rec.Code, stub.vanityStops)
 	}
-	if !strings.Contains(rec.Body.String(), "vanity search cancelled") {
-		t.Fatalf("vanity stop body = %s, want the cancelled message", rec.Body.String())
+	if !strings.Contains(rec.Body.String(), `"stopped": true`) {
+		t.Fatalf("vanity stop body = %s, want stopped=true", rec.Body.String())
 	}
 
 	// Stopping with nothing running is a no-op, not an error.
@@ -243,8 +276,8 @@ func TestTorVanityStopHandler(t *testing.T) {
 	if rec.Code != http.StatusOK || stub.vanityStops != 2 {
 		t.Fatalf("idle vanity stop: code=%d stops=%d", rec.Code, stub.vanityStops)
 	}
-	if !strings.Contains(rec.Body.String(), "no vanity search is running") {
-		t.Fatalf("idle vanity stop body = %s, want the no-op message", rec.Body.String())
+	if !strings.Contains(rec.Body.String(), `"stopped": false`) {
+		t.Fatalf("idle vanity stop body = %s, want stopped=false", rec.Body.String())
 	}
 }
 

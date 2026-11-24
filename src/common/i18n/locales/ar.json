@@ -664,7 +664,20 @@
     "header_flag": "الوثوق بهذا الرأس لعنوان IP البعيد (قابل للتكرار)",
     "status_flag": "فحص الصحة (الخروج 0=سليم، 1=غير سليم)",
     "service_flag": "إدارة الخدمة",
-    "maintenance_flag": "عمليات الصيانة"
+    "maintenance_flag": "عمليات الصيانة",
+    "email_test_usage": "الاستخدام: ipgaze --maintenance email test [--to ADDRESS] [--dry-run]",
+    "email_auth_required": "مطلوب التفويض: شغّل كمسؤول أو قدّم رمز مشغّل صالحًا.",
+    "email_smtp_required": "تتطلب ميزات البريد الإلكتروني إعداد SMTP",
+    "email_sending": "جارٍ الإرسال إلى {recipient} باستخدام القالب test: {subject}",
+    "email_sent": "تم إرسال رسالة الاختبار.",
+    "email_invalid_recipient": "عنوان المستلم غير صالح",
+    "email_recipient_required": "عيّن server.notifications.email.reply_to أو مرّر --to ADDRESS",
+    "email_smtp_failed": "فشل اتصال SMTP: {error}",
+    "email_render_failed": "تعذّر عرض رسالة الاختبار: {error}",
+    "email_audit_failed": "تعذّر فتح سجل التدقيق: {error}",
+    "email_send_failed": "فشل إرسال رسالة الاختبار: {error}",
+    "email_preview_template": "القالب: {name}",
+    "email_preview_subject": "الموضوع: {subject}"
   },
   "accessibility": {
     "skip_to_content": "انتقل إلى المحتوى",
@@ -986,7 +999,12 @@
       "update_available": "يتوفر تحديث - {app_name}",
       "update_installed": "تم تثبيت التحديث - {app_name}",
       "update_failed": "فشل التحديث - {app_name}",
-      "test_email": "رسالة اختبار - {app_name}"
+      "test_email": "رسالة اختبار - {app_name}",
+      "startup": "بدأ الخادم - {app_name}",
+      "shutdown": "توقف الخادم - {app_name}",
+      "disk_low": "مساحة القرص منخفضة - {app_name}",
+      "database_error": "مشكلة اتصال قاعدة البيانات - {app_name}",
+      "update_staged": "تم تجهيز التحديث - {app_name}"
     },
     "body": {
       "from": "من: {app_name} ({fqdn})",
@@ -1041,7 +1059,28 @@
       "update_available_action": "راجع ملاحظات الإصدار قبل التحديث. الأمر اليدوي: {command}",
       "update_installed_action": "لا حاجة إلى أي إجراء.",
       "update_failed_action": "راجع الخطأ وثبّت التحديث يدويًا.",
-      "test_action": "استلام هذه الرسالة يؤكد أن إعدادات البريد الصادر صحيحة."
+      "test_action": "استلام هذه الرسالة يؤكد أن إعدادات البريد الصادر صحيحة.",
+      "startup_heading": "بدأ الخادم",
+      "shutdown_heading": "توقف الخادم",
+      "disk_low_heading": "مساحة القرص منخفضة",
+      "database_error_heading": "مشكلة اتصال قاعدة البيانات",
+      "update_staged_heading": "تم تجهيز التحديث",
+      "label_mode": "الوضع:",
+      "label_reason": "السبب:",
+      "label_path": "المسار:",
+      "label_used_percent": "المستخدم:",
+      "label_free_space": "المساحة المتاحة:",
+      "label_threshold": "الحد:",
+      "startup_intro": "بدأ الخادم بنجاح.",
+      "shutdown_intro": "توقف الخادم.",
+      "disk_low_intro": "مساحة أحد الأقراص المراقبة منخفضة.",
+      "database_error_intro": "اتصال قاعدة البيانات غير متاح.",
+      "update_staged_intro": "تم تجهيز تحديث للخادم ويتطلب إعادة التشغيل.",
+      "startup_action": "لا يلزم اتخاذ أي إجراء.",
+      "shutdown_action": "راجع سجلات الخادم إذا كان هذا التوقف غير متوقع.",
+      "disk_low_action": "حرر مساحة على القرص أو زد سعته.",
+      "database_error_action": "تحقق من توفر قاعدة البيانات واتصال الخادم.",
+      "update_staged_action": "أعد تشغيل الخادم لتطبيق التحديث."
     }
   },
   "swagger": {

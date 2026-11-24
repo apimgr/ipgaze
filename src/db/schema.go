@@ -76,19 +76,12 @@ END`,
 	`CREATE TABLE IF NOT EXISTS rate_limits (
     key          TEXT PRIMARY KEY,
     count        INTEGER NOT NULL DEFAULT 1,
+    prev_count   INTEGER NOT NULL DEFAULT 0,
     window_start INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
     updated_at   INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
 )`,
 
 	`CREATE INDEX IF NOT EXISTS idx_rate_limits_window ON rate_limits(window_start)`,
-
-	`CREATE TABLE IF NOT EXISTS rate_limit_events (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    bucket_key  TEXT NOT NULL,
-    occurred_at INTEGER NOT NULL
-)`,
-
-	`CREATE INDEX IF NOT EXISTS idx_rate_limit_events_bucket_time ON rate_limit_events(bucket_key, occurred_at)`,
 
 	// ----------------------------------------------------------------------------
 	// Audit log (config changes, request log, security events)
@@ -295,6 +288,7 @@ var schemaUpdates = []string{
 	// v1.2.0 — audit category index
 	`CREATE INDEX IF NOT EXISTS idx_audit_category ON audit_log(category)`,
 	`CREATE INDEX IF NOT EXISTS idx_security_reports_public ON security_reports(status, created_at)`,
+	`ALTER TABLE rate_limits ADD COLUMN prev_count INTEGER NOT NULL DEFAULT 0`,
 	`ALTER TABLE api_tokens ADD COLUMN token_last4 TEXT NOT NULL DEFAULT ''`,
 }
 

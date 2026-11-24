@@ -456,6 +456,34 @@ func TestDebugEndpointsRequireOperatorBearer(t *testing.T) {
 	}
 }
 
+func TestDebugError500UsesNegotiatedErrorRenderer(t *testing.T) {
+	t.Setenv("DEBUG", "true")
+	srv := testServer()
+	srv.SetConfig(&config.AppConfig{Server: config.ServerConfig{Debug: config.DebugConfig{RuntimeEndpoints: true}}})
+	srv.SetOperatorToken("debug-token")
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	_, status, err := httpGet(ts.URL+"/debug/error500", "application/json", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status != http.StatusUnauthorized {
+		t.Fatalf("unauthorized status = %d, want 401", status)
+	}
+	body, status, err := httpGetBearer(ts.URL+"/debug/error500", "application/json", "", "debug-token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500; body=%s", status, body)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(body), &payload); err != nil || payload["ok"] != false || payload["error"] != "SERVER_ERROR" {
+		t.Errorf("error renderer returned noncanonical body: %s", body)
+	}
+}
+
 func TestIPFromRequestUsesConfiguredProxyResolver(t *testing.T) {
 	tests := []struct {
 		name         string

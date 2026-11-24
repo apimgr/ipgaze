@@ -980,7 +980,9 @@ func (s *Server) getTrust() *netutil.TrustResolver {
 		return netutil.NewTrustResolver(config.TrustedProxiesConfig{}, "")
 	}
 	tr := netutil.NewTrustResolver(s.config.Server.TrustedProxies, "")
-	tr.OnionAddress = s.config.Tor.OnionAddress
+	if s.TorStatus != nil && s.TorStatus.IsAvailable() && s.TorStatus.IsRunning() {
+		tr.OnionAddress = s.TorStatus.GetHostname()
+	}
 	return tr
 }
 
@@ -1120,15 +1122,12 @@ func (s *Server) buildHandler() http.Handler {
 	if s.SpecialHandler.AssetStamp == "" {
 		s.SpecialHandler.AssetStamp = s.AssetStamp()
 	}
-	// Wire Tor config into SpecialHandler so SecurityTxtHandler can serve the Tor variant.
-	// Read the hostname live from TorStatus (same source healthz/PagesHandler use), not
-	// s.config.Tor.OnionAddress — that field is never assigned anywhere once the hidden
-	// service actually starts, so it is permanently empty regardless of timing.
+	// Wire Tor runtime identity and the configured Tor-only contact into SpecialHandler.
 	if s.SpecialHandler.OnionAddress == "" && s.TorStatus != nil && s.TorStatus.IsAvailable() && s.TorStatus.IsRunning() {
 		s.SpecialHandler.OnionAddress = s.TorStatus.GetHostname()
 	}
 	if s.config != nil {
-		s.SpecialHandler.TorContactEmail = s.config.Tor.ContactEmail
+		s.SpecialHandler.TorContactEmail = s.config.Server.Tor.ContactEmail
 		s.SpecialHandler.ContactFormDisabled = !s.config.Pages.Contact.Enabled
 	}
 	// Wire the PGP keypair (AI.md PART 11 "GPG Keypair Management") into SpecialHandler
@@ -1666,7 +1665,7 @@ func (s *Server) buildHandler() http.Handler {
 	// Automatically add the Tor onion origin when the hidden service is running.
 	// Wildcard already covers all origins; only append for explicit allow-lists or when
 	// no CORS config is set (corsOrigin == "") so the onion browser fetch is not blocked.
-	// Read live from TorStatus, not s.config.Tor.OnionAddress — see SpecialHandler wiring
+	// Read the live Tor address from TorStatus rather than configuration.
 	// above for why that field is never populated.
 	onionHostname := ""
 	if s.TorStatus != nil && s.TorStatus.IsAvailable() && s.TorStatus.IsRunning() {
@@ -1881,61 +1880,46 @@ func sha256File(path string) (string, error) {
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
-// autodiscoverHandler returns server capabilities for CLI/agent auto-configuration.
-// Response shape per AI.md PART 13 and PART 32 (CLI auto-update):
-//
-//	server_name, version, api_version, base_url, primary, cluster,
-//	features (object), cli_versions (map[os-arch]{version,sha256}), cli_min_version.
+// autodiscoverHandler returns the public discovery document required by AI.md PART 13 and PART 32.
 func (s *Server) autodiscoverHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		type featuresObject struct {
-			MultiUser     bool `json:"multi_user"`
-			Orgs          bool `json:"orgs"`
-			CustomDomains bool `json:"custom_domains"`
-			GeoIP         bool `json:"geoip"`
-			GeoIPDetailed bool `json:"geoip_detailed"`
-			PortLookup    bool `json:"port_lookup"`
-		}
-		type autodiscoverResponse struct {
-			ServerName    string                     `json:"server_name"`
+		type autodiscoverData struct {
+			Name          string                     `json:"name"`
 			Version       string                     `json:"version"`
-			APIVersion    string                     `json:"api_version"`
-			BaseURL       string                     `json:"base_url"`
-			Primary       string                     `json:"primary"`
-			Cluster       []string                   `json:"cluster"`
-			Features      featuresObject             `json:"features"`
+			API           map[string]string          `json:"api"`
+			URLs          []string                   `json:"urls"`
+			Onion         string                     `json:"onion,omitempty"`
+			I2P           string                     `json:"i2p,omitempty"`
 			CLIVersions   map[string]cliVersionEntry `json:"cli_versions"`
 			CLIMinVersion string                     `json:"cli_min_version"`
+		}
+		type autodiscoverEnvelope struct {
+			OK   bool             `json:"ok"`
+			Data autodiscoverData `json:"data"`
 		}
 
 		// BuildURL resolves proto/fqdn/port via the full priority chain (AI.md PART 12 → Resolution Order):
 		// priority 0 = Tor onion match, then reverse-proxy headers, then DOMAIN env, etc.
 		baseURL := netutil.BuildURL(r, s.getTrust(), "")
 
-		resp := autodiscoverResponse{
-			ServerName: "ipgaze",
-			Version:    s.Version,
-			APIVersion: "v1",
-			BaseURL:    baseURL,
-			Primary:    baseURL,
-			Cluster:    []string{},
-			Features: featuresObject{
-				MultiUser:     false,
-				Orgs:          false,
-				CustomDomains: false,
-				GeoIP:         true,
-				GeoIPDetailed: !s.gr.IsEmpty(),
-				PortLookup:    s.LookupPort != nil,
-			},
+		resp := autodiscoverEnvelope{OK: true, Data: autodiscoverData{
+			Name:    "ipgaze",
+			Version: s.Version,
+			API:     map[string]string{"current_version": "v1"},
+			URLs:    []string{baseURL},
 			// Scan data dir for ipgaze-cli-{os}-{arch}[.exe] binaries and compute SHA-256 (AI.md PART 32).
 			CLIVersions: scanCLIBinaries(s.DataDir, s.Version),
 			// CLIMinVersion from config (AI.md PART 32 — config-driven, not hardcoded)
-			CLIMinVersion: func() string {
-				if s.config != nil && s.config.Server.CLIMinVersion != "" {
-					return s.config.Server.CLIMinVersion
-				}
-				return "1.0.0"
-			}(),
+			CLIMinVersion: "",
+		}}
+		if s.config != nil {
+			resp.Data.CLIMinVersion = s.config.Server.Update.CLIMinVersion
+			if s.config.Server.Tor.Expose && s.TorStatus != nil && s.TorStatus.IsAvailable() && s.TorStatus.IsRunning() {
+				resp.Data.Onion = s.TorStatus.GetHostname()
+			}
+			if s.config.Server.I2P.Expose && s.I2PStatus != nil && s.I2PStatus.IsAvailable() && s.I2PStatus.IsRunning() {
+				resp.Data.I2P = s.I2PStatus.GetHostname()
+			}
 		}
 
 		data, err := json.MarshalIndent(resp, "", "  ")

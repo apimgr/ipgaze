@@ -58,7 +58,7 @@ DOCKER_CPUS ?= 2
 
 # GO_DOCKER_RUN: shared docker run prefix (no image) so targets can add mounts before the image
 GO_DOCKER_RUN := docker run --rm \
-	--name $(PROJECT_NAME)-$$(tr -dc 'a-z0-9' </dev/urandom | head -c8) \
+	--name $(PROJECT_NAME)-$$(od -An -N4 -tx1 /dev/urandom | tr -d ' \n') \
 	--memory=$(DOCKER_MEM) --cpus=$(DOCKER_CPUS) \
 	-v $(PWD):/app \
 	-v $(GO_CACHE):/usr/local/share/go/pkg/mod \
@@ -243,7 +243,7 @@ docker:
 # Never skip with -short or -count=0. Coverage output goes to a tempdir under
 # $${TMPDIR:-/tmp} inside the container (never written to the project tree).
 test:
-	@docker run --rm --name $(PROJECT_NAME)-$$(tr -dc 'a-z0-9' </dev/urandom | head -c8) \
+	@docker run --rm --name $(PROJECT_NAME)-$$(od -An -N4 -tx1 /dev/urandom | tr -d ' \n') \
 		--memory=512m --cpus=1 -v $(PWD):/app -w /app \
 		python:3.12-alpine python3 -B -m unittest scripts/test_trufflehog_scan.py
 	@mkdir -p $(GO_CACHE) $(GO_BUILD)

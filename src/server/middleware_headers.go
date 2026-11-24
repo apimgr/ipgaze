@@ -201,7 +201,7 @@ func OnionLocationMiddleware(onionAddress func() string) func(http.Handler) http
 }
 
 // resolveOnionAddress returns the live hidden-service hostname, or "" when Tor
-// is not running. It reads TorStatus rather than config.Tor.OnionAddress
+// is not running. It reads TorStatus rather than a configured onion address
 // because that config field is never populated once the service publishes.
 func (s *Server) resolveOnionAddress() string {
 	if s.TorStatus == nil || !s.TorStatus.IsAvailable() || !s.TorStatus.IsRunning() {

@@ -307,7 +307,7 @@ func csrfError(w http.ResponseWriter, r *http.Request, lm *applog.Manager, reaso
 	if ip := extractIP(r); ip != nil {
 		clientIP = ip.String()
 	}
-	lm.WriteAuditEvent("", "security.csrf_failure", "security", "warn", "failure", clientIP, map[string]any{
+	lm.WriteAnonymousAuditEvent("security.csrf_failure", "security", "warn", "failure", clientIP, map[string]any{
 		"endpoint": r.URL.Path,
 		"reason":   reason,
 	})

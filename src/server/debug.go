@@ -62,6 +62,7 @@ func (s *Server) registerDebugRoutes(r chi.Router) {
 		// per AI.md PART 6.
 		if s.config.Server.Debug.RuntimeEndpoints {
 			r.Handle("/vars", expvar.Handler())
+			r.Get("/error500", s.handleDebugError500)
 			r.Get("/config", s.handleDebugConfig)
 			r.Get("/routes", s.handleDebugRoutes)
 			r.Get("/cache", s.handleDebugCache)
@@ -72,6 +73,13 @@ func (s *Server) registerDebugRoutes(r chi.Router) {
 			r.Get("/goroutines", s.handleDebugGoroutines)
 		}
 	})
+}
+
+// handleDebugError500 provides a deterministic trigger for the themed 500
+// page used by the E2E suite. It remains behind the debug routes and their
+// operator-token middleware.
+func (s *Server) handleDebugError500(w http.ResponseWriter, r *http.Request) {
+	writeNegotiatedError(w, r, http.StatusInternalServerError, "", "Internal Server Error")
 }
 
 // handleDebugConfig returns sanitized configuration (sensitive values redacted).

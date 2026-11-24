@@ -2245,18 +2245,23 @@ func (h *PagesHandler) submitSecurityReport(r *http.Request, req ContactRequest)
 			h.SecurityLogger("security.report_acknowledgment_failed tracking_id="+trackingID, h.clientIP(r))
 		}
 	}
+	notified := false
 	if resolved.Email != "" && h.EmailMgr != nil && h.EmailMgr.IsEnabled() {
 		notification := &email.Message{To: []string{resolved.Email}, Subject: translateWithLocale("en", "security.report_notification_subject", "tracking_id", trackingID), Body: string(ciphertext)}
 		if encryption == "aes-256-gcm" {
 			notification.Body = translateWithLocale("en", "security.report_notification_body")
 			notification.Attachments = []email.Attachment{{Filename: trackingID + ".enc", ContentType: "application/octet-stream", Data: ciphertext}}
 		}
-		if sendErr := h.EmailMgr.SendDirect(notification); sendErr != nil && h.SecurityLogger != nil {
-			h.SecurityLogger("security.report_notification_failed tracking_id="+trackingID, h.clientIP(r))
+		if sendErr := h.EmailMgr.SendDirect(notification); sendErr != nil {
+			if h.SecurityLogger != nil {
+				h.SecurityLogger("security.report_notification_failed tracking_id="+trackingID, h.clientIP(r))
+			}
+		} else {
+			notified = true
 		}
 	}
 	if h.SecurityLogger != nil {
-		h.SecurityLogger("security.report_received tracking_id="+trackingID+" severity="+req.Severity+" component="+security.SanitizeReportComponent(req.AffectedComponent), h.clientIP(r))
+		h.SecurityLogger(fmt.Sprintf("security.report_received tracking_id=%s notified=%t severity=%s component=%s", trackingID, notified, req.Severity, security.SanitizeReportComponent(req.AffectedComponent)), h.clientIP(r))
 	}
 	return trackingID, nil
 }

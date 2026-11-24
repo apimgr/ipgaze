@@ -33,22 +33,16 @@ import (
 const brandingDefaultTitle = "ipgaze"
 
 // Config represents the complete server configuration
-// TorIdentityConfig holds the public-facing Tor hidden service identity per AI.md PART 12.
-// These are separate from the operational Tor settings under server.tor.
-// They control how the server presents itself to clients connecting over Tor.
+// TorIdentityConfig holds legacy top-level Tor settings for compatibility with old server.yml files.
 type TorIdentityConfig struct {
-	// OnionAddress is the .onion hostname (without http:// prefix).
-	// When set, requests with this Host header are treated as Tor requests.
-	// Request detection is priority 0 — evaluated before proxy headers, always trusted.
+	// OnionAddress is ignored; the active address comes from the running Tor service.
 	OnionAddress string `yaml:"onion_address"`
-	// ContactEmail is shown on Tor-served pages (security.txt, contact pages, error pages).
-	// When unset, no email is shown — never falls back to the clearnet contact email.
+	// ContactEmail is migrated to server.tor.contact_email when a legacy file is loaded.
 	ContactEmail string `yaml:"contact_email"`
 }
 
 // AppConfig is the root of server.yml — the sole source of truth for all
-// operator configuration, grouping the server, Tor identity, web, and data
-// sections.
+// operator configuration, grouping the server, web, and data sections.
 type AppConfig struct {
 	Server ServerConfig      `yaml:"server"`
 	Tor    TorIdentityConfig `yaml:"tor"`
@@ -140,6 +134,20 @@ type WebConfig struct {
 	Headers SecurityHeadersConfig `yaml:"headers"`
 	// Reports controls the public browser-report endpoints.
 	Reports ReportsConfig `yaml:"reports"`
+	LLMs    LLMsConfig    `yaml:"llms"`
+}
+
+// LLMsConfig controls generated content in the llms.txt discovery document.
+type LLMsConfig struct {
+	IncludeEndpoints bool               `yaml:"include_endpoints"`
+	IncludeSchemas   bool               `yaml:"include_schemas"`
+	CustomSections   []LLMCustomSection `yaml:"custom_sections"`
+}
+
+// LLMCustomSection is an operator-authored Markdown section for llms.txt.
+type LLMCustomSection struct {
+	Title   string `yaml:"title"`
+	Content string `yaml:"content"`
 }
 
 // HSTSConfig controls Strict-Transport-Security per AI.md PART 11.
@@ -374,8 +382,7 @@ type ServerConfig struct {
 	Mode         string           `yaml:"mode"`
 	UpdateBranch string           `yaml:"update_branch"`
 	Update       UpdateConfig     `yaml:"update"`
-	// CLIMinVersion is the minimum CLI version the server accepts (AI.md PART 32).
-	// CLIs older than this version are refused until updated.
+	// CLIMinVersion is deprecated; use server.update.cli_min_version.
 	CLIMinVersion string `yaml:"cli_min_version"`
 	// Daemonize forks the process and detaches from the terminal on startup.
 	// Default false — modern service managers (systemd, launchd, runit) prefer foreground.
@@ -1308,6 +1315,8 @@ type TorConfig struct {
 	MaxCircuits int `yaml:"max_circuits"`
 	// StartupTimeout bounds the wait for Tor's control-port file, in seconds.
 	StartupTimeout int `yaml:"startup_timeout"`
+	// Expose opts into publishing the .onion address in autodiscover.
+	Expose bool `yaml:"expose"`
 	// CircuitTimeout is how long (in seconds) to wait before giving up on a circuit.
 	CircuitTimeout int `yaml:"circuit_timeout"`
 	// BootstrapTimeout is how long (in seconds) to wait for Tor network bootstrap.
@@ -1328,6 +1337,8 @@ type TorConfig struct {
 	NumIntroPoints int `yaml:"num_intro_points"`
 	// VirtualPort is the port exposed on the .onion address (default 80).
 	VirtualPort int `yaml:"virtual_port"`
+	// ContactEmail is the address shown in Tor responses; empty omits it.
+	ContactEmail string `yaml:"contact_email"`
 }
 
 // I2PConfig contains I2P eepsite configuration per AI.md PART 31.2.
@@ -1336,6 +1347,8 @@ type I2PConfig struct {
 	// Enabled opts into the I2P eepsite. The default is computed from
 	// container detection: true in containers and false elsewhere.
 	Enabled bool `yaml:"enabled"`
+	// Expose opts into publishing the .b32.i2p address in autodiscover.
+	Expose bool `yaml:"expose"`
 	// Binary is the path to the i2pd binary. Leave empty for auto-detection.
 	// When found, the app spawns/manages a dedicated i2pd process (Model A).
 	Binary string `yaml:"binary"`
@@ -1636,6 +1649,8 @@ type UpdateConfig struct {
 	// DeferDays is the number of days a release must be public before being eligible.
 	// 0 = immediately eligible; 30 = adopt releases only after 30 days.
 	DeferDays int `yaml:"defer_days"`
+	// CLIMinVersion is the minimum CLI version advertised to clients.
+	CLIMinVersion string `yaml:"cli_min_version"`
 }
 
 // GeoIPConfig contains GeoIP settings per AI.md PART 19.
@@ -2191,12 +2206,11 @@ func DefaultConfig() *AppConfig {
 				MaxArchiveSize: "1G", MaxExpandedSize: "4G", MaxFiles: 10000,
 				MaxFileSize: "512M", MaxRatio: 100,
 			},
-			FQDN:          "",
-			Address:       "[::]",
-			Mode:          "production",
-			UpdateBranch:  "stable",
-			Update:        UpdateConfig{Branch: "stable"},
-			CLIMinVersion: "1.0.0",
+			FQDN:         "",
+			Address:      "[::]",
+			Mode:         "production",
+			UpdateBranch: "stable",
+			Update:       UpdateConfig{Branch: "stable"},
 			Database: DatabaseConfig{
 				Driver:             "sqlite",
 				Pool:               DefaultDatabasePoolConfig(),
@@ -2505,6 +2519,7 @@ func DefaultConfig() *AppConfig {
 			CSP:     DefaultCSPConfig(),
 			Headers: DefaultSecurityHeaders(),
 			Reports: DefaultReportsConfig(),
+			LLMs:    LLMsConfig{IncludeEndpoints: true},
 		},
 		Pages: PagesConfig{Contact: ContactPageConfig{
 			Enabled: true,
@@ -4087,6 +4102,11 @@ server:
   fqdn: "%s"
   baseurl: "%s"
   address: "%s"
+  update:
+    branch: "%s"
+    auto_install: %t
+    defer_days: %d
+    cli_min_version: "%s"
 
   # Local SQLite or remote libsql/Turso database connection
   database:
@@ -4201,6 +4221,7 @@ server:
     presets: %s
   tor:
     binary: "%s"
+    expose: %t
     use_network: %t
     max_circuits: %d
     startup_timeout: %d
@@ -4213,10 +4234,12 @@ server:
     max_monthly_bandwidth: "%s"
     num_intro_points: %d
     virtual_port: %d
+    contact_email: "%s"
 
   i2p:
     # Enabled by default in containers and disabled elsewhere; explicit config overrides it.
     enabled: %t
+    expose: %t
     binary: "%s"
     sam_address: "%s"
     virtual_port: %d
@@ -4488,11 +4511,11 @@ server:
     mutex_profile_fraction: %d
     runtime_endpoints: %t
 
-tor:
-  onion_address: "%s"
-  contact_email: "%s"
-
 web:
+  llms:
+    include_endpoints: %t
+    include_schemas: %t
+    custom_sections: %s
   security:
     # Optional Markdown disclosure policy; empty uses the built-in policy.
     policy: %q
@@ -4629,6 +4652,10 @@ pages:
 		cfg.Server.FQDN,
 		cfg.Server.BaseURL,
 		cfg.Server.Address,
+		cfg.Server.Update.Branch,
+		cfg.Server.Update.AutoInstall,
+		cfg.Server.Update.DeferDays,
+		cfg.Server.Update.CLIMinVersion,
 		cfg.Server.Database.Driver,
 		cfg.Server.Database.URL,
 		cfg.Server.Database.Token,
@@ -4690,6 +4717,7 @@ pages:
 		formatStringSlice(cfg.Server.GeoIP.AllowCountries),
 		formatCountryPresets(cfg.Server.GeoIP.Presets),
 		cfg.Server.Tor.Binary,
+		cfg.Server.Tor.Expose,
 		cfg.Server.Tor.UseNetwork,
 		cfg.Server.Tor.MaxCircuits,
 		cfg.Server.Tor.StartupTimeout,
@@ -4702,7 +4730,9 @@ pages:
 		cfg.Server.Tor.MaxMonthlyBandwidth,
 		cfg.Server.Tor.NumIntroPoints,
 		cfg.Server.Tor.VirtualPort,
+		cfg.Server.Tor.ContactEmail,
 		cfg.Server.I2P.Enabled,
+		cfg.Server.I2P.Expose,
 		cfg.Server.I2P.Binary,
 		cfg.Server.I2P.SAMAddress,
 		cfg.Server.I2P.VirtualPort,
@@ -4887,8 +4917,9 @@ pages:
 		cfg.Server.Debug.BlockProfileRate,
 		cfg.Server.Debug.MutexProfileFraction,
 		cfg.Server.Debug.RuntimeEndpoints,
-		cfg.Tor.OnionAddress,
-		cfg.Tor.ContactEmail,
+		cfg.Web.LLMs.IncludeEndpoints,
+		cfg.Web.LLMs.IncludeSchemas,
+		formatLLMCustomSections(cfg.Web.LLMs.CustomSections),
 		cfg.Web.Security.Policy,
 		cfg.Web.UI.Theme,
 		cfg.Web.UI.Logo,
@@ -5044,6 +5075,17 @@ func formatStringSlice(s []string) string {
 	}
 	result += "]"
 	return result
+}
+
+func formatLLMCustomSections(sections []LLMCustomSection) string {
+	if len(sections) == 0 {
+		return "[]"
+	}
+	data, err := json.Marshal(sections)
+	if err != nil {
+		return "[]"
+	}
+	return string(data)
 }
 
 // getTheme returns the current theme
