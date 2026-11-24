@@ -33,6 +33,7 @@ ipgaze [flags]
 | `--maintenance data export` | Print a JSON inventory of stored operational data and the configured privacy policy |
 | `--maintenance data delete` | Interactively erase rate-limit and audit-log history |
 | `--maintenance compliance report` | Print enabled standards and the configured compliance controls |
+| `--maintenance email test [--to ADDRESS]` | Send an authenticated SMTP test email; `--dry-run` previews and validates configured templates without sending |
 | `--shell --help` | Show shell integration usage and supported shells |
 
 Scheduled backups create a verified full backup and a cumulative daily

@@ -278,7 +278,13 @@ server:
     binary: ""          # Empty means auto-detect
     use_network: false  # Route supported server-originated HTTP requests via Tor
     startup_timeout: 60  # Control-port file wait, 10-300 seconds
+    contact_email: ""   # Optional address shown only in Tor responses
 ```
+
+The Tor contact address is `server.tor.contact_email`. If it is empty, Tor
+responses omit email contact details and never fall back to the clearnet
+contact address. Legacy top-level `tor.contact_email` values are read as a
+compatibility fallback.
 
 In the standard Docker layout, Tor stores the onion hostname at
 `/data/ipgaze/tor/site/hostname`.

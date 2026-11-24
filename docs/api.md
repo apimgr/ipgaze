@@ -196,7 +196,7 @@ filesystem paths.
 | `GET /api/swagger` | OpenAPI JSON, direct alias for the current API version |
 | `GET` or `POST /server/docs/graphql` | GraphiQL UI |
 | `GET` or `POST /api/graphql` | GraphQL direct alias |
-| `GET /api/autodiscover` | Server and client configuration discovery |
+| `GET /api/autodiscover` | Unversioned `{ok,data}` discovery document containing `name`, `version`, `api.current_version`, public `urls`, and CLI `cli_versions` / `cli_min_version`; exposed overlay addresses are optional |
 | `GET /llms.txt` | Machine-readable service and API summary |
 | `GET /.well-known/llms.txt` | Well-known alias for the same summary |
 

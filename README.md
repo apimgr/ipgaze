@@ -215,6 +215,7 @@ docker run -d \
 | `--maintenance data export` | Print a JSON inventory of stored operational data and the configured privacy policy |
 | `--maintenance data delete` | Interactively erase rate-limit and audit-log history |
 | `--maintenance compliance report` | Show enabled standards and configured privacy/security controls; enabled standards require encrypted backups |
+| `--maintenance email test [--to ADDRESS]` | Send an authenticated SMTP test email; `--dry-run` previews and validates configured templates without sending |
 | `--shell --help` | Show shell integration usage and supported shells |
 | `--shell completions [SHELL]` | Print shell completions (bash, zsh, fish, sh, dash, ksh, powershell, pwsh) |
 | `--shell init [SHELL]` | Print the shell init snippet |

@@ -38,6 +38,23 @@ create and for MCP access. Visitors can issue them from the public tokens page.
 
 To replace the token, update its value in `secrets.yml` and restart the service.
 
+## Email Maintenance
+
+Configure SMTP under `server.notifications.email` before using email features.
+The maintenance test command sends a real test message to the configured
+reply-to address, or to an explicit address. Its dry-run validates and renders
+all built-in templates and any file overrides without contacting SMTP:
+
+```bash
+ipgaze --maintenance email test --dry-run
+ipgaze --maintenance email test --to operator@example.net
+```
+
+Template overrides live in `{config_dir}/template/email/{name}.txt`. Each file
+starts with `Subject: ...`, followed by a line containing `---`, then a plain
+text body. Supported `{variable}` placeholders are validated by the dry-run;
+an invalid override is reported and the embedded default remains active.
+
 ## Token Management (CLI)
 
 The maintenance token commands support listing and revoking issued API tokens

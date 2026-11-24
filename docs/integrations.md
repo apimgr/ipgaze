@@ -183,6 +183,10 @@ ipgaze automatically enables a Tor hidden service when the `tor` binary is avail
 
 No explicit configuration is required — the binary fully manages the Tor lifecycle.
 
+Set `server.tor.contact_email` to publish a contact address in Tor-specific
+responses. An empty value omits the address; the server never substitutes its
+clearnet contact address.
+
 Tor starts when its binary is available. The project does not expose an
 enable/disable toggle; installing Tor changes this behavior.
 
