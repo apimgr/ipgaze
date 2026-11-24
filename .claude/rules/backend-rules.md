@@ -2,7 +2,7 @@
 
 ⚠️ **These rules are NON-NEGOTIABLE. Violations are bugs.** ⚠️
 
-> Synced against AI.md revision `eb41fb200153` (2026-11-22). AI.md remains authoritative for complete requirements.
+> Synced against AI.md revision `fbd22cdebc89` (2026-11-24). AI.md remains authoritative for complete requirements.
 
 ## CRITICAL - NEVER DO
 - **PART 9:** | **No stack traces** | Never expose stack traces in production responses |
@@ -291,6 +291,14 @@
 - **PART 31:** Tor and I2P initialization is asynchronous; overlay bootstrap never delays the HTTP listener. Health status uses only `disabled`, `starting`, `healthy`, or `unavailable`; unavailable overlays degrade health but never fail or restart the server.
 - **PART 31.2:** I2P defaults on in containers and off elsewhere; an explicit config, environment variable, or flag overrides the detected default.
 
+## AI.md 2026-11-24 Updates
+
+- Public resource identifiers must be opaque UUIDs, never sequential database keys.
+- Canonical schema renames defined by AI.md are migrated in place; projects must not rename their own existing columns.
+- SQLite write transactions use the single-writer contract and bounded retry/deadline behavior; remote transactions have a separate 30-second transaction bound.
+- Debug output must not expose process arguments: `/debug/pprof/cmdline` and `/debug/vars` cmdline are sanitized, and every debug route requires the operator token.
+- The canonical AES key is `server.security.encryption_key` in `secrets.yml`; report content and other sensitive data use this key, not an unrelated database secret.
+
 ## Key Rules Summary
 
 ## AI.md 2026-11-22 Updates
@@ -356,4 +364,4 @@
 
 For complete details, see AI.md PART 9, PART 10, PART 11, PART 31.
 
-<!-- AI.md source: eb41fb200153 -->
+<!-- AI.md source: fbd22cdebc89 -->

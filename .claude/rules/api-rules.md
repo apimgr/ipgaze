@@ -2,7 +2,7 @@
 
 ⚠️ **These rules are NON-NEGOTIABLE. Violations are bugs.** ⚠️
 
-> Synced against AI.md revision `eb41fb200153` (2026-11-22). AI.md remains authoritative for complete requirements.
+> Synced against AI.md revision `fbd22cdebc89` (2026-11-24). AI.md remains authoritative for complete requirements.
 
 ## CRITICAL - NEVER DO
 - **PART 13:** *Healthz is PUBLIC. NEVER expose sensitive data.**
@@ -147,6 +147,12 @@
 
 - **PART 13:** Overlay health payloads expose only `disabled`, `starting`, `healthy`, or `unavailable`; never return provider errors or paths. An unavailable overlay sets its check and overall health to `degraded`, never `unhealthy`.
 
+## AI.md 2026-11-24 Updates
+
+- GraphQL uses the standard GraphQL response map, not the generic `{ok,data}` envelope. Execution errors use HTTP 200 with `data` and `errors`; pre-execution failures keep the canonical API error and status.
+- API roots have no trailing slash. `/api/{api_version}` is canonical; `/api/{api_version}/` is not a route.
+- Content negotiation gives an explicit `Accept` header priority over User-Agent detection; non-interactive HTTP tools without an explicit `Accept` receive plain text where supported.
+
 ## Key Rules Summary
 
 ### PART 13 — HEALTH & VERSIONING
@@ -172,4 +178,4 @@
 
 For complete details, see AI.md PART 13, PART 14, PART 15.
 
-<!-- AI.md source: eb41fb200153 -->
+<!-- AI.md source: fbd22cdebc89 -->

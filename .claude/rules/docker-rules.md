@@ -2,7 +2,7 @@
 
 ⚠️ **These rules are NON-NEGOTIABLE. Violations are bugs.** ⚠️
 
-> Synced against AI.md revision `eb41fb200153` (2026-11-22). AI.md remains authoritative for complete requirements.
+> Synced against AI.md revision `fbd22cdebc89` (2026-11-24). AI.md remains authoritative for complete requirements.
 
 ## CRITICAL - NEVER DO
 - **PART 26:** NEVER place Dockerfile or docker-compose.yml in project root
@@ -58,6 +58,11 @@
 - **PART 26:** 1. **Release builds** MUST push to `{PLATFORM_CONTAINER_REGISTRY}/{project_org}/{internal_name}`
 - **PART 26:** 2. **Development builds** MUST use local-only tags (no registry prefix)
 
+## AI.md 2026-11-24 Updates
+
+- After image builds, verify required runtime binaries are present and confirm Tor health within its bootstrap timeout.
+- Local `:dev` and `:test` images stay local-only. The rolling `:devel` image is published only by its CI job from main/master and the schedule.
+
 ## Key Rules Summary
 
 ### PART 26 — DOCKER
@@ -71,4 +76,4 @@
 
 For complete details, see AI.md PART 26.
 
-<!-- AI.md source: eb41fb200153 -->
+<!-- AI.md source: fbd22cdebc89 -->

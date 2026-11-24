@@ -2,7 +2,7 @@
 
 ⚠️ **These rules are NON-NEGOTIABLE. Violations are bugs.** ⚠️
 
-> Synced against AI.md revision `eb41fb200153` (2026-11-22). AI.md remains authoritative for complete requirements.
+> Synced against AI.md revision `fbd22cdebc89` (2026-11-24). AI.md remains authoritative for complete requirements.
 
 ## CRITICAL - NEVER DO
 - **PART 5:** *CRITICAL: ALL comments in YAML files MUST go ABOVE the setting, NEVER inline.**
@@ -100,6 +100,13 @@
 - **PART 12:** `server.security.reports.retention_days` defaults to `365` and controls closed security report retention.
 - **PART 31.2:** Resolve I2P's built-in default from container detection: enabled in a container, disabled elsewhere. Explicit configuration remains authoritative.
 
+## AI.md 2026-11-24 Updates
+
+- Keep path validation contracts separate: `SafePath` accepts configured identifiers; `SafeResourcePath` accepts legitimate file extensions/case and then requires `SafeFilePath` base-directory checks. HTTP middleware rejects traversal without applying either contract.
+- Before privileged bind, read only the configured listen address/port, daemonize, pidfile, and declared raw-protocol listener settings; do not open `secrets.yml` during this early read.
+- Configuration and scheduler task enabled/schedule values are file-only; no API may mutate them. Scheduler retention belongs only to `server.backup.retention`.
+- Self-healing stops retrying after a positive `max_attempts` limit and remains in maintenance mode until restart; zero means retry indefinitely.
+
 ## Key Rules Summary
 
 ## AI.md 2026-11-22 Updates
@@ -142,4 +149,4 @@
 
 For complete details, see AI.md PART 5, PART 6, PART 12.
 
-<!-- AI.md source: eb41fb200153 -->
+<!-- AI.md source: fbd22cdebc89 -->

@@ -2,7 +2,7 @@
 
 ⚠️ **These rules are NON-NEGOTIABLE. Violations are bugs.** ⚠️
 
-> Synced against AI.md revision `eb41fb200153` (2026-11-22). AI.md remains authoritative for complete requirements.
+> Synced against AI.md revision `fbd22cdebc89` (2026-11-24). AI.md remains authoritative for complete requirements.
 
 ## CRITICAL - NEVER DO
 - **PART 28:** When a test or debug step requires `reboot`, `systemctl`, `iptables`, `mount`, package install, network reconfiguration, or any other host-affecting command, that step MUST run inside a container, VM, chroot, or network namespace — never on the host.
@@ -151,6 +151,13 @@
 - **PART 28:** Container integration tests expect I2P enabled by default in containers and must also verify explicit opt-out.
 - **PART 28:** Cover domain normalization, wildcard/public-suffix handling, target extraction without request Host, body preservation, overlay asynchronous states, and security cleanup retention.
 
+## AI.md 2026-11-24 Updates
+
+- `tests/run_tests.sh` is Docker-only and never falls back to Incus. `tests/incus.sh` is the explicit full-app and service-manager test; `tests/virt.sh` is optional for clean-OS or kernel-dependent cases.
+- Use one named, bounded toolchain container per phase; `--rm` is required except for a detached integration sidecar that is removed by exact name afterward.
+- Browser E2E runs on demand and is never a commit gate; its SSR, no-JS, and full-JS tiers must cover actual IDEA.md features and use local stubs for outbound dependencies.
+- A skipped individual check is reported to stderr and only remains non-failing when its corresponding `REQUIRE_*` option is unset; a script that cannot run exits 69.
+
 ## Key Rules Summary
 
 ### PART 28 — TESTING & DEVELOPMENT
@@ -212,4 +219,4 @@
 
 For complete details, see AI.md PART 28, PART 29, PART 30.
 
-<!-- AI.md source: eb41fb200153 -->
+<!-- AI.md source: fbd22cdebc89 -->

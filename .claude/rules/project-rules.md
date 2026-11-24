@@ -2,7 +2,7 @@
 
 ⚠️ **These rules are NON-NEGOTIABLE. Violations are bugs.** ⚠️
 
-> Synced against AI.md revision `eb41fb200153` (2026-11-22). AI.md remains authoritative for complete requirements.
+> Synced against AI.md revision `fbd22cdebc89` (2026-11-24). AI.md remains authoritative for complete requirements.
 
 ## CRITICAL - NEVER DO
 - **PART 2:** | **GPL/AGPL/LGPL** | ⚠️ AVOID | Copyleft licenses - do not use |
@@ -62,6 +62,13 @@
 - **PART 3:** [ ] Always use latest stable Go
 - **PART 4:** [ ] Config file is ALWAYS `server.yml` (not .yaml)
 
+## AI.md 2026-11-24 Updates
+
+- Resolve `{project_name}` and `{project_org}` from IDEA.md first, then the remote, then the directory; `internal_name` and `internal_org` are stable identifiers.
+- Required test scripts include Docker-only `tests/run_tests.sh` and full-app `tests/incus.sh`; `tests/virt.sh` is optional for clean-OS VM checks.
+- Use Goldmark with raw HTML disabled and sanitize every rendered Markdown surface with bluemonday.
+- The remote libSQL driver is remote-only; its optional local cache is a separate SQLite handle and the remote remains authoritative.
+
 ## Key Rules Summary
 
 ### PART 2 — LICENSE & ATTRIBUTION
@@ -100,4 +107,4 @@
 
 For complete details, see AI.md PART 2, PART 3, PART 4.
 
-<!-- AI.md source: eb41fb200153 -->
+<!-- AI.md source: fbd22cdebc89 -->

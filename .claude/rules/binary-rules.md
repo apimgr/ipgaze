@@ -2,7 +2,7 @@
 
 ⚠️ **These rules are NON-NEGOTIABLE. Violations are bugs.** ⚠️
 
-> Synced against AI.md revision `eb41fb200153` (2026-11-22). AI.md remains authoritative for complete requirements.
+> Synced against AI.md revision `fbd22cdebc89` (2026-11-24). AI.md remains authoritative for complete requirements.
 
 ## CRITICAL - NEVER DO
 - **PART 7:** *Security databases are NEVER embedded in the binary.** They are downloaded on first run and kept updated via the built-in scheduler.
@@ -144,6 +144,13 @@
 - **PART 32:** | Feature | Required |
 - **PART 32:** *TUI MUST support themes per PART 16 theme rules. Uses same colors as server frontend.**
 
+## AI.md 2026-11-24 Updates
+
+- Machine-readable stdout contains only the requested data; diagnostics and errors go to stderr. JSON output must remain clean for pipelines.
+- ANSI color is disabled for non-terminal output and `TERM=dumb`; only explicit `--color=yes` may restore color sequences, never cursor control or TUI behavior.
+- The server's `--status` exit status is only 0 or 1 for container health checks. Scripts use 69 when the required environment is unavailable and must distinguish a skipped check from a passed check.
+- Keep the default client static and GUI-free; GUI artifacts are separate optional `gui` builds because their dynamic loader requirement breaks cross-distribution static binaries.
+
 ## Key Rules Summary
 
 ### PART 7 — BINARY REQUIREMENTS
@@ -191,4 +198,4 @@
 
 For complete details, see AI.md PART 7, PART 8, PART 32.
 
-<!-- AI.md source: eb41fb200153 -->
+<!-- AI.md source: fbd22cdebc89 -->

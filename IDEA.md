@@ -39,22 +39,23 @@ repository:        https://github.com/apimgr/ipgaze
 - CLI user-agent detection: curl, wget, HTTPie, Go HTTP client, Mikrotik, ddclient, xh → plain text response
 - Reverse DNS hostname lookup (always enabled, no flag)
 - Port reachability testing (always enabled, no flag)
-- Built-in scheduler for automatic periodic maintenance (GeoIP updates, blocklist sync, CVE feed, cert renewal, token cleanup, log rotation, backups, self-health checks)
-- Email/notification delivery via SMTP (operator-configured; HTML + plain text multipart)
-- Configurable IPv4/IPv6 allowlists and permanent blocks, with persisted temporary request-flood blocks and optional security alerts
-- IP/domain threat blocklist downloads (daily, auto-applied to incoming requests)
+- Automatic maintenance that keeps lookup data, threat data, certificates, tokens, logs, backups, and service health current
+- Operator notifications by email
+- IPv4/IPv6 allowlists and permanent blocks, with temporary protections against request floods and optional security alerts
+- IP/domain threat intelligence that informs request protection
 - Blocklist health degrades after 72 hours without a successful source update;
   the last good entries remain active, and never-loaded sources report an error
-- CVE/security database sync (daily, for vulnerability reporting)
+- Current vulnerability information for security reporting
 - PWA support: web app manifest and service worker for offline caching
 - Prometheus metrics (internal only, not public)
 - GraphQL endpoint for flexible queries
 - OpenAPI/Swagger interactive documentation
-- Stateless Streamable HTTP MCP endpoint that exposes the registered versioned API operations as tools. Example user prompts: “What is my public IP address?”, “Look up 8.8.8.8 and summarize its GeoIP data”, and “Which ASN announces 1.1.1.1?” MCP requires an owner or operator Bearer token; the REST API remains publicly accessible. Visitors can issue an owner token without creating a resource and create a separate linked token for each MCP client. Results depend on configured GeoIP databases. The endpoint is POST-only, sessionless, rate-limited, audited, and validates `Origin`.
-- CLI client binary (`ipgaze-cli`) for querying any ipgaze-compatible server with token-based auth
-- Tor hidden service (auto-enabled when Tor binary is present) with optional server-originated outbound Tor routing
-- I2P eepsite (enabled by default in containers and opt-in elsewhere; i2pd process preferred, external SAM bridge as fallback)
-- HOST_IPV4 / HOST_IPV6 env vars: container deployments supply the host's public IPv4/IPv6 for web UI curl examples; invalid values are silently ignored; unset = normal detection
+- MCP tools for public IP and GeoIP lookups; visitors can issue owner tokens and separate linked tokens for MCP clients. Public REST lookups remain available without a token.
+- CLI client (`ipgaze-cli`) for querying ipgaze-compatible servers with token-based access
+- Optional onion and I2P addresses for reaching the service through privacy networks
+- Public abuse, DMCA, privacy, and security reporting, including private status tracking and researcher acknowledgments
+- About, privacy, terms, contact, DPO, and security information pages
+- Consent-controlled, same-origin analytics
 
 **Non-goals:**
 - WebSocket real-time updates (future)
@@ -76,38 +77,26 @@ There is exactly one role. ipgaze is a public service with no user accounts, no 
 - Derived GeoIP fields: country, city, region, ASN, coordinates, timezone, EU membership, postal code
 - User-agent product/version when parsed
 
-**On-disk data:**
-- Config: `{config_dir}/server.yml`, ordered `{config_dir}/yaml.d/` drop-ins (page content in `branding.yml`), and `{config_dir}/secrets.yml`
-- GeoIP databases: `{data_dir}/security/geoip/` (downloaded at runtime, public data source)
-- Blocklists: `{data_dir}/security/blocklists/` (IP/domain, downloaded daily)
-- Threat lists: `{data_dir}/security/threat/` (VPN/proxy/Tor exit-node CIDRs, downloaded daily)
-- CVE database: `{data_dir}/security/cve/` (downloaded daily)
-- Server-wide operator token: `{config_dir}/secrets.yml` (`server.token`)
-- Issued API tokens: `{data_dir}/db/server.db` (expired tokens are cleaned by the `token_cleanup` scheduler task)
-- Backups: `{data_dir}/backups/` (`.tar.gz` archives)
-- TLS certs: `{data_dir}/certs/`
-- Tor keys: `{data_dir}/tor/`
-- Logs: `{log_dir}/` (access logs in Apache CLF format, no PII beyond IP)
+**Entities and sensitivity:**
+- Owner identity: an opaque identifier associated with resources and issued API tokens; it does not represent a user account.
+- API token: a secret credential used for owner or operator access. Raw token values are sensitive and are not exposed after issuance.
+- Guest preferences: a visitor's theme, language, and landing-page example choices.
+- Contact and security reports: submissions may contain reporter contact details and vulnerability information. Security reports are confidential and protected for coordinated disclosure.
+- Lookup results: public IP and derived GeoIP information may be sensitive personal data when associated with a visitor.
 
-No user accounts, passwords, or user sessions. Security reports may retain reporter contact details and vulnerability content in encrypted form for coordinated disclosure; plaintext report content is never stored in the database.
-The server-wide operator token is stored in `secrets.yml`; issued API tokens are stored server-side in the database and cleaned up by the `token_cleanup` scheduler task. The CLI client stores its configured token in `{config_dir}/cli.yml`. Public IP/GeoIP endpoints require no authentication. Operators can extend or override the public About, privacy, terms, header, and footer content in `{config_dir}/yaml.d/branding.yml`.
+The product has no user accounts, passwords, or login sessions. Public lookup endpoints do not require authentication. Operators can customize public site information and page content.
 
 ### Trust boundaries & external services
 
-| External dependency | Trust level | Failure mode |
-|--------------------|-------------|-------------|
-| sapics/ip-location-db via jsDelivr CDN | Trusted source for GeoIP DB downloads; no API key required | GeoIP features disabled if download fails; server continues without GeoIP |
-| MMDB binary format | Trusted format, validated on load by maxminddb-golang | Error logged; GeoIP disabled if DB corrupt |
-| Proxy client-IP headers | UNTRUSTED unless the immediate peer matches the operator-configured `trusted_proxies`; only then are the configured proxy headers honored | Untrusted headers are ignored and `r.RemoteAddr` is used; `server.trusted_proxies.client_ip_header` selects `auto` order or one pinned header |
-| Tor network | Optional, no trust required | Hidden service silently disabled if Tor binary not found |
-| jsDelivr CDN (https://cdn.jsdelivr.net) | Trusted delivery channel for ip-location-db MMDB files | Download retried; GeoIP disabled if unavailable |
-| Official site (https://ifcfg.us) | Production endpoint embedded as default server in CLI binary | CLI falls back to manual `--server` flag |
-| Blocklist source (configured in server.yml) | Operator-trusted; content applied to rate limiting and abuse detection | Blocklist update skipped; previously downloaded list retained |
-| Tor Project exit list (check.torproject.org) | Trusted; official Tor Project bulk exit list | Threat update skipped; previously downloaded list retained |
-| X4BNet VPN lists (github.com/X4BNet/lists_vpn) | Community-maintained; covers major VPN provider CIDRs | Threat update skipped; previously downloaded list retained |
-| firehol proxy lists (github.com/firehol/blocklist-ipsets) | Community-maintained; socks_proxy_7d + http_proxy_7d | Threat update skipped; previously downloaded list retained |
-| CVE feed source (configured in server.yml) | Operator-trusted; downloaded and stored for vulnerability reporting | CVE update skipped; previously downloaded data retained |
-| SMTP server (operator-configured) | Operator-trusted; used for email notifications | Notifications silently dropped if SMTP is unreachable |
+| External dependency | Trust boundary | User-visible behavior on failure |
+|--------------------|---------------|----------------------------------|
+| GeoIP data publisher and delivery network | Supplies public lookup data; downloaded data is validated before use | IP lookup remains available without GeoIP fields while data is unavailable |
+| Client-IP forwarding metadata | Untrusted unless supplied by a configured trusted proxy | Untrusted forwarding values do not replace the caller address |
+| Tor and I2P networks | Optional external access networks | The service remains available at its regular address if an overlay is unavailable |
+| Threat intelligence publishers | External sources for VPN, proxy, Tor, and abuse indicators | Previously available protection data remains in use when an update fails |
+| Vulnerability data publishers | External sources for vulnerability reporting | Previously available vulnerability data remains available when an update fails |
+| Operator-selected mail service | Sends operator notifications and report acknowledgments | Email delivery may be delayed or unavailable while the service is unreachable |
+| Official service endpoint | Default destination for CLI use | The CLI can be configured to use another compatible server |
 
 ### Threat model & abuse cases
 
@@ -141,14 +130,12 @@ The server-wide operator token is stored in `secrets.yml`; issued API tokens are
 
 ### Security decisions & exceptions
 
-| Decision | Reason |
-|----------|--------|
-| echoip-compatible API routes preserved | External route compatibility (AI.md line 212) — ipgaze is its own product but preserves the echoip wire format so existing integrations require zero changes |
-| GeoIP country blocking is advisory and deny-only, never the sole access-control gate | GeoIP accuracy is limited; VPNs trivially bypass country-based blocks, so other security checks must always run |
-| `unsafe` Go package: NOT used | CGO_ENABLED=0, pure Go static binary — no unsafe memory operations |
-| Tor binary in container but not started by entrypoint | Binary controls Tor lifecycle per AI.md PART 31; entrypoint only sets env vars and execs binary |
-| Proxy client-IP headers are gated by `trusted_proxies` | Trusting headers from arbitrary peers enables IP spoofing; only a configured trusted proxy may supply the client IP, with `r.RemoteAddr` as fallback |
-| Coordinated disclosure defaults to the official `ifcfg.us` service and a 90-day window | Keep third-party and self-hosted systems outside the project's authority; exclude disruptive or non-technical testing and protect good-faith research |
+| Decision | Product reason |
+|----------|----------------|
+| Preserve echoip-compatible request and response behavior | Existing echoip integrations continue to work without changes |
+| Treat GeoIP country restrictions as advisory and deny-only | GeoIP is approximate and can be bypassed, so it must not decide access by itself |
+| Accept forwarded client addresses only from configured trusted proxies | Untrusted request headers must not let callers impersonate another address |
+| Keep security reports private and support coordinated disclosure | Researchers can report vulnerabilities without publishing sensitive details prematurely |
 
 ### API routes
 
@@ -183,151 +170,14 @@ versioned routes expose the same lookup operations under `/api/v1`.
 | `GET` | `/api/v1/server/graphql` | None | Serve the GraphQL explorer. |
 | `POST` | `/api/v1/server/graphql` | None | Accept a GraphQL query, optional variables and operation name; return the query result in the GraphQL response shape. |
 
-Where supported, `.txt` selects a plain-text representation. GeoIP-dependent
-fields are available only when the corresponding database is enabled and
-loaded. The versioned API otherwise uses the standard success and error
-envelopes; health responses retain their documented health shape. MCP and
-template-provided server-management routes are defined by AI.md and are not
-project-defined lookup routes.
+The compatibility endpoints preserve echoip request and response behavior.
+GeoIP-dependent fields are available when lookup data is available. The
+versioned lookup routes return the same product information through JSON,
+plain text, or HTML as appropriate; GraphQL keeps its standard response shape.
 
----
+### Client applications
 
-### echoip Compatibility
-
-ipgaze implements the complete echoip-compatible API. All echoip routes, response field names, response formats, and CLI user-agent detection behaviors are preserved identically so existing echoip integrations require zero changes. This is a core product feature — not a fork, not a drop-in replacement, but an independent implementation of the same public API contract.
-
-ipgaze enhancements on top of the echoip-compatible surface:
-- VPN/proxy detection (`is_vpn`, `is_proxy` fields) via X4BNet + firehol lists, updated daily
-- Tor exit-node detection (`is_tor` field) via Tor Project bulk exit list, updated daily
-- PWA support (web app manifest, service worker, offline caching)
-- Empty Atom and RSS syndication feeds, ready for a future public item stream
-- GraphQL endpoint for flexible queries
-- OpenAPI/Swagger interactive documentation
-- Prometheus metrics (internal only)
-- Standard pages: security.txt, robots.txt, privacy, terms, contact
-- Public contact-form metadata and safe operator-token validation for CLI/GUI server setup
-- Contact submissions enforce documented per-field input limits
-- Public abuse, DMCA, privacy, and security reporting through a type chooser and type-specific forms, with two-step review and confirmation, markup and link filtering, duplicate suppression, strike-based temporary bans, CAPTCHA, single-use signed form timing, honeypot, IP/email/global rate limits, encrypted security reports, private status tracking, and researcher acknowledgments
-- Public DPO contact page/API and consent-gated, same-origin analytics loading
-
----
-
-### Binaries
-
-This project produces two binaries:
-
-| Binary | Purpose |
-|--------|---------|
-| `ipgaze` | IP lookup web server — serves all public endpoints |
-| `ipgaze-cli` | CLI client for querying any ipgaze-compatible server |
-
-Both binaries are built together. See AI.md PART 7, 8, 32, 33 for build, flag, and packaging rules.
-
----
-
-### Core Features
-
-**IP Address Detection**
-- Returns the visitor's public IP address (IPv4 and IPv6)
-- Lookup any specific IP address
-- Handles proxy headers only from trusted peers, using configured automatic selection or a pinned `server.trusted_proxies.client_ip_header`
-- IP decimal representation alongside dotted-decimal
-
-**GeoIP Information** (from sapics/ip-location-db, downloaded at runtime)
-- Country name, ISO code, EU membership status
-- City name, region/state name and code, postal code, metro code
-- Latitude and longitude coordinates
-- IANA timezone identifier
-- ASN number and organization name
-
-**Content Negotiation**
-- Browsers receive HTML pages
-- CLI tools (curl, wget, HTTPie, etc.) receive plain text
-- API clients with `Accept: application/json` receive JSON
-- All field endpoints support `.txt` extension for explicit plain text
-
-**CORS**
-- Uses one policy for all routes, with `server.cors.allowed_origins` as the explicit configuration source
-- Adds each `DOMAIN` hostname as an HTTPS origin and learns forwarded hosts only from trusted proxies
-- Allows credentials only for explicit origins; the wildcard default never enables credentials
-
-**TLS / ACME** (AI.md PART 15)
-
-The service supports HTTPS with automatically discovered or operator-supplied certificates and managed renewal. Certificate issuance supports HTTP, TLS-ALPN, and DNS validation; operators can use any provider supported by the DNS challenge service.
-
-**Scheduler** (AI.md PART 18)
-
-All tasks run continuously; state persists across restarts. Jobs are registered at startup; graceful shutdown drains running jobs.
-
-| Task | Schedule | Description |
-|------|----------|-------------|
-| `ssl_renewal` | Daily 03:00 | Renew TLS certs when ≤ 7 days from expiry |
-| `geoip_update` | Weekly (Sun 03:00) | Download GeoIP databases from sapics/ip-location-db |
-| `blocklist_update` | Daily 04:00 | Download IP/domain blocklists for abuse detection |
-| `threat_update` | Daily 04:30 | Download VPN/proxy/Tor exit-node lists for detection |
-| `cve_update` | Daily 05:00 | Download CVE/security databases |
-| `update_check` | Daily 06:00 | Notify about eligible releases by default; automatic installation requires an elevated server start, while other instances receive manual update instructions |
-| `token_cleanup` | Every 15 min | Remove expired issued API tokens |
-| `log_rotation` | Daily 00:00 | Rotate and compress old logs |
-| `backup_daily` | Daily 02:00 | Cumulative daily incremental plus a verified full backup; keeps the incremental's base full |
-| `backup_hourly` | Hourly | Incremental backup — disabled by default |
-| `healthcheck_self` | Every 5 min | Self-health verification |
-| `tor_health` | Every 10 min | Check Tor connectivity — registered only when Tor is detected |
-
-**Email & Notifications** (AI.md PART 17)
-- SMTP configuration in `server.yml` under `notifications.smtp`
-- HTML + plain text multipart emails
-- Templates embedded in binary via `embed.FS`; operator can override by placing templates in `{config_dir}/template/email/`
-- Credentials never logged
-
-**Tor Hidden Service** (AI.md PART 31)
-- Auto-enabled when `tor` binary is found in PATH
-- v3 onion address (ed25519)
-- Operator sees the onion address in startup output
-
-**Docker non-root exception** (AI.md PART 26 "Dockerfile Requirements",
-documented per its own exception clause)
-- `docker/Dockerfile` and `docker/Dockerfile.dev` intentionally contain
-  no `USER` directive — the container starts and stays root
-- Reason: the binary manages a system service (Tor, PART 31/23) and
-  must create its own dedicated system user and take ownership of
-  `/config`, `/data`, and their subdirectories on every normal startup
-  (AI.md PART 23 "Server Startup Sequence" steps 8a/8c and "System User
-  Requirements"), including recovering from host bind mounts owned
-  `root:root`. It creates the `ipgaze` system user, chowns its
-  directories, binds ports, then calls `dropPrivileges()` before
-  serving any request — verified via container logs
-  ("Dropped privileges to user ipgaze") and a live healthz check
-- The Trivy `DS-0002` ("Specify at least 1 USER command") finding is
-  suppressed inline in both Dockerfiles with a comment pointing back to
-  this section, per AI.md's own "document any exception in IDEA.md"
-  instruction
-
-**PWA Support**
-- Web app manifest for mobile installation
-- Service worker for offline caching of static assets
-
-**Database**
-- Default: SQLite via `modernc.org/sqlite` (pure Go, CGO_ENABLED=0, local file)
-- Alternate: libSQL/Turso remote via `tursodatabase/libsql-client-go` (remote Turso cloud or self-hosted sqld)
-- Driver selected in `server.yml` under `server.database.driver` (sqlite | libsql | turso)
-- Config aliases: sqlite2/sqlite3 → sqlite; turso → libsql
-
-**Cache Backends**
-- `none` (disabled), `memory` (default, in-process), `valkey`/`redis` (shared), `memcache`
-- Configured under `server.cache.type`; `CACHE_URL` overrides the connection
-  string and upgrades a `none`/`memory` type to `valkey`
-
-**Operator Commands** (server binary flags)
-- `--service start|stop|restart|reload|status|--install|--uninstall|--disable` — systemd/launchd/Windows service management
-- `--maintenance backup|restore` — backup/restore (`--include-ssl`, `--include-data` widen the archive)
-- `--maintenance update|mode|setup` — self-update alias, maintenance-mode toggle, re-run first-run setup
-- `--maintenance pgp generate|rotate|publish|export|import|delete` — server PGP keypair lifecycle
-- `--maintenance secret rotate` — rotate `server.security.encryption_key` with a 30-day grace period
-- `--maintenance token list|revoke` — list or revoke issued API tokens (operator authorization required)
-- `--maintenance data export --owner <prefix> [--output FILE]` — export one owner's data as JSON; files default to mode `0600`, and `--output -` writes to stdout
-- `--maintenance data delete --owner <prefix> [--yes]` — delete one owner's data and tokens transactionally while preserving append-only audit history; confirm by typing the owner ID unless `--yes` is supplied
-- `--maintenance compliance report` — show enabled standards/settings, owner/token/open-report counts, retained compliance events from the last 30 days, last backup time, and audit integrity; enabled standards require encrypted backups
-- `--shell completions|init [SHELL]` — shell completions and init snippet
-- `--update check|yes|branch {stable|beta|devel}` — binary self-update from GitHub Releases; rolling-channel aliases normalize to `devel`
-- Backup format: `.tar.gz` (or `.tar.gz.enc` when encryption is enabled); SSL keys and the full data directory are excluded unless explicitly included
+The server binary provides the public lookup service. The companion `ipgaze-cli`
+client can query any compatible server and present lookup results to operators
+and scripts. See AI.md PARTS 7, 8, and 32 for the required implementation and
+packaging details.

@@ -2,7 +2,7 @@
 
 ⚠️ **These rules are NON-NEGOTIABLE. Violations are bugs.** ⚠️
 
-> Synced against AI.md revision `eb41fb200153` (2026-11-22). AI.md remains authoritative for complete requirements.
+> Synced against AI.md revision `fbd22cdebc89` (2026-11-24). AI.md remains authoritative for complete requirements.
 
 ## CRITICAL - NEVER DO
 - **PART 0:** | **AI.md (PARTS 0-33 + PART 33 reference)** | Implementation patterns, standards, rules, and reference material | **NEVER** |
@@ -217,6 +217,13 @@
 - **PART 1:** [ ] All NON-NEGOTIABLE sections must be implemented exactly
 - **PART 1:** [ ] TODO.AI.md required for 3+ tasks
 
+## AI.md 2026-11-24 Updates
+
+- IDEA.md may inventory product API routes and choose explicitly optional capabilities; mandatory requirements are not waived there. PARTS 34–36 are activated only by SPEC.md.
+- Resolve project identity from IDEA.md first, then the Git remote, then the directory. Platform URLs and registries are derived placeholders, not IDEA.md variables.
+- Keep migration backups in the project-scoped OS temp directory and retain them until the user confirms the migrated IDEA.md.
+- The `incus.sh` full-app check is explicit; `tests/run_tests.sh` stays Docker-only.
+
 ## Key Rules Summary
 
 ### PART 0 — AI ASSISTANT RULES (READ FIRST)
@@ -290,4 +297,4 @@
 
 For complete details, see AI.md PART 0, PART 1.
 
-<!-- AI.md source: eb41fb200153 -->
+<!-- AI.md source: fbd22cdebc89 -->

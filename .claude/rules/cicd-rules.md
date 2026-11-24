@@ -2,7 +2,7 @@
 
 ⚠️ **These rules are NON-NEGOTIABLE. Violations are bugs.** ⚠️
 
-> Synced against AI.md revision `eb41fb200153` (2026-11-22). AI.md remains authoritative for complete requirements.
+> Synced against AI.md revision `fbd22cdebc89` (2026-11-24). AI.md remains authoritative for complete requirements.
 
 ## CRITICAL - NEVER DO
 - **PART 27:** *CI/CD workflows are DIFFERENT from local development. Do NOT mix them.**
@@ -31,6 +31,11 @@
 - **PART 27:** | Docker | `docker.yml` (all branches) | Docker stage (always runs) |
 - **PART 27:** | Docker devel | `docker.yml` `build-devel` job (all branches + daily schedule) | "Docker: Devel" stage (always runs) + 4am cron |
 - **PART 27:** [ ] All 8 platform builds required (4 OS x 2 arch)
+
+## AI.md 2026-11-24 Updates
+
+- AI.md, IDEA.md, README.md, and docs must not contain credential-shaped example strings. The sole random-looking identifier exception is the 8-lowercase-letter owner-token cookie-name suffix.
+- Preserve complete Git history for full-history secret scanning.
 
 ## Key Rules Summary
 
@@ -63,4 +68,4 @@
 
 For complete details, see AI.md PART 27.
 
-<!-- AI.md source: eb41fb200153 -->
+<!-- AI.md source: fbd22cdebc89 -->
