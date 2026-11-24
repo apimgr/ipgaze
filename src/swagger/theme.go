@@ -7,6 +7,9 @@ func getSwaggerThemeCSS(theme string) string {
 	if theme == "light" {
 		return swaggerLightTheme
 	}
+	if theme == "auto" {
+		return swaggerDarkTheme + "\n@media (prefers-color-scheme: light) {\n" + swaggerLightTheme + "\n}\n"
+	}
 	return swaggerDarkTheme
 }
 

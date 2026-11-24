@@ -1,0 +1,13 @@
+{{template "base" .}}
+{{define "title"}}{{t .Lang "swagger.ui.title"}} — {{.ProjectName}}{{end}}
+{{define "meta_description"}}{{t .Lang "swagger.info.description"}}{{end}}
+{{define "extra_head"}}
+  <link rel="stylesheet" href="{{asset "/static/vendor/swagger-ui/swagger-ui.css"}}">
+  <link rel="stylesheet" href="{{asset (printf "/server/docs/swagger/theme.css?theme=%s" .Theme)}}">
+{{end}}
+{{define "content"}}
+<h1 class="page-title">{{t .Lang "swagger.ui.title"}}</h1>
+<div id="swagger-ui" data-spec-url="{{.SwaggerSpecURL}}"></div>
+<script src="{{asset "/static/vendor/swagger-ui/swagger-ui-bundle.js"}}"></script>
+<script src="{{asset "/static/vendor/swagger-ui/swagger-ui-standalone-preset.js"}}"></script>
+{{end}}

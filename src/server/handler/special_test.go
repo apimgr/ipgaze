@@ -248,6 +248,23 @@ func TestOfflineHandler_TranslatesViaLangCookie(t *testing.T) {
 	}
 }
 
+func TestOfflineHandler_UsesThemeCookie(t *testing.T) {
+	h := NewSpecialHandler("")
+	req := httptest.NewRequest(http.MethodGet, "/offline.html", nil)
+	req.AddCookie(&http.Cookie{Name: "theme", Value: "dark"})
+	w := httptest.NewRecorder()
+
+	h.OfflineHandler(w, req)
+
+	body := w.Body.String()
+	if !strings.Contains(body, `class="theme-dark"`) {
+		t.Errorf("offline page did not apply the saved dark theme: %q", body)
+	}
+	if !strings.Contains(body, `name="theme" value="light"`) {
+		t.Errorf("offline page theme toggle does not advance from dark to light: %q", body)
+	}
+}
+
 func TestOfflineHandler_RTLDirection(t *testing.T) {
 	h := NewSpecialHandler("")
 	req := httptest.NewRequest(http.MethodGet, "/offline.html", nil)
@@ -332,8 +349,20 @@ func TestOfflineHandler_NoInlineHandlers(t *testing.T) {
 	if strings.Contains(body, "<script") {
 		t.Errorf("offline page contains a script block: %q", body)
 	}
-	if !strings.Contains(body, `<a class="btn" href="/">`) {
+	if !strings.Contains(body, `<a class="btn btn-primary" href="/">`) {
 		t.Errorf("offline page missing no-JS retry link: %q", body)
+	}
+	if strings.Contains(body, `<style`) || strings.Contains(body, ` style=`) {
+		t.Errorf("offline page contains inline CSS: %q", body)
+	}
+	if strings.Count(body, `<main `) != 1 || strings.Count(body, `<h1>`) != 1 {
+		t.Errorf("offline page must contain exactly one main and one h1: %q", body)
+	}
+	if strings.Count(body, `class="skip-link"`) != 2 || !strings.Contains(body, `<header id="navigation" class="header" role="banner">`) {
+		t.Errorf("offline page is missing the shared skip links or header: %q", body)
+	}
+	if !strings.Contains(body, `name="csrf_token"`) || !strings.Contains(body, `id="nav-panel"`) {
+		t.Errorf("offline page is missing the CSRF-protected theme form or navigation drawer: %q", body)
 	}
 }
 

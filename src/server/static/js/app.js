@@ -700,7 +700,7 @@ function initSwaggerUI() {
 
 // ============================================================================
 // GraphQL explorer init — /server/docs/graphql page only (element absent
-// elsewhere, no-op). Queries POST to /api/graphql per AI.md PART 14; the root
+// elsewhere, no-op). Queries POST to the versioned GraphQL route per AI.md PART 14; the root
 // /graphql path was removed and is never served.
 // ============================================================================
 
@@ -708,6 +708,10 @@ function initGraphQLExplorer() {
   const runBtn = document.getElementById('run');
   const queryBox = document.getElementById('query');
   if (!runBtn || !queryBox) { return; }
+  const workbench = document.getElementById('graphql-workbench');
+  const endpoint = workbench && workbench.dataset.endpoint
+    ? workbench.dataset.endpoint
+    : '/api/v1/server/graphql';
   runBtn.addEventListener('click', function() {
     const q = queryBox.value;
     const v = document.getElementById('vars').value;
@@ -716,7 +720,7 @@ function initGraphQLExplorer() {
     try { vars = JSON.parse(v || '{}'); } catch (e) { vars = {}; }
     const result = document.getElementById('result');
     result.textContent = i18nStr('i18nRunning', 'Running…');
-    fetch('/api/graphql', {
+    fetch(endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
       body: JSON.stringify({ query: q, variables: vars })
@@ -790,7 +794,6 @@ document.addEventListener('DOMContentLoaded', function() {
 
   initHealthzCountdown();
   initNavToggleAria();
-  initResponsiveNavigation();
   initWidget();
 });
 
@@ -820,48 +823,6 @@ function initNavToggleAria() {
     });
   });
   sync();
-}
-
-// initResponsiveNavigation keeps the inline menu only when its links fit.
-function initResponsiveNavigation() {
-  const nav = document.getElementById('navigation');
-  const inner = nav && nav.querySelector('.nav-inner');
-  const links = nav && nav.querySelector('.nav-links');
-  if (!nav || !inner || !links) { return; }
-  let scheduled = false;
-  const update = function() {
-    scheduled = false;
-    nav.classList.remove('nav-overflow');
-    if (window.innerWidth < 768) { return; }
-    const innerWidth = inner.clientWidth;
-    const children = Array.from(inner.children);
-    const usedWidth = children.reduce(function(total, child) {
-      return total + child.getBoundingClientRect().width;
-    }, 0);
-    const gap = parseFloat(window.getComputedStyle(inner).columnGap) || 0;
-    if (usedWidth + gap * Math.max(children.length - 1, 0) > innerWidth + 1) {
-      nav.classList.add('nav-overflow');
-      return;
-    }
-    const toggle = document.getElementById('nav-toggle');
-    if (toggle && toggle.checked) {
-      toggle.checked = false;
-      toggle.setAttribute('aria-expanded', 'false');
-      const panel = document.getElementById('nav-panel');
-      if (panel) { panel.inert = true; }
-    }
-  };
-  const schedule = function() {
-    if (scheduled) { return; }
-    scheduled = true;
-    window.requestAnimationFrame(update);
-  };
-  window.addEventListener('resize', schedule);
-  if (window.ResizeObserver) {
-    new ResizeObserver(schedule).observe(nav);
-  }
-  if (document.fonts && document.fonts.ready) { document.fonts.ready.then(schedule); }
-  schedule();
 }
 
 // initHealthzCountdown drives the visible refresh countdown on /server/healthz.

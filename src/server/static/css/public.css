@@ -28,25 +28,6 @@
   display: flex;
 }
 
-/* Language selector (AI.md PART 30): a plain GET form, so it works with
-   JavaScript disabled just like the theme toggle beside it. */
-.lang-select-form {
-  display: flex;
-  align-items: center;
-  gap: var(--space-1);
-}
-
-.lang-select {
-  font-family: inherit;
-  font-size: 1rem;
-  min-height: 44px;
-  padding: 0 var(--space-1);
-  color: var(--color-text);
-  background: var(--color-bg-card);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-base);
-}
-
 .header-link {
   display: flex;
   align-items: center;
@@ -218,47 +199,35 @@
    Navigation
    ============================================================================ */
 
-.site-nav {
+.header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  min-height: 56px;
+  padding: var(--space-3) var(--space-4);
   background: var(--color-bg-secondary);
   border-bottom: 1px solid var(--color-border);
 }
 
-.nav-inner {
-  display: flex;
-  align-items: center;
-  gap: var(--space-4);
-  height: 56px;
-}
-
-.nav-logo {
+.site-brand {
   text-decoration: none;
   display: flex;
   align-items: center;
-  gap: var(--space-2);
-}
-
-.nav-brand {
   font-weight: 700;
   font-size: 1.2rem;
   color: var(--color-text);
+  white-space: nowrap;
 }
 
 .nav-links {
   display: flex;
-  list-style: none;
-  margin: 0;
-  padding: 0;
   gap: var(--space-2);
-  /* Centers the link cluster in the space between the brand and the
-     header actions, instead of letting it sit flush against either edge
-     (AI.md PART 16 "Header Layout" - single row, 4 zones). */
   flex: 1;
   justify-content: center;
 }
 
 @media (max-width: 767px) {
   .nav-links { display: none; }
-  .nav-burger { display: flex; }
 }
 
 .nav-links a {
@@ -277,10 +246,6 @@
   background: var(--color-bg-hover);
 }
 
-/* Visually hidden but still focusable/operable via keyboard (Tab + Space) —
-   `display: none` would remove it from the tab order entirely, making the
-   mobile nav toggle unreachable without a mouse (AI.md PART 16
-   "Accessibility" → Keyboard Navigation). */
 .nav-checkbox {
   position: absolute;
   width: 1px;
@@ -314,10 +279,9 @@ body:has(.nav-checkbox:focus-visible) .nav-burger {
   user-select: none;
 }
 
-.nav-overflow .nav-burger { display: flex; }
-.nav-overflow .nav-links { display: none; }
-.nav-overflow .nav-actions .lang-select-form { display: none; }
-body:has(#navigation.nav-overflow) .nav-drawer-language { display: flex; }
+@media (max-width: 767px) {
+  .nav-burger { display: flex; }
+}
 
 .nav-panel {
   position: fixed;
@@ -344,24 +308,6 @@ body:has(#navigation.nav-overflow) .nav-drawer-language { display: flex; }
 
 body:has(.nav-checkbox:checked) {
   overflow: hidden;
-}
-
-.nav-panel ul {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-}
-
-.nav-drawer-language {
-  display: none;
-}
-
-.lang-select-form {
-  align-items: center;
-  gap: var(--space-2);
 }
 
 .nav-panel a {
@@ -403,10 +349,8 @@ body:has(.nav-checkbox:checked) {
   display: block;
 }
 
-/* Actions cluster: profile/preferences link, then theme toggle, always
-   right-aligned without pushing the centered nav links off-center. */
-.header-actions,
-.nav-actions {
+/* Preferences and theme actions remain visible at every viewport. */
+.header-actions {
   display: flex;
   align-items: center;
   gap: var(--space-2);
@@ -498,19 +442,6 @@ body:has(.nav-checkbox:checked) {
   }
 }
 
-@media (max-width: 767px) {
-  .nav-actions .lang-select-form { display: none; }
-  .nav-drawer-language {
-    display: flex;
-    flex-direction: column;
-    align-items: stretch;
-    gap: var(--space-2);
-    margin-block-start: var(--space-6);
-  }
-  .nav-drawer-language select,
-  .nav-drawer-language button { width: 100%; }
-}
-
 /* ============================================================================
    Error Page
    ============================================================================ */
@@ -557,13 +488,9 @@ body:has(.nav-checkbox:checked) {
   grid-template-columns: 1fr;
 }
 
-.nav-burger { display: flex; }
-.nav-links { display: none; }
-
 /* Tablet and up (768px+) */
 @media (min-width: 768px) {
   #nav-toggle { display: none; }
-  body:has(#navigation.nav-overflow) #nav-toggle { display: block; }
 
   #main-content {
     width: 100%;
@@ -582,26 +509,8 @@ body:has(.nav-checkbox:checked) {
   }
 
   .nav-burger { display: none; }
-  .nav-links {
-    display: flex;
-    flex-direction: row;
-    position: static;
-    background: transparent;
-    border-bottom: none;
-    padding: 0;
-  }
   .nav-panel,
   .nav-overlay { display: none; }
-  #nav-toggle:checked ~ #nav-panel,
-  #nav-toggle:checked ~ .nav-overlay { display: none; }
-
-  body:has(#navigation.nav-overflow) .nav-panel { display: block; }
-  body:has(#navigation.nav-overflow) #nav-toggle:checked ~ #nav-panel {
-    display: block;
-  }
-  body:has(#navigation.nav-overflow) #nav-toggle:checked ~ .nav-overlay {
-    display: block;
-  }
 
   .features-grid,
   .stats-grid {
@@ -843,9 +752,7 @@ html.theme-light .location-map {
 /* Print Styles */
 @media print {
   .theme-toggle-form,
-  .lang-select-form {
-    display: none;
-  }
+  .nav-burger { display: none; }
 
   body {
     background: white;

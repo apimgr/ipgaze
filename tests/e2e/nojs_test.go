@@ -87,13 +87,13 @@ func TestNoJSNavigationLinksWork(t *testing.T) {
 	var location, heading string
 	if err := chromedp.Run(ctx,
 		chromedp.Navigate(baseURL+"/"),
-		chromedp.WaitVisible(`.nav-links a[href="/server/about"]`, chromedp.ByQuery),
-		chromedp.Click(`.nav-links a[href="/server/about"]`, chromedp.ByQuery),
+		chromedp.WaitVisible(`footer a[href="/server/about"]`, chromedp.ByQuery),
+		chromedp.Click(`footer a[href="/server/about"]`, chromedp.ByQuery),
 		chromedp.WaitVisible("h1", chromedp.ByQuery),
 		chromedp.Location(&location),
 		chromedp.Text("h1", &heading, chromedp.ByQuery),
 	); err != nil {
-		t.Fatalf("following the About link without JavaScript: %v", err)
+		t.Fatalf("following the footer About link without JavaScript: %v", err)
 	}
 	if location != baseURL+"/server/about" {
 		t.Errorf("About link landed on %q, want %s/server/about", location, baseURL)
@@ -141,10 +141,15 @@ func TestNoJSPreferencesImportFormAppliesThemeAndLanguage(t *testing.T) {
 
 	var htmlClass, langAttr, heading string
 	if err := chromedp.Run(ctx,
+		chromedp.Navigate(baseURL+"/"),
+		chromedp.WaitVisible(".consent-banner__btn--accept", chromedp.ByQuery),
+		chromedp.Click(".consent-banner__btn--accept", chromedp.ByQuery),
+		chromedp.WaitVisible("#ip-address", chromedp.ByQuery),
 		chromedp.Navigate(baseURL+"/server/preferences/sync"),
 		chromedp.WaitVisible("#preferences-import-code", chromedp.ByQuery),
 		chromedp.SendKeys("#preferences-import-code", code, chromedp.ByQuery),
-		chromedp.Click(`form[action="/server/preferences/sync"] button[type=submit]`, chromedp.ByQuery),
+		chromedp.Submit(`form[action="/server/preferences/sync"]`, chromedp.ByQuery),
+		chromedp.WaitVisible(`html.theme-light[lang="es"]`, chromedp.ByQuery),
 		chromedp.WaitVisible("#preferences-export-code", chromedp.ByQuery),
 		chromedp.AttributeValue("html", "class", &htmlClass, nil, chromedp.ByQuery),
 		chromedp.AttributeValue("html", "lang", &langAttr, nil, chromedp.ByQuery),

@@ -4,6 +4,7 @@ package handler
 
 import (
 	"fmt"
+	htmltemplate "html/template"
 	"net/http"
 	"os"
 	"sort"
@@ -354,9 +355,12 @@ const CACHE_VERSION = '` + cacheVersion + `';
 const CACHE_NAME = 'ipgaze-cache-' + CACHE_VERSION;
 
 const PRECACHE_ASSETS = [
+  '/theme.css?v=` + cacheVersion + `',
   '/static/css/common.css?v=` + cacheVersion + `',
   '/static/css/components.css?v=` + cacheVersion + `',
   '/static/css/public.css?v=` + cacheVersion + `',
+  '/static/css/offline.css?v=` + cacheVersion + `',
+  '/static/css/graphql.css?v=` + cacheVersion + `',
   '/static/js/app.js?v=` + cacheVersion + `',
   '/static/icons/icon-192.png?v=` + cacheVersion + `',
   '/static/icons/icon-512.png?v=` + cacheVersion + `',
@@ -483,53 +487,71 @@ func (h *SpecialHandler) OfflineHandler(w http.ResponseWriter, r *http.Request) 
 	lang := i18n.DetectLocale(r)
 	dir := string(i18n.LocaleDirection(lang))
 	ctx := i18n.WithLang(r.Context(), lang)
+	themeName := "auto"
+	if cookie, err := r.Cookie("theme"); err == nil {
+		switch cookie.Value {
+		case "dark", "light", "auto":
+			themeName = cookie.Value
+		}
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_, _ = fmt.Fprintf(w, `<!DOCTYPE html>
-<html lang="%s" dir="%s">
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Vary", "Accept-Language")
+	page := struct {
+		Lang, Dir, AssetStamp, Title, Description, TryAgain, SkipContent, SkipNavigation string
+		Navigation, Home, Preferences, ThemeToggle, Theme, CSRFToken, NextTheme          string
+	}{
+		Lang: lang, Dir: dir, AssetStamp: h.assetStampOrCommit(),
+		Title:          i18n.T(ctx, "pwa.offline_title"),
+		Description:    i18n.T(ctx, "pwa.offline_description"),
+		TryAgain:       i18n.T(ctx, "pwa.offline_try_again"),
+		SkipContent:    i18n.T(ctx, "accessibility.skip_to_content"),
+		SkipNavigation: i18n.T(ctx, "nav.skip_to_navigation"),
+		Navigation:     i18n.T(ctx, "nav.main_navigation"), Home: i18n.T(ctx, "nav.home"),
+		Preferences: i18n.T(ctx, "nav.preferences"), ThemeToggle: i18n.T(ctx, "theme.toggle"),
+		Theme: themeName, CSRFToken: getCSRFToken(r), NextTheme: NextTheme(themeName),
+	}
+	const source = `<!DOCTYPE html>
+<html lang="{{.Lang}}" dir="{{.Dir}}" class="theme-{{.Theme}}">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>IPGaze — %s</title>
-  <style>
-    :root { --bg: %s; --fg: %s; --muted: %s; --accent: %s; --accent-text: %s; }
-    @media (prefers-color-scheme: light) {
-      :root { --bg: %s; --fg: %s; --muted: %s; --accent: %s; --accent-text: %s; }
-    }
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { background: var(--bg); color: var(--fg); font-family: system-ui, sans-serif;
-           display: flex; align-items: center; justify-content: center; min-height: 100vh; text-align: center; padding: 1rem; }
-    .card { max-width: 400px; padding: 2rem; }
-    h1 { font-size: 1.5rem; margin-bottom: 0.5rem; color: var(--accent); }
-    p { color: var(--muted); line-height: 1.6; margin-bottom: 1rem; }
-    .btn { background: var(--accent); color: var(--accent-text); border: none; padding: 0.75rem 1.5rem;
-           border-radius: 4px; cursor: pointer; font-size: 1rem; display: inline-block; text-decoration: none; }
-    .btn:hover { opacity: 0.85; }
-  </style>
+  <title>IPGaze — {{.Title}}</title>
+  <link rel="stylesheet" href="/theme.css?v={{.AssetStamp}}">
+  <link rel="stylesheet" href="/static/css/common.css?v={{.AssetStamp}}">
+  <link rel="stylesheet" href="/static/css/components.css?v={{.AssetStamp}}">
+  <link rel="stylesheet" href="/static/css/public.css?v={{.AssetStamp}}">
+  <link rel="stylesheet" href="/static/css/offline.css?v={{.AssetStamp}}">
 </head>
 <body>
-  <div class="card">
-    <h1>%s</h1>
-    <p>%s</p>
-    <a class="btn" href="/">%s</a>
-  </div>
+  <a href="#main-content" class="skip-link">{{.SkipContent}}</a>
+  <a href="#navigation" class="skip-link">{{.SkipNavigation}}</a>
+  <input type="checkbox" id="nav-toggle" class="nav-checkbox" aria-expanded="false" aria-controls="nav-panel">
+  <header id="navigation" class="header" role="banner">
+    <a href="/" class="site-brand">IPGaze</a>
+    <nav class="nav-links" aria-label="{{.Navigation}}"><a href="/">{{.Home}}</a></nav>
+    <label for="nav-toggle" class="nav-burger" aria-label="{{.Navigation}}">☰</label>
+    <div class="header-actions">
+      <a href="/server/preferences" class="header-link" aria-label="{{.Preferences}}"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8Zm9 4a7.9 7.9 0 0 0-.1-1.2l2-1.5-2-3.5-2.4 1a8.6 8.6 0 0 0-2-1.2L16.1 3h-4.2l-.4 2.6a8.6 8.6 0 0 0-2 1.2l-2.4-1-2 3.5 2 1.5a7.9 7.9 0 0 0 0 2.4l-2 1.5 2 3.5 2.4-1a8.6 8.6 0 0 0 2 1.2l.4 2.6h4.2l.4-2.6a8.6 8.6 0 0 0 2-1.2l2.4 1 2-3.5-2-1.5A7.9 7.9 0 0 0 21 12Z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg></a>
+      <form action="/server/preferences" method="post" class="theme-toggle-form"><input type="hidden" name="csrf_token" value="{{.CSRFToken}}"><input type="hidden" name="theme" value="{{.NextTheme}}"><button type="submit" class="btn btn-icon theme-button" aria-label="{{.ThemeToggle}}"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="2"/></svg></button></form>
+    </div>
+  </header>
+  <main id="main-content" role="main">
+    <div class="offline-card"><h1>{{.Title}}</h1><p>{{.Description}}</p><a class="btn btn-primary" href="/">{{.TryAgain}}</a></div>
+  </main>
+  <nav class="nav-panel" id="nav-panel" aria-label="{{.Navigation}}"><a href="/">{{.Home}}</a></nav>
+  <label for="nav-toggle" class="nav-overlay" aria-hidden="true"></label>
+  <footer class="footer" role="contentinfo"><p><a href="/server/about">{{t .Lang "nav.about"}}</a> · <a href="/server/help">{{t .Lang "nav.help"}}</a> · <a href="/server/preferences">{{.Preferences}}</a></p></footer>
 </body>
-</html>`,
-		lang, dir,
-		i18n.T(ctx, "pwa.offline_title"),
-		theme.ThemePaletteDark.Background,
-		theme.ThemePaletteDark.Foreground,
-		theme.ThemePaletteDark.Muted,
-		theme.ThemePaletteDark.Primary,
-		theme.ReadableTextOn(theme.ThemePaletteDark.Primary),
-		theme.ThemePaletteLight.Background,
-		theme.ThemePaletteLight.Foreground,
-		theme.ThemePaletteLight.Muted,
-		theme.ThemePaletteLight.Primary,
-		theme.ReadableTextOn(theme.ThemePaletteLight.Primary),
-		i18n.T(ctx, "pwa.offline_title"),
-		i18n.T(ctx, "pwa.offline_description"),
-		i18n.T(ctx, "pwa.offline_try_again"),
-	)
+</html>`
+	tmpl, err := htmltemplate.New("offline").Funcs(htmltemplate.FuncMap{"t": i18n.Translate}).Parse(source)
+	if err != nil {
+		http.Error(w, "Offline page unavailable", http.StatusInternalServerError)
+		return
+	}
+	if err := tmpl.Execute(w, page); err != nil {
+		return
+	}
 }
 
 // LLMsTxtHandler serves llms.txt for AI agent discovery per AI.md PART 11.

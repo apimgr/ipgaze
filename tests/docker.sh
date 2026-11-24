@@ -46,7 +46,9 @@ docker run --rm \
     apk add --no-cache curl bash file jq >/dev/null
 
     chmod +x /app/${DOCKER_PROJECT_NAME}
-    [ -f /app/${DOCKER_PROJECT_NAME}-cli ] && chmod +x /app/${DOCKER_PROJECT_NAME}-cli
+    if [ -f /app/${DOCKER_PROJECT_NAME}-cli ]; then
+        chmod +x /app/${DOCKER_PROJECT_NAME}-cli
+    fi
 
     echo '=== Version Check ==='
     /app/${DOCKER_PROJECT_NAME} --version
@@ -61,55 +63,68 @@ docker run --rm \
     echo '=== Starting Server for API Tests ==='
     /app/${DOCKER_PROJECT_NAME} --port 64580 > /tmp/server.log 2>&1 &
     SERVER_PID=\$!
-    sleep 3
+    SERVER_READY=0
+    for attempt in \$(seq 1 60); do
+        if curl -q -LSsf http://localhost:64580/server/healthz >/dev/null; then
+            SERVER_READY=1
+            break
+        fi
+        sleep 1
+    done
+    if [ \$SERVER_READY != 1 ]; then
+        echo 'FAILED: server did not become healthy within 60 seconds'
+        cat /tmp/server.log
+        kill \$SERVER_PID 2>/dev/null || true
+        exit 1
+    fi
 
     echo '=== API Endpoint Tests ==='
     # Test JSON response (default)
-    curl -q -LSsf http://localhost:64580/api/v1/server/healthz || echo 'FAILED: /api/v1/server/healthz'
+    curl -q -LSsf http://localhost:64580/api/v1/server/healthz || { echo 'FAILED: /api/v1/server/healthz'; exit 1; }
 
     # Test .txt extension (plain text)
-    curl -q -LSsf http://localhost:64580/api/v1/server/healthz.txt || echo 'FAILED: /api/v1/server/healthz.txt'
+    curl -q -LSsf http://localhost:64580/api/v1/server/healthz.txt || { echo 'FAILED: /api/v1/server/healthz.txt'; exit 1; }
 
     # Test Accept header: application/json
-    curl -q -LSsf -H 'Accept: application/json' http://localhost:64580/server/healthz || echo 'FAILED: Accept JSON'
+    curl -q -LSsf -H 'Accept: application/json' http://localhost:64580/server/healthz || { echo 'FAILED: Accept JSON'; exit 1; }
 
     # Test Accept header: text/plain
-    curl -q -LSsf -H 'Accept: text/plain' http://localhost:64580/server/healthz || echo 'FAILED: Accept text/plain'
+    curl -q -LSsf -H 'Accept: text/plain' http://localhost:64580/server/healthz || { echo 'FAILED: Accept text/plain'; exit 1; }
 
     echo '=== Project-Specific Endpoint Tests (echoip-compatible, IDEA.md) ==='
     # Frontend field endpoints (plain text for CLI/curl clients)
-    curl -q -LSsf http://localhost:64580/json | grep -q -- '\"ip\"' || echo 'FAILED: /json'
-    curl -q -LSsf http://localhost:64580/ip || echo 'FAILED: /ip'
-    curl -q -LSsf http://localhost:64580/ip.txt || echo 'FAILED: /ip.txt'
-    curl -q -LSsf http://localhost:64580/country.txt || echo 'FAILED: /country.txt'
-    curl -q -LSsf http://localhost:64580/city.txt || echo 'FAILED: /city.txt'
-    curl -q -LSsf http://localhost:64580/asn.txt || echo 'FAILED: /asn.txt'
-    curl -q -LSsf http://localhost:64580/asn-org.txt || echo 'FAILED: /asn-org.txt'
-    curl -q -LSsf http://localhost:64580/country-iso.txt || echo 'FAILED: /country-iso.txt'
-    curl -q -LSsf http://localhost:64580/coordinates.txt || echo 'FAILED: /coordinates.txt'
+    curl -q -LSsf http://localhost:64580/json | grep -q -- '\"ip\"' || { echo 'FAILED: /json'; exit 1; }
+    curl -q -LSsf http://localhost:64580/ip || { echo 'FAILED: /ip'; exit 1; }
+    curl -q -LSsf http://localhost:64580/ip.txt || { echo 'FAILED: /ip.txt'; exit 1; }
+    curl -q -LSsf http://localhost:64580/country.txt || { echo 'FAILED: /country.txt'; exit 1; }
+    curl -q -LSsf http://localhost:64580/city.txt || { echo 'FAILED: /city.txt'; exit 1; }
+    curl -q -LSsf http://localhost:64580/asn.txt || { echo 'FAILED: /asn.txt'; exit 1; }
+    curl -q -LSsf http://localhost:64580/asn-org.txt || { echo 'FAILED: /asn-org.txt'; exit 1; }
+    curl -q -LSsf http://localhost:64580/country-iso.txt || { echo 'FAILED: /country-iso.txt'; exit 1; }
+    curl -q -LSsf http://localhost:64580/coordinates.txt || { echo 'FAILED: /coordinates.txt'; exit 1; }
 
     # Well-known / metadata endpoints
-    curl -q -LSsf http://localhost:64580/robots.txt | grep -qi -- 'user-agent' || echo 'FAILED: /robots.txt'
-    curl -q -LSsf http://localhost:64580/.well-known/security.txt | grep -qi -- 'contact' || echo 'FAILED: /.well-known/security.txt'
+    curl -q -LSsf http://localhost:64580/robots.txt | grep -qi -- 'user-agent' || { echo 'FAILED: /robots.txt'; exit 1; }
+    curl -q -LSsf http://localhost:64580/.well-known/security.txt | grep -qi -- 'contact' || { echo 'FAILED: /.well-known/security.txt'; exit 1; }
     DOCKER_SECURITY_TXT_STATUS=\$(curl -q -LSs -o /dev/null -w '%{http_code}' http://localhost:64580/security.txt)
-    [ \"\$DOCKER_SECURITY_TXT_STATUS\" = 404 ] || echo 'FAILED: /security.txt should be 404'
+    [ \"\$DOCKER_SECURITY_TXT_STATUS\" = 404 ] || { echo 'FAILED: /security.txt should be 404'; exit 1; }
 
     # API v1 field routes
-    curl -q -LSsf http://localhost:64580/api/v1/ | grep -q -- '\"ip\"' || echo 'FAILED: /api/v1/ JSON'
-    curl -q -LSsf http://localhost:64580/api/v1/ip || echo 'FAILED: /api/v1/ip'
+    curl -q -LSsf http://localhost:64580/api/v1/ | grep -q -- '\"ip\"' || { echo 'FAILED: /api/v1/ JSON'; exit 1; }
+    curl -q -LSsf http://localhost:64580/api/v1/ip || { echo 'FAILED: /api/v1/ip'; exit 1; }
 
     # Autodiscover (PART 13/14) — required fields
     curl -q -LSsf http://localhost:64580/api/autodiscover | jq -e '.api_version and .version and .server_name and .cli_min_version' >/dev/null \
-        || echo 'FAILED: /api/autodiscover missing required fields'
+        || { echo 'FAILED: /api/autodiscover missing required fields'; exit 1; }
 
     echo '=== Content Negotiation Tests ==='
     # Frontend route: browser (HTML) vs CLI (plain text) smart detection
-    curl -q -LSsfI -H 'Accept: text/html' http://localhost:64580/ | grep -qi -- 'text/html' || echo 'FAILED: Frontend HTML'
-    curl -q -LSsf -H 'Accept: text/plain' http://localhost:64580/ | grep -qvi -- '<html' || echo 'FAILED: Frontend text/plain'
-    curl -q -LSsf -H 'Accept: application/json' http://localhost:64580/ | grep -q -- '\"ip\"' || echo 'FAILED: Frontend JSON'
+    curl -q -LSsfI -H 'Accept: text/html' http://localhost:64580/ | grep -qi -- 'text/html' || { echo 'FAILED: Frontend HTML'; exit 1; }
+    curl -q -LSsf -H 'Accept: text/plain' http://localhost:64580/ | grep -qvi -- '<html' || { echo 'FAILED: Frontend text/plain'; exit 1; }
+    curl -q -LSsf -H 'Accept: application/json' http://localhost:64580/ | grep -q -- '\"ip\"' || { echo 'FAILED: Frontend JSON'; exit 1; }
     # User-Agent based detection (curl / CLI → plain text, not HTML)
-    curl -q -LSsf -A 'curl/8.0.0' http://localhost:64580/ | grep -qvi -- '<html' || echo 'FAILED: curl UA plain text'
-    curl -q -LSsf -A 'ipgaze-cli/1.0.0' http://localhost:64580/ | grep -qvi -- '<html' || echo 'FAILED: CLI UA plain text'
+    curl -q -LSsf -A 'curl/8.0.0' http://localhost:64580/ | grep -qvi -- '<html' || { echo 'FAILED: curl UA plain text'; exit 1; }
+    curl -q -LSsf -A 'ipgaze-cli/1.0.0' http://localhost:64580/ | grep -qvi -- '<html' || { echo 'FAILED: CLI UA plain text'; exit 1; }
 
     echo '=== Open API Smoke Test ==='
     # No auth required — all endpoints are publicly accessible.
@@ -117,7 +132,7 @@ docker run --rm \
     # health route, in any state) — the top-level status field carries the state.
     curl -q -LSsf -H 'Accept: application/json' http://localhost:64580/server/healthz | grep -q -- '\"status\": \"healthy\"' \
         && echo '✓ Health endpoint works' \
-        || echo '✗ FAILED: Health endpoint'
+        || { echo '✗ FAILED: Health endpoint'; exit 1; }
 
     echo '=== Binary Rename Tests ==='
     # Test that binaries show ACTUAL name in --help/--version (not hardcoded)
@@ -127,12 +142,13 @@ docker run --rm \
         echo '✓ Server binary rename works (--help shows actual name)'
     else
         echo '✗ FAILED: Server --help does not show renamed binary name'
+        exit 1
     fi
 
     echo '=== Client Tests (if exists) ==='
     if [ -f /app/${DOCKER_PROJECT_NAME}-cli ]; then
-        /app/${DOCKER_PROJECT_NAME}-cli --version || echo 'FAILED: CLI --version'
-        /app/${DOCKER_PROJECT_NAME}-cli --help || echo 'FAILED: CLI --help'
+        /app/${DOCKER_PROJECT_NAME}-cli --version || { echo 'FAILED: CLI --version'; exit 1; }
+        /app/${DOCKER_PROJECT_NAME}-cli --help || { echo 'FAILED: CLI --help'; exit 1; }
 
         # Test binary rename
         cp /app/${DOCKER_PROJECT_NAME}-cli /app/renamed-cli
@@ -141,6 +157,7 @@ docker run --rm \
             echo '✓ CLI binary rename works'
         else
             echo '✗ FAILED: CLI --help does not show renamed binary name'
+            exit 1
         fi
 
         # Full CLI functionality tests against server
@@ -150,14 +167,14 @@ docker run --rm \
         if [ -n \"\${API_TOKEN:-}\" ]; then
             # Test with API token
             /app/${DOCKER_PROJECT_NAME}-cli --server http://localhost:64580 --token \"\$API_TOKEN\" --output json \
-                || echo 'FAILED: CLI self lookup with token'
+                || { echo 'FAILED: CLI self lookup with token'; exit 1; }
         else
             # Test without token (open API — anonymous allowed)
             /app/${DOCKER_PROJECT_NAME}-cli --server http://localhost:64580 --output json \
-                || echo 'FAILED: CLI self lookup without token'
+                || { echo 'FAILED: CLI self lookup without token'; exit 1; }
         fi
         /app/${DOCKER_PROJECT_NAME}-cli --server http://localhost:64580 --field ip 8.8.8.8 \
-            || echo 'FAILED: CLI single-field IP lookup'
+            || { echo 'FAILED: CLI single-field IP lookup'; exit 1; }
     else
         echo 'client not built - skipping'
     fi

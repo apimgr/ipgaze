@@ -2,13 +2,14 @@ package graphql
 
 import (
 	"encoding/json"
+	"log"
 	"net"
 	"net/http"
+	"strings"
 
 	gql "github.com/graphql-go/graphql"
 
 	i18n "github.com/apimgr/ipgaze/src/common/i18n"
-	"github.com/apimgr/ipgaze/src/common/theme"
 	"github.com/apimgr/ipgaze/src/server/handler"
 	"github.com/apimgr/ipgaze/src/server/model"
 )
@@ -23,6 +24,7 @@ var Schema gql.Schema
 type GraphQLHandlerConfig struct {
 	Version  string
 	CommitID string
+	RenderUI func(http.ResponseWriter, *http.Request, string) error
 	// ClientIP extracts the caller's IP from an incoming HTTP request.
 	ClientIP func(r *http.Request, allowOverride bool) (net.IP, error)
 	// LookupIP resolves GeoIP/ASN/hostname/threat info for ip.
@@ -70,6 +72,24 @@ func Handler(cfg GraphQLHandlerConfig) http.HandlerFunc {
 
 		// Handle GET requests (GraphiQL UI)
 		if r.Method == http.MethodGet {
+			if strings.HasSuffix(r.URL.Path, "/theme.css") {
+				themeName := r.URL.Query().Get("theme")
+				switch themeName {
+				case "light", "dark", "auto":
+				default:
+					themeName = "dark"
+				}
+				serveGraphiQLThemeCSS(w, r, cfg, themeName)
+				return
+			}
+			if cfg.RenderUI != nil {
+				if err := cfg.RenderUI(w, r, "graphql.tmpl"); err != nil {
+					log.Printf("GraphQL UI render failed: %v", err)
+					http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+					return
+				}
+				return
+			}
 			serveGraphiQL(w, r, cfg)
 			return
 		}
@@ -77,6 +97,23 @@ func Handler(cfg GraphQLHandlerConfig) http.HandlerFunc {
 		lang := i18n.DetectLocale(r)
 		handler.WriteAPIError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", i18n.T(i18n.WithLang(r.Context(), lang), "errors.method_not_allowed"))
 	}
+}
+
+func serveGraphiQLThemeCSS(w http.ResponseWriter, r *http.Request, cfg GraphQLHandlerConfig, themeName string) {
+	stamp := cfg.Version + "-" + cfg.CommitID
+	etag := `"` + stamp + "-" + themeName + `"`
+	w.Header().Set("Content-Type", "text/css; charset=utf-8")
+	w.Header().Set("ETag", etag)
+	if r.URL.Query().Get("v") == stamp {
+		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+	} else {
+		w.Header().Set("Cache-Control", "no-cache")
+	}
+	if r.Header.Get("If-None-Match") == etag || r.Header.Get("If-None-Match") == "*" {
+		w.WriteHeader(http.StatusNotModified)
+		return
+	}
+	_, _ = w.Write([]byte(getGraphiQLThemeCSS(themeName)))
 }
 
 // handleGraphQLQuery executes a GraphQL query
@@ -146,42 +183,26 @@ func serveGraphiQL(w http.ResponseWriter, r *http.Request, cfg GraphQLHandlerCon
 	themeName := getTheme(r)
 	lang := i18n.DetectLocale(r)
 	dir := string(i18n.LocaleDirection(lang))
-
-	// Palette per AI.md PART 16 "Themes (NON-NEGOTIABLE)": the same
-	// src/common/theme palette used by the web UI and Swagger UI, not a
-	// GraphQL-specific color set.
-	p := theme.GetThemePalette(themeName)
-	bg, fg, border, btnBg, btnHover, resBg, resFg := p.Background, p.Foreground, p.Border, p.Primary, p.Accent, p.SurfaceAlt, p.Foreground
-	errColor := p.Error
-	btnText := theme.ReadableTextOn(btnBg)
+	assetStamp := cfg.Version + "-" + cfg.CommitID
 
 	html := `<!DOCTYPE html>
-<html lang="` + lang + `" dir="` + dir + `">
+<html lang="` + lang + `" dir="` + dir + `" class="theme-` + themeName + `">
 <head>
 	<meta charset="UTF-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1.0">
 	<title>` + tr(lang, "graphql.ui.title") + `</title>
-	<style>
-		*{box-sizing:border-box;margin:0;padding:0}
-		body{font-family:monospace;background:` + bg + `;color:` + fg + `;height:100vh;display:flex;flex-direction:column}
-		h1{font-size:1rem;padding:.5rem 1rem;border-bottom:1px solid ` + border + `;background:` + resBg + `}
-		#main{display:flex;flex:1;overflow:hidden}
-		#left,#right{display:flex;flex-direction:column;flex:1;overflow:hidden;padding:.5rem}
-		#left{border-right:1px solid ` + border + `}
-		label{font-size:.75rem;margin-bottom:.25rem;display:block;opacity:.7}
-		textarea{flex:1;resize:none;background:` + resBg + `;color:` + resFg + `;border:1px solid ` + border + `;border-radius:4px;padding:.5rem;font-family:monospace;font-size:.85rem;outline:none}
-		#vars{height:5rem;margin-top:.5rem}
-		button{margin-top:.5rem;padding:.4rem 1rem;background:` + btnBg + `;color:` + btnText + `;border:none;border-radius:4px;cursor:pointer;font-size:.85rem;font-family:monospace}
-		button:hover{background:` + btnHover + `}
-		#result{flex:1;overflow:auto;background:` + resBg + `;border:1px solid ` + border + `;border-radius:4px;padding:.5rem;font-size:.85rem;white-space:pre;margin-top:.5rem}
-		.err{color:` + errColor + `}
-	</style>
+	<link rel="stylesheet" href="/theme.css?v=` + assetStamp + `">
+	<link rel="stylesheet" href="/static/css/common.css?v=` + assetStamp + `">
+	<link rel="stylesheet" href="/static/css/graphql.css?v=` + assetStamp + `">
+	<link rel="stylesheet" href="/server/docs/graphql/theme.css?v=` + assetStamp + `&amp;theme=` + themeName + `">
 </head>
 <body>
+<a class="skip-link" href="#main-content">` + tr(lang, "accessibility.skip_to_content") + `</a>
+<main id="main-content">
 <h1>` + tr(lang, "graphql.ui.title") + ` &mdash; ` + cfg.Version + `</h1>
 <div id="main">
 	<div id="left">
-		<label>` + tr(lang, "graphql.ui.query") + `</label>
+		<label for="query">` + tr(lang, "graphql.ui.query") + `</label>
 		<textarea id="query" spellcheck="false">query {
   health {
     status
@@ -194,16 +215,17 @@ func serveGraphiQL(w http.ResponseWriter, r *http.Request, cfg GraphQLHandlerCon
     asn
   }
 }</textarea>
-		<label style="margin-top:.5rem">` + tr(lang, "graphql.ui.variables") + `</label>
+		<label class="variables-label" for="vars">` + tr(lang, "graphql.ui.variables") + `</label>
 		<textarea id="vars" spellcheck="false">{}</textarea>
 		<button id="run">&#9654; ` + tr(lang, "graphql.ui.run") + `</button>
 	</div>
 	<div id="right">
-		<label>` + tr(lang, "graphql.ui.response") + `</label>
+		<h2>` + tr(lang, "graphql.ui.response") + `</h2>
 		<div id="result">` + tr(lang, "graphql.ui.placeholder") + `</div>
 	</div>
 </div>
-<script src="/static/js/app.js"></script>
+</main>
+<script src="/static/js/app.js?v=` + assetStamp + `"></script>
 </body>
 </html>`
 

@@ -10,6 +10,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	serverhandler "github.com/apimgr/ipgaze/src/server/handler"
 )
 
 // maintenanceProbeInterval is the self-healing retry cadence from AI.md PART 12
@@ -211,11 +213,7 @@ func isReadOnlyMethod(method string) bool {
 // coarse reason code reaches the client, per AI.md PART 12.
 func writeMaintenanceRejection(w http.ResponseWriter, r *http.Request, code string) {
 	if detectClientType(r) == "html" {
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		w.WriteHeader(http.StatusServiceUnavailable)
-		_, _ = fmt.Fprint(w, "<!DOCTYPE html><html><head><title>503 Maintenance Mode</title></head>"+
-			"<body><h1>503</h1><p>The server is in read-only maintenance mode. "+
-			"Please retry shortly.</p><a href=\"/\">Home</a></body></html>")
+		serverhandler.WriteErrorHTML(w, r, http.StatusServiceUnavailable, "The server is in read-only maintenance mode. Please retry shortly.")
 		return
 	}
 	w.Header().Set("Content-Type", jsonMediaType)

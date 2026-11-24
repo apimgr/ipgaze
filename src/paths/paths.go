@@ -470,6 +470,18 @@ func userDirsLegacy(goos, projectName, homeDir string) (configDir, dataDir, logs
 // permissions, failing fast if any of them is not writable.
 func EnsureDirectories(dirs Directories) error {
 	isRoot := isElevated()
+	// Container volume roots are shared by applications. Ensure they remain
+	// traversable when the service drops privileges; only touch the standard
+	// roots when the resolved project paths are beneath them.
+	if isRoot && !testForceNonContainer && IsRunningInContainer() {
+		for _, pair := range []struct{ path, root string }{{dirs.Config, "/config"}, {dirs.Data, "/data"}} {
+			if pair.path == pair.root || strings.HasPrefix(pair.path, pair.root+string(os.PathSeparator)) {
+				if err := ensureSharedRoot(pair.root); err != nil {
+					return err
+				}
+			}
+		}
+	}
 	dirsToCreate := []string{
 		dirs.Config,
 		dirs.Data,
@@ -489,6 +501,16 @@ func EnsureDirectories(dirs Directories) error {
 				return err
 			}
 		}
+	}
+	return nil
+}
+
+func ensureSharedRoot(path string) error {
+	if err := os.MkdirAll(path, 0o755); err != nil {
+		return fmt.Errorf("failed to create shared directory %s: %w", path, err)
+	}
+	if err := os.Chmod(path, 0o755); err != nil {
+		return fmt.Errorf("failed to set shared directory permissions %s: %w", path, err)
 	}
 	return nil
 }

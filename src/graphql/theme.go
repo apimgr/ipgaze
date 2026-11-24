@@ -7,6 +7,9 @@ func getGraphiQLThemeCSS(theme string) string {
 	if theme == "light" {
 		return graphiqlLightTheme
 	}
+	if theme == "auto" {
+		return graphiqlDarkTheme + "\n@media (prefers-color-scheme: light) {\n" + graphiqlLightTheme + "\n}\n"
+	}
 	return graphiqlDarkTheme
 }
 
@@ -22,7 +25,7 @@ body {
 }
 
 #graphiql {
-	height: 100vh;
+	height: 100dvh;
 }
 
 .graphiql-container {
@@ -242,7 +245,7 @@ body {
 }
 
 #graphiql {
-	height: 100vh;
+	height: 100dvh;
 }
 
 .graphiql-container {

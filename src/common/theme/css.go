@@ -154,12 +154,10 @@ func relativeLuminance(r, g, b int) float64 {
 	return 0.2126*toLinear(r) + 0.7152*toLinear(g) + 0.0722*toLinear(b)
 }
 
-// CSSVariables renders the complete theme CSS block for injection into
-// base.tmpl as an inline <style>: dark values on :root (default), light
-// overrides scoped to html.theme-light, and an auto branch that follows
-// prefers-color-scheme when no explicit theme class is set. This is the
-// single source of truth referenced by AI.md PART 16 "Theme Implementation
-// Location" -> "CSS variables: Embedded in templates".
+// CSSVariables renders the complete theme stylesheet served at /theme.css:
+// dark values on :root (default), light overrides scoped to html.theme-light,
+// and an auto branch that follows prefers-color-scheme when no explicit theme
+// class is set. ThemePalette remains the single color source of truth.
 func CSSVariables() string {
 	var b strings.Builder
 	b.WriteString(":root {\n")

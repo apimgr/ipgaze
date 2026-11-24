@@ -16,6 +16,7 @@ import (
 	applog "github.com/apimgr/ipgaze/src/log"
 	"github.com/apimgr/ipgaze/src/netutil"
 	"github.com/apimgr/ipgaze/src/paths"
+	serverhandler "github.com/apimgr/ipgaze/src/server/handler"
 	smetrics "github.com/apimgr/ipgaze/src/server/metrics"
 	"github.com/google/uuid"
 )
@@ -197,10 +198,7 @@ func recoverAndRespond(lm *applog.Manager, rw *recoverResponseWriter, w http.Res
 		_, _ = fmt.Fprint(w, `{"ok":false,"error":"SERVER_ERROR","message":"Internal Server Error"}`+"\n")
 		return
 	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.WriteHeader(http.StatusInternalServerError)
-	_, _ = fmt.Fprint(w, "<!DOCTYPE html><html><head><title>500 Internal Server Error</title></head>"+
-		"<body><h1>500</h1><p>Internal Server Error</p><a href=\"/\">Home</a></body></html>")
+	serverhandler.WriteErrorHTML(w, r, http.StatusInternalServerError, "Internal Server Error")
 }
 
 // LangMiddleware detects the request locale using the priority chain from AI.md PART 30:

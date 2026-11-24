@@ -950,6 +950,23 @@ func TestEnsureDir_RootModePermissions(t *testing.T) {
 	}
 }
 
+func TestEnsureSharedRoot_SetsTraversableMode(t *testing.T) {
+	target := filepath.Join(t.TempDir(), "shared")
+	if err := os.Mkdir(target, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := ensureSharedRoot(target); err != nil {
+		t.Fatalf("ensureSharedRoot() error = %v", err)
+	}
+	info, err := os.Stat(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := info.Mode().Perm(); got != 0o755 {
+		t.Errorf("shared root mode = %#o, want 0755", got)
+	}
+}
+
 func TestEnsureDir_WriteProbeFailure(t *testing.T) {
 	target := filepath.Join(t.TempDir(), "probefail")
 	if err := os.MkdirAll(target, 0o700); err != nil {

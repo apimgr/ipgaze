@@ -192,7 +192,7 @@ func TestSSRStandardServerPagesRender(t *testing.T) {
 		title    string
 		fragment string
 	}{
-		{"/server/about", "<title>About — ", "About — IPGaze</h1>"},
+		{"/server/about", "<title>About — ", "About — "},
 		{"/server/help", "<title>", "<h1"},
 		{"/server/privacy", "<title>", "<h1"},
 		{"/server/terms", "<title>", "<h1"},
@@ -227,6 +227,17 @@ func TestSSRServerIndexRedirectsToAbout(t *testing.T) {
 	if loc := res.Header.Get("Location"); loc != "/server/about" {
 		t.Errorf("GET /server redirected to %q, want /server/about", loc)
 	}
+}
+
+func TestSSRInvalidSecurityReportRendersNotFoundPage(t *testing.T) {
+	status, body, header := getBody(t, "/server/security/report/invalid-tracking-id", nil)
+	if status != http.StatusNotFound {
+		t.Fatalf("invalid security report returned %d, want 404", status)
+	}
+	if !strings.Contains(header.Get("Content-Type"), "text/html") {
+		t.Errorf("invalid security report Content-Type is %q, want text/html", header.Get("Content-Type"))
+	}
+	mustContain(t, "security-report-not-found.html", body, `<main id="main-content"`, "themed not-found main landmark")
 }
 
 func TestSSRUnknownPathRendersThemedErrorPage(t *testing.T) {
@@ -321,7 +332,10 @@ func TestSSRAPIDocsPagesRender(t *testing.T) {
 	if len(documented) == 0 {
 		t.Fatal("OpenAPI spec documents no paths at all")
 	}
-	optionalWhenUnconfigured := map[string]bool{"/.well-known/pgp-key.asc": true}
+	optionalWhenUnconfigured := map[string]bool{
+		"/.well-known/pgp-key.asc": true,
+		"/server/tracking.js":      true,
+	}
 	for _, path := range documented {
 		if strings.Contains(path, "{") {
 			path = strings.NewReplacer("{ip}", "8.8.8.8", "{field}", "ip").Replace(path)

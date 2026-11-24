@@ -141,12 +141,16 @@ func NewPagesHandler(version, buildDate string, trust *netutil.TrustResolver, re
 
 // PageData is the template context for simple public pages.
 type PageData struct {
-	Lang          string
-	Dir           string
-	RequestPath   string
-	Theme         string
-	DefaultWidget string
-	CanonicalURL  string
+	Lang            string
+	LanguageName    string
+	Dir             string
+	RequestPath     string
+	Theme           string
+	AssetStamp      string
+	SwaggerSpecURL  string
+	GraphQLEndpoint string
+	DefaultWidget   string
+	CanonicalURL    string
 	// Robots is the per-route <meta name="robots"> directive computed by
 	// ResolveRobotsDirective (AI.md PART 16 "Robots Directive"). Never
 	// hardcoded in a template: every route that is not explicitly public
@@ -415,6 +419,7 @@ func (h *PagesHandler) NewPageData(r *http.Request) PageData {
 	}
 	data := PageData{
 		Lang:                lang,
+		LanguageName:        nativeLanguageName(lang),
 		Dir:                 dir,
 		RequestPath:         r.URL.Path,
 		Theme:               theme,

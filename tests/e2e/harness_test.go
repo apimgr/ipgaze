@@ -107,13 +107,26 @@ func runSuite(m *testing.M) (int, error) {
 // mandated by AI.md PART 28 — ${TMPDIR}/{project_org}/{internal_name}-XXXXXX.
 func suiteTempRoot() (string, error) {
 	if explicit := os.Getenv("IPGAZE_E2E_TMPDIR"); explicit != "" {
-		return explicit, os.MkdirAll(explicit, 0o755)
+		if err := os.MkdirAll(explicit, 0o711); err != nil {
+			return "", err
+		}
+		if err := os.Chmod(explicit, 0o711); err != nil {
+			return "", err
+		}
+		return explicit, nil
 	}
 	parent := filepath.Join(os.TempDir(), "apimgr")
 	if err := os.MkdirAll(parent, 0o755); err != nil {
 		return "", err
 	}
-	return os.MkdirTemp(parent, "ipgaze-")
+	root, err := os.MkdirTemp(parent, "ipgaze-")
+	if err != nil {
+		return "", err
+	}
+	if err := os.Chmod(root, 0o711); err != nil {
+		return "", err
+	}
+	return root, nil
 }
 
 // reserveServerPort picks a free port from the 64000-64999 range AI.md PART 5

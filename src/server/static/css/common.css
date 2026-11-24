@@ -4,12 +4,10 @@
    common.css: Reset, variables, utilities (loaded first)
    ============================================================================ */
 
-/* Color variables (--color-*) are NOT defined here. Per AI.md PART 16
-   "Themes (NON-NEGOTIABLE)", the unified palette is defined once in
-   src/common/theme/colors.go and injected as an inline <style> block
-   (src/common/theme/css.go CSSVariables(), wired via the "themeCSS"
-   template func in src/server/templates.go) at the top of <head> in
-   base.tmpl / index.tmpl, before this stylesheet loads. That block sets
+/* Color variables (--color-*) are NOT defined here. The unified palette is
+   defined once in src/common/theme/colors.go and served as the external
+   /theme.css stylesheet via src/common/theme/css.go CSSVariables(). That
+   response sets
    --color-bg, --color-text, --color-primary, --color-secondary,
    --color-accent, --color-success, --color-warning, --color-error,
    --color-info, --color-bg-card, --color-bg-secondary, --color-border,

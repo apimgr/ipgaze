@@ -116,6 +116,7 @@ type SwaggerHandlerConfig struct {
 	Version  string
 	CommitID string
 	Trust    *netutil.TrustResolver
+	RenderUI func(http.ResponseWriter, *http.Request, string) error
 }
 
 // GenerateSpec generates the OpenAPI specification for the IPGaze API,
@@ -149,6 +150,16 @@ func GenerateSpec(cfg SwaggerHandlerConfig, baseURL, lang string) *OpenAPISpec {
 // Handler serves the Swagger UI and OpenAPI spec.
 func Handler(cfg SwaggerHandlerConfig) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/theme.css") {
+			themeName := r.URL.Query().Get("theme")
+			switch themeName {
+			case "light", "dark", "auto":
+			default:
+				themeName = "dark"
+			}
+			serveSwaggerThemeCSS(w, r, cfg, themeName)
+			return
+		}
 		// Build the canonical base URL honoring trusted proxy headers per AI.md PART 15.
 		baseURL := buildBaseURL(r, cfg.Trust)
 
@@ -161,9 +172,35 @@ func Handler(cfg SwaggerHandlerConfig) http.HandlerFunc {
 			return
 		}
 
-		// Serve Swagger UI
+		if cfg.RenderUI != nil {
+			if err := cfg.RenderUI(w, r, "swagger.tmpl"); err != nil {
+				log.Printf("Swagger UI render failed: %v", err)
+				http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+				return
+			}
+			return
+		}
+		// Serve a standalone fallback for package-level callers without the
+		// application page renderer.
 		serveSwaggerUI(w, r, cfg, baseURL)
 	}
+}
+
+func serveSwaggerThemeCSS(w http.ResponseWriter, r *http.Request, cfg SwaggerHandlerConfig, themeName string) {
+	stamp := cfg.Version + "-" + cfg.CommitID
+	etag := `"` + stamp + "-" + themeName + `"`
+	w.Header().Set("Content-Type", "text/css; charset=utf-8")
+	w.Header().Set("ETag", etag)
+	if r.URL.Query().Get("v") == stamp {
+		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+	} else {
+		w.Header().Set("Cache-Control", "no-cache")
+	}
+	if r.Header.Get("If-None-Match") == etag || r.Header.Get("If-None-Match") == "*" {
+		w.WriteHeader(http.StatusNotModified)
+		return
+	}
+	_, _ = w.Write([]byte(getSwaggerThemeCSS(themeName)))
 }
 
 // JSONHandler serves the OpenAPI spec as JSON unconditionally, regardless of
@@ -205,30 +242,46 @@ func writeOpenAPISpec(w http.ResponseWriter, r *http.Request, spec *OpenAPISpec)
 // served from the embedded static FS (no CDN) per AI.md PART 16 — mirrors the
 // GraphiQL sibling's self-contained/offline requirement.
 func serveSwaggerUI(w http.ResponseWriter, r *http.Request, cfg SwaggerHandlerConfig, baseURL string) {
-	// Get theme from cookie or default to dark
-	theme := getTheme(r)
+	themeName := getTheme(r)
 	lang := i18n.DetectLocale(r)
 	dir := string(i18n.LocaleDirection(lang))
+	assetStamp := cfg.Version + "-" + cfg.CommitID
 
 	html := `<!DOCTYPE html>
-<html lang="` + lang + `" dir="` + dir + `">
+<html lang="` + lang + `" dir="` + dir + `" class="theme-` + themeName + `">
 <head>
 	<meta charset="UTF-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1.0">
 	<title>` + tr(lang, "swagger.ui.title") + `</title>
-	<link rel="stylesheet" type="text/css" href="/static/vendor/swagger-ui/swagger-ui.css">
-	<style>` + getSwaggerThemeCSS(theme) + `</style>
+	<link rel="stylesheet" type="text/css" href="/static/vendor/swagger-ui/swagger-ui.css?v=` + assetStamp + `">
+	<link rel="stylesheet" href="/theme.css?v=` + assetStamp + `">
+	<link rel="stylesheet" href="/static/css/common.css?v=` + assetStamp + `">
+	<link rel="stylesheet" href="/server/docs/swagger/theme.css?v=` + assetStamp + `&amp;theme=` + themeName + `">
 </head>
 <body>
+	<a class="skip-link" href="#main-content">` + i18n.T(i18n.WithLang(r.Context(), lang), "accessibility.skip_to_content") + `</a>
+	<main id="main-content">
+	<h1>` + tr(lang, "swagger.ui.title") + `</h1>
 	<div id="swagger-ui" data-spec-url="` + baseURL + `/api/swagger"></div>
-	<script src="/static/vendor/swagger-ui/swagger-ui-bundle.js"></script>
-	<script src="/static/vendor/swagger-ui/swagger-ui-standalone-preset.js"></script>
-	<script src="/static/js/app.js"></script>
+	</main>
+	<script src="/static/vendor/swagger-ui/swagger-ui-bundle.js?v=` + assetStamp + `"></script>
+	<script src="/static/vendor/swagger-ui/swagger-ui-standalone-preset.js?v=` + assetStamp + `"></script>
+	<script src="/static/js/app.js?v=` + assetStamp + `"></script>
 </body>
 </html>`
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_, _ = w.Write([]byte(html))
+}
+
+func getTheme(r *http.Request) string {
+	if cookie, err := r.Cookie("theme"); err == nil {
+		switch cookie.Value {
+		case "light", "dark", "auto":
+			return cookie.Value
+		}
+	}
+	return "dark"
 }
 
 // buildBaseURL constructs the base URL for the Swagger UI using the canonical netutil helpers.
@@ -244,16 +297,4 @@ func extractHost(url string) string {
 	parts := strings.Split(url, "/")
 	// strings.Split always returns at least one element
 	return strings.Split(parts[0], ":")[0]
-}
-
-// getTheme gets the current theme from cookie or defaults to dark.
-// Per AI.md PART 16: Themes (NON-NEGOTIABLE - PROJECT-WIDE)
-func getTheme(r *http.Request) string {
-	if cookie, err := r.Cookie("theme"); err == nil {
-		switch cookie.Value {
-		case "light", "dark", "auto":
-			return cookie.Value
-		}
-	}
-	return "dark"
 }

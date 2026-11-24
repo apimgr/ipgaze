@@ -24,6 +24,7 @@ import (
 
 	"github.com/apimgr/ipgaze/src/blocklist"
 	"github.com/apimgr/ipgaze/src/common/i18n"
+	"github.com/apimgr/ipgaze/src/common/theme"
 	"github.com/apimgr/ipgaze/src/config"
 	"github.com/apimgr/ipgaze/src/email"
 	"github.com/apimgr/ipgaze/src/iputil/geo"
@@ -189,6 +190,26 @@ type cacheBackendPinger interface {
 // (git rev-parse --short HEAD), matching {short_commit}.
 func (s *Server) AssetStamp() string {
 	return s.Version + "-" + s.CommitID
+}
+
+func (s *Server) themeCSSHandler() http.HandlerFunc {
+	css := theme.CSSVariables()
+	stamp := s.AssetStamp()
+	etag := `"` + stamp + `"`
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/css; charset=utf-8")
+		if r.URL.Query().Get("v") == stamp {
+			w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+		} else {
+			w.Header().Set("Cache-Control", "no-cache")
+		}
+		w.Header().Set("ETag", etag)
+		if r.Header.Get("If-None-Match") == etag || r.Header.Get("If-None-Match") == "*" {
+			w.WriteHeader(http.StatusNotModified)
+			return
+		}
+		_, _ = io.WriteString(w, css)
+	}
 }
 
 // versionCookieName is the build-stamp cookie used by applyVersionPurge
@@ -1077,6 +1098,7 @@ func (s *Server) buildHandler() http.Handler {
 		}
 		http.StripPrefix("/static/", StaticHandler()).ServeHTTP(w, req)
 	})
+	r.Get("/theme.css", s.themeCSSHandler())
 
 	// Branding logo — fetched/cached server-side and served locally so the
 	// page never hotlinks a remote URL directly (AI.md "Branding & SEO").
@@ -1256,6 +1278,7 @@ func (s *Server) buildHandler() http.Handler {
 	// OpenAPI/Swagger routes (if handler is set)
 	if s.SwaggerHandler != nil {
 		r.Get("/server/docs/swagger", s.SwaggerHandler)
+		r.Get("/server/docs/swagger/theme.css", s.SwaggerHandler)
 	}
 	if s.SwaggerJSONHandler != nil {
 		// unversioned API alias — always JSON, never the interactive UI
@@ -1265,6 +1288,7 @@ func (s *Server) buildHandler() http.Handler {
 	// GraphQL routes (if handler is set)
 	if s.GraphQLHandler != nil {
 		r.Get("/server/docs/graphql", s.GraphQLHandler)
+		r.Get("/server/docs/graphql/theme.css", s.GraphQLHandler)
 		r.Post("/server/docs/graphql", s.GraphQLHandler)
 		// unversioned API aliases — same handler, never redirect
 		r.Get("/api/graphql", s.GraphQLHandler)

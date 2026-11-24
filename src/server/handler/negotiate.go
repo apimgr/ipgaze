@@ -3,7 +3,9 @@ package handler
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"html"
+	htmltemplate "html/template"
 	"log"
 	"net/http"
 	"strings"
@@ -125,9 +127,7 @@ func writeHandlerFallback(w http.ResponseWriter, r *http.Request, status int, ms
 		}
 	}
 	if !isAPI && strings.Contains(accept, "text/html") {
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		w.WriteHeader(status)
-		_, _ = w.Write([]byte("<html><body><h1>" + html.EscapeString(msg) + "</h1></body></html>\n"))
+		WriteErrorHTML(w, r, status, msg)
 		return
 	}
 	if apiWantsText || plain || strings.Contains(accept, "text/plain") || (strings.TrimSpace(accept) == "" && httputil.IsNonInteractiveClient(r.Header.Get("User-Agent"))) {
@@ -136,9 +136,57 @@ func writeHandlerFallback(w http.ResponseWriter, r *http.Request, status int, ms
 		_, _ = w.Write([]byte(msg + "\n"))
 		return
 	}
+	WriteErrorHTML(w, r, status, msg)
+}
+
+// WriteErrorHTML serves the guaranteed minimal browser error document used
+// when a regular page renderer cannot safely be called.
+func WriteErrorHTML(w http.ResponseWriter, r *http.Request, status int, message string) {
+	lang := i18n.DetectLocale(r)
+	dir := string(i18n.LocaleDirection(lang))
+	themeName := "dark"
+	if cookie, err := r.Cookie("theme"); err == nil {
+		switch cookie.Value {
+		case "dark", "light", "auto":
+			themeName = cookie.Value
+		}
+	}
+	title := fmt.Sprintf("%d %s", status, http.StatusText(status))
+	csrfToken := ""
+	if cookie, err := r.Cookie("csrf_token"); err == nil {
+		csrfToken = cookie.Value
+	}
+	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Vary", "Accept-Language")
 	w.WriteHeader(status)
-	_, _ = w.Write([]byte("<html><body><h1>" + html.EscapeString(msg) + "</h1></body></html>\n"))
+	page := struct {
+		Lang, Dir, Theme, Title, Message, CSRFToken                             string
+		SkipContent, SkipNavigation, Navigation, Home, Preferences, ThemeToggle string
+		NextTheme                                                               string
+	}{
+		Lang: lang, Dir: dir, Theme: themeName, Title: title, Message: message,
+		CSRFToken: csrfToken, NextTheme: NextTheme(themeName),
+		SkipContent:    i18n.T(i18n.WithLang(r.Context(), lang), "accessibility.skip_to_content"),
+		SkipNavigation: i18n.T(i18n.WithLang(r.Context(), lang), "nav.skip_to_navigation"),
+		Navigation:     i18n.T(i18n.WithLang(r.Context(), lang), "nav.main_navigation"),
+		Home:           i18n.T(i18n.WithLang(r.Context(), lang), "nav.home"),
+		Preferences:    i18n.T(i18n.WithLang(r.Context(), lang), "nav.preferences"),
+		ThemeToggle:    i18n.T(i18n.WithLang(r.Context(), lang), "theme.toggle"),
+	}
+	const source = `<!DOCTYPE html>
+<html lang="{{.Lang}}" dir="{{.Dir}}" class="theme-{{.Theme}}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{{.Title}}</title><link rel="stylesheet" href="/theme.css"><link rel="stylesheet" href="/static/css/common.css"><link rel="stylesheet" href="/static/css/components.css"><link rel="stylesheet" href="/static/css/public.css"></head>
+<body><a href="#main-content" class="skip-link">{{.SkipContent}}</a><a href="#navigation" class="skip-link">{{.SkipNavigation}}</a><input type="checkbox" id="nav-toggle" class="nav-checkbox" aria-expanded="false" aria-controls="nav-panel">
+<header id="navigation" class="header" role="banner"><a href="/" class="site-brand">IPGaze</a><nav class="nav-links" aria-label="{{.Navigation}}"><a href="/">{{.Home}}</a></nav><label for="nav-toggle" class="nav-burger" aria-label="{{.Navigation}}">☰</label><div class="header-actions"><a href="/server/preferences" class="header-link" aria-label="{{.Preferences}}"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8Zm9 4a7.9 7.9 0 0 0-.1-1.2l2-1.5-2-3.5-2.4 1a8.6 8.6 0 0 0-2-1.2L16.1 3h-4.2l-.4 2.6a8.6 8.6 0 0 0-2 1.2l-2.4-1-2 3.5 2 1.5a7.9 7.9 0 0 0 0 2.4l-2 1.5 2 3.5 2.4-1a8.6 8.6 0 0 0 2 1.2l.4 2.6h4.2l.4-2.6a8.6 8.6 0 0 0 2-1.2l2.4 1 2-3.5-2-1.5A7.9 7.9 0 0 0 21 12Z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg></a><form action="/server/preferences" method="post" class="theme-toggle-form"><input type="hidden" name="csrf_token" value="{{.CSRFToken}}"><input type="hidden" name="theme" value="{{.NextTheme}}"><button type="submit" class="btn btn-icon theme-button" aria-label="{{.ThemeToggle}}"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="2"/></svg></button></form></div></header>
+<main id="main-content" role="main"><div class="container error-card"><h1>{{.Title}}</h1><p>{{.Message}}</p><a href="/">{{.Home}}</a></div></main><nav class="nav-panel" id="nav-panel" aria-label="{{.Navigation}}"><a href="/">{{.Home}}</a></nav><label for="nav-toggle" class="nav-overlay" aria-hidden="true"></label></body></html>`
+	tmpl, err := htmltemplate.New("error").Parse(source)
+	if err != nil {
+		_, _ = fmt.Fprintf(w, "<html><body><h1>%s</h1></body></html>", html.EscapeString(title))
+		return
+	}
+	if err := tmpl.Execute(w, page); err != nil {
+		return
+	}
 }
 
 // ErrorCodeForStatus maps an HTTP status to the UPPERCASE_SNAKE_CASE error code

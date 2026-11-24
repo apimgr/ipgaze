@@ -50,8 +50,11 @@ var internalPathMarkers = []string{"metrics", "/server/tor", "/debug"}
 // content-negotiation priority 1), so the documented path is served by the
 // suffix-free registration.
 var undocumentedByDesign = map[string]bool{
-	"/{ip}":                      true,
-	"/api/v1/server/healthz.txt": true,
+	"/{ip}":                          true,
+	"/api/v1/server/healthz.txt":     true,
+	"/theme.css":                     true,
+	"/server/docs/swagger/theme.css": true,
+	"/server/docs/graphql/theme.css": true,
 }
 
 // registeredRoutes extracts every literal route registration from the router

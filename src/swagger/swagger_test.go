@@ -2,6 +2,7 @@ package swagger
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -175,6 +176,23 @@ func TestHandler_ServeJSON_ByAcceptHeader(t *testing.T) {
 	}
 }
 
+func TestHandler_RenderUIErrorReturnsInternalServerError(t *testing.T) {
+	h := Handler(SwaggerHandlerConfig{RenderUI: func(http.ResponseWriter, *http.Request, string) error {
+		return errors.New("template render failed")
+	}})
+	req := httptest.NewRequest(http.MethodGet, "/server/docs/swagger", nil)
+	rec := httptest.NewRecorder()
+
+	h(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusInternalServerError)
+	}
+	if rec.Body.Len() == 0 {
+		t.Fatal("render failure returned an empty response")
+	}
+}
+
 func TestHandler_ServeSwaggerUI_DefaultDark(t *testing.T) {
 	cfg := SwaggerHandlerConfig{Version: "1.0.0"}
 	h := Handler(cfg)
@@ -216,8 +234,8 @@ func TestHandler_ServeSwaggerUI_LightThemeCookie(t *testing.T) {
 		t.Errorf("status = %d, want 200", rec.Code)
 	}
 	body := rec.Body.String()
-	if !strings.Contains(body, "#ffffff") {
-		t.Error("light theme body should contain light background color #ffffff")
+	if !strings.Contains(body, "/server/docs/swagger/theme.css?") || !strings.Contains(body, "theme=light") {
+		t.Error("light theme stylesheet should be linked")
 	}
 }
 
@@ -233,8 +251,8 @@ func TestHandler_ServeSwaggerUI_DarkThemeCookie(t *testing.T) {
 	h(rec, req)
 
 	body := rec.Body.String()
-	if !strings.Contains(body, "#282a36") {
-		t.Error("dark theme body should contain dark background color #282a36")
+	if !strings.Contains(body, "/server/docs/swagger/theme.css?") || !strings.Contains(body, "theme=dark") {
+		t.Error("dark theme stylesheet should be linked")
 	}
 }
 
@@ -250,8 +268,8 @@ func TestHandler_ServeSwaggerUI_InvalidThemeCookieDefaultsDark(t *testing.T) {
 	h(rec, req)
 
 	body := rec.Body.String()
-	if !strings.Contains(body, "#282a36") {
-		t.Error("invalid theme cookie should fall back to dark (#282a36)")
+	if !strings.Contains(body, "/server/docs/swagger/theme.css?") || !strings.Contains(body, "theme=dark") {
+		t.Error("invalid theme cookie should fall back to the dark stylesheet")
 	}
 }
 
@@ -394,10 +412,10 @@ func TestGetSwaggerThemeCSS_Light(t *testing.T) {
 	}
 }
 
-func TestGetSwaggerThemeCSS_AutoFallbackToDark(t *testing.T) {
+func TestGetSwaggerThemeCSS_AutoFollowsSystemPreference(t *testing.T) {
 	css := getSwaggerThemeCSS("auto")
-	if !strings.Contains(css, "#282a36") {
-		t.Error("auto theme CSS should fall back to dark (#282a36)")
+	if !strings.Contains(css, "@media (prefers-color-scheme: light)") || !strings.Contains(css, "#282a36") || !strings.Contains(css, "#ffffff") {
+		t.Error("auto theme should provide dark defaults and light system overrides")
 	}
 }
 

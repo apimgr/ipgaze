@@ -1,0 +1,35 @@
+{{template "base" .}}
+{{define "title"}}{{t .Lang "graphql.ui.title"}} — {{.ProjectName}}{{end}}
+{{define "extra_head"}}
+  <link rel="stylesheet" href="{{asset "/static/css/graphql.css"}}">
+{{end}}
+{{define "content"}}
+<h1 class="page-title">{{t .Lang "graphql.ui.title"}} — {{.Version}}</h1>
+<div id="graphql-workbench" data-endpoint="{{.GraphQLEndpoint}}">
+  <div id="main">
+    <section id="left" class="section-card" aria-labelledby="graphql-query-heading">
+      <h2 id="graphql-query-heading">{{t .Lang "graphql.ui.query"}}</h2>
+      <label for="query">{{t .Lang "graphql.ui.query"}}</label>
+      <textarea id="query" spellcheck="false">query {
+  health {
+    status
+    version
+  }
+  myIP {
+    ip
+    country
+    city
+    asn
+  }
+}</textarea>
+      <label class="variables-label" for="vars">{{t .Lang "graphql.ui.variables"}}</label>
+      <textarea id="vars" spellcheck="false">{}</textarea>
+      <button id="run" class="btn btn-primary" type="button">{{t .Lang "graphql.ui.run"}}</button>
+    </section>
+    <section id="right" class="section-card" aria-labelledby="graphql-response-heading">
+      <h2 id="graphql-response-heading">{{t .Lang "graphql.ui.response"}}</h2>
+      <pre id="result" aria-live="polite">{{t .Lang "graphql.ui.placeholder"}}</pre>
+    </section>
+  </div>
+</div>
+{{end}}

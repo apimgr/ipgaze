@@ -23,7 +23,7 @@ var templateFS embed.FS
 var staticFS embed.FS
 
 // templateFuncMap returns the template.FuncMap exposing the "t"/"tf"/"tp"
-// translation helpers (per AI.md PART 30), the "themeCSS" helper (per
+// translation helpers (per AI.md PART 30), the "themeColor" helper (per
 // AI.md PART 16 "Themes (NON-NEGOTIABLE)"), and the "asset" cache-busting
 // helper (per AI.md PART 9 "Asset Version-Busting (REQUIRED)") to all page
 // and layout templates. Templates call the translation helpers with a
@@ -44,23 +44,14 @@ func templateFuncMap(assetStamp string) template.FuncMap {
 		"tp": func(lang, key string, count int) string {
 			return i18n.TranslatePlural(lang, key, count)
 		},
-		// languages backs the header language selector (AI.md PART 30
-		// "Language Selection via Query Parameter"): a plain GET form
-		// posting ?lang=, so switching locale needs zero JavaScript.
+		// languages populates the native-language options on the Preferences
+		// page, where visitors explicitly change their locale (AI.md PART 30).
 		"languages": i18n.AvailableLanguages,
 		// nextTheme renders the theme toggle's POST target as the next mode
 		// after the one actually in effect for this request (AI.md PART 16
 		// "Theme Toggle" -> "Theme Cycle Logic"). A hardcoded target would
 		// only ever switch the theme once and then resubmit the same value.
 		"nextTheme": handler.NextTheme,
-		// themeCSS renders the unified color palette (src/common/theme) as
-		// CSS custom properties for inline injection in base.tmpl, so the
-		// web UI, Swagger, and GraphQL all consume the exact same Dracula
-		// (dark) / GitHub Light (light) values instead of duplicating
-		// hardcoded hex literals.
-		"themeCSS": func() template.CSS {
-			return template.CSS(theme.CSSVariables())
-		},
 		// themeColor resolves the <meta name="theme-color"> value from the
 		// same src/common/theme palette the stylesheet variables come from,
 		// so the browser chrome tint tracks the theme actually in effect

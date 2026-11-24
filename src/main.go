@@ -593,12 +593,18 @@ func runMain() {
 	// User Requirements" and Server Startup Sequence steps 8a/8c. Must run
 	// before dropPrivileges below, or the dropped-privilege process cannot
 	// write to directories that were just created as root.
+	serviceUID, serviceGID := -1, -1
+	ownershipDirs := []string{dirs.Config, dirs.Data, dirs.Cache, dirs.Logs, dirs.SSL, dirs.Security, dirs.DB, dirs.Backup}
+	if dirs.PID != "" {
+		ownershipDirs = append(ownershipDirs, filepath.Dir(dirs.PID))
+	}
 	if isElevated() {
 		uid, gid, userErr := ensureSystemUser(projectName, dirs.Config)
 		if userErr != nil {
 			log.Printf("Warning: Failed to create system user %s: %v", projectName, userErr)
 		} else {
-			for _, d := range []string{dirs.Config, dirs.Data, dirs.Cache, dirs.Logs, dirs.SSL, dirs.Security, dirs.DB, dirs.Backup, filepath.Dir(dirs.PID)} {
+			serviceUID, serviceGID = uid, gid
+			for _, d := range ownershipDirs {
 				if chownErr := chownRecursive(d, uid, gid); chownErr != nil {
 					log.Printf("Warning: Failed to set ownership on %s: %v", d, chownErr)
 				}
@@ -808,6 +814,20 @@ func runMain() {
 	torAvailable := torMgr.IsAvailable()
 	if cfg.Server.Tor.UseNetwork {
 		tor.SetOutboundHTTPClient(torMgr.GetHTTPClient(true))
+	}
+
+	// Configuration and generated secret files may have been written after
+	// the initial directory ownership pass. Reapply the service ownership to
+	// the complete runtime tree before the privilege drop so the service user
+	// can read its private 0600 files and continue writing state.
+	if isElevated() && serviceUID >= 0 && serviceGID >= 0 {
+		for _, d := range ownershipDirs {
+			if err := chownRecursive(d, serviceUID, serviceGID); err != nil {
+				log.Printf("Failed to set final ownership on %s: %v", d, err)
+				removePIDFile(pidFile)
+				os.Exit(exNoPerm)
+			}
+		}
 	}
 
 	// Phase 8g: Drop privileges (root → ipgaze user) per AI.md PART 23. This is
@@ -1872,6 +1892,22 @@ func runMain() {
 		Version:  Version,
 		CommitID: CommitID,
 		Trust:    trust,
+		RenderUI: func(w http.ResponseWriter, r *http.Request, page string) error {
+			if srv.PagesHandler == nil || srv.PagesHandler.Render == nil {
+				err := errors.New("server page renderer is unavailable")
+				log.Printf("Swagger page render failed: %v", err)
+				serverhandler.WriteErrorHTML(w, r, http.StatusInternalServerError, i18n.T(r.Context(), "errors.server_error"))
+				return nil
+			}
+			data := srv.PagesHandler.NewPageData(r)
+			data.AssetStamp = srv.AssetStamp()
+			data.SwaggerSpecURL = netutil.BuildURL(r, trust, "") + "/api/v1/server/swagger"
+			if err := srv.PagesHandler.Render(w, r, page, data); err != nil {
+				log.Printf("Swagger page render failed: %v", err)
+				serverhandler.WriteErrorHTML(w, r, http.StatusInternalServerError, i18n.T(r.Context(), "errors.server_error"))
+			}
+			return nil
+		},
 	})
 	// /api/swagger and /api/{api_version}/server/swagger are dedicated JSON
 	// spec endpoints (AI.md PART 14/16) — always application/json, never the
@@ -1885,8 +1921,24 @@ func runMain() {
 	// Set up GraphQL handler — shares IP/port lookup logic with the REST
 	// handlers by wiring the same Server methods used there.
 	srv.GraphQLHandler = gql.Handler(gql.GraphQLHandlerConfig{
-		Version:   Version,
-		CommitID:  CommitID,
+		Version:  Version,
+		CommitID: CommitID,
+		RenderUI: func(w http.ResponseWriter, r *http.Request, page string) error {
+			if srv.PagesHandler == nil || srv.PagesHandler.Render == nil {
+				err := errors.New("server page renderer is unavailable")
+				log.Printf("GraphQL page render failed: %v", err)
+				serverhandler.WriteErrorHTML(w, r, http.StatusInternalServerError, i18n.T(r.Context(), "errors.server_error"))
+				return nil
+			}
+			data := srv.PagesHandler.NewPageData(r)
+			data.AssetStamp = srv.AssetStamp()
+			data.GraphQLEndpoint = netutil.BuildURL(r, trust, "") + "/api/v1/server/graphql"
+			if err := srv.PagesHandler.Render(w, r, page, data); err != nil {
+				log.Printf("GraphQL page render failed: %v", err)
+				serverhandler.WriteErrorHTML(w, r, http.StatusInternalServerError, i18n.T(r.Context(), "errors.server_error"))
+			}
+			return nil
+		},
 		ClientIP:  srv.RequestIP,
 		LookupIP:  srv.LookupIP,
 		CheckPort: srv.CheckPort,

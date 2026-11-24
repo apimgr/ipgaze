@@ -679,11 +679,10 @@ func TestGetGraphiQLThemeCSS_Light(t *testing.T) {
 	}
 }
 
-func TestGetGraphiQLThemeCSS_Auto_FallsThroughToDark(t *testing.T) {
-	// "auto" is not "light", so the function returns the dark theme
+func TestGetGraphiQLThemeCSS_AutoFollowsSystemPreference(t *testing.T) {
 	css := getGraphiQLThemeCSS("auto")
-	if css != graphiqlDarkTheme {
-		t.Error("auto theme should fall through to dark CSS")
+	if !strings.Contains(css, "@media (prefers-color-scheme: light)") || !strings.Contains(css, "#282a36") || !strings.Contains(css, "#ffffff") {
+		t.Error("auto theme should provide dark defaults and light system overrides")
 	}
 }
 
@@ -720,6 +719,24 @@ func TestHandler_GET_ServesGraphiQL(t *testing.T) {
 	}
 }
 
+func TestHandler_GET_RenderUIErrorReturnsInternalServerError(t *testing.T) {
+	resetSchema()
+	h := Handler(GraphQLHandlerConfig{RenderUI: func(http.ResponseWriter, *http.Request, string) error {
+		return errors.New("template render failed")
+	}})
+	req := httptest.NewRequest(http.MethodGet, "/graphql", nil)
+	rec := httptest.NewRecorder()
+
+	h(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusInternalServerError)
+	}
+	if rec.Body.Len() == 0 {
+		t.Fatal("render failure returned an empty response")
+	}
+}
+
 func TestHandler_GET_DarkThemeByDefault(t *testing.T) {
 	resetSchema()
 	h := Handler(GraphQLHandlerConfig{Version: "v0.1", CommitID: "x"})
@@ -727,10 +744,8 @@ func TestHandler_GET_DarkThemeByDefault(t *testing.T) {
 	rec := httptest.NewRecorder()
 	h(rec, req)
 	body := rec.Body.String()
-	// Dark theme uses the Dracula-based palette (AI.md PART 16 "Themes
-	// (NON-NEGOTIABLE)"), same as the web UI and Swagger UI.
-	if !strings.Contains(body, "#282a36") {
-		t.Error("default dark theme CSS (#282a36) not found in HTML output")
+	if !strings.Contains(body, "/server/docs/graphql/theme.css?") || !strings.Contains(body, "theme=dark") {
+		t.Error("default dark theme stylesheet is not linked")
 	}
 }
 
@@ -742,10 +757,8 @@ func TestHandler_GET_LightThemeViaCookie(t *testing.T) {
 	rec := httptest.NewRecorder()
 	h(rec, req)
 	body := rec.Body.String()
-	// Light theme uses the GitHub-Light-based palette (AI.md PART 16 "Themes
-	// (NON-NEGOTIABLE)"), same as the web UI and Swagger UI.
-	if !strings.Contains(body, "#ffffff") {
-		t.Error("light theme CSS (#ffffff) not found when light cookie is set")
+	if !strings.Contains(body, "/server/docs/graphql/theme.css?") || !strings.Contains(body, "theme=light") {
+		t.Error("light theme stylesheet is not linked when the light cookie is set")
 	}
 }
 

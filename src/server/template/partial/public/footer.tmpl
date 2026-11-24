@@ -28,6 +28,12 @@
     <a href="/server/help">{{t .Lang "nav.help"}}</a>
     <span>&bull;</span>
     <a href="/server/preferences">{{t .Lang "nav.preferences"}}</a>
+    <span>&bull;</span>
+    <a href="/server/preferences#language">{{.LanguageName}}</a>
+  </p>
+
+  <p class="pwa-install-section">
+    <button type="button" id="pwa-install-btn" class="btn btn-secondary hidden" data-action="pwa-install">{{t .Lang "pwa.install"}}</button>
   </p>
 
   {{ if .FooterShowDefaultBranding }}

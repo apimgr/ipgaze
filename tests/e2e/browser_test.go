@@ -110,13 +110,23 @@ func TestBrowserEveryPageLoadsCleanly(t *testing.T) {
 
 	pages := []string{
 		"/",
+		"/server",
 		"/server/about",
 		"/server/help",
+		"/server/help/mcp",
 		"/server/privacy",
 		"/server/terms",
 		"/server/contact",
+		"/server/dpo",
+		"/server/security",
+		"/server/security/policy",
+		"/server/security/thanks",
 		"/server/healthz",
+		"/healthz",
 		"/server/preferences",
+		"/server/preferences/tokens",
+		"/server/preferences/sync",
+		"/offline.html",
 		"/server/docs/swagger",
 		"/server/docs/graphql",
 	}
