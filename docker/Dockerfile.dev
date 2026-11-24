@@ -22,12 +22,15 @@ RUN go test ./src/common/i18n
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} go build -buildvcs=false \
     -ldflags "-X 'main.Version=${VERSION}' -X 'main.CommitID=${COMMIT_ID}' -X 'main.BuildEpoch=${BUILD_EPOCH}' -X 'main.OfficialSite=${OFFICIAL_SITE}'" \
     -o /app/binary/ipgaze ./src
+RUN mkdir /tmp/delve && cd /tmp/delve && \
+    go mod init ipgaze-delve-build && \
+    go get github.com/go-delve/delve/cmd/dlv@v1.27.2 && \
+    CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} go build \
+    -o /app/binary/dlv github.com/go-delve/delve/cmd/dlv
 
 # =============================================================================
 # Runtime Stage - Alpine with debugging tools
 # =============================================================================
-FROM casjaysdev/go:latest AS debug-tools
-
 FROM alpine:latest
 ARG TARGETARCH
 
@@ -59,8 +62,8 @@ RUN apk add --no-cache \
 # Copy binary from builder stage
 COPY --from=builder /app/binary/ipgaze /usr/local/bin/ipgaze
 
-# Copy the target-architecture Delve binary already included in the build image.
-COPY --from=debug-tools /usr/local/bin/dlv /usr/local/bin/dlv
+# Copy Delve cross-compiled for the target architecture.
+COPY --from=builder /app/binary/dlv /usr/local/bin/dlv
 
 # Copy BUILD-TIME overlay (entrypoint.sh) from docker/rootfs/ into image
 COPY docker/rootfs/ /
