@@ -3,8 +3,6 @@
 # =============================================================================
 FROM --platform=$BUILDPLATFORM casjaysdev/go:latest AS builder
 
-RUN apk add --no-cache git bash
-
 ARG TARGETARCH
 ARG VERSION=dev
 # BUILD_EPOCH is the single embedded time source; BuildDate is derived from it at process start

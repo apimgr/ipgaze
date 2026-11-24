@@ -2,13 +2,7 @@
 # Build Stage - Compile Go binary (debug, no symbol stripping)
 # =============================================================================
 FROM --platform=$BUILDPLATFORM casjaysdev/go:latest AS builder
-
-# Install git, bash, and delve debugger
-RUN apk add --no-cache git bash
 ARG TARGETARCH
-RUN env -u GOBIN GOPATH=/tmp/delve-go GOOS=linux GOARCH=${TARGETARCH} go install github.com/go-delve/delve/cmd/dlv@latest \
-    && mkdir -p /tmp/delve-bin \
-    && cp "$(find /tmp/delve-go/bin -type f -name dlv -print -quit)" /tmp/delve-bin/dlv
 
 ARG VERSION=dev
 # BUILD_EPOCH is the single embedded time source; BuildDate is derived from it at process start
@@ -32,6 +26,8 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} go build -buildvcs=false \
 # =============================================================================
 # Runtime Stage - Alpine with debugging tools
 # =============================================================================
+FROM casjaysdev/go:latest AS debug-tools
+
 FROM alpine:latest
 ARG TARGETARCH
 
@@ -63,10 +59,8 @@ RUN apk add --no-cache \
 # Copy binary from builder stage
 COPY --from=builder /app/binary/ipgaze /usr/local/bin/ipgaze
 
-# Copy delve debugger from builder stage
-# Install uses a temporary GOPATH so Delve is cross-compiled for TARGETARCH
-# and is kept separate from the application toolchain binaries.
-COPY --from=builder /tmp/delve-bin/dlv /usr/local/bin/dlv
+# Copy the target-architecture Delve binary already included in the build image.
+COPY --from=debug-tools /usr/local/bin/dlv /usr/local/bin/dlv
 
 # Copy BUILD-TIME overlay (entrypoint.sh) from docker/rootfs/ into image
 COPY docker/rootfs/ /
