@@ -245,8 +245,12 @@ These endpoints are public and do not require authentication. The service
 worker and manifest are served with revalidation headers so browsers can
 detect deployed asset updates. New worker versions wait for user approval,
 then activate and reload the page once. Navigation requests fall back after
-an eight-second network timeout, and redirects or error responses are never
-stored in the service worker cache.
+an eight-second network timeout. Only responses explicitly marked public can
+be cached for offline navigation; private pages and forms are removed from the
+cache. When there is no cached public page, the worker synthesizes a translated
+offline response from the strings stored by the last loaded page. There is no
+static `/offline.html` route. Redirects and error responses are never stored
+in the service worker cache.
 
 ---
 
