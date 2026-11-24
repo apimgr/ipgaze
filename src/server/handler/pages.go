@@ -2845,12 +2845,12 @@ func (h *PagesHandler) ConsentHandler(w http.ResponseWriter, r *http.Request) {
 		h.renderErrorPage(w, r, http.StatusInternalServerError, i18n.T(r.Context(), "errors.server_error"))
 		return
 	}
-	// URL-encode the JSON so it satisfies RFC 6265 cookie-value grammar (no raw
-	// '"'/'{'/'}'), matching the encodeURIComponent() the client-side
-	// writeConsentCookie() JS uses for the same cookie.
+	// Path-escape the compact JSON so it satisfies cookie-value grammar and
+	// matches the encodeURIComponent() client-side writer without query-style
+	// plus-for-space encoding.
 	http.SetCookie(w, &http.Cookie{
 		Name:     "cookie_consent",
-		Value:    url.QueryEscape(string(value)),
+		Value:    url.PathEscape(string(value)),
 		Path:     "/",
 		MaxAge:   365 * 24 * 60 * 60,
 		HttpOnly: false,
@@ -2987,7 +2987,7 @@ func writeConsentPreferenceCookie(w http.ResponseWriter, r *http.Request, trust 
 	if err != nil {
 		return
 	}
-	http.SetCookie(w, &http.Cookie{Name: "cookie_consent", Value: url.QueryEscape(string(value)), Path: "/", MaxAge: 31536000, SameSite: http.SameSiteLaxMode, Secure: isSecurePreferenceRequest(r, trust)})
+	http.SetCookie(w, &http.Cookie{Name: "cookie_consent", Value: url.PathEscape(string(value)), Path: "/", MaxAge: 31536000, SameSite: http.SameSiteLaxMode, Secure: isSecurePreferenceRequest(r, trust)})
 }
 
 func setCCPAOptOutCookie(w http.ResponseWriter, r *http.Request, trust *netutil.TrustResolver, optedOut bool) {
@@ -3109,7 +3109,7 @@ func consentCategories(r *http.Request) (preferences, analytics bool) {
 	if err != nil || c.Value == "" {
 		return false, false
 	}
-	raw, err := url.QueryUnescape(c.Value)
+	raw, err := url.PathUnescape(c.Value)
 	if err != nil {
 		return false, false
 	}

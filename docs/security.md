@@ -74,6 +74,11 @@ The following endpoints are accessible without authentication:
 | `GET` or `POST /server/docs/graphql` | GraphiQL UI |
 | `GET` or `POST /api/graphql` | GraphQL endpoint |
 
+The `cookie_consent` cookie stores compact JSON percent-encoded for a cookie
+value. The server decodes it with path-unescaping; malformed values count as
+missing consent, so analytics stays disabled and the consent banner appears.
+The browser writer uses `encodeURIComponent` for the same format.
+
 Metrics endpoints are internal operational interfaces, not public endpoints.
 When enabled, every service route requires its service-specific bearer token
 unless `server.metrics.auth.allow_unauthenticated` is enabled for a firewalled

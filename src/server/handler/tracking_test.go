@@ -40,7 +40,7 @@ func TestAnalyticsTrackingConsentAndPolicy(t *testing.T) {
 			h := analyticsTestHandler()
 			r := httptest.NewRequest(http.MethodGet, "https://ipgaze.example/", nil)
 			if tt.cookie != "" {
-				r.AddCookie(&http.Cookie{Name: "cookie_consent", Value: url.QueryEscape(tt.cookie)})
+				r.AddCookie(&http.Cookie{Name: "cookie_consent", Value: url.PathEscape(tt.cookie)})
 			}
 			if tt.ccpa {
 				r.AddCookie(&http.Cookie{Name: "ccpa_opt_out", Value: "true"})
@@ -68,7 +68,7 @@ func TestGeneratedTrackingEndpointConsentAndOverlayGate(t *testing.T) {
 		t.Fatalf("no-consent response = %d cache=%q", w.Code, w.Header().Get("Cache-Control"))
 	}
 	r = httptest.NewRequest(http.MethodGet, "https://ipgaze.example/server/tracking.js", nil)
-	r.AddCookie(&http.Cookie{Name: "cookie_consent", Value: url.QueryEscape(`{"analytics":true}`)})
+	r.AddCookie(&http.Cookie{Name: "cookie_consent", Value: url.PathEscape(`{"analytics":true}`)})
 	w = httptest.NewRecorder()
 	h.ServerTrackingScript(w, r)
 	if w.Code != http.StatusOK || w.Header().Get("Content-Type") != "application/javascript; charset=utf-8" {
@@ -79,7 +79,7 @@ func TestGeneratedTrackingEndpointConsentAndOverlayGate(t *testing.T) {
 	}
 	h.Trust.OnionAddress = "ipgazeexample.onion"
 	onion := httptest.NewRequest(http.MethodGet, "http://ipgazeexample.onion/server/tracking.js", nil)
-	onion.AddCookie(&http.Cookie{Name: "cookie_consent", Value: url.QueryEscape(`{"analytics":true}`)})
+	onion.AddCookie(&http.Cookie{Name: "cookie_consent", Value: url.PathEscape(`{"analytics":true}`)})
 	w = httptest.NewRecorder()
 	h.ServerTrackingScript(w, onion)
 	if w.Code != http.StatusNotFound {
@@ -96,7 +96,7 @@ func TestGeneratedOWATrackingScriptEnablesClickTracking(t *testing.T) {
 	}
 	h.Config.Web.CSP.ScriptSrcExtra = "https://analytics.example"
 	r := httptest.NewRequest(http.MethodGet, "https://ipgaze.example/server/tracking.js", nil)
-	r.AddCookie(&http.Cookie{Name: "cookie_consent", Value: url.QueryEscape(`{"analytics":true}`)})
+	r.AddCookie(&http.Cookie{Name: "cookie_consent", Value: url.PathEscape(`{"analytics":true}`)})
 	w := httptest.NewRecorder()
 	h.ServerTrackingScript(w, r)
 	if w.Code != http.StatusOK {
@@ -144,7 +144,7 @@ func TestSimpleAnalyticsNoScriptPixelHonorsConsentCSPAndTor(t *testing.T) {
 	if h.analyticsNoScriptAllowed(r) {
 		t.Fatal("Simple Analytics pixel must wait for consent on first visit")
 	}
-	r.AddCookie(&http.Cookie{Name: "cookie_consent", Value: url.QueryEscape(`{"analytics":true}`)})
+	r.AddCookie(&http.Cookie{Name: "cookie_consent", Value: url.PathEscape(`{"analytics":true}`)})
 	if !h.analyticsNoScriptAllowed(r) {
 		t.Fatal("default img-src should permit the consented Simple Analytics pixel")
 	}

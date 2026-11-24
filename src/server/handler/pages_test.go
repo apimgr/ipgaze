@@ -1632,9 +1632,12 @@ func consentCookieValue(t *testing.T, cookies []*http.Cookie) (found *http.Cooki
 	if found == nil {
 		return nil, false, false
 	}
-	raw, err := url.QueryUnescape(found.Value)
+	raw, err := url.PathUnescape(found.Value)
 	if err != nil {
 		t.Fatalf("cookie_consent value not valid URL-encoding: %v", err)
+	}
+	if found.Value != url.PathEscape(raw) {
+		t.Fatalf("cookie_consent value = %q, want canonical path escaping", found.Value)
 	}
 	var decoded struct {
 		Essential   bool  `json:"essential"`
