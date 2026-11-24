@@ -189,6 +189,8 @@ clearnet contact address.
 
 Tor starts when its binary is available. The project does not expose an
 enable/disable toggle; installing Tor changes this behavior.
+The address is omitted from `/api/autodiscover` by default. Set
+`server.tor.expose: true` to advertise it to clients.
 
 Optional outbound Tor routing is controlled by `server.tor.use_network` and
 defaults to `false`. When enabled, the managed Tor process opens a loopback-only
@@ -210,6 +212,7 @@ in `server.yml`:
 server:
   i2p:
     enabled: true
+    expose: false # Set true to advertise the address in /api/autodiscover
 ```
 
 When enabled, IPGaze starts overlay setup in the background so it does not

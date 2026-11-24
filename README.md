@@ -210,12 +210,14 @@ docker run -d \
 | `--maintenance secret rotate` | Rotate `server.security.encryption_key` (30-day grace period) |
 | `--maintenance security list [--status <status>]` | List non-identifying security report triage metadata |
 | `--maintenance security show <tracking-id>` | Show non-identifying metadata for one report |
+| `--maintenance security export <tracking-id> [--output FILE]` | Export the encrypted notification payload without decrypting report content |
 | `--maintenance security update <tracking-id> [--status <status>] [--disclosure-date YYYY-MM-DD] [--comment <text>]` | Update a report's researcher-visible status and comment |
 | `--maintenance token list\|revoke` | List or revoke issued API tokens (operator authorization required) |
-| `--maintenance data export` | Print a JSON inventory of stored operational data and the configured privacy policy |
-| `--maintenance data delete` | Interactively erase rate-limit and audit-log history |
-| `--maintenance compliance report` | Show enabled standards and configured privacy/security controls; enabled standards require encrypted backups |
+| `--maintenance data export --owner <prefix> [--output FILE]` | Export one owner's data as JSON (`0600` by default) |
+| `--maintenance data delete --owner <prefix> [--yes]` | Delete one owner's data and tokens; type the owner ID to confirm unless `--yes` is supplied |
+| `--maintenance compliance report` | Show standards/settings, owner/token/report counts, recent compliance events, last backup time, and audit integrity |
 | `--maintenance email test [--to ADDRESS]` | Send an authenticated SMTP test email; `--dry-run` previews and validates configured templates without sending |
+| `--maintenance tor <status|validate|restart|regenerate|vanity|import-keys>` | Inspect or manage Tor through its loopback-only control channel |
 | `--shell --help` | Show shell integration usage and supported shells |
 | `--shell completions [SHELL]` | Print shell completions (bash, zsh, fish, sh, dash, ksh, powershell, pwsh) |
 | `--shell init [SHELL]` | Print the shell init snippet |

@@ -115,10 +115,11 @@ web:
 ```
 
 Enabling `server.compliance.enabled` or any individual standard requires
-encrypted backups. `ipgaze --maintenance compliance report` prints the active
-standards and a summary of configured privacy and security controls. A
-standard flag records the operator's configured scope; it does not certify
-that the deployment meets that standard.
+encrypted backups. `ipgaze --maintenance compliance report` prints enabled
+standards and effective retention settings, owner/token/open-report counts,
+retained compliance events from the last 30 days, the last backup time, and
+the audit-chain integrity result. A standard flag records the operator's
+configured scope; it does not certify that the deployment meets that standard.
 
 `server.security.encryption_key` is generated and stored in `secrets.yml` on
 first run. It protects sensitive data stored by the application, including
@@ -276,9 +277,12 @@ back to a direct connection.
 server:
   tor:
     binary: ""          # Empty means auto-detect
+    expose: false        # Publish the onion address in /api/autodiscover
     use_network: false  # Route supported server-originated HTTP requests via Tor
     startup_timeout: 60  # Control-port file wait, 10-300 seconds
     contact_email: ""   # Optional address shown only in Tor responses
+  update:
+    cli_min_version: "" # Empty means no minimum CLI version is enforced
 ```
 
 The Tor contact address is `server.tor.contact_email`. If it is empty, Tor
@@ -344,10 +348,14 @@ the eepsite through a private SAM port; it does not load server tunnels from
 other configuration locations. External SAM bridges must support SAM 3.1 or
 newer.
 
+Set `server.i2p.expose: true` to publish the active `.b32.i2p` address in
+`/api/autodiscover`. Both overlay exposure settings default to `false`.
+
 ```yaml
 server:
   i2p:
     enabled: false
+    expose: false               # Publish the .b32.i2p address in autodiscover
     binary: ""                   # Empty means auto-detect i2pd
     sam_address: "127.0.0.1:7656" # External SAMv3 bridge fallback
     virtual_port: 80

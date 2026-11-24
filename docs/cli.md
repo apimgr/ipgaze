@@ -28,12 +28,14 @@ ipgaze [flags]
 | `--maintenance secret rotate <name>` | Rotate `installation_secret` or `encryption_key` |
 | `--maintenance security list [--status <status>]` | List report IDs and non-identifying triage metadata |
 | `--maintenance security show <tracking-id>` | Show non-identifying metadata for one report |
+| `--maintenance security export <tracking-id> [--output FILE]` | Export only the stored encrypted notification payload; default file permissions are `0600`, and `--output -` writes the ciphertext to stdout |
 | `--maintenance security update <tracking-id> [--status <status>] [--disclosure-date YYYY-MM-DD] [--comment <text>]` | Update researcher-visible triage status, disclosure date, and comment |
 | `--maintenance token list\|revoke` | List or revoke issued API tokens by prefix (operator authorization required) |
-| `--maintenance data export` | Print a JSON inventory of stored operational data and the configured privacy policy |
-| `--maintenance data delete` | Interactively erase rate-limit and audit-log history |
-| `--maintenance compliance report` | Print enabled standards and the configured compliance controls |
+| `--maintenance data export --owner <prefix> [--output FILE]` | Write the owner's JSON data export (`0600` by default; `--output -` writes to stdout) |
+| `--maintenance data delete --owner <prefix> [--yes]` | Delete that owner's tokens and data in one transaction; confirmation requires the owner ID unless `--yes` is supplied |
+| `--maintenance compliance report` | Print standards/settings, owner/token/report counts, recent compliance events, last backup time, and audit integrity |
 | `--maintenance email test [--to ADDRESS]` | Send an authenticated SMTP test email; `--dry-run` previews and validates configured templates without sending |
+| `--maintenance tor <status|validate|restart|regenerate|vanity|import-keys>` | Inspect or manage the running Tor hidden service through its loopback-only control channel |
 | `--shell --help` | Show shell integration usage and supported shells |
 
 Scheduled backups create a verified full backup and a cumulative daily

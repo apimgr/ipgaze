@@ -196,9 +196,15 @@ filesystem paths.
 | `GET /api/swagger` | OpenAPI JSON, direct alias for the current API version |
 | `GET` or `POST /server/docs/graphql` | GraphiQL UI |
 | `GET` or `POST /api/graphql` | GraphQL direct alias |
-| `GET /api/autodiscover` | Unversioned `{ok,data}` discovery document containing `name`, `version`, `api.current_version`, public `urls`, and CLI `cli_versions` / `cli_min_version`; exposed overlay addresses are optional |
+| `GET /api/autodiscover` | Unversioned `{ok,data}` discovery document containing `name`, `version`, `api.current_version`, public `urls`, and CLI `cli_versions` / `cli_min_version`; `onion` and `i2p` appear only when their overlay is running and `server.tor.expose` or `server.i2p.expose` is true |
 | `GET /llms.txt` | Machine-readable service and API summary |
 | `GET /.well-known/llms.txt` | Well-known alias for the same summary |
+
+`llms.txt` includes the API rate limit, public endpoints, the MCP endpoint and
+canonical API/security contact addresses. Operators can disable generated
+endpoint and schema sections or append up to ten validated Markdown sections
+with `web.llms` configuration. Custom HTML is escaped and links are limited to
+HTTPS and relative paths.
 
 ## Server-Rendered Pages
 

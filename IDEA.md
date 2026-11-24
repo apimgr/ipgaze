@@ -325,9 +325,9 @@ documented per its own exception clause)
 - `--maintenance pgp generate|rotate|publish|export|import|delete` — server PGP keypair lifecycle
 - `--maintenance secret rotate` — rotate `server.security.encryption_key` with a 30-day grace period
 - `--maintenance token list|revoke` — list or revoke issued API tokens (operator authorization required)
-- `--maintenance data export` — JSON inventory of stored operational data and the configured privacy policy
-- `--maintenance data delete` — interactively erase rate-limit and audit-log history
-- `--maintenance compliance report` — show enabled standards and configured privacy/security controls; enabled standards require encrypted backups
+- `--maintenance data export --owner <prefix> [--output FILE]` — export one owner's data as JSON; files default to mode `0600`, and `--output -` writes to stdout
+- `--maintenance data delete --owner <prefix> [--yes]` — delete one owner's data and tokens transactionally while preserving append-only audit history; confirm by typing the owner ID unless `--yes` is supplied
+- `--maintenance compliance report` — show enabled standards/settings, owner/token/open-report counts, retained compliance events from the last 30 days, last backup time, and audit integrity; enabled standards require encrypted backups
 - `--shell completions|init [SHELL]` — shell completions and init snippet
 - `--update check|yes|branch {stable|beta|devel}` — binary self-update from GitHub Releases; rolling-channel aliases normalize to `devel`
 - Backup format: `.tar.gz` (or `.tar.gz.enc` when encryption is enabled); SSL keys and the full data directory are excluded unless explicitly included
