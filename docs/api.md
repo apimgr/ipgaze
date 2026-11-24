@@ -115,6 +115,8 @@ Health endpoints are the exception and return the bare health document.
 | `POST /api/v1/server/preferences/tokens/{id}/rotate` | Rotate a linked token; requires the primary Bearer token |
 | `PATCH /api/v1/server/preferences/tokens/{id}` | Rename or change linked-token expiry; requires the primary Bearer token |
 | `DELETE /api/v1/server/preferences/tokens/{id}` | Revoke a linked token; requires the primary Bearer token |
+
+The `{id}` path value and `id` fields in token responses are opaque UUIDs. The database integer key stays private.
 | `POST /api/v1/server/preferences` | Update guest preferences |
 | `GET /server/preferences/sync` | Export guest preferences as a URL and base64url code; negotiates HTML, text, and JSON. Consent and credentials are excluded |
 | `POST /server/preferences/sync` | Import guest preferences from the form's `code` field |
