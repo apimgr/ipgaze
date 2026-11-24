@@ -632,17 +632,20 @@ pipelines can replace the rolling `devel` release and tag. Go builds run in
 ### Testing
 
 ```bash
-# Run Go vet, the vulnerability scan, and tests in Docker with coverage enforcement
+# Run scanner-policy unit tests and Go unit tests in Docker with coverage enforcement
 make test
 
 # Run the Docker integration tests
 ./tests/run_tests.sh
 
-# Run the optional Incus systemd and privilege-drop tests
+# Run Incus systemd and OpenRC integration tests (or pass systemd/openrc)
 ./tests/incus.sh
 
 # Run the Docker tests directly
 ./tests/docker.sh
+
+# Run the three-tier browser suite (SSR, no-JS, and full-JS)
+./tests/e2e.sh
 ```
 
 ## Disclaimer

@@ -45,7 +45,7 @@ directory. Run the service in Docker; do not execute the Go binary on the host.
 ### Run Tests
 
 ```bash
-# Go vet, vulnerability scan, and unit tests with coverage enforcement
+# Scanner-policy unit tests and Go unit tests with coverage enforcement
 make test
 ```
 
@@ -66,7 +66,8 @@ ipgaze/
 ├── tests/                  # Test scripts
 │   ├── run_tests.sh        # Test runner
 │   ├── docker.sh           # Docker tests
-│   └── incus.sh            # Incus systemd integration and privilege-drop tests
+│   ├── incus.sh            # Incus systemd and OpenRC integration tests
+│   └── e2e.sh              # Docker-wrapped SSR, no-JS, and browser E2E tests
 ├── .github/                # GitHub Actions
 ├── .gitlab-ci.yml          # GitLab CI pipeline
 ├── .gitea/workflows/       # Gitea Actions workflows
@@ -162,8 +163,9 @@ make test
 
 ### Integration Tests
 
-The basic integration runner is Docker-only. Incus systemd and privilege-drop
-coverage is a separate opt-in check via `tests/incus.sh`.
+The basic integration runner is Docker-only. Incus systemd and OpenRC lifecycle
+coverage is a separate opt-in check via `tests/incus.sh`; pass `systemd` or
+`openrc` to run only one mode.
 
 ```bash
 ./tests/run_tests.sh
@@ -173,6 +175,15 @@ coverage is a separate opt-in check via `tests/incus.sh`.
 
 ```bash
 ./tests/docker.sh
+```
+
+### Browser E2E Tests
+
+Run the three-tier suite for server-rendered, no-JavaScript, and full browser
+flows. It uses Docker for the Go test process and Chromium sidecar.
+
+```bash
+./tests/e2e.sh
 ```
 
 ## Documentation
@@ -270,7 +281,7 @@ release and tag. Go commands run in `casjaysdev/go:latest` containers.
 | `make build` | Build host and all eight supported platform binaries |
 | `make local` | Build binaries for the current platform with version metadata |
 | `make release` | Build all platforms and prepare release archives |
-| `make test` | Run `go vet`, `govulncheck`, and tests with coverage enforcement |
+| `make test` | Run scanner-policy unit tests and Go unit tests with coverage enforcement |
 | `make dev` | Build quick development binaries in the OS temp directory |
 | `make docker` | Build Docker image |
 | `make clean` | Remove `binaries/` and `releases/` |
