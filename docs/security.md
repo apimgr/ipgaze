@@ -70,9 +70,11 @@ The following endpoints are accessible without authentication:
 | `GET /manifest.json` | PWA manifest |
 | `GET /sw.js` | Service worker |
 | `GET /server/docs/swagger` | OpenAPI documentation (HTML) |
-| `GET /api/swagger` | OpenAPI schema (JSON) |
+| `GET /api/v1/server/swagger` | Canonical OpenAPI schema (JSON) |
+| `GET /api/swagger` | Direct alias for the current version's OpenAPI schema |
 | `GET` or `POST /server/docs/graphql` | GraphiQL UI |
-| `GET` or `POST /api/graphql` | GraphQL endpoint |
+| `GET` or `POST /api/v1/server/graphql` | Canonical GraphQL endpoint |
+| `GET` or `POST /api/graphql` | Direct alias for the current version's GraphQL endpoint |
 
 The `cookie_consent` cookie stores compact JSON percent-encoded for a cookie
 value. The server decodes it with path-unescaping; malformed values count as

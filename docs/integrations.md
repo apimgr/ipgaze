@@ -34,10 +34,11 @@ ipgaze publishes a machine-readable OpenAPI 3 schema and an interactive Swagger 
 | Endpoint | Format |
 |----------|--------|
 | `GET /server/docs/swagger` | Interactive Swagger UI (HTML) |
-| `GET /api/swagger` | OpenAPI 3 schema (JSON) |
+| `GET /api/v1/server/swagger` | Canonical OpenAPI 3 schema (JSON) |
+| `GET /api/swagger` | Direct alias for the current version's OpenAPI schema |
 
-Use `/api/swagger` to generate client SDKs with `openapi-generator`,
-`oapi-codegen`, or any OpenAPI-compatible toolchain.
+Use `/api/v1/server/swagger` to generate client SDKs with
+`openapi-generator`, `oapi-codegen`, or any OpenAPI-compatible toolchain.
 
 ---
 
@@ -48,7 +49,8 @@ ipgaze exposes a GraphQL endpoint for flexible IP lookup queries:
 | Endpoint | Methods |
 |----------|---------|
 | `/server/docs/graphql` | Interactive GraphiQL UI |
-| `/api/graphql` | GraphQL query endpoint (`GET` or `POST`) |
+| `/api/v1/server/graphql` | Canonical GraphQL endpoint (`GET` or `POST`) |
+| `/api/graphql` | Direct alias for the current version's GraphQL endpoint |
 
 GraphQL is query-only. Its `authCheck` field validates the caller's operator
 Bearer token without returning it; invalid tokens produce a GraphQL error.
@@ -256,4 +258,9 @@ No native app association files (`apple-app-site-association`, `assetlinks.json`
 
 ## Autodiscovery
 
-No autodiscovery or federation protocols (e.g. WebFinger, ActivityPub, OAuth provider metadata) are currently implemented.
+`GET /api/autodiscover` returns the service name and version, current API
+version, public endpoint URLs, and available CLI versions. Onion and I2P
+addresses are included only while the corresponding overlay is running and
+its `expose` setting is enabled. See [API Documentation and Discovery](api.md#api-documentation-and-discovery)
+for the response details. ipgaze does not implement federation protocols such
+as WebFinger or ActivityPub, or OAuth provider metadata.
