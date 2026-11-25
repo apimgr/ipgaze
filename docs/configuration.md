@@ -570,10 +570,11 @@ Clearnet tracking scripts and pixels are never loaded over Tor or I2P.
 
 The contact and security report forms share `pages.contact.captcha`. The
 built-in `simple` challenge is the default and works without JavaScript. To use
-an external provider, configure both keys; startup and hot reload reject a
-missing key. Provider hosts are added only for the selected provider, and
-Tor/I2P requests always use the built-in challenge. The built-in challenge
-stores a keyed answer hash, expires after 10 minutes, and is consumed on the
+an external provider, configure both keys; a missing key logs one warning and
+falls back to `simple` without preventing startup. Provider hosts are added
+only for the selected provider, and Tor/I2P requests always use the built-in
+challenge. The built-in challenge stores only an answer hash with a
+32-character challenge ID, expires after 10 minutes, and is consumed on the
 first verification attempt. The report form handles abuse, DMCA, privacy, and
 security reports. Each submission first returns a server-rendered review; the
 second confirmed submission delivers it. Public form submissions use a 256 KiB

@@ -117,6 +117,13 @@ Health endpoints are the exception and return the bare health document.
 | `DELETE /api/v1/server/preferences/tokens/{id}` | Revoke a linked token; requires the primary Bearer token |
 
 The `{id}` path value and `id` fields in token responses are opaque UUIDs. The database integer key stays private.
+
+The owner-token list response contains `data.primary`, `data.linked`, and
+`data.max_linked`. Token objects use `token_masked` and UTC RFC 3339 timestamps;
+raw tokens appear only in issue, create, reveal, or rotate responses. Linked-token
+create, reveal, and rotate responses name the raw credential `linked_token`.
+Create and update requests accept `expires` (`never`, `7d`, `30d`, `90d`, or
+`1y`) or `expires_on` (`YYYY-MM-DD`), but not both.
 | `POST /api/v1/server/preferences` | Update guest preferences |
 | `GET /server/preferences/sync` | Export guest preferences as a URL and base64url code; negotiates HTML, text, and JSON. Consent and credentials are excluded |
 | `POST /server/preferences/sync` | Import guest preferences from the form's `code` field |
