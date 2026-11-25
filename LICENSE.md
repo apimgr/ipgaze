@@ -173,14 +173,12 @@ https://www.apache.org/licenses/LICENSE-2.0
 
 ## GeoIP Data Attribution
 
-This software downloads GeoIP data from:
+This software downloads GeoIP data from sapics/ip-location-db:
 
-- **sapics/ip-location-db**: aggregated ASN, country, and city databases
-  - https://github.com/sapics/ip-location-db
+- https://github.com/sapics/ip-location-db
 
-All three databases are licensed CC BY 4.0. Attribution is a license
+The ASN and Country databases are PDDL data from iptoasn.com. The City
+databases are provided by DB-IP under CC BY 4.0. Attribution is a license
 condition, not an optional courtesy:
 
-[IP Geolocation by DB-IP](https://db-ip.com/)
-
-Country and ASN data licensed CC BY 4.0 by the Number Resource Organization (NRO).
+<a href="https://db-ip.com/">IP Geolocation by DB-IP</a>

@@ -239,15 +239,9 @@ Configuration lives under `server.geoip`:
 server:
   geoip:
     enabled: true
-    # dir defaults to {data_dir}/security/geoip when empty
-    dir: ""
     deny_countries: []
     allow_countries: []
-    databases:
-      asn: true
-      country: true
-      city: true
-      whois: true
+    presets: {}
 ```
 
 `deny_countries` and `allow_countries` are mutually exclusive —
@@ -257,8 +251,13 @@ server:
 
 GeoIP databases auto-download on first run from
 [sapics/ip-location-db](https://github.com/sapics/ip-location-db) and are
-refreshed on the schedule set by `server.scheduler.tasks.geoip_update.schedule`
-(default: `weekly`).
+stored under `{data_dir}/security/geoip`. ASN (`iptoasn-asn.mmdb`) and Country
+(`iptoasn-country.mmdb`) data come from iptoasn.com and are PDDL. City data
+(`dbip-city-ipv4.mmdb` and `dbip-city-ipv6.mmdb`) comes from DB-IP under
+CC BY 4.0. Each download is checked against its published SHA-256 before the
+live file is replaced. The required DB-IP attribution appears on
+`/server/about` and in `LICENSE.md`. Databases are refreshed by the
+`geoip_update` task (weekly by default).
 
 ## Tor
 

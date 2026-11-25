@@ -667,11 +667,9 @@ MIT License - See [LICENSE.md](LICENSE.md)
 ### Credits
 
 - **echoip-compatible API**: implements the same route and response format as echoip for zero-change migrations
-- **GeoIP Data**: [sapics/ip-location-db](https://github.com/sapics/ip-location-db) — free, no API key required
+- **GeoIP Data**: [sapics/ip-location-db](https://github.com/sapics/ip-location-db), with ASN and Country data from iptoasn.com and City data from DB-IP
 - **Maintained by**: [apimgr](https://github.com/apimgr)
 
 ### Attribution
 
-GeoIP data:
-- [sapics/ip-location-db](https://github.com/sapics/ip-location-db) — country, city, and ASN data (public domain / CC0)
-- Country data: public domain (WHOIS aggregation)
+GeoIP databases are distributed by [sapics/ip-location-db](https://github.com/sapics/ip-location-db). ASN and Country data are PDDL data from iptoasn.com. City data is provided by DB-IP under CC BY 4.0; required attribution is shown on `/server/about` and in [LICENSE.md](LICENSE.md).
