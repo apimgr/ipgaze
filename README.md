@@ -36,7 +36,7 @@ https://ifcfg.us
 - **Atom and RSS Feeds** - Empty `/feed.xml` and `/rss.xml` endpoints, ready for syndication clients
 - **PWA Support** - Web app manifest and service worker for offline use
 - **Tor Hidden Service** - Auto-enabled when the `tor` binary is present; optional outbound Tor routing via `server.tor.use_network`
-- **I2P Eepsite** - Enabled by default in containers; opt-in elsewhere via `server.i2p.enabled`
+- **I2P Eepsite** - Enabled by default in application containers; opt-in on hosts and Incus/LXC system containers via `server.i2p.enabled`
 - **Privacy & Security Pages** - Consent-gated analytics, DPO contact, coordinated disclosure, and typed abuse, DMCA, privacy, and security reports with two-step review, CAPTCHA, markup/link filtering, duplicate suppression, and temporary strike bans
 - **Abuse Protection** - IPv4/IPv6 allowlists and blocks with persisted, temporary request-flood blocking
 - **Built-in Scheduler** - GeoIP, blocklist, threat, CVE, and release checks; cert renewal; backups; log rotation. Release installation is notify-only by default and requires an elevated server start when enabled.

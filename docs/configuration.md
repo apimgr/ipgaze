@@ -333,9 +333,10 @@ server:
 
 ## I2P
 
-I2P hosting starts by default in containers and is disabled by default on
-bare metal and in VMs. Set `server.i2p.enabled` to `true` to enable an eepsite
-outside a container or `false` to disable it in a container. Overlay startup
+I2P hosting starts by default in application containers such as Docker and
+Podman. It is disabled by default on bare metal, in VMs, and in Incus/LXC
+system containers. Set `server.i2p.enabled` to `true` to enable an eepsite on
+those hosts or `false` to disable it in an application container. Overlay startup
 runs in the background so it does not delay the HTTP listener. Health reports
 `starting`, `healthy`, or `unavailable`; an overlay failure does not stop or
 restart the clearnet server. IPGaze manages an

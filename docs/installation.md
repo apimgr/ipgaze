@@ -109,6 +109,10 @@ are supported; macOS uses launchd, and BSD uses rc.d. Run with `sudo` to
 install a system service. Without elevation, Linux systemd and macOS launchd
 install a service for the current user:
 
+Incus/LXC system containers that run systemd or OpenRC use the same system
+service flow as a host. The server performs its privileged setup and then runs
+as its dedicated service account.
+
 ```bash
 # System service
 sudo ipgaze --service --install

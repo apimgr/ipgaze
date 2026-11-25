@@ -74,6 +74,9 @@ The service manager is detected automatically. With `sudo`, installation
 creates a system service. Without elevation, Linux systemd and macOS launchd
 create a service for the current user. Linux installations can also use
 OpenRC, runit, SysVinit, or s6-overlay; BSD uses rc.d.
+Incus/LXC system containers running systemd or OpenRC use system-service mode;
+the server starts with the privileges needed for setup, then drops to its
+dedicated service account.
 
 ```bash
 # Install and start a system service

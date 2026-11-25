@@ -206,9 +206,10 @@ requests use this route; caller-supplied remote URLs remain outside it.
 
 ## I2P Eepsite
 
-I2P eepsite hosting is optional. It starts by default in containers and is
-disabled by default on bare metal and in VMs. Enable or disable it explicitly
-in `server.yml`:
+I2P eepsite hosting is optional. It starts by default in application
+containers such as Docker and Podman. It is disabled by default on bare metal,
+in VMs, and in Incus/LXC system containers. Enable or disable it explicitly in
+`server.yml`:
 
 ```yaml
 server:
