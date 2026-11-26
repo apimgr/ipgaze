@@ -85,8 +85,8 @@ sudo ipgaze --service --install
 # Install and start a per-user systemd service or LaunchAgent
 ipgaze --service --install
 
-# Show current service status
-ipgaze --service status
+# Show service operations and current service status
+ipgaze --service --help
 
 # Disable the service at startup (keeps configuration and data)
 ipgaze --service --disable

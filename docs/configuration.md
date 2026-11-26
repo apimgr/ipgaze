@@ -827,9 +827,21 @@ and be unexpired. The `min_version` setting accepts `TLS1.2` (default) or
 To request and renew certificates automatically, set
 `server.ssl.letsencrypt.enabled: true` and configure the contact `email`.
 Challenges include `http-01` (default), `tls-alpn-01`, and `dns-01`; staging
-can be enabled while testing. DNS-01 accepts any provider supported by
-`go-acme/lego`: set `server.ssl.letsencrypt.dns_provider` and provide the
-provider-specific values in `server.ssl.letsencrypt.dns_credentials`. The
-credential map is encrypted at rest with `server.security.encryption_key` and
-validated on startup and before certificate requests. App-managed ACME account
+can be enabled while testing. DNS-01 accepts every provider supported by lego
+v5: set `server.ssl.letsencrypt.dns_provider` to its lowercase provider
+identifier and put that provider's lego environment variable names and values
+in the flat `server.ssl.letsencrypt.dns_credentials` map. The credential map
+is encrypted at rest with `server.security.encryption_key` and validated on
+startup and before certificate requests. Values are never logged or returned
+by the API.
+
+For RFC 2136, use `rfc2136` (or its `dnsupdate` alias) with
+`DNSUPDATE_NAMESERVER`; lego v5 also accepts the legacy `RFC2136_*` variable
+prefix. TSIG credentials use `DNSUPDATE_TSIG_KEY`,
+`DNSUPDATE_TSIG_SECRET`, and optionally `DNSUPDATE_TSIG_ALGORITHM`. A TSIG key
+file must be named relative to `{config_dir}/ssl/` with
+`DNSUPDATE_TSIG_FILE`; absolute paths and paths outside that directory are
+rejected. Without TSIG credentials, the update is unsigned and accepted only
+by a DNS server configured to trust the sender. The provider removes only the
+TXT record it created after challenge validation. App-managed ACME account
 state and certificates are stored under `{config_dir}/ssl/`.

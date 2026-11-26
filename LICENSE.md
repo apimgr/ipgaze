@@ -36,7 +36,7 @@ This software includes the following third-party libraries:
 | github.com/chromedp/cdproto | v0.0.0-20260714215040-dc233986426f | MIT | 2017 Kenneth Shaw |
 | github.com/chromedp/chromedp | v0.16.0 | MIT | 2016-2025 Kenneth Shaw |
 | github.com/cretz/bine | v0.2.0 | MIT | 2018 cretz |
-| github.com/go-acme/lego/v4 | v4.35.2 | MIT | 2015-2017 Sebastian Erhart |
+| github.com/go-acme/lego/v5 | v5.6.0 | MIT | 2017-2024 Ludovic Fernandez; 2015-2017 Sebastian Erhart |
 | github.com/go-chi/chi/v5 | v5.2.0 | MIT | 2015 Peter Kieltyka, Google Inc |
 | github.com/go-co-op/gocron/v2 | v2.21.2 | MIT | 2014 go-co-op |
 | github.com/gogpu/gg | v0.52.6 | MIT | 2025 Andrey Kolkov and GoGPU Contributors |

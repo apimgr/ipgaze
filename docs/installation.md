@@ -116,11 +116,11 @@ as its dedicated service account.
 ```bash
 # System service
 sudo ipgaze --service --install
-sudo ipgaze --service status
+sudo ipgaze --service --help
 
 # Per-user service (Linux systemd or macOS launchd)
 ipgaze --service --install
-ipgaze --service status
+ipgaze --service --help
 ```
 
 For s6-overlay, run the install command in the s6-overlay environment with
@@ -133,18 +133,18 @@ Windows Service Control Manager service:
 ```powershell
 # AMD64
 .\ipgaze-windows-amd64.exe --service --install
-.\ipgaze-windows-amd64.exe --service status
+.\ipgaze-windows-amd64.exe --service --help
 
 # ARM64
 .\ipgaze-windows-arm64.exe --service --install
-.\ipgaze-windows-arm64.exe --service status
+.\ipgaze-windows-arm64.exe --service --help
 ```
 
-Use `ipgaze --service --help` to see the available service operations. The
-application reads its settings from `server.yml`; do not edit the service unit
-to configure the application. Uninstall prompts before deleting configuration
-and data. It keeps the executable in place and prints its path for manual
-removal.
+Use `ipgaze --service --help` to see the available service operations and
+current service status. The application reads its settings from `server.yml`;
+do not edit the service unit to configure the application. Uninstall prompts
+before deleting configuration and data. It keeps the executable in place and
+prints its path for manual removal.
 
 ## Build from Source
 
