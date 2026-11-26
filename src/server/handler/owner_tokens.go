@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/subtle"
 	"database/sql"
 	"encoding/base64"
 	"encoding/hex"
@@ -13,7 +14,6 @@ import (
 	"log/slog"
 	"math/big"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -24,6 +24,8 @@ import (
 
 const ownerTokenEncryptionInfo = "api_tokens"
 const ownerTokenFlashCookieName = "owner_token_flash"
+
+var errPrimaryOwnerTokenRequired = errors.New("primary owner token required")
 
 const ownerTokenAlphabet = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
 
@@ -42,12 +44,13 @@ type OwnerTokenIdentity struct {
 	Last4     string
 	Encrypted string
 	TokenHash string
+	PublicID  string
 }
 
 type ownerTokenFlash struct {
 	Token  string `json:"token"`
 	Action string `json:"action"`
-	ID     int64  `json:"id,omitempty"`
+	ID     string `json:"id,omitempty"`
 }
 
 func (h *PagesHandler) setOwnerTokenFlash(w http.ResponseWriter, r *http.Request, flash ownerTokenFlash) error {
@@ -93,7 +96,7 @@ func (h *PagesHandler) consumeOwnerTokenFlash(w http.ResponseWriter, r *http.Req
 }
 
 type OwnerLinkedTokenView struct {
-	ID        int64
+	ID        string
 	Name      string
 	Masked    string
 	Created   string
@@ -167,8 +170,9 @@ func (h *PagesHandler) createPrimaryToken(ctx context.Context) (OwnerTokenIdenti
 	if _, err = tx.ExecContext(ctx, `INSERT INTO owners(id) VALUES(?)`, ownerID); err != nil {
 		return OwnerTokenIdentity{}, "", err
 	}
-	result, err := tx.ExecContext(ctx, `INSERT INTO api_tokens(owner_id, kind, token_hash, token_prefix, token_last4, token_enc)
-		VALUES(?, 'primary', ?, ?, ?, ?)`, ownerID, hex.EncodeToString(hash[:]), ownerTokenPrefix(token), ownerTokenSuffix(token), base64.StdEncoding.EncodeToString(ciphertext))
+	publicID := uuid.NewString()
+	result, err := tx.ExecContext(ctx, `INSERT INTO api_tokens(public_id, owner_id, kind, token_hash, token_prefix, token_last4, token_enc)
+		VALUES(?, ?, 'primary', ?, ?, ?, ?)`, publicID, ownerID, hex.EncodeToString(hash[:]), ownerTokenPrefix(token), ownerTokenSuffix(token), base64.StdEncoding.EncodeToString(ciphertext))
 	if err != nil {
 		return OwnerTokenIdentity{}, "", err
 	}
@@ -179,19 +183,14 @@ func (h *PagesHandler) createPrimaryToken(ctx context.Context) (OwnerTokenIdenti
 	if err := tx.Commit(); err != nil {
 		return OwnerTokenIdentity{}, "", err
 	}
-	return OwnerTokenIdentity{OwnerID: ownerID, TokenID: tokenID, Kind: "primary", Prefix: ownerTokenPrefix(token), Last4: ownerTokenSuffix(token), Encrypted: base64.StdEncoding.EncodeToString(ciphertext)}, token, nil
+	return OwnerTokenIdentity{OwnerID: ownerID, PublicID: publicID, TokenID: tokenID, Kind: "primary", Prefix: ownerTokenPrefix(token), Last4: ownerTokenSuffix(token), Encrypted: base64.StdEncoding.EncodeToString(ciphertext)}, token, nil
 }
 
 func (h *PagesHandler) validatePrimaryToken(ctx context.Context, token string) (OwnerTokenIdentity, error) {
 	if h.DB == nil || !validOwnerPrimaryToken(token) {
 		return OwnerTokenIdentity{}, sql.ErrNoRows
 	}
-	hash := sha256.Sum256([]byte(token))
-	var identity OwnerTokenIdentity
-	err := h.DB.QueryRowContext(ctx, `SELECT id, owner_id, kind, token_prefix, token_last4, token_enc
-		FROM api_tokens WHERE token_hash = ? AND kind = 'primary' AND revoked_at IS NULL
-		AND (expires_at IS NULL OR expires_at > strftime('%s', 'now'))`, hex.EncodeToString(hash[:])).Scan(
-		&identity.TokenID, &identity.OwnerID, &identity.Kind, &identity.Prefix, &identity.Last4, &identity.Encrypted)
+	identity, err := h.findOwnerToken(ctx, token, "kind = 'primary'")
 	if err == nil {
 		_, _ = h.DB.ExecContext(ctx, `UPDATE api_tokens SET last_used_at = strftime('%s','now') WHERE id = ? AND (last_used_at IS NULL OR last_used_at < strftime('%s','now') - 60)`, identity.TokenID)
 		_, _ = h.DB.ExecContext(ctx, `UPDATE owners SET last_seen_at = strftime('%s','now') WHERE id = ?`, identity.OwnerID)
@@ -199,12 +198,61 @@ func (h *PagesHandler) validatePrimaryToken(ctx context.Context, token string) (
 	return identity, err
 }
 
+func (h *PagesHandler) findOwnerToken(ctx context.Context, token, kindClause string) (identity OwnerTokenIdentity, resultErr error) {
+	rows, err := h.DB.QueryContext(ctx, `SELECT id, public_id, owner_id, kind, token_hash, token_prefix, token_last4, token_enc
+		FROM api_tokens WHERE token_prefix = ? AND `+kindClause+` AND revoked_at IS NULL
+		AND (expires_at IS NULL OR expires_at > strftime('%s', 'now'))`, ownerTokenPrefix(token))
+	if err != nil {
+		return OwnerTokenIdentity{}, err
+	}
+	defer func() {
+		if closeErr := rows.Close(); closeErr != nil {
+			resultErr = errors.Join(resultErr, closeErr)
+		}
+	}()
+	inboundHash := sha256.Sum256([]byte(token))
+	for rows.Next() {
+		var storedHash string
+		if err := rows.Scan(&identity.TokenID, &identity.PublicID, &identity.OwnerID, &identity.Kind, &storedHash, &identity.Prefix, &identity.Last4, &identity.Encrypted); err != nil {
+			return OwnerTokenIdentity{}, err
+		}
+		expectedHash, err := hex.DecodeString(storedHash)
+		if err != nil || len(expectedHash) != len(inboundHash) || subtle.ConstantTimeCompare(expectedHash, inboundHash[:]) != 1 {
+			continue
+		}
+		return identity, nil
+	}
+	if err := rows.Err(); err != nil {
+		return OwnerTokenIdentity{}, err
+	}
+	return OwnerTokenIdentity{}, sql.ErrNoRows
+}
+
 func (h *PagesHandler) validatePrimaryBearer(r *http.Request) (OwnerTokenIdentity, error) {
 	token, ok := bearerTokenFromHeader(r)
 	if !ok {
 		return OwnerTokenIdentity{}, sql.ErrNoRows
 	}
-	return h.validatePrimaryToken(r.Context(), token)
+	identity, err := h.validatePrimaryToken(r.Context(), token)
+	if err == nil || !errors.Is(err, sql.ErrNoRows) {
+		return identity, err
+	}
+	owner, err := h.validateOwnerBearer(r.Context(), token)
+	if err == nil && owner.Kind == "linked" {
+		return OwnerTokenIdentity{}, errPrimaryOwnerTokenRequired
+	}
+	return OwnerTokenIdentity{}, sql.ErrNoRows
+}
+
+func writePrimaryBearerAuthError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, errPrimaryOwnerTokenRequired):
+		SendAPIResponseError(w, http.StatusForbidden, "FORBIDDEN", "A primary owner token is required", nil)
+	case errors.Is(err, sql.ErrNoRows):
+		SendAPIResponseError(w, http.StatusUnauthorized, "UNAUTHORIZED", "A valid owner token is required", nil)
+	default:
+		SendAPIResponseError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Unable to validate owner token", nil)
+	}
 }
 
 func (h *PagesHandler) ServerPreferencesTokenCreateHandler(w http.ResponseWriter, r *http.Request) {
@@ -269,6 +317,16 @@ func tokenExpiryForm(r *http.Request) (any, error) {
 	return tokenExpiry(value)
 }
 
+func tokenExpiryAPI(expires, expiresOn string) (any, error) {
+	if expires != "" && expiresOn != "" {
+		return nil, errors.New("expiry and expires_on are mutually exclusive")
+	}
+	if expiresOn != "" {
+		return tokenExpiry(expiresOn)
+	}
+	return tokenExpiry(expires)
+}
+
 func (h *PagesHandler) ServerPreferencesLinkedTokenCreateHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	identity, err := h.ownerFromCookie(r)
@@ -318,12 +376,8 @@ func (h *PagesHandler) ServerPreferencesLinkedTokenCreateHandler(w http.Response
 		http.Redirect(w, r, "/server/preferences/tokens", http.StatusSeeOther)
 		return
 	}
-	result, err := h.DB.ExecContext(r.Context(), `INSERT INTO api_tokens(owner_id, kind, name, token_hash, token_prefix, token_last4, token_enc, expires_at) VALUES(?, 'linked', ?, ?, ?, ?, ?, ?)`, identity.OwnerID, name, hex.EncodeToString(hash[:]), ownerTokenPrefix(token), ownerTokenSuffix(token), base64.StdEncoding.EncodeToString(ciphertext), expires)
-	if err != nil {
-		http.Redirect(w, r, "/server/preferences/tokens", http.StatusSeeOther)
-		return
-	}
-	id, err := result.LastInsertId()
+	publicID := uuid.NewString()
+	_, err = h.DB.ExecContext(r.Context(), `INSERT INTO api_tokens(public_id, owner_id, kind, name, token_hash, token_prefix, token_last4, token_enc, expires_at) VALUES(?, ?, 'linked', ?, ?, ?, ?, ?, ?)`, publicID, identity.OwnerID, name, hex.EncodeToString(hash[:]), ownerTokenPrefix(token), ownerTokenSuffix(token), base64.StdEncoding.EncodeToString(ciphertext), expires)
 	if err != nil {
 		http.Redirect(w, r, "/server/preferences/tokens", http.StatusSeeOther)
 		return
@@ -331,22 +385,23 @@ func (h *PagesHandler) ServerPreferencesLinkedTokenCreateHandler(w http.Response
 	if h.TokenAuditLogger != nil {
 		h.TokenAuditLogger("token.created", "web", identity.OwnerID, ownerTokenPrefix(token))
 	}
-	if h.setOwnerTokenFlash(w, r, ownerTokenFlash{Token: token, Action: "linked-created", ID: id}) != nil {
+	if h.setOwnerTokenFlash(w, r, ownerTokenFlash{Token: token, Action: "linked-created", ID: publicID}) != nil {
 		http.Redirect(w, r, "/server/preferences/tokens?status=unavailable", http.StatusSeeOther)
 		return
 	}
-	http.Redirect(w, r, fmt.Sprintf("/server/preferences/tokens#token-%d", id), http.StatusSeeOther)
+	http.Redirect(w, r, "/server/preferences/tokens#token-"+publicID, http.StatusSeeOther)
 }
 
-func (h *PagesHandler) ServerPreferencesLinkedTokenActionHandler(w http.ResponseWriter, r *http.Request, id int64, action string) {
+func (h *PagesHandler) ServerPreferencesLinkedTokenActionHandler(w http.ResponseWriter, r *http.Request, publicID, action string) {
 	identity, err := h.ownerFromCookie(r)
-	if err != nil || identity.Kind != "primary" || id <= 0 {
+	if err != nil || identity.Kind != "primary" {
 		http.Redirect(w, r, "/server/preferences/tokens", http.StatusSeeOther)
 		return
 	}
+	var id int64
 	var name, encrypted string
 	var prefix string
-	if h.DB.QueryRowContext(r.Context(), `SELECT name, token_enc, token_prefix FROM api_tokens WHERE id = ? AND owner_id = ? AND kind = 'linked' AND revoked_at IS NULL`, id, identity.OwnerID).Scan(&name, &encrypted, &prefix) != nil {
+	if h.DB.QueryRowContext(r.Context(), `SELECT id, name, token_enc, token_prefix FROM api_tokens WHERE public_id = ? AND owner_id = ? AND kind = 'linked' AND revoked_at IS NULL`, publicID, identity.OwnerID).Scan(&id, &name, &encrypted, &prefix) != nil {
 		http.Redirect(w, r, "/server/preferences/tokens", http.StatusSeeOther)
 		return
 	}
@@ -354,8 +409,8 @@ func (h *PagesHandler) ServerPreferencesLinkedTokenActionHandler(w http.Response
 	case "reveal":
 		token, err := h.decryptOwnerToken(encrypted)
 		if err == nil {
-			if h.setOwnerTokenFlash(w, r, ownerTokenFlash{Token: token, Action: "revealed", ID: id}) == nil {
-				http.Redirect(w, r, fmt.Sprintf("/server/preferences/tokens#token-%d", id), http.StatusSeeOther)
+			if h.setOwnerTokenFlash(w, r, ownerTokenFlash{Token: token, Action: "revealed", ID: publicID}) == nil {
+				http.Redirect(w, r, "/server/preferences/tokens#token-"+publicID, http.StatusSeeOther)
 				return
 			}
 			break
@@ -375,8 +430,8 @@ func (h *PagesHandler) ServerPreferencesLinkedTokenActionHandler(w http.Response
 						if h.TokenAuditLogger != nil {
 							h.TokenAuditLogger("token.rotated", "web", identity.OwnerID, ownerTokenPrefix(token))
 						}
-						if h.setOwnerTokenFlash(w, r, ownerTokenFlash{Token: token, Action: "linked-rotated", ID: id}) == nil {
-							http.Redirect(w, r, fmt.Sprintf("/server/preferences/tokens#token-%d", id), http.StatusSeeOther)
+						if h.setOwnerTokenFlash(w, r, ownerTokenFlash{Token: token, Action: "linked-rotated", ID: publicID}) == nil {
+							http.Redirect(w, r, "/server/preferences/tokens#token-"+publicID, http.StatusSeeOther)
 							return
 						}
 					}
@@ -392,7 +447,7 @@ func (h *PagesHandler) ServerPreferencesLinkedTokenActionHandler(w http.Response
 			if nameLength := utf8.RuneCountInString(newName); nameLength > 0 && nameLength <= 64 && expiryErr == nil && dupErr == nil && duplicate == 0 {
 				_, err = h.DB.ExecContext(r.Context(), `UPDATE api_tokens SET name = ?, expires_at = ? WHERE id = ? AND owner_id = ? AND kind = 'linked' AND revoked_at IS NULL`, newName, expires, id, identity.OwnerID)
 				if err == nil {
-					http.Redirect(w, r, "/server/preferences/tokens?status=updated&token_id="+strconv.FormatInt(id, 10)+"#token-"+strconv.FormatInt(id, 10), http.StatusSeeOther)
+					http.Redirect(w, r, "/server/preferences/tokens?status=updated&token_id="+publicID+"#token-"+publicID, http.StatusSeeOther)
 					return
 				}
 			}
@@ -403,11 +458,11 @@ func (h *PagesHandler) ServerPreferencesLinkedTokenActionHandler(w http.Response
 			if h.TokenAuditLogger != nil {
 				h.TokenAuditLogger("token.revoked", "web", identity.OwnerID, prefix)
 			}
-			http.Redirect(w, r, "/server/preferences/tokens?status=revoked&token_id="+strconv.FormatInt(id, 10)+"#token-"+strconv.FormatInt(id, 10), http.StatusSeeOther)
+			http.Redirect(w, r, "/server/preferences/tokens?status=revoked&token_id="+publicID+"#token-"+publicID, http.StatusSeeOther)
 			return
 		}
 	}
-	http.Redirect(w, r, "/server/preferences/tokens#token-"+strconv.FormatInt(id, 10), http.StatusSeeOther)
+	http.Redirect(w, r, "/server/preferences/tokens#token-"+publicID, http.StatusSeeOther)
 }
 
 func (h *PagesHandler) ServerPreferencesTokenRevealHandler(w http.ResponseWriter, r *http.Request) {
@@ -474,10 +529,10 @@ func (h *PagesHandler) ServerPreferencesTokenRotateHandler(w http.ResponseWriter
 }
 
 func (h *PagesHandler) renderOwnerTokensPage(w http.ResponseWriter, r *http.Request, revealedToken, newToken, action string) {
-	h.renderOwnerTokensPageState(w, r, revealedToken, newToken, action, 0, 0, 0)
+	h.renderOwnerTokensPageState(w, r, revealedToken, newToken, action, "", "", "")
 }
 
-func (h *PagesHandler) renderOwnerTokensPageState(w http.ResponseWriter, r *http.Request, revealedToken, newToken, action string, revealTokenID, newTokenID, actionTokenID int64) {
+func (h *PagesHandler) renderOwnerTokensPageState(w http.ResponseWriter, r *http.Request, revealedToken, newToken, action, revealTokenID, newTokenID, actionTokenID string) {
 	data := OwnerTokensPageData{
 		PageData: h.NewPageData(r), RestoreError: r.URL.Query().Get("status") == "invalid",
 		RevealToken: revealedToken, NewToken: newToken, TokenAction: action,
@@ -486,8 +541,8 @@ func (h *PagesHandler) renderOwnerTokensPageState(w http.ResponseWriter, r *http
 	if data.TokenAction == "" {
 		data.TokenAction = r.URL.Query().Get("status")
 	}
-	if data.ActionTokenID == 0 {
-		data.ActionTokenID, _ = strconv.ParseInt(r.URL.Query().Get("token_id"), 10, 64)
+	if data.ActionTokenID == "" {
+		data.ActionTokenID = r.URL.Query().Get("token_id")
 	}
 	if newToken != "" {
 		if identity, err := h.validatePrimaryToken(r.Context(), newToken); err == nil {
@@ -501,7 +556,7 @@ func (h *PagesHandler) renderOwnerTokensPageState(w http.ResponseWriter, r *http
 		if validationErr == nil {
 			data.HasOwner = true
 			h.setOwnerTokenCookie(w, r, cookie.Value)
-			if revealedToken == "" || revealTokenID != 0 {
+			if revealedToken == "" || revealTokenID != "" {
 				data.PrimaryMasked = maskOwnerTokenSuffix(identity.Last4)
 			}
 			data.LinkedTokens = h.ownerLinkedTokens(r.Context(), identity.OwnerID)
@@ -516,7 +571,7 @@ func (h *PagesHandler) ownerLinkedTokens(ctx context.Context, ownerID string) []
 	if h.DB == nil {
 		return nil
 	}
-	rows, err := h.DB.QueryContext(ctx, `SELECT id, name, token_last4, created_at, last_used_at, expires_at, revoked_at
+	rows, err := h.DB.QueryContext(ctx, `SELECT public_id, name, token_last4, created_at, last_used_at, expires_at, revoked_at
 		FROM api_tokens WHERE owner_id = ? AND kind = 'linked' ORDER BY created_at, id`, ownerID)
 	if err != nil {
 		return nil
@@ -632,6 +687,7 @@ func (h *PagesHandler) issueOwnerTokenAPI(w http.ResponseWriter, r *http.Request
 	}
 	identity, token, err := h.createPrimaryToken(r.Context())
 	if err != nil {
+		slog.Warn("owner token issuance failed", "error", err)
 		SendAPIResponseError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Unable to issue an owner token", nil)
 		return
 	}
@@ -651,11 +707,7 @@ func (h *PagesHandler) validateOwnerBearer(ctx context.Context, token string) (O
 		return OwnerTokenIdentity{}, sql.ErrNoRows
 	}
 	hash := sha256.Sum256([]byte(token))
-	var identity OwnerTokenIdentity
-	err := h.DB.QueryRowContext(ctx, `SELECT id, owner_id, kind, token_prefix, token_last4, token_enc
-		FROM api_tokens WHERE token_hash = ? AND revoked_at IS NULL
-		AND (expires_at IS NULL OR expires_at > strftime('%s', 'now'))`, hex.EncodeToString(hash[:])).Scan(
-		&identity.TokenID, &identity.OwnerID, &identity.Kind, &identity.Prefix, &identity.Last4, &identity.Encrypted)
+	identity, err := h.findOwnerToken(ctx, token, "1 = 1")
 	if err != nil {
 		return OwnerTokenIdentity{}, err
 	}
@@ -671,10 +723,10 @@ func (h *PagesHandler) validateOwnerBearer(ctx context.Context, token string) (O
 func (h *PagesHandler) APIV1ServerTokensListHandler(w http.ResponseWriter, r *http.Request) {
 	identity, err := h.validatePrimaryBearer(r)
 	if err != nil {
-		SendAPIResponseError(w, http.StatusUnauthorized, "UNAUTHORIZED", "A valid primary owner token is required", nil)
+		writePrimaryBearerAuthError(w, err)
 		return
 	}
-	rows, err := h.DB.QueryContext(r.Context(), `SELECT id, kind, name, token_prefix, token_last4, created_at, last_used_at, expires_at, revoked_at
+	rows, err := h.DB.QueryContext(r.Context(), `SELECT public_id, kind, name, token_prefix, token_last4, created_at, last_used_at, expires_at, revoked_at
 		FROM api_tokens WHERE owner_id = ? ORDER BY kind, created_at, id`, identity.OwnerID)
 	if err != nil {
 		SendAPIResponseError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Unable to list owner tokens", nil)
@@ -685,9 +737,10 @@ func (h *PagesHandler) APIV1ServerTokensListHandler(w http.ResponseWriter, r *ht
 			slog.Warn("owner token rows close failed", "error", closeErr)
 		}
 	}()
-	tokens := make([]map[string]any, 0)
+	primary := map[string]any(nil)
+	linked := make([]map[string]any, 0)
 	for rows.Next() {
-		var id int64
+		var id string
 		var kind string
 		var name sql.NullString
 		var prefix, last4 string
@@ -704,21 +757,47 @@ func (h *PagesHandler) APIV1ServerTokensListHandler(w http.ResponseWriter, r *ht
 			status = "expired"
 		}
 		masked := maskOwnerTokenSuffix(last4)
-		tokens = append(tokens, map[string]any{"id": id, "kind": kind, "name": name.String, "token_prefix": prefix, "masked": masked, "status": status,
-			"created_at": created, "last_used_at": nullInt64Value(lastUsedInt), "expires_at": nullInt64Value(expiresInt), "revoked_at": nullInt64Value(revokedInt)})
+		token := map[string]any{"id": id, "kind": kind, "name": name.String, "token_masked": masked, "status": status,
+			"created_at": time.Unix(created, 0).UTC().Format(time.RFC3339), "last_used_at": nullableTimestamp(lastUsedInt), "expires_at": nullableTimestamp(expiresInt)}
+		if kind == "primary" {
+			primary = token
+		} else {
+			linked = append(linked, token)
+		}
 	}
 	if err := rows.Err(); err != nil {
 		SendAPIResponseError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Unable to list owner tokens", nil)
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")
-	SendAPIResponseOK(w, tokens, nil)
+	maxLinked := 25
+	if h.Config != nil && h.Config.Server.Tokens.MaxLinked > 0 {
+		maxLinked = h.Config.Server.Tokens.MaxLinked
+	}
+	SendAPIResponseOK(w, map[string]any{"primary": primary, "linked": linked, "max_linked": maxLinked}, nil)
+}
+
+func nullableTimestamp(value sql.NullInt64) any {
+	if !value.Valid {
+		return nil
+	}
+	return time.Unix(value.Int64, 0).UTC().Format(time.RFC3339)
+}
+
+func timestampValue(value any) any {
+	if value == nil {
+		return nil
+	}
+	if timestamp, ok := value.(int64); ok {
+		return time.Unix(timestamp, 0).UTC().Format(time.RFC3339)
+	}
+	return nil
 }
 
 func (h *PagesHandler) APIV1ServerPrimaryTokenActionHandler(w http.ResponseWriter, r *http.Request, action string) {
 	identity, err := h.validatePrimaryBearer(r)
 	if err != nil {
-		SendAPIResponseError(w, http.StatusForbidden, "FORBIDDEN", "A primary owner token is required", nil)
+		writePrimaryBearerAuthError(w, err)
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")
@@ -752,12 +831,13 @@ func (h *PagesHandler) APIV1ServerPrimaryTokenActionHandler(w http.ResponseWrite
 func (h *PagesHandler) APIV1ServerLinkedTokenCreateHandler(w http.ResponseWriter, r *http.Request) {
 	identity, err := h.validatePrimaryBearer(r)
 	if err != nil {
-		SendAPIResponseError(w, http.StatusForbidden, "FORBIDDEN", "A primary owner token is required", nil)
+		writePrimaryBearerAuthError(w, err)
 		return
 	}
 	var input struct {
-		Name   string `json:"name"`
-		Expiry string `json:"expiry"`
+		Name      string `json:"name"`
+		Expires   string `json:"expires"`
+		ExpiresOn string `json:"expires_on"`
 	}
 	if json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&input) != nil {
 		SendAPIResponseError(w, http.StatusBadRequest, "BAD_REQUEST", "Invalid token request", nil)
@@ -768,7 +848,7 @@ func (h *PagesHandler) APIV1ServerLinkedTokenCreateHandler(w http.ResponseWriter
 		SendAPIResponseError(w, http.StatusBadRequest, "BAD_REQUEST", "Name must contain 1 to 64 characters", nil)
 		return
 	}
-	expires, err := tokenExpiry(input.Expiry)
+	expires, err := tokenExpiryAPI(input.Expires, input.ExpiresOn)
 	if err != nil {
 		SendAPIResponseError(w, http.StatusBadRequest, "BAD_REQUEST", "Invalid expiry", nil)
 		return
@@ -803,27 +883,28 @@ func (h *PagesHandler) APIV1ServerLinkedTokenCreateHandler(w http.ResponseWriter
 		SendAPIResponseError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Unable to create token", nil)
 		return
 	}
-	result, err := h.DB.ExecContext(r.Context(), `INSERT INTO api_tokens(owner_id, kind, name, token_hash, token_prefix, token_last4, token_enc, expires_at) VALUES(?, 'linked', ?, ?, ?, ?, ?, ?)`, identity.OwnerID, input.Name, hex.EncodeToString(hash[:]), ownerTokenPrefix(token), ownerTokenSuffix(token), base64.StdEncoding.EncodeToString(ciphertext), expires)
+	publicID := uuid.NewString()
+	_, err = h.DB.ExecContext(r.Context(), `INSERT INTO api_tokens(public_id, owner_id, kind, name, token_hash, token_prefix, token_last4, token_enc, expires_at) VALUES(?, ?, 'linked', ?, ?, ?, ?, ?, ?)`, publicID, identity.OwnerID, input.Name, hex.EncodeToString(hash[:]), ownerTokenPrefix(token), ownerTokenSuffix(token), base64.StdEncoding.EncodeToString(ciphertext), expires)
 	if err != nil {
 		SendAPIResponseError(w, http.StatusConflict, "CONFLICT", "Token name already exists", nil)
 		return
 	}
-	id, _ := result.LastInsertId()
 	if h.TokenAuditLogger != nil {
 		h.TokenAuditLogger("token.created", "api", identity.OwnerID, ownerTokenPrefix(token))
 	}
 	w.Header().Set("Cache-Control", "no-store")
-	SendAPIResponseCreated(w, map[string]any{"id": id, "name": input.Name, "owner_token": token, "expires_at": expires})
+	SendAPIResponseCreated(w, map[string]any{"id": publicID, "name": input.Name, "linked_token": token, "expires_at": timestampValue(expires)})
 }
 
-func (h *PagesHandler) APIV1ServerLinkedTokenActionHandler(w http.ResponseWriter, r *http.Request, id int64, action string) {
+func (h *PagesHandler) APIV1ServerLinkedTokenActionHandler(w http.ResponseWriter, r *http.Request, publicID, action string) {
 	identity, err := h.validatePrimaryBearer(r)
 	if err != nil {
-		SendAPIResponseError(w, http.StatusForbidden, "FORBIDDEN", "A primary owner token is required", nil)
+		writePrimaryBearerAuthError(w, err)
 		return
 	}
+	var id int64
 	var name, encrypted, prefix string
-	if h.DB.QueryRowContext(r.Context(), `SELECT name, token_enc, token_prefix FROM api_tokens WHERE id = ? AND owner_id = ? AND kind = 'linked'`, id, identity.OwnerID).Scan(&name, &encrypted, &prefix) != nil {
+	if h.DB.QueryRowContext(r.Context(), `SELECT id, name, token_enc, token_prefix FROM api_tokens WHERE public_id = ? AND owner_id = ? AND kind = 'linked'`, publicID, identity.OwnerID).Scan(&id, &name, &encrypted, &prefix) != nil {
 		SendAPIResponseError(w, http.StatusNotFound, "NOT_FOUND", "Token not found", nil)
 		return
 	}
@@ -836,7 +917,7 @@ func (h *PagesHandler) APIV1ServerLinkedTokenActionHandler(w http.ResponseWriter
 			if h.TokenAuditLogger != nil {
 				h.TokenAuditLogger("token.revealed", "api", identity.OwnerID, prefix)
 			}
-			SendAPIResponseOK(w, map[string]string{"owner_token": token}, nil)
+			SendAPIResponseOK(w, map[string]string{"linked_token": token}, nil)
 			return
 		}
 	case "rotate":
@@ -859,24 +940,25 @@ func (h *PagesHandler) APIV1ServerLinkedTokenActionHandler(w http.ResponseWriter
 			if h.TokenAuditLogger != nil {
 				h.TokenAuditLogger("token.rotated", "api", identity.OwnerID, ownerTokenPrefix(token))
 			}
-			SendAPIResponseOK(w, map[string]string{"owner_token": token}, nil)
+			SendAPIResponseOK(w, map[string]string{"linked_token": token}, nil)
 			return
 		}
 	case "update":
 		var input struct {
-			Name   string `json:"name"`
-			Expiry string `json:"expiry"`
+			Name      string `json:"name"`
+			Expires   string `json:"expires"`
+			ExpiresOn string `json:"expires_on"`
 		}
 		if json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&input) == nil {
 			input.Name = strings.TrimSpace(input.Name)
 			var expires any
-			expires, err = tokenExpiry(input.Expiry)
+			expires, err = tokenExpiryAPI(input.Expires, input.ExpiresOn)
 			var duplicate int
 			dupErr := h.DB.QueryRowContext(r.Context(), `SELECT COUNT(*) FROM api_tokens WHERE owner_id = ? AND kind = 'linked' AND name = ? AND id <> ?`, identity.OwnerID, input.Name, id).Scan(&duplicate)
 			if nameLength := utf8.RuneCountInString(input.Name); err == nil && dupErr == nil && duplicate == 0 && nameLength > 0 && nameLength <= 64 {
 				_, err = h.DB.ExecContext(r.Context(), `UPDATE api_tokens SET name = ?, expires_at = ? WHERE id = ? AND owner_id = ? AND kind = 'linked' AND revoked_at IS NULL`, input.Name, expires, id, identity.OwnerID)
 				if err == nil {
-					SendAPIResponseOK(w, map[string]any{"id": id, "name": input.Name, "expires_at": expires}, nil)
+					SendAPIResponseOK(w, map[string]any{"id": publicID, "name": input.Name, "expires_at": expires}, nil)
 					return
 				}
 			}
@@ -887,16 +969,9 @@ func (h *PagesHandler) APIV1ServerLinkedTokenActionHandler(w http.ResponseWriter
 			if h.TokenAuditLogger != nil {
 				h.TokenAuditLogger("token.revoked", "api", identity.OwnerID, prefix)
 			}
-			SendAPIResponseOK(w, map[string]int64{"id": id}, nil)
+			SendAPIResponseOK(w, map[string]string{"id": publicID}, nil)
 			return
 		}
 	}
 	SendAPIResponseError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Unable to complete token action", nil)
-}
-
-func nullInt64Value(value sql.NullInt64) any {
-	if !value.Valid {
-		return nil
-	}
-	return value.Int64
 }

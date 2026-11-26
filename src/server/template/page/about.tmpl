@@ -1,19 +1,17 @@
 {{template "base" .}}
 {{define "title"}}{{t .Lang "about.title"}} — {{.ProjectName}}{{end}}
 {{define "content"}}
-<h1>{{t .Lang "about.title"}} — {{.ProjectName}}</h1>
+<header class="page-header">
+  <h1 class="page-title">{{t .Lang "about.title"}} — {{.ProjectName}}</h1>
+  <p class="page-lead">{{if .Description}}{{.Description}}{{else}}{{t .Lang "about.intro"}}{{end}}</p>
+</header>
 {{index .OperatorContents "about"}}
-{{if .Description}}
-<p>{{.Description}}</p>
-{{else}}
-<p>{{t .Lang "about.intro"}}</p>
-{{end}}
-<section class="section-card">
-  <h2>{{t .Lang "about.version"}}</h2>
+<section class="section-card" aria-labelledby="about-section-1">
+  <h2 id="about-section-1">{{t .Lang "about.version"}}</h2>
   <p>{{.About.Version}}</p>
 </section>
-<section class="section-card">
-  <h2>{{t .Lang "about.features"}}</h2>
+<section class="section-card" aria-labelledby="about-section-2">
+  <h2 id="about-section-2">{{t .Lang "about.features"}}</h2>
   <ul>
     <li>{{t .Lang "about.feature_ip_support"}}</li>
     <li>{{t .Lang "about.feature_geoip"}}</li>
@@ -27,21 +25,20 @@
     <li>{{t .Lang "about.feature_open_source"}}</li>
   </ul>
 </section>
-<section class="section-card">
-  <h2>{{t .Lang "about.api_heading"}}</h2>
+<section class="section-card" aria-labelledby="about-section-3">
+  <h2 id="about-section-3">{{t .Lang "about.api_heading"}}</h2>
   <p>{{t .Lang "about.api_description_pre"}} <code>/api/v1/</code>. {{t .Lang "about.api_description_post"}} <a href="/server/docs/swagger">/server/docs/swagger</a>.</p>
 </section>
-<section class="section-card">
-  <h2>{{t .Lang "about.links"}}</h2>
+<section class="section-card" aria-labelledby="about-section-4">
+  <h2 id="about-section-4">{{t .Lang "about.links"}}</h2>
   <ul>
     <li><a href="{{.About.Links.Website}}">{{.About.Links.Website}}</a></li>
     <li><a href="{{.About.Links.Repository}}">{{.About.Links.Repository}}</a></li>
     <li><a href="{{.About.Links.Docs}}">{{.About.Links.Docs}}</a></li>
   </ul>
 </section>
-<section class="section-card">
-  <h2>{{t .Lang "about.attribution_heading"}}</h2>
+<section class="section-card" aria-labelledby="about-section-5">
+  <h2 id="about-section-5">{{t .Lang "about.attribution_heading"}}</h2>
   <p><a href="https://db-ip.com/">IP Geolocation by DB-IP</a></p>
-  <p>Country and ASN data licensed CC BY 4.0 by the Number Resource Organization (NRO).</p>
 </section>
 {{end}}

@@ -179,56 +179,11 @@ func writeGraphQLError(w http.ResponseWriter, message string, status int) {
 // serveGraphiQL serves the GraphQL explorer interface.
 // All assets are self-contained (no CDN) per AI.md PART 16.
 func serveGraphiQL(w http.ResponseWriter, r *http.Request, cfg GraphQLHandlerConfig) {
-	// Get theme name from cookie or default to dark
-	themeName := getTheme(r)
 	lang := i18n.DetectLocale(r)
-	dir := string(i18n.LocaleDirection(lang))
 	assetStamp := cfg.Version + "-" + cfg.CommitID
-
-	html := `<!DOCTYPE html>
-<html lang="` + lang + `" dir="` + dir + `" class="theme-` + themeName + `">
-<head>
-	<meta charset="UTF-8">
-	<meta name="viewport" content="width=device-width, initial-scale=1.0">
-	<title>` + tr(lang, "graphql.ui.title") + `</title>
-	<link rel="stylesheet" href="/theme.css?v=` + assetStamp + `">
-	<link rel="stylesheet" href="/static/css/common.css?v=` + assetStamp + `">
-	<link rel="stylesheet" href="/static/css/graphql.css?v=` + assetStamp + `">
-	<link rel="stylesheet" href="/server/docs/graphql/theme.css?v=` + assetStamp + `&amp;theme=` + themeName + `">
-</head>
-<body>
-<a class="skip-link" href="#main-content">` + tr(lang, "accessibility.skip_to_content") + `</a>
-<main id="main-content">
-<h1>` + tr(lang, "graphql.ui.title") + ` &mdash; ` + cfg.Version + `</h1>
-<div id="main">
-	<div id="left">
-		<label for="query">` + tr(lang, "graphql.ui.query") + `</label>
-		<textarea id="query" spellcheck="false">query {
-  health {
-    status
-    version
-  }
-  myIP {
-    ip
-    country
-    city
-    asn
-  }
-}</textarea>
-		<label class="variables-label" for="vars">` + tr(lang, "graphql.ui.variables") + `</label>
-		<textarea id="vars" spellcheck="false">{}</textarea>
-		<button id="run">&#9654; ` + tr(lang, "graphql.ui.run") + `</button>
-	</div>
-	<div id="right">
-		<h2>` + tr(lang, "graphql.ui.response") + `</h2>
-		<div id="result">` + tr(lang, "graphql.ui.placeholder") + `</div>
-	</div>
-</div>
-</main>
-<script src="/static/js/app.js?v=` + assetStamp + `"></script>
-</body>
-</html>`
-
+	themeName := getTheme(r)
+	endpoint := "/api/v1/server/graphql"
+	html := `<!DOCTYPE html><html lang="` + lang + `" dir="` + string(i18n.LocaleDirection(lang)) + `" class="theme-` + themeName + `"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>` + tr(lang, "graphql.ui.title") + `</title><link rel="stylesheet" href="/theme.css?v=` + assetStamp + `"><link rel="stylesheet" href="/static/css/common.css?v=` + assetStamp + `"><link rel="stylesheet" href="/static/vendor/graphiql/graphiql-3.9.0.min.css"><link rel="stylesheet" href="/server/docs/graphql/theme.css?theme=` + themeName + `"><link rel="stylesheet" href="/static/css/graphql.css?v=` + assetStamp + `"></head><body><a class="skip-link" href="#main-content">` + tr(lang, "accessibility.skip_to_content") + `</a><main id="main-content" class="container container-md"><header class="page-header"><h1 class="page-title">` + tr(lang, "graphql.ui.title") + `</h1><p class="page-lead">` + tr(lang, "graphql.ui.lead") + `</p></header><section class="section-card" aria-labelledby="graphql-explorer-heading"><h2 id="graphql-explorer-heading">` + tr(lang, "graphql.ui.endpoint_link") + `</h2><p><a href="` + endpoint + `">` + tr(lang, "graphql.ui.endpoint_link") + `</a></p><div id="graphiql" data-endpoint="` + endpoint + `" aria-label="` + tr(lang, "graphql.ui.title") + `"></div></section><noscript><section class="section-card" aria-labelledby="graphql-noscript-heading"><h2 id="graphql-noscript-heading">` + tr(lang, "graphql.ui.javascript_required") + `</h2><p><a href="` + endpoint + `">` + tr(lang, "graphql.ui.endpoint_link") + `</a></p></section></noscript></main><script src="/static/vendor/graphiql/react-18.3.1.production.min.js"></script><script src="/static/vendor/graphiql/react-dom-18.3.1.production.min.js"></script><script src="/static/vendor/graphiql/graphiql-3.9.0.min.js"></script><script src="/static/js/docs-graphql.js"></script></body></html>`
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_, _ = w.Write([]byte(html))
 }

@@ -1,450 +1,81 @@
 package graphql
 
-// getGraphiQLThemeCSS returns CSS for GraphiQL theming
-// Per AI.md PART 19: Swagger & GraphQL Theming (NON-NEGOTIABLE)
-// GraphQL must match project-wide theme system (light/dark/auto)
-func getGraphiQLThemeCSS(theme string) string {
-	if theme == "light" {
-		return graphiqlLightTheme
+import (
+	"fmt"
+	"math"
+	"strconv"
+	"strings"
+
+	"github.com/apimgr/ipgaze/src/common/theme"
+)
+
+// getGraphiQLThemeCSS binds GraphiQL's theme roles to the shared application
+// palette. All modes are included so the page theme toggle updates the tool
+// without reloading the GraphiQL application.
+func getGraphiQLThemeCSS(_ string) string {
+	return fmt.Sprintf(`
+html.theme-dark .graphiql-container,
+html.theme-auto .graphiql-container {
+%s}
+
+html.theme-light .graphiql-container {
+%s}
+
+@media (prefers-color-scheme: light) {
+  html.theme-auto .graphiql-container {
+%s  }
+}
+`, graphiqlPaletteCSS(theme.ThemePaletteDark), graphiqlPaletteCSS(theme.ThemePaletteLight), graphiqlPaletteCSS(theme.ThemePaletteLight))
+}
+
+func graphiqlPaletteCSS(p theme.ThemePalette) string {
+	return fmt.Sprintf(`  --color-base: %s;
+  --color-neutral: %s;
+  --color-primary: %s;
+  --color-secondary: %s;
+  --color-tertiary: %s;
+  --color-info: %s;
+  --color-success: %s;
+  --color-warning: %s;
+  --color-error: %s;
+`, hexToHSL(p.Background), hexToHSL(p.Foreground), hexToHSL(p.Primary), hexToHSL(p.Secondary), hexToHSL(p.Accent), hexToHSL(p.Info), hexToHSL(p.Success), hexToHSL(p.Warning), hexToHSL(p.Error))
+}
+
+func hexToHSL(value string) string {
+	value = strings.TrimPrefix(value, "#")
+	if len(value) != 6 {
+		return "0, 0%, 0%"
 	}
-	if theme == "auto" {
-		return graphiqlDarkTheme + "\n@media (prefers-color-scheme: light) {\n" + graphiqlLightTheme + "\n}\n"
+	red, redErr := strconv.ParseUint(value[:2], 16, 8)
+	green, greenErr := strconv.ParseUint(value[2:4], 16, 8)
+	blue, blueErr := strconv.ParseUint(value[4:], 16, 8)
+	if redErr != nil || greenErr != nil || blueErr != nil {
+		return "0, 0%, 0%"
 	}
-	return graphiqlDarkTheme
+	r := float64(red) / 255
+	g := float64(green) / 255
+	b := float64(blue) / 255
+	maximum := max(r, g, b)
+	minimum := min(r, g, b)
+	delta := maximum - minimum
+	hue := 0.0
+	if delta != 0 {
+		switch maximum {
+		case r:
+			hue = 60 * math.Mod((g-b)/delta, 6)
+		case g:
+			hue = 60 * ((b-r)/delta + 2)
+		default:
+			hue = 60 * ((r-g)/delta + 4)
+		}
+	}
+	if hue < 0 {
+		hue += 360
+	}
+	lightness := (maximum + minimum) / 2
+	saturation := 0.0
+	if delta != 0 {
+		saturation = delta / (1 - math.Abs(2*lightness-1))
+	}
+	return fmt.Sprintf("%.0f, %.1f%%, %.1f%%", hue, saturation*100, lightness*100)
 }
-
-// graphiqlDarkTheme provides dark theme CSS for GraphiQL
-// Per AI.md PART 19: Dark theme colors
-const graphiqlDarkTheme = `
-/* GraphiQL - Dark Theme */
-/* Per AI.md PART 19: Swagger & GraphQL Theming */
-
-body {
-	margin: 0;
-	background: #282a36;
-}
-
-#graphiql {
-	height: 100dvh;
-}
-
-.graphiql-container {
-	background: #282a36;
-	color: #f8f8f2;
-}
-
-.graphiql-container .topBar {
-	background: #21222c;
-	border-bottom: 1px solid #2b2d3a;
-}
-
-.graphiql-container .title {
-	color: #f8f8f2;
-}
-
-.graphiql-container .CodeMirror {
-	background: #282a36;
-	color: #f8f8f2;
-}
-
-.graphiql-container .CodeMirror-gutters {
-	background: #21222c;
-	border-right: 1px solid #2b2d3a;
-}
-
-.graphiql-container .CodeMirror-linenumber {
-	color: #6272a4;
-}
-
-.graphiql-container .CodeMirror-cursor {
-	border-left-color: #f8f8f2;
-}
-
-.graphiql-container .CodeMirror-selected {
-	background: #2b2d3a;
-}
-
-.graphiql-container .result-window {
-	background: #282a36;
-	color: #f8f8f2;
-}
-
-.graphiql-container .execute-button {
-	background: #50fa7b;
-	color: #282a36;
-	border: none;
-}
-
-.graphiql-container .execute-button:hover {
-	background: #8be9fd;
-}
-
-.graphiql-container .execute-button:active {
-	background: #50fa7b;
-}
-
-.graphiql-container .toolbar-button {
-	background: #2b2d3a;
-	color: #f8f8f2;
-	border: 1px solid #44475a;
-}
-
-.graphiql-container .toolbar-button:hover {
-	background: #44475a;
-}
-
-.graphiql-container input,
-.graphiql-container select {
-	background: #2b2d3a;
-	color: #f8f8f2;
-	border: 1px solid #44475a;
-}
-
-.graphiql-container input:focus,
-.graphiql-container select:focus {
-	border-color: #ff79c6;
-	outline: none;
-}
-
-/* Syntax highlighting for GraphQL queries */
-.cm-s-graphiql .cm-property {
-	color: #8be9fd;
-}
-
-.cm-s-graphiql .cm-keyword {
-	color: #ff79c6;
-}
-
-.cm-s-graphiql .cm-def {
-	color: #50fa7b;
-}
-
-.cm-s-graphiql .cm-variable {
-	color: #f8f8f2;
-}
-
-.cm-s-graphiql .cm-string {
-	color: #ffb86c;
-}
-
-.cm-s-graphiql .cm-number {
-	color: #ff79c6;
-}
-
-.cm-s-graphiql .cm-comment {
-	color: #6272a4;
-}
-
-.cm-s-graphiql .cm-punctuation {
-	color: #f8f8f2;
-}
-
-.cm-s-graphiql .cm-attribute {
-	color: #50fa7b;
-}
-
-.cm-s-graphiql .cm-type {
-	color: #8be9fd;
-}
-
-/* Response pane */
-.graphiql-container .result-window .CodeMirror-scroll {
-	background: #282a36;
-}
-
-/* Documentation explorer */
-.graphiql-container .doc-explorer {
-	background: #282a36;
-	color: #f8f8f2;
-	border-left: 1px solid #2b2d3a;
-}
-
-.graphiql-container .doc-explorer-title {
-	background: #21222c;
-	color: #f8f8f2;
-	border-bottom: 1px solid #2b2d3a;
-}
-
-.graphiql-container .doc-type-description {
-	color: #f8f8f2;
-}
-
-.graphiql-container .doc-category-title {
-	color: #ff79c6;
-}
-
-.graphiql-container .field-name {
-	color: #8be9fd;
-}
-
-.graphiql-container .type-name {
-	color: #50fa7b;
-}
-
-.graphiql-container .arg-name {
-	color: #ffb86c;
-}
-
-/* History pane */
-.graphiql-container .history-contents {
-	background: #282a36;
-	color: #f8f8f2;
-}
-
-.graphiql-container .history-title {
-	background: #21222c;
-	color: #f8f8f2;
-	border-bottom: 1px solid #2b2d3a;
-}
-
-/* GraphiQL 3.x specific overrides */
-.graphiql-sidebar {
-	background: #21222c !important;
-	border-right: 1px solid #2b2d3a;
-}
-
-.graphiql-sidebar-section {
-	background: #21222c !important;
-}
-
-.graphiql-sidebar button {
-	color: #f8f8f2 !important;
-}
-
-.graphiql-editor {
-	background: #282a36 !important;
-}
-
-.graphiql-response {
-	background: #282a36 !important;
-}
-
-.graphiql-plugin {
-	background: #282a36 !important;
-}
-
-.graphiql-doc-explorer-content {
-	background: #282a36 !important;
-	color: #f8f8f2 !important;
-}
-
-.graphiql-markdown-description {
-	color: #f8f8f2 !important;
-}
-`
-
-// graphiqlLightTheme provides light theme CSS for GraphiQL
-// Per AI.md PART 19: Light theme colors
-const graphiqlLightTheme = `
-/* GraphiQL - Light Theme */
-/* Per AI.md PART 19: Swagger & GraphQL Theming */
-
-body {
-	margin: 0;
-	background: #ffffff;
-}
-
-#graphiql {
-	height: 100dvh;
-}
-
-.graphiql-container {
-	background: #ffffff;
-	color: #1f2328;
-}
-
-.graphiql-container .topBar {
-	background: #f6f8fa;
-	border-bottom: 1px solid #eff2f5;
-}
-
-.graphiql-container .title {
-	color: #1f2328;
-}
-
-.graphiql-container .CodeMirror {
-	background: #ffffff;
-	color: #1f2328;
-}
-
-.graphiql-container .CodeMirror-gutters {
-	background: #f6f8fa;
-	border-right: 1px solid #eff2f5;
-}
-
-.graphiql-container .CodeMirror-linenumber {
-	color: #59636e;
-}
-
-.graphiql-container .CodeMirror-cursor {
-	border-left-color: #1f2328;
-}
-
-.graphiql-container .CodeMirror-selected {
-	background: #eff2f5;
-}
-
-.graphiql-container .result-window {
-	background: #ffffff;
-	color: #1f2328;
-}
-
-.graphiql-container .execute-button {
-	background: #1a7f37;
-	color: #ffffff;
-	border: none;
-}
-
-.graphiql-container .execute-button:hover {
-	background: #0969da;
-}
-
-.graphiql-container .toolbar-button {
-	background: #f6f8fa;
-	color: #1f2328;
-	border: 1px solid #d1d9e0;
-}
-
-.graphiql-container .toolbar-button:hover {
-	background: #eff2f5;
-}
-
-.graphiql-container input,
-.graphiql-container select {
-	background: #ffffff;
-	color: #1f2328;
-	border: 1px solid #d1d9e0;
-}
-
-.graphiql-container input:focus,
-.graphiql-container select:focus {
-	border-color: #0969da;
-	outline: none;
-}
-
-/* Syntax highlighting for GraphQL queries */
-.cm-s-graphiql .cm-property {
-	color: #0969da;
-}
-
-.cm-s-graphiql .cm-keyword {
-	color: #8250df;
-}
-
-.cm-s-graphiql .cm-def {
-	color: #1a7f37;
-}
-
-.cm-s-graphiql .cm-variable {
-	color: #1f2328;
-}
-
-.cm-s-graphiql .cm-string {
-	color: #9a6700;
-}
-
-.cm-s-graphiql .cm-number {
-	color: #8250df;
-}
-
-.cm-s-graphiql .cm-comment {
-	color: #59636e;
-}
-
-.cm-s-graphiql .cm-punctuation {
-	color: #1f2328;
-}
-
-.cm-s-graphiql .cm-attribute {
-	color: #1a7f37;
-}
-
-.cm-s-graphiql .cm-type {
-	color: #0969da;
-}
-
-/* Response pane */
-.graphiql-container .result-window .CodeMirror-scroll {
-	background: #ffffff;
-}
-
-/* Documentation explorer */
-.graphiql-container .doc-explorer {
-	background: #ffffff;
-	color: #1f2328;
-	border-left: 1px solid #eff2f5;
-}
-
-.graphiql-container .doc-explorer-title {
-	background: #f6f8fa;
-	color: #1f2328;
-	border-bottom: 1px solid #eff2f5;
-}
-
-.graphiql-container .doc-type-description {
-	color: #1f2328;
-}
-
-.graphiql-container .doc-category-title {
-	color: #8250df;
-}
-
-.graphiql-container .field-name {
-	color: #0969da;
-}
-
-.graphiql-container .type-name {
-	color: #1a7f37;
-}
-
-.graphiql-container .arg-name {
-	color: #9a6700;
-}
-
-/* History pane */
-.graphiql-container .history-contents {
-	background: #ffffff;
-	color: #1f2328;
-}
-
-.graphiql-container .history-title {
-	background: #f6f8fa;
-	color: #1f2328;
-	border-bottom: 1px solid #eff2f5;
-}
-
-/* GraphiQL 3.x specific overrides */
-.graphiql-sidebar {
-	background: #f6f8fa !important;
-	border-right: 1px solid #eff2f5;
-}
-
-.graphiql-sidebar-section {
-	background: #f6f8fa !important;
-}
-
-.graphiql-sidebar button {
-	color: #1f2328 !important;
-}
-
-.graphiql-editor {
-	background: #ffffff !important;
-}
-
-.graphiql-response {
-	background: #ffffff !important;
-}
-
-.graphiql-plugin {
-	background: #ffffff !important;
-}
-
-.graphiql-doc-explorer-content {
-	background: #ffffff !important;
-	color: #1f2328 !important;
-}
-
-.graphiql-markdown-description {
-	color: #1f2328 !important;
-}
-`

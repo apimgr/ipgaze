@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"html"
-	htmltemplate "html/template"
 	"log"
 	"net/http"
 	"net/url"
@@ -16,7 +15,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/apimgr/ipgaze/src/common/i18n"
 	"github.com/apimgr/ipgaze/src/common/theme"
 	"github.com/apimgr/ipgaze/src/config"
 	"github.com/apimgr/ipgaze/src/netutil"
@@ -364,12 +362,10 @@ const PRECACHE_ASSETS = [
   '/static/css/common.css?v=` + cacheVersion + `',
   '/static/css/components.css?v=` + cacheVersion + `',
   '/static/css/public.css?v=` + cacheVersion + `',
-  '/static/css/offline.css?v=` + cacheVersion + `',
   '/static/css/graphql.css?v=` + cacheVersion + `',
   '/static/js/app.js?v=` + cacheVersion + `',
   '/static/icons/icon-192.png?v=` + cacheVersion + `',
-  '/static/icons/icon-512.png?v=` + cacheVersion + `',
-  '/offline.html'
+  '/static/icons/icon-512.png?v=` + cacheVersion + `'
 ];
 
 // INSTALL — pre-cache assets. A first installation activates automatically;
@@ -437,14 +433,18 @@ self.addEventListener('fetch', function(event) {
     event.respondWith(
       withTimeout(fetch(event.request), NAV_TIMEOUT_MS)
         .then(function(response) {
-          if (response.redirected) {
-            throw new Error('redirected navigation');
-          }
-          if (response.ok) {
+          if (response.ok && !response.redirected && response.headers.get('X-Offline-Cache') === 'public') {
             var copy = response.clone();
             event.waitUntil(caches.open(CACHE_NAME).then(function(cache) {
               return cache.put(event.request, copy);
             }).catch(function() {}));
+          } else {
+            event.waitUntil(caches.open(CACHE_NAME).then(function(cache) {
+              return cache.delete(event.request);
+            }).catch(function() {}));
+          }
+          if (response.redirected) {
+            throw new Error('redirected navigation');
           }
           return response;
         })
@@ -454,13 +454,11 @@ self.addEventListener('fetch', function(event) {
           // undefined, which the browser renders as net::ERR_FAILED instead
           // of a page (AI.md PART 16 service-worker guaranteed-Response rule).
           return caches.match(event.request).then(function(cached) {
-            return cached || caches.match('/offline.html').then(function(offline) {
-              return offline || new Response('', { status: 503, statusText: 'Service Unavailable' });
-            });
+            return cached || offlineFallbackResponse();
           });
         })
         .catch(function() {
-          return new Response('', { status: 503, statusText: 'Service Unavailable' });
+          return offlineFallbackResponse();
         })
     );
     return;
@@ -482,81 +480,41 @@ self.addEventListener('fetch', function(event) {
     })
   );
 });
+
+const STRINGS_CACHE = 'ipgaze-offline-strings';
+const DEFAULT_STRINGS = {
+  lang: 'en', dir: 'ltr', title: 'Offline', heading: 'You are offline',
+  message: 'This page could not be loaded and no cached copy is available. Check your connection and try again.',
+  tryAgain: 'Try again'
+};
+function escapeHtml(text) {
+  return String(text).replace(/[&<>\"]/g, function(c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '\"': '&quot;' }[c];
+  });
+}
+function offlineFallbackResponse() {
+  return (async function() {
+    var strings = DEFAULT_STRINGS;
+    try {
+      var cache = await caches.open(STRINGS_CACHE);
+      var stored = await cache.match('/offline-strings.json');
+      if (stored) {
+        strings = Object.assign({}, DEFAULT_STRINGS, await stored.json());
+      }
+    } catch (error) {
+      strings = DEFAULT_STRINGS;
+    }
+    return new Response(
+      '<!doctype html><html lang="' + escapeHtml(strings.lang) + '" dir="' + escapeHtml(strings.dir) + '"><head><meta charset="utf-8">'
+        + '<meta name="viewport" content="width=device-width,initial-scale=1"><title>' + escapeHtml(strings.title) + '</title>'
+        + '<link rel="stylesheet" href="/theme.css?v=` + cacheVersion + `"><link rel="stylesheet" href="/static/css/common.css?v=` + cacheVersion + `"><link rel="stylesheet" href="/static/css/offline.css?v=` + cacheVersion + `">'
+        + '</head><body><main class="container container-sm"><div class="offline-card"><h1>' + escapeHtml(strings.heading) + '</h1><p>' + escapeHtml(strings.message) + '</p><a class="btn btn-primary" href="/">' + escapeHtml(strings.tryAgain) + '</a></div></main></body></html>',
+      { status: 503, statusText: 'Service Unavailable', headers: { 'Content-Type': 'text/html; charset=utf-8' } }
+    );
+  })();
+}
 `
 	_, _ = fmt.Fprintln(w, sw)
-}
-
-// OfflineHandler serves the PWA offline fallback page per AI.md PART 16.
-// The service worker caches this page and serves it when the user is offline.
-func (h *SpecialHandler) OfflineHandler(w http.ResponseWriter, r *http.Request) {
-	lang := i18n.DetectLocale(r)
-	dir := string(i18n.LocaleDirection(lang))
-	ctx := i18n.WithLang(r.Context(), lang)
-	themeName := "auto"
-	if cookie, err := r.Cookie("theme"); err == nil {
-		switch cookie.Value {
-		case "dark", "light", "auto":
-			themeName = cookie.Value
-		}
-	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Vary", "Accept-Language")
-	page := struct {
-		Lang, Dir, AssetStamp, Title, Description, TryAgain, SkipContent, SkipNavigation string
-		Navigation, Home, Preferences, ThemeToggle, Theme, CSRFToken, NextTheme          string
-	}{
-		Lang: lang, Dir: dir, AssetStamp: h.assetStampOrCommit(),
-		Title:          i18n.T(ctx, "pwa.offline_title"),
-		Description:    i18n.T(ctx, "pwa.offline_description"),
-		TryAgain:       i18n.T(ctx, "pwa.offline_try_again"),
-		SkipContent:    i18n.T(ctx, "accessibility.skip_to_content"),
-		SkipNavigation: i18n.T(ctx, "nav.skip_to_navigation"),
-		Navigation:     i18n.T(ctx, "nav.main_navigation"), Home: i18n.T(ctx, "nav.home"),
-		Preferences: i18n.T(ctx, "nav.preferences"), ThemeToggle: i18n.T(ctx, "theme.toggle"),
-		Theme: themeName, CSRFToken: getCSRFToken(r), NextTheme: NextTheme(themeName),
-	}
-	const source = `<!DOCTYPE html>
-<html lang="{{.Lang}}" dir="{{.Dir}}" class="theme-{{.Theme}}">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>IPGaze — {{.Title}}</title>
-  <link rel="stylesheet" href="/theme.css?v={{.AssetStamp}}">
-  <link rel="stylesheet" href="/static/css/common.css?v={{.AssetStamp}}">
-  <link rel="stylesheet" href="/static/css/components.css?v={{.AssetStamp}}">
-  <link rel="stylesheet" href="/static/css/public.css?v={{.AssetStamp}}">
-  <link rel="stylesheet" href="/static/css/offline.css?v={{.AssetStamp}}">
-</head>
-<body>
-  <a href="#main-content" class="skip-link">{{.SkipContent}}</a>
-  <a href="#navigation" class="skip-link">{{.SkipNavigation}}</a>
-  <input type="checkbox" id="nav-toggle" class="nav-checkbox" aria-expanded="false" aria-controls="nav-panel">
-  <header id="navigation" class="header" role="banner">
-    <a href="/" class="site-brand">IPGaze</a>
-    <nav class="nav-links" aria-label="{{.Navigation}}"><a href="/">{{.Home}}</a></nav>
-    <label for="nav-toggle" class="nav-burger" aria-label="{{.Navigation}}">☰</label>
-    <div class="header-actions">
-      <a href="/server/preferences" class="header-link" aria-label="{{.Preferences}}"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8Zm9 4a7.9 7.9 0 0 0-.1-1.2l2-1.5-2-3.5-2.4 1a8.6 8.6 0 0 0-2-1.2L16.1 3h-4.2l-.4 2.6a8.6 8.6 0 0 0-2 1.2l-2.4-1-2 3.5 2 1.5a7.9 7.9 0 0 0 0 2.4l-2 1.5 2 3.5 2.4-1a8.6 8.6 0 0 0 2 1.2l.4 2.6h4.2l.4-2.6a8.6 8.6 0 0 0 2-1.2l2.4 1 2-3.5-2-1.5A7.9 7.9 0 0 0 21 12Z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg></a>
-      <form action="/server/preferences" method="post" class="theme-toggle-form"><input type="hidden" name="csrf_token" value="{{.CSRFToken}}"><input type="hidden" name="theme" value="{{.NextTheme}}"><button type="submit" class="btn btn-icon theme-button" aria-label="{{.ThemeToggle}}"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="2"/></svg></button></form>
-    </div>
-  </header>
-  <main id="main-content" role="main">
-    <div class="offline-card"><h1>{{.Title}}</h1><p>{{.Description}}</p><a class="btn btn-primary" href="/">{{.TryAgain}}</a></div>
-  </main>
-  <nav class="nav-panel" id="nav-panel" aria-label="{{.Navigation}}"><a href="/">{{.Home}}</a></nav>
-  <label for="nav-toggle" class="nav-overlay" aria-hidden="true"></label>
-  <footer class="footer" role="contentinfo"><p><a href="/server/about">{{t .Lang "nav.about"}}</a> · <a href="/server/help">{{t .Lang "nav.help"}}</a> · <a href="/server/preferences">{{.Preferences}}</a></p></footer>
-</body>
-</html>`
-	tmpl, err := htmltemplate.New("offline").Funcs(htmltemplate.FuncMap{"t": i18n.Translate}).Parse(source)
-	if err != nil {
-		http.Error(w, "Offline page unavailable", http.StatusInternalServerError)
-		return
-	}
-	if err := tmpl.Execute(w, page); err != nil {
-		return
-	}
 }
 
 // LLMsTxtHandler serves llms.txt for AI agent discovery per AI.md PART 11.

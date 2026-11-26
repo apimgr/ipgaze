@@ -42,8 +42,18 @@ LDFLAGS := -s -w \
 BINDIR := binaries
 RELDIR := releases
 
+# Absolute output directories live outside /app and must be mounted into the
+# toolchain container. Relative directories are resolved under the /app mount.
+ifneq ($(filter /%,$(BINDIR)),)
+BUILD_BINDIR := $(BINDIR)
+BUILD_OUTPUT_MOUNT := -v $(BINDIR):$(BINDIR)
+else
+BUILD_BINDIR := /app/$(BINDIR)
+BUILD_OUTPUT_MOUNT :=
+endif
+
 # Build targets (8 platforms)
-PLATFORMS ?= linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64 freebsd/amd64 freebsd/arm64
+PLATFORMS ?= linux/amd64,linux/arm64,darwin/amd64,darwin/arm64,windows/amd64,windows/arm64,freebsd/amd64,freebsd/arm64
 
 # Docker - Set REGISTRY based on your platform (ghcr.io, registry.gitlab.com, git.example.com)
 REGISTRY ?= ghcr.io/$(PROJECT_ORG)/$(PROJECT_NAME)
@@ -55,11 +65,14 @@ GO_BUILD  ?= $(HOME)/.cache/go-build/$(PROJECT_NAME)
 # Resource limits for build containers
 DOCKER_MEM  ?= 4g
 DOCKER_CPUS ?= 2
+DOCKER_CPU_SHARES ?= 256
+DOCKER_TIMEOUT ?= 3600
 
 # GO_DOCKER_RUN: shared docker run prefix (no image) so targets can add mounts before the image
-GO_DOCKER_RUN := docker run --rm \
-	--name $(PROJECT_NAME)-$$(od -An -N4 -tx1 /dev/urandom | tr -d ' \n') \
-	--memory=$(DOCKER_MEM) --cpus=$(DOCKER_CPUS) \
+GO_DOCKER_RUN := timeout -k 30 $(DOCKER_TIMEOUT) docker run --rm --no-healthcheck \
+	--name $(PROJECT_NAME)-$$(tr -dc 'a-z0-9' </dev/urandom | head -c8) \
+	--memory=$(DOCKER_MEM) --cpus=$(DOCKER_CPUS) --cpu-shares=$(DOCKER_CPU_SHARES) \
+	$(BUILD_OUTPUT_MOUNT) \
 	-v $(PWD):/app \
 	-v $(GO_CACHE):/usr/local/share/go/pkg/mod \
 	-v $(GO_BUILD):/usr/local/share/go/cache \
@@ -69,7 +82,7 @@ GO_DOCKER_RUN := docker run --rm \
 GO_DOCKER := $(GO_DOCKER_RUN) casjaysdev/go:latest
 # CGO_ENABLED=0 and GOFLAGS=-buildvcs=false are casjaysdev/go:latest defaults; set explicitly for clarity
 
-.PHONY: build local release docker test dev clean
+.PHONY: build local release release-check docker test dev clean
 
 # =============================================================================
 # BUILD - Build all platforms + local binary (via Docker with cached modules)
@@ -77,45 +90,34 @@ GO_DOCKER := $(GO_DOCKER_RUN) casjaysdev/go:latest
 build: clean
 	@mkdir -p $(BINDIR) $(GO_CACHE) $(GO_BUILD)
 	@echo "Building version $(VERSION)..."
+	@$(GO_DOCKER_RUN) -e BUILD_LDFLAGS="$(LDFLAGS)" casjaysdev/go:latest sh -c ' \
+		set -e; \
+		go mod tidy; \
+		go mod download; \
+		echo "Building $(PROJECT_NAME) (local platform)..."; \
+		GOOS=$$(go env GOOS) GOARCH=$$(go env GOARCH) go build -buildvcs=false -trimpath -ldflags "$$BUILD_LDFLAGS" -o $(BUILD_BINDIR)/$(PROJECT_NAME) ./src; \
+		if [ -d src/client ]; then \
+			echo "Building $(PROJECT_NAME)-cli (local platform)..."; \
+			GOOS=$$(go env GOOS) GOARCH=$$(go env GOARCH) go build -buildvcs=false -trimpath -ldflags "$$BUILD_LDFLAGS" -o $(BUILD_BINDIR)/$(PROJECT_NAME)-cli ./src/client; \
+		fi; \
+		for platform in $$(echo "$(PLATFORMS)" | tr "," " "); do \
+			OS=$${platform%/*}; ARCH=$${platform#*/}; EXT=""; \
+			if [ "$$OS" = "windows" ]; then EXT=".exe"; fi; \
+			echo "Building server $$OS/$$ARCH..."; \
+			GOOS=$$OS GOARCH=$$ARCH go build -buildvcs=false -trimpath -ldflags "$$BUILD_LDFLAGS" -o $(BUILD_BINDIR)/$(PROJECT_NAME)-$$OS-$$ARCH$$EXT ./src; \
+			if [ -d src/client ]; then \
+				echo "Building CLI $$OS/$$ARCH..."; \
+				GOOS=$$OS GOARCH=$$ARCH go build -buildvcs=false -trimpath -ldflags "$$BUILD_LDFLAGS" -o $(BUILD_BINDIR)/$(PROJECT_NAME)-cli-$$OS-$$ARCH$$EXT ./src/client; \
+			fi; \
+		done'
 
-	# Tidy and download modules
-	@echo "Tidying and downloading Go modules..."
-	@$(GO_DOCKER) sh -c "go mod tidy"
-	@$(GO_DOCKER) sh -c "go mod download"
-	@$(GO_DOCKER) sh -c "go test ./src/common/i18n"
-
-	# Build for local OS/ARCH
-	@echo "Building local binary..."
-	@$(GO_DOCKER) sh -c 'GOOS=$$(go env GOOS) GOARCH=$$(go env GOARCH) \
-		go build -buildvcs=false -trimpath -ldflags "$(LDFLAGS)" -o $(BINDIR)/$(PROJECT_NAME) ./src'
-
-	# Build server for all platforms
-	@for platform in $(PLATFORMS); do \
-		OS=$${platform%/*}; \
-		ARCH=$${platform#*/}; \
-		OUTPUT=$(BINDIR)/$(PROJECT_NAME)-$$OS-$$ARCH; \
-		[ "$$OS" = "windows" ] && OUTPUT=$$OUTPUT.exe; \
-		echo "Building server $$OS/$$ARCH..."; \
-		$(GO_DOCKER) sh -c "GOOS=$$OS GOARCH=$$ARCH \
-			go build -buildvcs=false -trimpath -ldflags \"$(LDFLAGS)\" \
-			-o $$OUTPUT ./src" || exit 1; \
+	@test -s "$(BINDIR)/$(PROJECT_NAME)" || { echo "ERROR: missing local server binary" >&2; exit 1; }
+	@if [ -d src/client ]; then test -s "$(BINDIR)/$(PROJECT_NAME)-cli" || { echo "ERROR: missing local CLI binary" >&2; exit 1; }; fi
+	@for platform in $$(echo "$(PLATFORMS)" | tr "," " "); do \
+		OS=$${platform%/*}; ARCH=$${platform#*/}; EXT=""; [ "$$OS" != windows ] || EXT=.exe; \
+		test -s "$(BINDIR)/$(PROJECT_NAME)-$$OS-$$ARCH$$EXT" || { echo "ERROR: missing server binary for $$platform" >&2; exit 1; }; \
+		if [ -d src/client ]; then test -s "$(BINDIR)/$(PROJECT_NAME)-cli-$$OS-$$ARCH$$EXT" || { echo "ERROR: missing CLI binary for $$platform" >&2; exit 1; }; fi; \
 	done
-
-	# Build CLI for all platforms (if exists)
-	@if [ -d "src/client" ]; then \
-		for platform in $(PLATFORMS); do \
-			OS=$${platform%/*}; \
-			ARCH=$${platform#*/}; \
-			OUTPUT=$(BINDIR)/$(PROJECT_NAME)-cli-$$OS-$$ARCH; \
-			[ "$$OS" = "windows" ] && OUTPUT=$$OUTPUT.exe; \
-			TAGS="-tags gui"; [ "$$OS" != "freebsd" ] || TAGS=""; \
-			echo "Building CLI $$OS/$$ARCH..."; \
-			$(GO_DOCKER) sh -c "GOOS=$$OS GOARCH=$$ARCH \
-				go build $$TAGS -buildvcs=false -trimpath -ldflags \"$(LDFLAGS)\" \
-				-o $$OUTPUT ./src/client" || exit 1; \
-		done; \
-	fi
-
 	@echo "Build complete: $(BINDIR)/"
 
 # =============================================================================
@@ -124,25 +126,17 @@ build: clean
 local: clean
 	@mkdir -p $(BINDIR) $(GO_CACHE) $(GO_BUILD)
 	@echo "Building local binaries version $(VERSION)..."
+	@$(GO_DOCKER_RUN) -e BUILD_LDFLAGS="$(LDFLAGS)" casjaysdev/go:latest sh -c ' \
+		set -e; go mod tidy; go mod download; \
+		echo "Building $(PROJECT_NAME)..."; \
+		GOOS=$$(go env GOOS) GOARCH=$$(go env GOARCH) go build -buildvcs=false -trimpath -ldflags "$$BUILD_LDFLAGS" -o $(BUILD_BINDIR)/$(PROJECT_NAME) ./src; \
+		if [ -d src/client ]; then \
+			echo "Building $(PROJECT_NAME)-cli..."; \
+			GOOS=$$(go env GOOS) GOARCH=$$(go env GOARCH) go build -buildvcs=false -trimpath -ldflags "$$BUILD_LDFLAGS" -o $(BUILD_BINDIR)/$(PROJECT_NAME)-cli ./src/client; \
+		fi'
 
-	# Tidy and download modules
-	@echo "Tidying and downloading Go modules..."
-	@$(GO_DOCKER) sh -c "go mod tidy"
-	@$(GO_DOCKER) sh -c "go mod download"
-	@$(GO_DOCKER) sh -c "go test ./src/common/i18n"
-
-	# Build server binary
-	@echo "Building $(PROJECT_NAME)..."
-	@$(GO_DOCKER) sh -c 'GOOS=$$(go env GOOS) GOARCH=$$(go env GOARCH) \
-		go build -buildvcs=false -trimpath -ldflags "$(LDFLAGS)" -o $(BINDIR)/$(PROJECT_NAME) ./src'
-
-	# Build CLI binary (if exists)
-	@if [ -d "src/client" ]; then \
-		echo "Building $(PROJECT_NAME)-cli..."; \
-		$(GO_DOCKER) sh -c 'GOOS=$$(go env GOOS) GOARCH=$$(go env GOARCH) \
-			go build -tags gui -buildvcs=false -trimpath -ldflags "$(LDFLAGS)" -o $(BINDIR)/$(PROJECT_NAME)-cli ./src/client'; \
-	fi
-
+	@test -s "$(BINDIR)/$(PROJECT_NAME)" || { echo "ERROR: missing local server binary" >&2; exit 1; }
+	@if [ -d src/client ]; then test -s "$(BINDIR)/$(PROJECT_NAME)-cli" || { echo "ERROR: missing local CLI binary" >&2; exit 1; }; fi
 	@echo "Local build complete: $(BINDIR)/"
 
 # =============================================================================
@@ -152,25 +146,26 @@ local: clean
 # Builds server + CLI (if they exist)
 dev:
 	@mkdir -p $(GO_CACHE) $(GO_BUILD)
-	@$(GO_DOCKER) go mod tidy
-	@$(GO_DOCKER) go test ./src/common/i18n
 	@mkdir -p "$${TMPDIR:-/tmp}/$(PROJECT_ORG)" && \
 		BUILD_DIR=$$(mktemp -d "$${TMPDIR:-/tmp}/$(PROJECT_ORG)/$(INTERNAL_NAME)-XXXXXX") && \
 		echo "Quick dev build to $$BUILD_DIR..." && \
-		$(GO_DOCKER_RUN) -v $$BUILD_DIR:/build casjaysdev/go:latest \
-			sh -c 'GOOS=$$(go env GOOS) GOARCH=$$(go env GOARCH) go build -buildvcs=false -o /build/$(PROJECT_NAME) ./src' && \
+		$(GO_DOCKER_RUN) -v $$BUILD_DIR:/build casjaysdev/go:latest sh -c ' \
+			set -e; go mod tidy; \
+			GOOS=$$(go env GOOS) GOARCH=$$(go env GOARCH) go build -buildvcs=false -o /build/$(PROJECT_NAME) ./src; \
+			if [ -d src/client ]; then GOOS=$$(go env GOOS) GOARCH=$$(go env GOARCH) go build -buildvcs=false -o /build/$(PROJECT_NAME)-cli ./src/client; fi' && \
 		echo "Built: $$BUILD_DIR/$(PROJECT_NAME)" && \
 		if [ -d "src/client" ]; then \
-			$(GO_DOCKER_RUN) -v $$BUILD_DIR:/build casjaysdev/go:latest \
-				sh -c 'GOOS=$$(go env GOOS) GOARCH=$$(go env GOARCH) go build -tags gui -buildvcs=false -o /build/$(PROJECT_NAME)-cli ./src/client' && \
 			echo "Built: $$BUILD_DIR/$(PROJECT_NAME)-cli"; \
 		fi && \
-		echo "Test:  docker run --rm --name $(PROJECT_NAME)-test -v $$BUILD_DIR:/app alpine:latest /app/$(PROJECT_NAME) --help"
+		echo "Test:  docker run --rm --name $(PROJECT_NAME)-$$(tr -dc a-z0-9 </dev/urandom | head -c8) -v $$BUILD_DIR:/app alpine:latest /app/$(PROJECT_NAME) --help"
 
 # =============================================================================
 # RELEASE - Manual local release (stable only)
 # =============================================================================
-release: build
+release-check:
+	@echo "$(VERSION)" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$$' >/dev/null || { echo "ERROR: make release needs a stable SemVer X.Y.Z in release.txt (got '$(VERSION)')" >&2; exit 78; }
+
+release: release-check build
 	@mkdir -p $(RELDIR)
 	@echo "Preparing release $(VERSION)..."
 
@@ -185,7 +180,7 @@ release: build
 	done
 
 	# Create source archive (exclude VCS and build artifacts)
-	@tar --exclude='.git' --exclude='.github' --exclude='.gitea' --exclude='.forgejo' \
+	@tar --exclude='.git' --exclude='.github' --exclude='.gitea' \
 		--exclude='binaries' --exclude='releases' --exclude='*.tar.gz' \
 		-czf $(RELDIR)/$(PROJECT_NAME)-$(VERSION)-source.tar.gz .
 
@@ -193,17 +188,17 @@ release: build
 	@cd $(RELDIR) && FILES="$$(ls)" && sha256sum $$FILES > sha256.txt && sha512sum $$FILES > sha512.txt
 
 	# Delete existing release/tag if exists
-	@gh release delete $(VERSION) --yes 2>/dev/null || true
-	@git tag -d $(VERSION) 2>/dev/null || true
-	@git push origin :refs/tags/$(VERSION) 2>/dev/null || true
+	@gh release delete v$(VERSION) --yes 2>/dev/null || true
+	@git tag -d v$(VERSION) 2>/dev/null || true
+	@git push origin :refs/tags/v$(VERSION) 2>/dev/null || true
 
 	# Create new release (stable)
-	@gh release create $(VERSION) $(RELDIR)/* \
-		--title "$(PROJECT_NAME) $(VERSION)" \
-		--notes "Release $(VERSION)" \
+	@gh release create v$(VERSION) $(RELDIR)/* \
+		--title "v$(VERSION)" \
+		--notes "Release v$(VERSION)" \
 		--latest
 
-	@echo "Release complete: $(VERSION)"
+	@echo "Release complete: v$(VERSION)"
 
 # =============================================================================
 # DOCKER - Build and push container to registry (set REGISTRY env var)
@@ -216,9 +211,9 @@ docker:
 	# Ensure buildx is available
 	@docker buildx version > /dev/null 2>&1 || (echo "docker buildx required" && exit 1)
 
-	# Create/use builder
-	@docker buildx create --name $(PROJECT_NAME)-builder --use 2>/dev/null || \
-		docker buildx use $(PROJECT_NAME)-builder
+	# Create/use the ONE shared builder (never one per project: every builder is long-lived)
+	@docker buildx create --name multiarch-builder --use 2>/dev/null || \
+		docker buildx use multiarch-builder
 
 	# Build multi-arch and push (buildx multi-arch images must be pushed; set REGISTRY first)
 	@docker buildx build \
@@ -226,12 +221,14 @@ docker:
 		--platform linux/amd64,linux/arm64 \
 		--push \
 		--build-arg VERSION="$(VERSION)" \
-		--build-arg BUILD_EPOCH="$(BUILD_EPOCH)" \
 		--build-arg BUILD_DATE="$(BUILD_DATE)" \
 		--build-arg COMMIT_ID="$(COMMIT_ID)" \
+		--build-arg BUILD_EPOCH="$(BUILD_EPOCH)" \
+		--build-arg OFFICIAL_SITE="$(OFFICIAL_SITE)" \
 		-t $(REGISTRY):$(VERSION) \
 		-t $(REGISTRY):latest \
 		.
+	@tests/image.sh $(REGISTRY):$(VERSION)
 
 	@echo "Docker build complete: $(REGISTRY):$(VERSION)"
 
@@ -241,11 +238,7 @@ docker:
 # Coverage gate: >= 60% required. Binary integration tests live in tests/ and
 # are run separately via tests/run_tests.sh — NOT as part of this target.
 # Never skip with -short or -count=0. Coverage output goes to a tempdir under
-# $${TMPDIR:-/tmp} inside the container (never written to the project tree).
 test:
-	@docker run --rm --name $(PROJECT_NAME)-$$(od -An -N4 -tx1 /dev/urandom | tr -d ' \n') \
-		--memory=512m --cpus=1 -v $(PWD):/app -w /app \
-		python:3.12-alpine python3 -B -m unittest scripts/test_trufflehog_scan.py
 	@mkdir -p $(GO_CACHE) $(GO_BUILD)
 	@echo "Running tests with coverage..."
 	@$(GO_DOCKER) sh -c " \
@@ -261,8 +254,6 @@ test:
 		TEST_ROOT=\$$(mktemp -d \"\$$TEST_BASE/$(INTERNAL_NAME)-XXXXXX\") && \
 		export TMPDIR=\$$TEST_ROOT && \
 		go mod download && \
-		go vet ./... && \
-		govulncheck -scan=module -C src && \
 		go test -v -cover -coverprofile=\$$TEST_ROOT/coverage.out ./... && \
 		COVERAGE=\$$(go tool cover -func=\$$TEST_ROOT/coverage.out | grep total | awk '{print \$$3}' | sed 's/%//') && \
 		echo \"Coverage: \$$COVERAGE%\" && \

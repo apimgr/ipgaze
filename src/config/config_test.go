@@ -271,6 +271,21 @@ func TestValidateContactCaptcha(t *testing.T) {
 	}
 }
 
+func TestValidateConfigDefaultsInvalidContactCaptcha(t *testing.T) {
+	for _, contact := range []ContactPageConfig{
+		{Captcha: "recaptcha", CaptchaSecretKey: "secret"},
+		{Captcha: "hcaptcha", CaptchaSiteKey: "site"},
+		{Captcha: "unknown"},
+	} {
+		cfg := DefaultConfig()
+		cfg.Pages.Contact = contact
+		validateConfig(cfg)
+		if cfg.Pages.Contact.Captcha != "simple" {
+			t.Errorf("invalid contact captcha %+v normalized to %q, want simple", contact, cfg.Pages.Contact.Captcha)
+		}
+	}
+}
+
 func TestNormalizeBlockedIPs(t *testing.T) {
 	got, err := NormalizeBlockedIPs([]BlockedIPEntry{{CIDR: "192.0.2.4", Reason: " test "}, {CIDR: "2001:db8::/32"}})
 	if err != nil {
@@ -923,6 +938,17 @@ func TestLoadConfigFromFile_CreatesDefaultWhenMissing(t *testing.T) {
 	if info.Mode().Perm() != 0o600 {
 		t.Errorf("created config permissions = %04o, want 0600", info.Mode().Perm())
 	}
+	dirInfo, err := os.Stat(dir)
+	if err != nil {
+		t.Fatalf("stat config directory: %v", err)
+	}
+	wantDirMode := os.FileMode(0o700)
+	if paths.StartedElevated() {
+		wantDirMode = 0o755
+	}
+	if dirInfo.Mode().Perm() != wantDirMode {
+		t.Errorf("config directory permissions = %04o, want %04o", dirInfo.Mode().Perm(), wantDirMode)
+	}
 	if cfg.Server.Mode != "production" {
 		t.Errorf("Created default: Mode: got %q, want production", cfg.Server.Mode)
 	}
@@ -1195,7 +1221,11 @@ func TestLoadConfigDropInsRejectNullDuplicatesAndUnsafePermissions(t *testing.T)
 		if _, err := LoadConfigFromFile(path); err != nil {
 			t.Fatalf("LoadConfigFromFile: %v", err)
 		}
-		for file, want := range map[string]os.FileMode{path: 0o600, dropinDir: 0o700, dropin: 0o600, dir: 0o700} {
+		wantConfigDirMode := os.FileMode(0o700)
+		if paths.StartedElevated() {
+			wantConfigDirMode = 0o755
+		}
+		for file, want := range map[string]os.FileMode{path: 0o600, dropinDir: 0o700, dropin: 0o600, dir: wantConfigDirMode} {
 			info, err := os.Stat(file)
 			if err != nil {
 				t.Fatal(err)
@@ -1207,7 +1237,7 @@ func TestLoadConfigDropInsRejectNullDuplicatesAndUnsafePermissions(t *testing.T)
 	})
 }
 
-func TestLoadConfigDropInValidationErrorNamesSourceLineAndKey(t *testing.T) {
+func TestLoadConfigDropInDefaultsIncompleteContactCaptcha(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "server.yml")
 	if err := os.WriteFile(path, []byte("server: {}\n"), 0o600); err != nil {
@@ -1221,14 +1251,12 @@ func TestLoadConfigDropInValidationErrorNamesSourceLineAndKey(t *testing.T) {
 	if err := os.WriteFile(dropin, []byte("pages:\n  contact:\n    captcha: recaptcha\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	_, err := LoadConfigFromFile(path)
-	if err == nil {
-		t.Fatal("LoadConfigFromFile succeeded with incomplete CAPTCHA configuration")
+	cfg, err := LoadConfigFromFile(path)
+	if err != nil {
+		t.Fatalf("LoadConfigFromFile: %v", err)
 	}
-	for _, want := range []string{dropin + ":2:", "key pages.contact.captcha_site_key"} {
-		if !strings.Contains(err.Error(), want) {
-			t.Errorf("error %q does not contain %q", err, want)
-		}
+	if got := cfg.Pages.Contact.Captcha; got != "simple" {
+		t.Errorf("contact captcha = %q, want simple", got)
 	}
 }
 

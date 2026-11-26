@@ -661,35 +661,29 @@ func TestGetTheme_InvalidCookieDefaultsDark(t *testing.T) {
 
 func TestGetGraphiQLThemeCSS_Dark(t *testing.T) {
 	css := getGraphiQLThemeCSS("dark")
-	if css != graphiqlDarkTheme {
-		t.Error("dark theme CSS does not match graphiqlDarkTheme constant")
-	}
-	if !strings.Contains(css, "#282a36") {
-		t.Error("dark CSS should reference the dark background colour")
+	if !strings.Contains(css, "html.theme-dark .graphiql-container") || !strings.Contains(css, "--color-base:") {
+		t.Error("dark theme CSS should bind GraphiQL roles to the shared palette")
 	}
 }
 
 func TestGetGraphiQLThemeCSS_Light(t *testing.T) {
 	css := getGraphiQLThemeCSS("light")
-	if css != graphiqlLightTheme {
-		t.Error("light theme CSS does not match graphiqlLightTheme constant")
-	}
-	if !strings.Contains(css, "#ffffff") {
-		t.Error("light CSS should reference white background")
+	if !strings.Contains(css, "html.theme-light .graphiql-container") || !strings.Contains(css, "--color-base:") {
+		t.Error("light theme CSS should bind GraphiQL roles to the shared palette")
 	}
 }
 
 func TestGetGraphiQLThemeCSS_AutoFollowsSystemPreference(t *testing.T) {
 	css := getGraphiQLThemeCSS("auto")
-	if !strings.Contains(css, "@media (prefers-color-scheme: light)") || !strings.Contains(css, "#282a36") || !strings.Contains(css, "#ffffff") {
+	if !strings.Contains(css, "@media (prefers-color-scheme: light)") || !strings.Contains(css, "html.theme-auto .graphiql-container") {
 		t.Error("auto theme should provide dark defaults and light system overrides")
 	}
 }
 
 func TestGetGraphiQLThemeCSS_EmptyString_FallsThroughToDark(t *testing.T) {
 	css := getGraphiQLThemeCSS("")
-	if css != graphiqlDarkTheme {
-		t.Error("empty theme string should fall through to dark CSS")
+	if !strings.Contains(css, "html.theme-dark .graphiql-container") {
+		t.Error("empty theme string should retain the dark palette")
 	}
 }
 
@@ -719,6 +713,21 @@ func TestHandler_GET_ServesGraphiQL(t *testing.T) {
 	}
 }
 
+func TestHandler_GET_DoesNotReflectRequestPathIntoGraphiQLHTML(t *testing.T) {
+	resetSchema()
+	h := Handler(GraphQLHandlerConfig{Version: "v1", CommitID: "test"})
+	req := httptest.NewRequest(http.MethodGet, "/%22%20onmouseover=alert(1)/graphql", nil)
+	rec := httptest.NewRecorder()
+	h(rec, req)
+
+	if strings.Contains(rec.Body.String(), "onmouseover=alert(1)") {
+		t.Fatal("GraphiQL HTML reflected untrusted request path")
+	}
+	if !strings.Contains(rec.Body.String(), `href="/api/v1/server/graphql"`) {
+		t.Fatal("GraphiQL HTML is missing the canonical GraphQL endpoint")
+	}
+}
+
 func TestHandler_GET_RenderUIErrorReturnsInternalServerError(t *testing.T) {
 	resetSchema()
 	h := Handler(GraphQLHandlerConfig{RenderUI: func(http.ResponseWriter, *http.Request, string) error {
@@ -744,7 +753,7 @@ func TestHandler_GET_DarkThemeByDefault(t *testing.T) {
 	rec := httptest.NewRecorder()
 	h(rec, req)
 	body := rec.Body.String()
-	if !strings.Contains(body, "/server/docs/graphql/theme.css?") || !strings.Contains(body, "theme=dark") {
+	if !strings.Contains(body, "/server/docs/graphql/theme.css?theme=dark") || !strings.Contains(body, "graphiql-3.9.0.min.js") {
 		t.Error("default dark theme stylesheet is not linked")
 	}
 }
@@ -757,7 +766,7 @@ func TestHandler_GET_LightThemeViaCookie(t *testing.T) {
 	rec := httptest.NewRecorder()
 	h(rec, req)
 	body := rec.Body.String()
-	if !strings.Contains(body, "/server/docs/graphql/theme.css?") || !strings.Contains(body, "theme=light") {
+	if !strings.Contains(body, "/server/docs/graphql/theme.css?theme=light") || !strings.Contains(body, "graphiql-3.9.0.min.js") {
 		t.Error("light theme stylesheet is not linked when the light cookie is set")
 	}
 }

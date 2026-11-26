@@ -441,6 +441,39 @@ func TestIsRunningInContainer_EnvVar(t *testing.T) {
 	}
 }
 
+func TestIsRunningInContainer_SystemContainerWithInit(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("system container detection only applies on Linux")
+	}
+	base := newTempProjectDir(t)
+	for _, init := range []string{"systemd", "openrc"} {
+		t.Run(init, func(t *testing.T) {
+			runtimeDir := filepath.Join(base, init)
+			if err := os.MkdirAll(runtimeDir, 0700); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv("container", "incus")
+			oldSystemdPath, oldOpenRCPath := testSystemdRuntimePath, testOpenRCRuntimePath
+			testSystemdRuntimePath = filepath.Join(base, "no-systemd")
+			testOpenRCRuntimePath = filepath.Join(base, "no-openrc")
+			if init == "systemd" {
+				testSystemdRuntimePath = runtimeDir
+			} else {
+				testOpenRCRuntimePath = runtimeDir
+			}
+			testSkipDockerEnvCheck = true
+			defer func() {
+				testSystemdRuntimePath = oldSystemdPath
+				testOpenRCRuntimePath = oldOpenRCPath
+				testSkipDockerEnvCheck = false
+			}()
+			if IsRunningInContainer() {
+				t.Errorf("IsRunningInContainer() = true for Incus system container with %s", init)
+			}
+		})
+	}
+}
+
 func TestIsRunningInContainer_TiniComm(t *testing.T) {
 	base := newTempProjectDir(t)
 

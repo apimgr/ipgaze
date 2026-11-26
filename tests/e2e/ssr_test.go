@@ -9,7 +9,9 @@
 package e2e
 
 import (
+	"bytes"
 	"encoding/json"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -17,6 +19,7 @@ import (
 	"sort"
 	"strings"
 	"testing"
+	"time"
 )
 
 // assetRefPattern extracts href/src targets from rendered HTML so the suite
@@ -29,6 +32,232 @@ var ipInElementPattern = regexp.MustCompile(`(?s)<code[^>]*id="ip-address"[^>]*>
 
 // csrfFieldPattern pulls the hidden CSRF token out of a rendered form.
 var csrfFieldPattern = regexp.MustCompile(`name="csrf_token"\s+value="([^"]+)"`)
+
+func ownerTokenAPICall(t *testing.T, method, path, bearer string, payload any) (int, []byte) {
+	t.Helper()
+	var body *bytes.Reader
+	if payload == nil {
+		body = bytes.NewReader(nil)
+	} else {
+		encoded, err := json.Marshal(payload)
+		if err != nil {
+			t.Fatalf("encoding %s request: %v", path, err)
+		}
+		body = bytes.NewReader(encoded)
+	}
+	req, err := http.NewRequest(method, baseURL+path, body)
+	if err != nil {
+		t.Fatalf("building %s request: %v", path, err)
+	}
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("User-Agent", browserUserAgent)
+	if payload != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	if bearer != "" {
+		req.Header.Set("Authorization", "Bearer "+bearer)
+	}
+	client := &http.Client{Timeout: 30 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	res, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("requesting %s: %v", path, err)
+	}
+	defer res.Body.Close()
+	response, err := io.ReadAll(res.Body)
+	if err != nil {
+		t.Fatalf("reading %s response: %v", path, err)
+	}
+	return res.StatusCode, response
+}
+
+func ownerTokenResponseField(t *testing.T, body []byte, field string) string {
+	t.Helper()
+	var envelope map[string]json.RawMessage
+	if err := json.Unmarshal(body, &envelope); err != nil {
+		t.Fatalf("token API response is not JSON: %v", err)
+	}
+	data := envelope["data"]
+	if len(data) == 0 {
+		data = body
+	}
+	var result map[string]json.RawMessage
+	if err := json.Unmarshal(data, &result); err != nil {
+		t.Fatalf("token API data is not an object: %v", err)
+	}
+	var value string
+	if err := json.Unmarshal(result[field], &value); err != nil || value == "" {
+		t.Fatalf("token API response has no %q field", field)
+	}
+	return value
+}
+
+func mcpLookupStatus(t *testing.T, token string) int {
+	t.Helper()
+	requestBody := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{}},"name":"v1_ip_lookup","arguments":{"ip":"8.8.8.8"}}}`
+	req, err := http.NewRequest(http.MethodPost, baseURL+"/mcp", strings.NewReader(requestBody))
+	if err != nil {
+		t.Fatalf("building MCP lookup request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json, text/event-stream")
+	req.Header.Set("MCP-Protocol-Version", "2026-07-28")
+	req.Header.Set("Mcp-Method", "tools/call")
+	req.Header.Set("Mcp-Name", "v1_ip_lookup")
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	client := &http.Client{Timeout: 30 * time.Second}
+	res, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("calling the MCP lookup tool: %v", err)
+	}
+	defer res.Body.Close()
+	return res.StatusCode
+}
+
+func TestSSROwnerTokenIssueAndManagementAPI(t *testing.T) {
+	const base = "/api/v1/server/preferences/tokens"
+	if status := mcpLookupStatus(t, ""); status != http.StatusUnauthorized {
+		t.Errorf("MCP lookup without a token returned %d, want 401", status)
+	}
+	status, body := ownerTokenAPICall(t, http.MethodPost, base+"/primary", "", nil)
+	if status != http.StatusCreated {
+		t.Fatalf("issuing an anonymous owner token returned %d: %s", status, body)
+	}
+	primary := ownerTokenResponseField(t, body, "owner_token")
+	if status := mcpLookupStatus(t, primary); status != http.StatusOK {
+		t.Errorf("MCP lookup with the primary owner token returned %d, want 200", status)
+	}
+
+	status, _ = ownerTokenAPICall(t, http.MethodPost, base+"/primary", primary, nil)
+	if status != http.StatusConflict {
+		t.Errorf("issuing a second primary token with a valid owner token returned %d, want 409", status)
+	}
+	status, _ = ownerTokenAPICall(t, http.MethodGet, base, "", nil)
+	if status != http.StatusUnauthorized {
+		t.Errorf("listing tokens without a bearer token returned %d, want 401", status)
+	}
+	status, _ = ownerTokenAPICall(t, http.MethodGet, base, primary, nil)
+	if status != http.StatusOK {
+		t.Fatalf("listing tokens with the primary token returned %d, want 200", status)
+	}
+
+	status, body = ownerTokenAPICall(t, http.MethodPost, base, primary, map[string]string{"name": "e2e-client", "expires": "7d"})
+	if status != http.StatusCreated {
+		t.Fatalf("creating a linked token returned %d: %s", status, body)
+	}
+	linked := ownerTokenResponseField(t, body, "linked_token")
+	linkedID := ownerTokenResponseField(t, body, "id")
+	if status := mcpLookupStatus(t, linked); status != http.StatusOK {
+		t.Errorf("MCP lookup with a linked owner token returned %d, want 200", status)
+	}
+	status, _ = ownerTokenAPICall(t, http.MethodGet, base, linked, nil)
+	if status != http.StatusForbidden {
+		t.Errorf("linked token accessed primary-only token management with status %d, want 403", status)
+	}
+	status, body = ownerTokenAPICall(t, http.MethodPatch, base+"/"+linkedID, primary, map[string]string{"name": "e2e-client-renamed", "expires": "30d"})
+	if status != http.StatusOK || !bytes.Contains(body, []byte("e2e-client-renamed")) {
+		t.Fatalf("renaming a linked token returned %d or omitted the new name: %s", status, body)
+	}
+	status, body = ownerTokenAPICall(t, http.MethodPost, base+"/"+linkedID+"/reveal", primary, nil)
+	if status != http.StatusOK || ownerTokenResponseField(t, body, "linked_token") != linked {
+		t.Fatalf("revealing the linked token returned %d or a different token: %s", status, body)
+	}
+	status, body = ownerTokenAPICall(t, http.MethodPost, base+"/"+linkedID+"/rotate", primary, nil)
+	if status != http.StatusOK {
+		t.Fatalf("rotating the linked token returned %d: %s", status, body)
+	}
+	rotatedLinked := ownerTokenResponseField(t, body, "linked_token")
+	if rotatedLinked == linked {
+		t.Fatal("rotating the linked token returned the old credential")
+	}
+	if status := mcpLookupStatus(t, linked); status != http.StatusUnauthorized {
+		t.Errorf("old linked token remained accepted after rotation (status %d)", status)
+	}
+	if status := mcpLookupStatus(t, rotatedLinked); status != http.StatusOK {
+		t.Errorf("rotated linked token was not accepted (status %d)", status)
+	}
+	status, _ = ownerTokenAPICall(t, http.MethodGet, base, linked, nil)
+	if status != http.StatusUnauthorized {
+		t.Errorf("linked token accessed primary-only token management with status %d, want 403", status)
+	}
+	status, body = ownerTokenAPICall(t, http.MethodPost, base+"/primary/rotate", primary, nil)
+	if status != http.StatusOK {
+		t.Fatalf("rotating the primary token returned %d: %s", status, body)
+	}
+	rotatedPrimary := ownerTokenResponseField(t, body, "owner_token")
+	if rotatedPrimary == primary {
+		t.Fatal("rotating the primary token returned the old credential")
+	}
+	status, _ = ownerTokenAPICall(t, http.MethodGet, base, primary, nil)
+	if status != http.StatusUnauthorized {
+		t.Errorf("old primary token remained valid after rotation (status %d)", status)
+	}
+	status, _ = ownerTokenAPICall(t, http.MethodGet, base, rotatedPrimary, nil)
+	if status != http.StatusOK {
+		t.Errorf("rotated primary token cannot manage its tokens (status %d)", status)
+	}
+	if status := mcpLookupStatus(t, rotatedLinked); status != http.StatusOK {
+		t.Errorf("rotating the primary token invalidated a linked token (status %d)", status)
+	}
+	status, body = ownerTokenAPICall(t, http.MethodDelete, base+"/"+linkedID, rotatedPrimary, nil)
+	if status != http.StatusOK {
+		t.Errorf("revoking the linked token returned %d: %s", status, body)
+	}
+	if status := mcpLookupStatus(t, rotatedLinked); status != http.StatusUnauthorized {
+		t.Errorf("revoked linked token remained accepted by MCP (status %d)", status)
+	}
+
+	pageResponse := browserRequest(t, http.MethodGet, "/server/preferences/tokens", nil)
+	page, readErr := io.ReadAll(pageResponse.Body)
+	if readErr != nil {
+		t.Fatalf("reading restore page: %v", readErr)
+	}
+	pageResponse.Body.Close()
+	csrf := csrfFieldPattern.FindSubmatch(page)
+	if csrf == nil {
+		t.Fatal("owner-token restore page has no CSRF form token")
+	}
+	form := url.Values{"csrf_token": {string(csrf[1])}, "token": {rotatedPrimary}}
+	req, err := http.NewRequest(http.MethodPost, baseURL+"/server/preferences/token/restore", strings.NewReader(form.Encode()))
+	if err != nil {
+		t.Fatalf("building owner-token restore request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Cookie", "csrf_token="+string(csrf[1]))
+	req.Header.Set("User-Agent", browserUserAgent)
+	client := &http.Client{Timeout: 30 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	restored, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("restoring the primary owner token: %v", err)
+	}
+	restored.Body.Close()
+	if restored.StatusCode != http.StatusSeeOther {
+		t.Fatalf("restoring a valid primary token returned %d, want 303", restored.StatusCode)
+	}
+	restoredCookie := ""
+	for _, cookie := range restored.Cookies() {
+		if strings.HasPrefix(cookie.Name, "ipgaze_owner_token_") && cookie.Value == rotatedPrimary {
+			restoredCookie = cookie.Name + "=" + cookie.Value
+		}
+	}
+	if restoredCookie == "" {
+		t.Fatal("restoring a valid primary token did not set the owner cookie")
+	}
+	ownedPage, ownedBody, _ := getBody(t, "/server/preferences/tokens", http.Header{"Cookie": []string{restoredCookie}})
+	if ownedPage != http.StatusOK || !strings.Contains(ownedBody, "e2e-client-renamed") {
+		t.Errorf("restored owner cookie did not unlock the token list (status %d)", ownedPage)
+	}
+
+	anonymousPageStatus, anonymousPageBody, _ := getBody(t, "/server/preferences/tokens", nil)
+	if anonymousPageStatus != http.StatusOK {
+		t.Fatalf("anonymous owner-token page returned %d, want 200", anonymousPageStatus)
+	}
+	mustContain(t, "tokens.html", anonymousPageBody, `action="/server/preferences/token/restore"`, "public restore form")
+	if strings.Contains(anonymousPageBody, primary) || strings.Contains(anonymousPageBody, rotatedPrimary) || strings.Contains(anonymousPageBody, rotatedLinked) {
+		t.Error("public owner-token page disclosed an API credential without its owner cookie")
+	}
+}
 
 func TestSSRLandingPageRendersRealIPAndContent(t *testing.T) {
 	status, body, header := getBody(t, "/", nil)
@@ -165,13 +394,7 @@ func TestSSRContentNegotiationHonoursClient(t *testing.T) {
 }
 
 func TestSSRPlainTextFieldEndpoints(t *testing.T) {
-	paths := []string{
-		"/ip", "/ip.txt",
-		"/country.txt", "/country-iso.txt",
-		"/city.txt", "/coordinates.txt",
-		"/asn.txt", "/asn-org.txt",
-	}
-	for _, path := range paths {
+	for _, path := range []string{"/ip", "/ip.txt"} {
 		status, body, header := getBody(t, path, nil)
 		if status != http.StatusOK {
 			t.Errorf("GET %s returned %d, want 200", path, status)
@@ -182,6 +405,18 @@ func TestSSRPlainTextFieldEndpoints(t *testing.T) {
 		}
 		if strings.Contains(strings.ToLower(body), "<html") {
 			t.Errorf("GET %s returned HTML on a plain-text endpoint", path)
+		}
+	}
+	// The harness connects from loopback. AI.md PART 19 requires private and
+	// internal addresses to bypass GeoIP lookup, so the registered field routes
+	// return an empty plain-text value rather than geolocating the client.
+	for _, path := range []string{"/country.txt", "/country-iso.txt", "/city.txt", "/coordinates.txt", "/asn.txt", "/asn-org.txt"} {
+		status, body, _ := getBody(t, path, nil)
+		if status != http.StatusOK {
+			t.Errorf("GET %s returned %d for the private test client IP, want 200", path, status)
+		}
+		if strings.TrimSpace(body) != "" {
+			t.Errorf("GET %s returned GeoIP data for the private test client IP: %q", path, body)
 		}
 	}
 }
@@ -248,8 +483,8 @@ func TestSSRUnknownPathRendersThemedErrorPage(t *testing.T) {
 	if ct := header.Get("Content-Type"); !strings.Contains(ct, "text/html") {
 		t.Fatalf("404 Content-Type is %q, want text/html", ct)
 	}
-	mustContain(t, "404.html", body, `class="error-title">404`, "404 page title element")
-	mustContain(t, "404.html", body, `class="error-container"`, "404 page error container")
+	mustContain(t, "404.html", body, `class="page-title">404 Not Found`, "404 page title element")
+	mustContain(t, "404.html", body, `class="section-card"`, "404 page error container")
 	mustContain(t, "404.html", body, `href="/"`, "404 page return-home link")
 	for _, leak := range []string{"goroutine ", "/root/", "panic:"} {
 		if strings.Contains(body, leak) {
@@ -269,8 +504,8 @@ func TestSSRDebugError500RendersThemedPage(t *testing.T) {
 	if ct := responseHeader.Get("Content-Type"); !strings.Contains(ct, "text/html") {
 		t.Fatalf("debug 500 Content-Type is %q, want text/html", ct)
 	}
-	mustContain(t, "debug-error500.html", body, `class="error-title">500`, "themed 500 page title")
-	mustContain(t, "debug-error500.html", body, `class="error-container"`, "themed 500 page container")
+	mustContain(t, "debug-error500.html", body, `class="page-title">500 Internal Server Error`, "themed 500 page title")
+	mustContain(t, "debug-error500.html", body, `class="section-card"`, "themed 500 page container")
 }
 
 func TestSSRWellKnownAndMetadataEndpoints(t *testing.T) {
@@ -349,6 +584,24 @@ func TestSSRAPIDocsPagesRender(t *testing.T) {
 	optionalWhenUnconfigured := map[string]bool{
 		"/.well-known/pgp-key.asc": true,
 		"/server/tracking.js":      true,
+		"/asn":                     true,
+		"/asn-org":                 true,
+		"/asn-org.txt":             true,
+		"/asn.txt":                 true,
+		"/api/v1/asn":              true,
+		"/api/v1/asn-org":          true,
+		"/api/v1/city":             true,
+		"/api/v1/coordinates":      true,
+		"/api/v1/country":          true,
+		"/api/v1/country-iso":      true,
+		"/city":                    true,
+		"/city.txt":                true,
+		"/coordinates":             true,
+		"/coordinates.txt":         true,
+		"/country":                 true,
+		"/country-iso":             true,
+		"/country-iso.txt":         true,
+		"/country.txt":             true,
 	}
 	for _, path := range documented {
 		if strings.Contains(path, "{") {

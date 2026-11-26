@@ -188,18 +188,20 @@
     "abuse_reports_body": "To report abusive content or policy violations, use this contact form.",
     "abuse_reports_body_email": "To report abusive content or policy violations, use this contact form or email {email}.",
     "github": "GitHub",
-    "form_heading": "Send a Message",
+    "form_heading": "Report details",
     "report_received": "Security report received",
     "report_received_body": "We received your report. Check your email for the status link and confirmation.",
     "submit_error": "We could not submit the form. Check the required fields and captcha, then try again.",
     "tracking_id": "Tracking ID",
     "security_report_intro": "Submit a security report about the official IPGaze service. Please do not include credentials or data belonging to other people.",
     "captcha": "Captcha",
+    "captcha_addition": "What is {first} + {second}?",
+    "captcha_subtraction": "What is {first} - {second}?",
     "report_details": "Security report details",
     "researcher_key": "Researcher GPG public key or HTTPS key URL (optional)",
     "affected_component": "Affected component",
     "affected_endpoint": "Affected endpoint or URL (optional)",
-    "severity": "Severity",
+    "severity": "Severity (researcher's self-assessment)",
     "severity_critical": "Critical",
     "severity_high": "High",
     "severity_medium": "Medium",
@@ -216,8 +218,54 @@
     "credit_handle": "Credit me by handle",
     "credit_no": "Do not credit me",
     "credit_anonymous": "Credit me anonymously",
-    "researcher_handle": "Handle for public credit (required when crediting by handle)",
-    "coordinated_disclosure_agreement": "I agree to coordinated disclosure."
+    "researcher_handle": "Credit handle",
+    "coordinated_disclosure_agreement": "I agree to coordinated disclosure.",
+    "purpose": "This form is only for security reports, terms violations at a URL on this site, DMCA notices and privacy requests. It cannot be used for support, bug reports, feature requests or general questions.",
+    "thanks_title": "Report received",
+    "thanks_body": "Thank you. Your report has been received.",
+    "review_title": "Review your report",
+    "type_label": "Type",
+    "review_confirm": "This email address is correct, and this is a genuine report, not an advertisement, a solicitation or spam.",
+    "confirm_report": "Confirm report",
+    "edit_report": "Edit report",
+    "honeypot": "Leave this field empty",
+    "reported_url": "Reported URL",
+    "reported_url_help": "A page on this site, for example https://{host}/...",
+    "required": "required",
+    "optional": "optional",
+    "reason": "Reason",
+    "choose_reason": "Choose a reason",
+    "reason_illegal_content": "Illegal content",
+    "reason_terms_violation": "Terms violation",
+    "reason_harassment": "Harassment",
+    "reason_malware_phishing": "Malware or phishing",
+    "other": "Other",
+    "copyrighted_work": "Copyrighted work",
+    "good_faith_statement": "Good-faith statement",
+    "good_faith_text": "I have a good-faith belief that this use is not authorized by the copyright owner, its agent or the law",
+    "accuracy_statement": "Accuracy statement",
+    "accuracy_text": "The information is accurate and, under penalty of perjury, I am the owner or authorized to act for the owner",
+    "signature": "Signature",
+    "request_kind": "Request kind",
+    "choose_request": "Choose a request",
+    "request_access": "Access",
+    "request_export": "Export",
+    "request_deletion": "Deletion",
+    "request_correction": "Correction",
+    "request_opt_out": "Opt out",
+    "review_report": "Review report",
+    "choose_type": "Choose a report type",
+    "action_abuse": "Report abuse",
+    "action_dmca": "Send a DMCA notice",
+    "action_privacy": "Make a privacy request",
+    "action_security": "Report a security vulnerability",
+    "security_pointer_pre": "To report a security vulnerability, see",
+    "security_pointer_link": "the security page",
+    "type_abuse": "Abuse report",
+    "type_dmca": "DMCA notice",
+    "type_privacy": "Privacy request",
+    "type_security": "Security report",
+    "credit_handle_help": "Required when credit preference is “Credit me by handle”."
   },
   "help": {
     "more_heading": "More help",
@@ -408,7 +456,9 @@
     "api_heading": "API",
     "api_description_pre": "The API is available at",
     "api_description_post": "Full documentation is available at",
-    "attribution_heading": "Attribution"
+    "attribution_heading": "Attribution",
+    "dbip_attribution": "IP Geolocation by DB-IP",
+    "nro_attribution": "Country and ASN data licensed CC BY 4.0 by the Number Resource Organization (NRO)."
   },
   "preferences": {
     "title": "Preferences",
@@ -544,7 +594,8 @@
     "rate_limited": "Too many requests",
     "server_error": "Internal server error",
     "maintenance_mode": "Service unavailable",
-    "request_id_label": "Request ID"
+    "request_id_label": "Request ID",
+    "details": "Error details"
   },
   "plurals": {
     "items": {
@@ -761,6 +812,8 @@
     "heading": "What is my IP address?",
     "subtitle": "The best tool to find your own IP address, and information about it.",
     "ip_info_aria": "IP Information",
+    "column_field": "Field",
+    "column_value": "Value",
     "ip_details_heading": "IP Details",
     "field_postal_code": "Postal Code",
     "api_usage_aria": "API Usage",
@@ -1095,7 +1148,7 @@
       "port_path": "Port number to check (1-65535)",
       "ipgaze_pref_widget_query": "Default lookup example: ip, country, country-iso, city, asn, json or port",
       "theme_query": "Theme to apply: dark, light or auto",
-      "token_id": "Numeric identifier of the linked owner token"
+      "token_id": "Opaque UUID of the linked owner token"
     },
     "paths": {
       "announcements_dismiss": {
@@ -1495,7 +1548,10 @@
       "well_known": "Well-Known"
     },
     "ui": {
-      "title": "IPGaze API - Swagger UI"
+      "title": "IPGaze API - Swagger UI",
+      "lead": "Explore and try the REST API.",
+      "javascript_required": "The interactive explorer needs JavaScript. Read the OpenAPI document:",
+      "openapi_json": "OpenAPI JSON"
     }
   },
   "graphql": {
@@ -1649,7 +1705,10 @@
       "response": "Response",
       "run": "Run",
       "title": "IPGaze GraphQL Explorer",
-      "variables": "Variables (JSON)"
+      "variables": "Variables (JSON)",
+      "lead": "Run queries against the GraphQL API.",
+      "javascript_required": "The interactive explorer needs JavaScript. Use the GraphQL endpoint:",
+      "endpoint_link": "GraphQL endpoint"
     }
   },
   "version": {

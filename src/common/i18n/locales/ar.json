@@ -188,18 +188,20 @@
     "abuse_reports_body": "للإبلاغ عن محتوى مسيء أو مخالفة للسياسات، استخدم نموذج الاتصال هذا.",
     "abuse_reports_body_email": "للإبلاغ عن محتوى مسيء أو مخالفة للسياسات، استخدم نموذج الاتصال هذا أو راسلنا على {email}.",
     "github": "GitHub",
-    "form_heading": "إرسال رسالة",
+    "form_heading": "تفاصيل البلاغ",
     "report_received": "تم استلام بلاغ الأمان",
     "report_received_body": "لقد استلمنا بلاغك. تحقق من بريدك الإلكتروني للحصول على رابط الحالة والتأكيد.",
     "submit_error": "تعذر إرسال النموذج. تحقق من الحقول المطلوبة واختبار التحقق، ثم حاول مرة أخرى.",
     "tracking_id": "معرّف التتبع",
     "security_report_intro": "أرسل بلاغًا أمنيًا عن خدمة IPGaze الرسمية. يُرجى عدم تضمين بيانات اعتماد أو بيانات تخص أشخاصًا آخرين.",
     "captcha": "اختبار التحقق",
+    "captcha_addition": "كم يساوي {first} + {second}؟",
+    "captcha_subtraction": "كم يساوي {first} - {second}؟",
     "report_details": "تفاصيل البلاغ الأمني",
     "researcher_key": "مفتاح GPG العام للباحث أو رابط HTTPS للمفتاح (اختياري)",
     "affected_component": "المكوّن المتأثر",
     "affected_endpoint": "نقطة النهاية أو عنوان URL المتأثر (اختياري)",
-    "severity": "الخطورة",
+    "severity": "الخطورة (تقييم الباحث الذاتي)",
     "severity_critical": "حرج",
     "severity_high": "عالٍ",
     "severity_medium": "متوسط",
@@ -216,8 +218,54 @@
     "credit_handle": "اذكر اسمي المستعار",
     "credit_no": "لا تذكرني",
     "credit_anonymous": "اذكرني دون كشف هويتي",
-    "researcher_handle": "الاسم المستعار للنشر (مطلوب عند اختيار النسبة بالاسم المستعار)",
-    "coordinated_disclosure_agreement": "أوافق على الإفصاح المنسق."
+    "researcher_handle": "اسم الائتمان",
+    "coordinated_disclosure_agreement": "أوافق على الإفصاح المنسق.",
+    "purpose": "هذا النموذج مخصص فقط لبلاغات الأمان، ومخالفات الشروط المتعلقة بعنوان URL على هذا الموقع، وإشعارات DMCA وطلبات الخصوصية. لا يُستخدم للدعم أو الإبلاغ عن الأخطاء أو طلب الميزات أو الأسئلة العامة.",
+    "thanks_title": "تم استلام البلاغ",
+    "thanks_body": "شكراً لك. تم استلام بلاغك.",
+    "review_title": "راجع بلاغك",
+    "type_label": "النوع",
+    "review_confirm": "عنوان البريد الإلكتروني صحيح وهذا بلاغ حقيقي، وليس إعلاناً أو طلباً تجارياً أو بريداً مزعجاً.",
+    "confirm_report": "تأكيد البلاغ",
+    "edit_report": "تعديل البلاغ",
+    "honeypot": "اترك هذا الحقل فارغاً",
+    "reported_url": "عنوان URL المُبلّغ عنه",
+    "reported_url_help": "صفحة على هذا الموقع، مثل https://{host}/...",
+    "required": "مطلوب",
+    "optional": "اختياري",
+    "reason": "السبب",
+    "choose_reason": "اختر سبباً",
+    "reason_illegal_content": "محتوى غير قانوني",
+    "reason_terms_violation": "مخالفة الشروط",
+    "reason_harassment": "مضايقة",
+    "reason_malware_phishing": "برمجيات ضارة أو تصيّد احتيالي",
+    "other": "أخرى",
+    "copyrighted_work": "عمل محمي بحقوق النشر",
+    "good_faith_statement": "إقرار حسن النية",
+    "good_faith_text": "أعتقد بحسن نية أن هذا الاستخدام غير مصرح به من مالك حقوق النشر أو وكيله أو القانون",
+    "accuracy_statement": "إقرار بصحة المعلومات",
+    "accuracy_text": "المعلومات دقيقة، وأنا المالك أو مخوّل بالتصرف نيابة عنه، وأتحمل مسؤولية الإدلاء بمعلومات كاذبة تحت طائلة عقوبة الحنث باليمين",
+    "signature": "التوقيع",
+    "request_kind": "نوع الطلب",
+    "choose_request": "اختر طلباً",
+    "request_access": "الوصول",
+    "request_export": "التصدير",
+    "request_deletion": "الحذف",
+    "request_correction": "التصحيح",
+    "request_opt_out": "إلغاء الاشتراك",
+    "review_report": "مراجعة البلاغ",
+    "choose_type": "اختر نوع البلاغ",
+    "action_abuse": "الإبلاغ عن إساءة الاستخدام",
+    "action_dmca": "إرسال إشعار DMCA",
+    "action_privacy": "تقديم طلب خصوصية",
+    "action_security": "الإبلاغ عن ثغرة أمنية",
+    "security_pointer_pre": "للإبلاغ عن ثغرة أمنية، راجع",
+    "security_pointer_link": "صفحة الأمان",
+    "type_abuse": "بلاغ إساءة استخدام",
+    "type_dmca": "إشعار DMCA",
+    "type_privacy": "طلب خصوصية",
+    "type_security": "بلاغ أمني",
+    "credit_handle_help": "مطلوب عند اختيار تفضيل الائتمان «اذكرني باسم مستعار»."
   },
   "help": {
     "more_heading": "مزيد من المساعدة",
@@ -408,7 +456,9 @@
     "api_heading": "API",
     "api_description_pre": "واجهة API متاحة على",
     "api_description_post": "التوثيق الكامل متاح على",
-    "attribution_heading": "الإسناد"
+    "attribution_heading": "الإسناد",
+    "dbip_attribution": "تحديد الموقع الجغرافي لعنوان IP بواسطة DB-IP",
+    "nro_attribution": "بيانات الدولة وASN مرخصة بموجب CC BY 4.0 من Number Resource Organization (NRO)."
   },
   "preferences": {
     "title": "Preferences",
@@ -544,7 +594,8 @@
     "rate_limited": "طلبات كثيرة جداً",
     "server_error": "خطأ داخلي في الخادم",
     "maintenance_mode": "الخدمة غير متاحة",
-    "request_id_label": "معرّف الطلب"
+    "request_id_label": "معرّف الطلب",
+    "details": "تفاصيل الخطأ"
   },
   "plurals": {
     "items": {
@@ -782,6 +833,8 @@
     "heading": "ما هو عنوان IP الخاص بي؟",
     "subtitle": "أفضل أداة للعثور على عنوان IP الخاص بك ومعلومات عنه.",
     "ip_info_aria": "معلومات IP",
+    "column_field": "الحقل",
+    "column_value": "القيمة",
     "ip_details_heading": "تفاصيل IP",
     "field_postal_code": "الرمز البريدي",
     "api_usage_aria": "استخدام واجهة برمجة التطبيقات",
@@ -1116,7 +1169,7 @@
       "port_path": "رقم المنفذ المراد فحصه (1-65535)",
       "ipgaze_pref_widget_query": "مثال البحث الافتراضي: ip أو country أو country-iso أو city أو asn أو json أو port",
       "theme_query": "السمة المراد تطبيقها: dark أو light أو auto",
-      "token_id": "المعرّف الرقمي لرمز المالك المرتبط"
+      "token_id": "معرّف UUID معتم لرمز المالك المرتبط"
     },
     "paths": {
       "announcements_dismiss": {
@@ -1516,7 +1569,10 @@
       "well_known": "Well-Known"
     },
     "ui": {
-      "title": "واجهة برمجة IPGaze - واجهة Swagger"
+      "title": "واجهة برمجة IPGaze - واجهة Swagger",
+      "lead": "استكشف واجهة REST API وجرّبها.",
+      "javascript_required": "يتطلب المستكشف التفاعلي JavaScript. اطّلع على مستند OpenAPI:",
+      "openapi_json": "JSON لـ OpenAPI"
     }
   },
   "graphql": {
@@ -1670,7 +1726,10 @@
       "response": "الاستجابة",
       "run": "تشغيل",
       "title": "مستكشف IPGaze GraphQL",
-      "variables": "المتغيرات (JSON)"
+      "variables": "المتغيرات (JSON)",
+      "lead": "نفّذ استعلامات على واجهة GraphQL API.",
+      "javascript_required": "يتطلب المستكشف التفاعلي JavaScript. استخدم نقطة نهاية GraphQL:",
+      "endpoint_link": "نقطة نهاية GraphQL"
     }
   },
   "version": {

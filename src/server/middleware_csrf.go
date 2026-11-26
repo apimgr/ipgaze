@@ -117,6 +117,22 @@ func CSRFMiddleware(cfg CSRFConfig, sslEnabled bool, lm *applog.Manager) func(ht
 				return
 			}
 
+			// API-class routes do not use ambient cookies, so CSRF tokens do not
+			// apply. Public POST APIs such as GraphQL and the MCP root alias rely
+			// on their own request authentication and validation.
+			if strings.Contains(r.URL.Path, "/api/") || r.URL.Path == "/mcp" || r.URL.Path == "/server/mcp" {
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			// API clients can issue a new primary owner token without any prior
+			// credential. This API mirror is intentionally unauthenticated by
+			// AI.md PART 10 and is not a cookie-authenticated browser form.
+			if method == http.MethodPost && isPrimaryTokenIssueAPIPath(r.URL.Path) {
+				next.ServeHTTP(w, r)
+				return
+			}
+
 			// Bypass: Bearer or API token auth (not cookie-based)
 			if hasBearerAuth(r) {
 				next.ServeHTTP(w, r)
@@ -175,6 +191,10 @@ func CSRFMiddleware(cfg CSRFConfig, sslEnabled bool, lm *applog.Manager) func(ht
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
+}
+
+func isPrimaryTokenIssueAPIPath(path string) bool {
+	return strings.Contains(path, "/api/") && strings.HasSuffix(path, "/server/preferences/tokens/primary")
 }
 
 // ensureCSRFCookie sets a CSRF cookie if one doesn't exist, and returns the

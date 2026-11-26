@@ -1113,6 +1113,9 @@ func (h *PagesHandler) processContactStep(r *http.Request, req ContactRequest) c
 	if req.SecurityID != "" {
 		valid, err := h.validSecurityID(req.SecurityID)
 		securityMode = err == nil && valid
+		if securityMode && req.Type == "" {
+			req.Type = "security"
+		}
 	}
 	if contactFieldLengthViolation(req, securityMode) != nil || !validStandardContactRequest(req) || !validateContactStandardShape(req) || !validContactTypeShape(req, securityMode) {
 		h.logContactBlock(r, "shape")
@@ -1133,7 +1136,7 @@ func (h *PagesHandler) processContactStep(r *http.Request, req ContactRequest) c
 		return contactProcessResult{Kind: "form", FormToken: h.newContactFormToken(now), CaptchaProvider: provider, CaptchaQuestion: question, CaptchaToken: challenge}
 	}
 	if step == "submit" {
-		validCaptcha, captchaErr := h.verifyContactCaptcha(r, req.CaptchaToken, req.Captcha, now)
+		validCaptcha, captchaErr := h.verifyContactCaptcha(r, req.CaptchaID, req.CaptchaAnswer, req.CaptchaResponse, now)
 		if captchaErr != nil {
 			return contactProcessResult{Kind: "error", Status: http.StatusServiceUnavailable, Reason: "captcha"}
 		}
@@ -1183,18 +1186,6 @@ func (h *PagesHandler) processContactStep(r *http.Request, req ContactRequest) c
 	if !req.Confirmed {
 		result := h.prepareContactChallenge(r, req, flags, now)
 		result.Message = "Please read the details and confirm"
-		return result
-	}
-	validCaptcha, captchaErr := h.verifyContactCaptcha(r, req.CaptchaToken, req.Captcha, now)
-	if captchaErr != nil {
-		return contactProcessResult{Kind: "error", Status: http.StatusServiceUnavailable, Reason: "captcha"}
-	}
-	if !validCaptcha {
-		if h.logContactBlock(r, "captcha") {
-			return contactProcessResult{Kind: "error", Status: http.StatusTooManyRequests, Reason: "captcha", Message: contactRetryAfter(&contactRateLimitError{RetryAfter: time.Duration(h.contactAntispamConfig().BanHours) * time.Hour})}
-		}
-		result := h.prepareContactChallenge(r, req, flags, now)
-		result.Kind, result.Message = "review", "Please read the details and confirm"
 		return result
 	}
 	if flags == "d" {
@@ -1267,6 +1258,11 @@ func (h *PagesHandler) ServerContactHandler(w http.ResponseWriter, r *http.Reque
 			return
 		}
 		req := contactRequestFromForm(r, h.contactCaptchaProvider(r))
+		if req.Type == "" && req.SecurityID != "" {
+			if valid, err := h.validSecurityID(req.SecurityID); err == nil && valid {
+				req.Type = "security"
+			}
+		}
 		if !validContactFieldsForType(r.Form, req.Type, req.Step) {
 			h.logContactBlock(r, "shape")
 			h.renderContactError(w, r, http.StatusBadRequest)
@@ -1332,10 +1328,9 @@ func (h *PagesHandler) buildContactPageResponse(r *http.Request, req ContactRequ
 	form.Fields = contactFieldsForNames(form.FieldNames)
 	form.CaptchaQuestion, form.CaptchaToken = question, captcha
 	form.CaptchaProvider, form.CaptchaSiteKey = provider, ""
-	form.Captcha = ContactCaptcha{Provider: provider, Challenge: captcha, Question: question}
+	form.Captcha = h.contactCaptchaDescriptor(provider, question, captcha)
 	if provider != "simple" && h.Config != nil {
 		form.CaptchaSiteKey = h.Config.Pages.Contact.CaptchaSiteKey
-		form.Captcha.SiteKey = form.CaptchaSiteKey
 	}
 	form.SecurityReportMode = req.Type == "security" || req.SecurityID != ""
 	form.SecurityURL = netutil.BuildURL(r, h.Trust, "/server/security")
@@ -1396,15 +1391,15 @@ func (h *PagesHandler) renderContactProcessResult(w http.ResponseWriter, r *http
 }
 
 func contactRequestFromForm(r *http.Request, provider string) ContactRequest {
-	captcha := strings.TrimSpace(r.FormValue("captcha"))
+	captchaResponse := strings.TrimSpace(r.FormValue("captcha_response"))
 	switch provider {
 	case "recaptcha":
-		captcha = strings.TrimSpace(r.FormValue("g-recaptcha-response"))
+		captchaResponse = strings.TrimSpace(r.FormValue("g-recaptcha-response"))
 	case "hcaptcha":
-		captcha = strings.TrimSpace(r.FormValue("h-captcha-response"))
+		captchaResponse = strings.TrimSpace(r.FormValue("h-captcha-response"))
 	}
 	return ContactRequest{
-		Name: strings.TrimSpace(r.FormValue("name")), Handle: strings.TrimSpace(r.FormValue("handle")), Email: strings.TrimSpace(r.FormValue("email")),
+		Name: strings.TrimSpace(r.FormValue("name")), Handle: strings.TrimSpace(r.FormValue("credit_handle")), Email: strings.TrimSpace(r.FormValue("email")),
 		Website: strings.TrimSpace(r.FormValue("website")), FormToken: strings.TrimSpace(r.FormValue("form_token")),
 		Subject: strings.TrimSpace(r.FormValue("subject")), Message: strings.TrimSpace(r.FormValue("message")),
 		Type: strings.TrimSpace(r.FormValue("type")), ReportedURL: strings.TrimSpace(r.FormValue("reported_url")), Reason: strings.TrimSpace(r.FormValue("reason")),
@@ -1418,7 +1413,8 @@ func contactRequestFromForm(r *http.Request, provider string) ContactRequest {
 		SuggestedFix: strings.TrimSpace(r.FormValue("suggested_fix")), CVERequested: isCheckboxChecked(r.FormValue("cve_requested")),
 		DisclosureDays: r.FormValue("disclosure_days"), CreditPreference: strings.TrimSpace(r.FormValue("credit_preference")),
 		CoordinatedAgreement: isCheckboxChecked(r.FormValue("coordinated_disclosure_agreement")),
-		Captcha:              captcha, CaptchaToken: strings.TrimSpace(r.FormValue("captcha_token")),
+		CaptchaAnswer:        strings.TrimSpace(r.FormValue("captcha_answer")), CaptchaID: strings.TrimSpace(r.FormValue("captcha_id")),
+		CaptchaResponse: captchaResponse,
 	}
 }
 
@@ -1437,8 +1433,8 @@ func (h *PagesHandler) logContactBlock(r *http.Request, reason string) bool {
 
 func validContactFormFields(values url.Values) bool {
 	allowed := map[string]struct{}{
-		"csrf_token": {}, "form_token": {}, "website": {}, "step": {}, "review_token": {}, "confirmed": {}, "name": {}, "handle": {}, "email": {},
-		"subject": {}, "message": {}, "captcha": {}, "captcha_token": {}, "g-recaptcha-response": {},
+		"csrf_token": {}, "form_token": {}, "website": {}, "step": {}, "review_token": {}, "confirmed": {}, "name": {}, "credit_handle": {}, "email": {},
+		"subject": {}, "message": {}, "captcha_answer": {}, "captcha_id": {}, "captcha_response": {}, "g-recaptcha-response": {},
 		"h-captcha-response": {}, "security_id": {}, "researcher_gpg": {}, "affected_component": {},
 		"affected_endpoint": {}, "severity": {}, "summary": {}, "steps_to_reproduce": {}, "impact": {},
 		"suggested_fix": {}, "cve_requested": {}, "disclosure_days": {}, "credit_preference": {}, "type": {}, "reported_url": {},
@@ -1454,25 +1450,29 @@ func validContactFormFields(values url.Values) bool {
 }
 
 func validContactFieldsForType(values url.Values, reportType, step string) bool {
-	common := map[string]struct{}{"csrf_token": {}, "form_token": {}, "website": {}, "step": {}, "name": {}, "email": {}, "subject": {}, "message": {}, "type": {}}
+	common := map[string]struct{}{"csrf_token": {}, "form_token": {}, "website": {}, "step": {}, "name": {}, "email": {}}
 	if step == "confirm" {
 		common["review_token"] = struct{}{}
 		common["confirmed"] = struct{}{}
 	} else {
-		common["captcha"] = struct{}{}
-		common["captcha_token"] = struct{}{}
+		common["captcha_answer"] = struct{}{}
+		common["captcha_id"] = struct{}{}
+		common["captcha_response"] = struct{}{}
 		common["g-recaptcha-response"] = struct{}{}
 		common["h-captcha-response"] = struct{}{}
 	}
 	switch reportType {
 	case "abuse":
+		common["subject"], common["message"], common["type"] = struct{}{}, struct{}{}, struct{}{}
 		common["reported_url"], common["reason"] = struct{}{}, struct{}{}
 	case "dmca":
+		common["subject"], common["message"], common["type"] = struct{}{}, struct{}{}, struct{}{}
 		common["reported_url"], common["copyrighted_work"], common["good_faith"], common["accuracy"], common["signature"] = struct{}{}, struct{}{}, struct{}{}, struct{}{}, struct{}{}
 	case "privacy":
+		common["subject"], common["message"], common["type"] = struct{}{}, struct{}{}, struct{}{}
 		common["request_kind"] = struct{}{}
 	case "security":
-		for _, field := range []string{"security_id", "handle", "researcher_gpg", "affected_component", "affected_endpoint", "severity", "summary", "steps_to_reproduce", "impact", "suggested_fix", "cve_requested", "disclosure_days", "credit_preference", "coordinated_disclosure_agreement"} {
+		for _, field := range []string{"security_id", "credit_handle", "researcher_gpg", "affected_component", "affected_endpoint", "severity", "summary", "steps_to_reproduce", "impact", "suggested_fix", "cve_requested", "disclosure_days", "credit_preference", "coordinated_disclosure_agreement"} {
 			common[field] = struct{}{}
 		}
 	default:
@@ -1537,10 +1537,11 @@ type ContactFieldMaxLengthCondition struct {
 }
 
 type ContactCaptcha struct {
-	Provider  string `json:"provider"`
-	SiteKey   string `json:"site_key,omitempty"`
-	Challenge string `json:"challenge_id,omitempty"`
-	Question  string `json:"question,omitempty"`
+	Provider  string          `json:"provider"`
+	SiteKey   string          `json:"site_key,omitempty"`
+	CaptchaID string          `json:"captcha_id,omitempty"`
+	Question  string          `json:"question,omitempty"`
+	Fallback  *ContactCaptcha `json:"fallback,omitempty"`
 }
 
 // buildContactFormResponse returns the contact form description served to
@@ -1557,11 +1558,10 @@ func buildContactFormResponse() ContactFormResponse {
 }
 
 func contactReportFieldNames(securityMode bool) []string {
-	names := []string{"form_token", "website", "step", "review_token", "confirmed", "name", "email", "subject", "message", "type", "reported_url", "reason", "copyrighted_work", "good_faith", "accuracy", "signature", "request_kind", "captcha", "captcha_token"}
 	if securityMode {
-		names = append(names, "security_id", "handle", "researcher_gpg", "affected_component", "affected_endpoint", "severity", "summary", "steps_to_reproduce", "impact", "suggested_fix", "cve_requested", "disclosure_days", "credit_preference", "coordinated_disclosure_agreement")
+		return []string{"form_token", "website", "step", "review_token", "confirmed", "name", "email", "security_id", "researcher_gpg", "affected_component", "affected_endpoint", "severity", "summary", "steps_to_reproduce", "impact", "suggested_fix", "cve_requested", "disclosure_days", "credit_preference", "credit_handle", "coordinated_disclosure_agreement", "captcha"}
 	}
-	return names
+	return []string{"form_token", "website", "step", "review_token", "confirmed", "name", "email", "subject", "message", "type", "reported_url", "reason", "copyrighted_work", "good_faith", "accuracy", "signature", "request_kind", "captcha"}
 }
 
 // ContactFormDefinition returns the request-specific public form metadata used
@@ -1571,10 +1571,7 @@ func (h *PagesHandler) ContactFormDefinition(r *http.Request) ContactFormRespons
 	provider, question, challenge := h.newContactCaptcha(r, time.Now())
 	form := buildContactFormResponse()
 	form.FormToken = h.newContactFormToken(time.Now())
-	form.Captcha = ContactCaptcha{Provider: provider, Challenge: challenge, Question: question}
-	if provider != "simple" && h.Config != nil {
-		form.Captcha.SiteKey = h.Config.Pages.Contact.CaptchaSiteKey
-	}
+	form.Captcha = h.contactCaptchaDescriptor(provider, question, challenge)
 	form.SecurityURL = netutil.BuildURL(r, h.Trust, "/server/security")
 	form.AbuseEmail = data.AbuseEmail
 	form.Types = append([]string(nil), form.Types...)
@@ -1639,6 +1636,8 @@ func contactFieldsForNames(names []string) []ContactField {
 			field.RequiredWhen = &ContactFieldCondition{Field: "type", Equals: "dmca"}
 		case "request_kind":
 			field.RequiredWhen = &ContactFieldCondition{Field: "type", Equals: "privacy"}
+		case "credit_handle":
+			field.RequiredWhen = &ContactFieldCondition{Field: "credit_preference", Equals: "handle"}
 		case "researcher_gpg":
 			field.MaxLengthWhen = []ContactFieldMaxLengthCondition{{Prefix: "https://", MaxLength: 2048}}
 		}
@@ -1652,7 +1651,7 @@ func contactFieldMaxLength(name string) *int {
 	switch name {
 	case "name":
 		limit = 100
-	case "handle":
+	case "handle", "credit_handle":
 		limit = 100
 	case "email":
 		limit = 254
@@ -1695,7 +1694,7 @@ func contactFieldLengthViolation(req ContactRequest, securityMode bool) *contact
 	}
 	if securityMode {
 		fields = append(fields,
-			struct{ name, value string }{"handle", req.Handle},
+			struct{ name, value string }{"credit_handle", req.Handle},
 			struct{ name, value string }{"researcher_gpg", req.ResearcherGPG},
 			struct{ name, value string }{"affected_component", req.AffectedComponent},
 			struct{ name, value string }{"affected_endpoint", req.AffectedEndpoint},
@@ -1729,7 +1728,7 @@ type ContactRequest struct {
 	Website              string `json:"website,omitempty"`
 	FormToken            string `json:"form_token"`
 	Name                 string `json:"name"`
-	Handle               string `json:"handle,omitempty"`
+	Handle               string `json:"credit_handle,omitempty"`
 	Email                string `json:"email"`
 	Subject              string `json:"subject"`
 	Message              string `json:"message"`
@@ -1757,8 +1756,9 @@ type ContactRequest struct {
 	DisclosureDays       string `json:"disclosure_days,omitempty"`
 	CreditPreference     string `json:"credit_preference,omitempty"`
 	CoordinatedAgreement bool   `json:"coordinated_disclosure_agreement,omitempty"`
-	Captcha              string `json:"captcha,omitempty"`
-	CaptchaToken         string `json:"captcha_token,omitempty"`
+	CaptchaAnswer        string `json:"captcha_answer,omitempty"`
+	CaptchaID            string `json:"captcha_id,omitempty"`
+	CaptchaResponse      string `json:"captcha_response,omitempty"`
 }
 
 // ContactResponse for JSON API
@@ -1829,12 +1829,16 @@ func (h *PagesHandler) APIV1ServerContactHandler(w http.ResponseWriter, r *http.
 	req.SuggestedFix = strings.TrimSpace(req.SuggestedFix)
 	req.DisclosureDays = strings.TrimSpace(req.DisclosureDays)
 	req.CreditPreference = strings.TrimSpace(req.CreditPreference)
-	req.Captcha = strings.TrimSpace(req.Captcha)
-	req.CaptchaToken = strings.TrimSpace(req.CaptchaToken)
+	req.CaptchaAnswer = strings.TrimSpace(req.CaptchaAnswer)
+	req.CaptchaID = strings.TrimSpace(req.CaptchaID)
+	req.CaptchaResponse = strings.TrimSpace(req.CaptchaResponse)
 	securityMode := false
 	if req.SecurityID != "" && h.DB != nil {
 		valid, err := h.validSecurityID(req.SecurityID)
 		securityMode = err == nil && valid
+		if securityMode && req.Type == "" {
+			req.Type = "security"
+		}
 		if (err != nil || !valid) && h.SecurityLogger != nil {
 			h.logInvalidSecurityID(r, req.SecurityID)
 		}
@@ -1862,7 +1866,7 @@ func (h *PagesHandler) APIV1ServerContactHandler(w http.ResponseWriter, r *http.
 			ReviewToken:         result.ReviewToken,
 			FormToken:           result.FormToken,
 			ConfirmAfterSeconds: result.ConfirmAfterSeconds,
-			Captcha:             ContactCaptcha{Provider: result.CaptchaProvider, Challenge: result.CaptchaToken, Question: result.CaptchaQuestion},
+			Captcha:             h.contactCaptchaDescriptor(result.CaptchaProvider, result.CaptchaQuestion, result.CaptchaToken),
 		}, nil)
 		return
 	}
@@ -1889,7 +1893,7 @@ func (h *PagesHandler) APIV1ServerContactHandler(w http.ResponseWriter, r *http.
 	}
 	details := map[string]any{
 		"form_token": result.FormToken,
-		"captcha":    ContactCaptcha{Provider: result.CaptchaProvider, Challenge: result.CaptchaToken, Question: result.CaptchaQuestion},
+		"captcha":    h.contactCaptchaDescriptor(result.CaptchaProvider, result.CaptchaQuestion, result.CaptchaToken),
 	}
 	message := result.Message
 	if message == "" {
@@ -1916,8 +1920,10 @@ type contactAPIReviewResponse struct {
 }
 
 func validStandardContactRequest(req ContactRequest) bool {
-	if strings.TrimSpace(req.Name) == "" || strings.TrimSpace(req.Email) == "" ||
-		strings.TrimSpace(req.Subject) == "" || strings.TrimSpace(req.Message) == "" {
+	if strings.TrimSpace(req.Name) == "" || strings.TrimSpace(req.Email) == "" {
+		return false
+	}
+	if req.Type != "security" && (strings.TrimSpace(req.Subject) == "" || strings.TrimSpace(req.Message) == "") {
 		return false
 	}
 	_, err := mail.ParseAddress(req.Email)
@@ -1947,15 +1953,30 @@ func newSimpleCaptcha(parent context.Context, db *sql.DB, now time.Time) (string
 	if db == nil {
 		return "", "", fmt.Errorf("captcha secret database unavailable")
 	}
-	first, err := cryptorand.Int(cryptorand.Reader, big.NewInt(9))
+	first, err := cryptorand.Int(cryptorand.Reader, big.NewInt(20))
 	if err != nil {
 		return "", "", err
 	}
-	second, err := cryptorand.Int(cryptorand.Reader, big.NewInt(9))
+	second, err := cryptorand.Int(cryptorand.Reader, big.NewInt(20))
 	if err != nil {
 		return "", "", err
 	}
-	tokenBytes := make([]byte, 32)
+	first.Add(first, big.NewInt(1))
+	second.Add(second, big.NewInt(1))
+	operator, err := cryptorand.Int(cryptorand.Reader, big.NewInt(2))
+	if err != nil {
+		return "", "", err
+	}
+	translationKey := "contact.captcha_addition"
+	answerValue := new(big.Int).Add(first, second)
+	if operator.Int64() == 1 {
+		translationKey = "contact.captcha_subtraction"
+		if first.Cmp(second) < 0 {
+			first, second = second, first
+		}
+		answerValue.Sub(first, second)
+	}
+	tokenBytes := make([]byte, 24)
 	if _, err := cryptorand.Read(tokenBytes); err != nil {
 		return "", "", err
 	}
@@ -1964,42 +1985,43 @@ func newSimpleCaptcha(parent context.Context, db *sql.DB, now time.Time) (string
 	if err != nil {
 		return "", "", err
 	}
-	answer := fmt.Sprint(first.Int64() + second.Int64())
+	answer := answerValue.String()
 	answerHash := simpleCaptchaAnswerHash(secret, answer)
-	tokenHash := sha256.Sum256([]byte(token))
 	cleanupCtx, cancelCleanup := context.WithTimeout(parent, 10*time.Second)
-	_, err = db.ExecContext(cleanupCtx, `DELETE FROM contact_captcha_challenges WHERE expires_at <= ? OR used_at IS NOT NULL`, now.Unix())
+	_, err = db.ExecContext(cleanupCtx, `DELETE FROM captcha_challenges WHERE expires_at <= ?`, now.Unix())
 	cancelCleanup()
 	if err != nil {
 		return "", "", err
 	}
 	writeCtx, cancelWrite := context.WithTimeout(parent, 10*time.Second)
 	defer cancelWrite()
-	if _, err := db.ExecContext(writeCtx, `INSERT INTO contact_captcha_challenges (token_hash, answer_hash, created_at, expires_at)
-VALUES (?, ?, ?, ?)`, hex.EncodeToString(tokenHash[:]), hex.EncodeToString(answerHash), now.Unix(), now.Add(10*time.Minute).Unix()); err != nil {
+	if _, err := db.ExecContext(writeCtx, `INSERT INTO captcha_challenges (id, answer_hash, expires_at)
+VALUES (?, ?, ?)`, token, hex.EncodeToString(answerHash), now.Add(10*time.Minute).Unix()); err != nil {
 		return "", "", err
 	}
-	return fmt.Sprintf("What is %d + %d?", first.Int64(), second.Int64()), token, nil
+	return i18n.TranslateFormat(i18n.LangFromContext(parent), translationKey,
+		"first", fmt.Sprintf("%d", first.Int64()),
+		"second", fmt.Sprintf("%d", second.Int64())), token, nil
 }
 
 func verifySimpleCaptcha(parent context.Context, db *sql.DB, token, answer string, now time.Time) bool {
 	if db == nil || token == "" || strings.TrimSpace(answer) == "" {
 		return false
 	}
-	if _, err := base64.RawURLEncoding.DecodeString(token); err != nil {
+	decodedID, err := base64.RawURLEncoding.DecodeString(token)
+	if err != nil || len(decodedID) != 24 || len(token) != 32 {
 		return false
 	}
 	secret, err := security.GetOrCreateSecret(db, security.SecretCSRFTokenSecret)
 	if err != nil {
 		return false
 	}
-	tokenHash := sha256.Sum256([]byte(token))
 	var storedHash string
 	writeCtx, cancel := context.WithTimeout(parent, 10*time.Second)
 	defer cancel()
-	err = db.QueryRowContext(writeCtx, `UPDATE contact_captcha_challenges SET used_at = ?
-WHERE token_hash = ? AND used_at IS NULL AND expires_at > ?
-RETURNING answer_hash`, now.Unix(), hex.EncodeToString(tokenHash[:]), now.Unix()).Scan(&storedHash)
+	err = db.QueryRowContext(writeCtx, `DELETE FROM captcha_challenges
+WHERE id = ? AND expires_at > ?
+RETURNING answer_hash`, token, now.Unix()).Scan(&storedHash)
 	if err != nil {
 		return false
 	}
@@ -2020,6 +2042,9 @@ func (h *PagesHandler) configuredContactCaptchaProvider() string {
 	provider := strings.ToLower(strings.TrimSpace(h.Config.Pages.Contact.Captcha))
 	switch provider {
 	case "recaptcha", "hcaptcha":
+		if strings.TrimSpace(h.Config.Pages.Contact.CaptchaSiteKey) == "" || strings.TrimSpace(h.Config.Pages.Contact.CaptchaSecretKey) == "" {
+			return "simple"
+		}
 		return provider
 	default:
 		return "simple"
@@ -2037,25 +2062,36 @@ var errCaptchaProviderUnavailable = errors.New("captcha provider unavailable")
 
 func (h *PagesHandler) newContactCaptcha(r *http.Request, now time.Time) (string, string, string) {
 	provider := h.contactCaptchaProvider(r)
-	if provider != "simple" {
-		return provider, "", ""
-	}
 	question, token, _ := newSimpleCaptcha(r.Context(), h.DB, now)
 	return provider, question, token
 }
 
-func (h *PagesHandler) verifyContactCaptcha(r *http.Request, token, answer string, now time.Time) (bool, error) {
-	provider := h.contactCaptchaProvider(r)
+func (h *PagesHandler) contactCaptchaDescriptor(provider, question, token string) ContactCaptcha {
+	descriptor := ContactCaptcha{Provider: provider}
 	if provider == "simple" {
-		return verifySimpleCaptcha(r.Context(), h.DB, token, answer, now), nil
+		descriptor.CaptchaID = token
+		descriptor.Question = question
+		return descriptor
 	}
-	if h.Config == nil || strings.TrimSpace(answer) == "" {
+	if h.Config != nil {
+		descriptor.SiteKey = h.Config.Pages.Contact.CaptchaSiteKey
+	}
+	descriptor.Fallback = &ContactCaptcha{Provider: "simple", CaptchaID: token, Question: question}
+	return descriptor
+}
+
+func (h *PagesHandler) verifyContactCaptcha(r *http.Request, captchaID, answer, responseToken string, now time.Time) (bool, error) {
+	provider := h.contactCaptchaProvider(r)
+	if responseToken == "" {
+		return verifySimpleCaptcha(r.Context(), h.DB, captchaID, answer, now), nil
+	}
+	if provider == "simple" || h.Config == nil {
 		return false, nil
 	}
 	endpoint := ""
 	values := url.Values{}
 	values.Set("secret", h.Config.Pages.Contact.CaptchaSecretKey)
-	values.Set("response", strings.TrimSpace(answer))
+	values.Set("response", strings.TrimSpace(responseToken))
 	switch provider {
 	case "recaptcha":
 		endpoint = "https://www.google.com/recaptcha/api/siteverify"
@@ -3155,10 +3191,10 @@ type OwnerTokensPageData struct {
 	HasOwner      bool
 	PrimaryMasked string
 	RevealToken   string
-	RevealTokenID int64
+	RevealTokenID string
 	NewToken      string
-	NewTokenID    int64
-	ActionTokenID int64
+	NewTokenID    string
+	ActionTokenID string
 	LinkedTokens  []OwnerLinkedTokenView
 	TokenAction   string
 }
@@ -3168,10 +3204,10 @@ func (h *PagesHandler) ServerPreferencesTokensHandler(w http.ResponseWriter, r *
 	flash := h.consumeOwnerTokenFlash(w, r)
 	if flash.Token != "" {
 		if flash.Action == "revealed" {
-			h.renderOwnerTokensPageState(w, r, flash.Token, "", flash.Action, flash.ID, 0, flash.ID)
+			h.renderOwnerTokensPageState(w, r, flash.Token, "", flash.Action, flash.ID, "", flash.ID)
 			return
 		}
-		h.renderOwnerTokensPageState(w, r, "", flash.Token, flash.Action, 0, flash.ID, flash.ID)
+		h.renderOwnerTokensPageState(w, r, "", flash.Token, flash.Action, "", flash.ID, flash.ID)
 		return
 	}
 	h.renderOwnerTokensPage(w, r, "", "", "")

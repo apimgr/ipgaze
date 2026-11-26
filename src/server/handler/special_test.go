@@ -208,77 +208,6 @@ func TestManifestHandler(t *testing.T) {
 	}
 }
 
-func TestOfflineHandler_DefaultEnglish(t *testing.T) {
-	h := NewSpecialHandler("")
-	req := httptest.NewRequest(http.MethodGet, "/offline.html", nil)
-	w := httptest.NewRecorder()
-
-	h.OfflineHandler(w, req)
-
-	res := w.Result()
-	if res.StatusCode != http.StatusOK {
-		t.Errorf("StatusCode = %d, want %d", res.StatusCode, http.StatusOK)
-	}
-	body := w.Body.String()
-	if !strings.Contains(body, `lang="en" dir="ltr"`) {
-		t.Errorf("offline page missing lang/dir attrs: %q", body)
-	}
-	if !strings.Contains(body, "You are offline") {
-		t.Errorf("offline page missing translated title: %q", body)
-	}
-	if !strings.Contains(body, "Try again") {
-		t.Errorf("offline page missing translated button: %q", body)
-	}
-}
-
-func TestOfflineHandler_TranslatesViaLangCookie(t *testing.T) {
-	h := NewSpecialHandler("")
-	req := httptest.NewRequest(http.MethodGet, "/offline.html", nil)
-	req.AddCookie(&http.Cookie{Name: "lang", Value: "fr"})
-	w := httptest.NewRecorder()
-
-	h.OfflineHandler(w, req)
-
-	body := w.Body.String()
-	if !strings.Contains(body, `lang="fr" dir="ltr"`) {
-		t.Errorf("offline page missing lang=fr attr: %q", body)
-	}
-	if !strings.Contains(body, "Vous êtes hors ligne") {
-		t.Errorf("offline page missing French translation: %q", body)
-	}
-}
-
-func TestOfflineHandler_UsesThemeCookie(t *testing.T) {
-	h := NewSpecialHandler("")
-	req := httptest.NewRequest(http.MethodGet, "/offline.html", nil)
-	req.AddCookie(&http.Cookie{Name: "theme", Value: "dark"})
-	w := httptest.NewRecorder()
-
-	h.OfflineHandler(w, req)
-
-	body := w.Body.String()
-	if !strings.Contains(body, `class="theme-dark"`) {
-		t.Errorf("offline page did not apply the saved dark theme: %q", body)
-	}
-	if !strings.Contains(body, `name="theme" value="light"`) {
-		t.Errorf("offline page theme toggle does not advance from dark to light: %q", body)
-	}
-}
-
-func TestOfflineHandler_RTLDirection(t *testing.T) {
-	h := NewSpecialHandler("")
-	req := httptest.NewRequest(http.MethodGet, "/offline.html", nil)
-	req.AddCookie(&http.Cookie{Name: "lang", Value: "ar"})
-	w := httptest.NewRecorder()
-
-	h.OfflineHandler(w, req)
-
-	body := w.Body.String()
-	if !strings.Contains(body, `lang="ar" dir="rtl"`) {
-		t.Errorf("offline page missing lang=ar dir=rtl attrs: %q", body)
-	}
-}
-
 func TestServiceWorkerHandler(t *testing.T) {
 	h := NewSpecialHandler("")
 	req := httptest.NewRequest(http.MethodGet, "/sw.js", nil)
@@ -303,9 +232,8 @@ func TestServiceWorkerHandler(t *testing.T) {
 	}
 }
 
-// The emitted worker must obey AI.md PART 16's service-worker rules: only
-// same-origin GET is intercepted, /offline.html is actually precached (not
-// filtered back out), and a SKIP_WAITING message activates a waiting worker.
+// The emitted worker keeps navigation caches limited to explicitly public pages
+// and always synthesizes a translated offline response when no public copy exists.
 func TestServiceWorkerHandler_SpecContract(t *testing.T) {
 	h := NewSpecialHandler("")
 	req := httptest.NewRequest(http.MethodGet, "/sw.js", nil)
@@ -321,48 +249,23 @@ func TestServiceWorkerHandler_SpecContract(t *testing.T) {
 		"event.data.type === 'SKIP_WAITING'",
 		"self.skipWaiting()",
 		"cache.addAll(PRECACHE_ASSETS)",
-		"'/offline.html'",
+		"response.headers.get('X-Offline-Cache') === 'public'",
+		"return cache.delete(event.request)",
+		"const STRINGS_CACHE = 'ipgaze-offline-strings'",
+		"cache.match('/offline-strings.json')",
+		"function offlineFallbackResponse()",
+		"new Response(",
 	}
 	for _, want := range required {
 		if !strings.Contains(body, want) {
 			t.Errorf("service worker missing %q", want)
 		}
 	}
-	if strings.Contains(body, "PRECACHE_ASSETS.filter") {
-		t.Error("service worker filters /offline.html back out of the precache list")
+	if strings.Contains(body, "/offline.html") {
+		t.Error("service worker depends on a static offline page")
 	}
-}
-
-// The offline page must render without JavaScript: the CSP blocks inline
-// event handlers, so the retry control has to be a plain link (AI.md PART 16).
-func TestOfflineHandler_NoInlineHandlers(t *testing.T) {
-	h := NewSpecialHandler("")
-	req := httptest.NewRequest(http.MethodGet, "/offline.html", nil)
-	w := httptest.NewRecorder()
-
-	h.OfflineHandler(w, req)
-	body := w.Body.String()
-
-	if strings.Contains(body, "onclick") {
-		t.Errorf("offline page contains an inline onclick handler: %q", body)
-	}
-	if strings.Contains(body, "<script") {
-		t.Errorf("offline page contains a script block: %q", body)
-	}
-	if !strings.Contains(body, `<a class="btn btn-primary" href="/">`) {
-		t.Errorf("offline page missing no-JS retry link: %q", body)
-	}
-	if strings.Contains(body, `<style`) || strings.Contains(body, ` style=`) {
-		t.Errorf("offline page contains inline CSS: %q", body)
-	}
-	if strings.Count(body, `<main `) != 1 || strings.Count(body, `<h1>`) != 1 {
-		t.Errorf("offline page must contain exactly one main and one h1: %q", body)
-	}
-	if strings.Count(body, `class="skip-link"`) != 2 || !strings.Contains(body, `<header id="navigation" class="header" role="banner">`) {
-		t.Errorf("offline page is missing the shared skip links or header: %q", body)
-	}
-	if !strings.Contains(body, `name="csrf_token"`) || !strings.Contains(body, `id="nav-panel"`) {
-		t.Errorf("offline page is missing the CSRF-protected theme form or navigation drawer: %q", body)
+	if !strings.Contains(body, "if (response.ok && !response.redirected && response.headers.get('X-Offline-Cache') === 'public')") {
+		t.Error("service worker navigation cache is not restricted to successful public responses")
 	}
 }
 

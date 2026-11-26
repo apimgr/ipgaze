@@ -188,18 +188,20 @@
     "abuse_reports_body": "不正なコンテンツやポリシー違反を報告するには、このお問い合わせフォームをご利用ください。",
     "abuse_reports_body_email": "不正なコンテンツやポリシー違反を報告するには、このお問い合わせフォームをご利用いただくか、{email} までメールでご連絡ください。",
     "github": "GitHub",
-    "form_heading": "メッセージを送信",
+    "form_heading": "報告の詳細",
     "report_received": "セキュリティ報告を受け付けました",
     "report_received_body": "報告を受け付けました。状況確認リンクと確認メールをご確認ください。",
     "submit_error": "フォームを送信できませんでした。必須項目と CAPTCHA を確認して、もう一度お試しください。",
     "tracking_id": "追跡 ID",
     "security_report_intro": "IPGaze 公式サービスのセキュリティ報告を送信してください。他人の認証情報やデータは含めないでください。",
     "captcha": "CAPTCHA",
+    "captcha_addition": "{first} + {second} はいくつですか？",
+    "captcha_subtraction": "{first} - {second} はいくつですか？",
     "report_details": "セキュリティ報告の詳細",
     "researcher_key": "報告者の GPG 公開鍵または HTTPS 鍵 URL（任意）",
     "affected_component": "影響を受けるコンポーネント",
     "affected_endpoint": "影響を受けるエンドポイントまたは URL（任意）",
-    "severity": "深刻度",
+    "severity": "深刻度（研究者による自己評価）",
     "severity_critical": "重大",
     "severity_high": "高",
     "severity_medium": "中",
@@ -216,8 +218,54 @@
     "credit_handle": "ハンドル名で記載する",
     "credit_no": "記載しない",
     "credit_anonymous": "匿名で記載する",
-    "researcher_handle": "公開時のハンドル名（ハンドル名での記載を選ぶ場合は必須）",
-    "coordinated_disclosure_agreement": "協調的な情報公開に同意します。"
+    "researcher_handle": "クレジット表記名",
+    "coordinated_disclosure_agreement": "協調的な情報公開に同意します。",
+    "purpose": "このフォームは、セキュリティ報告、本サイト上のURLに関する利用規約違反、DMCA通知、プライバシーに関する要求専用です。サポート、バグ報告、機能リクエスト、一般的な質問には使用できません。",
+    "thanks_title": "報告を受け付けました",
+    "thanks_body": "ありがとうございます。報告を受け付けました。",
+    "review_title": "報告内容を確認",
+    "type_label": "種類",
+    "review_confirm": "このメールアドレスは正しく、これは広告、勧誘、迷惑メールではない正当な報告です。",
+    "confirm_report": "報告を確認",
+    "edit_report": "報告を編集",
+    "honeypot": "この欄は空欄のままにしてください",
+    "reported_url": "報告対象のURL",
+    "reported_url_help": "本サイト上のページ（例：https://{host}/...）",
+    "required": "必須",
+    "optional": "任意",
+    "reason": "理由",
+    "choose_reason": "理由を選択",
+    "reason_illegal_content": "違法コンテンツ",
+    "reason_terms_violation": "利用規約違反",
+    "reason_harassment": "嫌がらせ",
+    "reason_malware_phishing": "マルウェアまたはフィッシング",
+    "other": "その他",
+    "copyrighted_work": "著作物",
+    "good_faith_statement": "善意に基づく申告",
+    "good_faith_text": "この利用は著作権者、その代理人、または法律によって許可されていないと誠実に信じています",
+    "accuracy_statement": "正確性の申告",
+    "accuracy_text": "情報は正確であり、偽証罪の対象となることを理解した上で、私は権利者または権利者の代理人です",
+    "signature": "署名",
+    "request_kind": "要求の種類",
+    "choose_request": "要求を選択",
+    "request_access": "アクセス",
+    "request_export": "エクスポート",
+    "request_deletion": "削除",
+    "request_correction": "訂正",
+    "request_opt_out": "オプトアウト",
+    "review_report": "報告を確認",
+    "choose_type": "報告の種類を選択",
+    "action_abuse": "不正行為を報告",
+    "action_dmca": "DMCA通知を送信",
+    "action_privacy": "プライバシー要求を送信",
+    "action_security": "セキュリティ脆弱性を報告",
+    "security_pointer_pre": "セキュリティ脆弱性を報告するには",
+    "security_pointer_link": "セキュリティページ",
+    "type_abuse": "不正行為の報告",
+    "type_dmca": "DMCA通知",
+    "type_privacy": "プライバシー要求",
+    "type_security": "セキュリティ報告",
+    "credit_handle_help": "クレジット設定で「ハンドル名でクレジット」を選んだ場合に必須です。"
   },
   "help": {
     "more_heading": "その他のヘルプ",
@@ -408,7 +456,9 @@
     "api_heading": "API",
     "api_description_pre": "APIは次の場所で利用できます：",
     "api_description_post": "完全なドキュメントは次の場所で利用できます：",
-    "attribution_heading": "クレジット表記"
+    "attribution_heading": "クレジット表記",
+    "dbip_attribution": "DB-IP による IP ジオロケーション",
+    "nro_attribution": "国および ASN のデータは Number Resource Organization (NRO) により CC BY 4.0 でライセンスされています。"
   },
   "preferences": {
     "title": "Preferences",
@@ -544,7 +594,8 @@
     "rate_limited": "リクエストが多すぎます",
     "server_error": "内部サーバーエラー",
     "maintenance_mode": "サービスは利用できません",
-    "request_id_label": "リクエストID"
+    "request_id_label": "リクエストID",
+    "details": "エラーの詳細"
   },
   "plurals": {
     "items": {
@@ -755,6 +806,8 @@
     "heading": "私のIPアドレスは？",
     "subtitle": "自分のIPアドレスとその情報を調べるための最適なツールです。",
     "ip_info_aria": "IP情報",
+    "column_field": "項目",
+    "column_value": "値",
     "ip_details_heading": "IP詳細",
     "field_postal_code": "郵便番号",
     "api_usage_aria": "API使用方法",
@@ -1089,7 +1142,7 @@
       "port_path": "確認するポート番号 (1-65535)",
       "ipgaze_pref_widget_query": "既定の検索例: ip、country、country-iso、city、asn、json、port",
       "theme_query": "適用するテーマ: dark、light、auto",
-      "token_id": "リンク済み所有者トークンの数値 ID"
+      "token_id": "リンク済み所有者トークンの不透明な UUID"
     },
     "paths": {
       "announcements_dismiss": {
@@ -1489,7 +1542,10 @@
       "well_known": "Well-Known"
     },
     "ui": {
-      "title": "IPGaze API - Swagger UI"
+      "title": "IPGaze API - Swagger UI",
+      "lead": "REST API を確認して試せます。",
+      "javascript_required": "インタラクティブなエクスプローラーには JavaScript が必要です。OpenAPI ドキュメントをご覧ください:",
+      "openapi_json": "OpenAPI JSON"
     }
   },
   "graphql": {
@@ -1643,7 +1699,10 @@
       "response": "レスポンス",
       "run": "実行",
       "title": "IPGaze GraphQLエクスプローラー",
-      "variables": "変数 (JSON)"
+      "variables": "変数 (JSON)",
+      "lead": "GraphQL API にクエリを実行できます。",
+      "javascript_required": "インタラクティブなエクスプローラーには JavaScript が必要です。GraphQL エンドポイントをご利用ください:",
+      "endpoint_link": "GraphQL エンドポイント"
     }
   },
   "version": {

@@ -1,6 +1,8 @@
 package geoip
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -9,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -24,20 +27,11 @@ const (
 )
 
 // Download sources per AI.md PART 19 "Database Sources (ip-location-db)".
-// ASN and Country come from the jsDelivr npm distribution of
-// sapics/ip-location-db; City comes from the project's GitHub Releases,
-// because jsDelivr's npm CDN caps files at 50 MB and the city databases
-// exceed that.
-//
-// All three are licensed CC BY 4.0 (ASN and Country via the NRO, City via
-// DB-IP), so both attribution notices are mandatory wherever GeoIP-derived
-// data is displayed — see index.geoip_attribution_* in the locale files and
-// the third-party section of LICENSE.md.
 const (
-	jsdelivrBaseURL    = "https://cdn.jsdelivr.net/npm/@ip-location-db/"
 	geoReleaseBaseURL  = "https://github.com/sapics/ip-location-db/releases/download/latest/"
-	asnDownloadURL     = jsdelivrBaseURL + "asn-mmdb/asn.mmdb"
-	countryDownloadURL = jsdelivrBaseURL + "geo-whois-asn-country-mmdb/geo-whois-asn-country.mmdb"
+	geoChecksumBaseURL = "https://github.com/sapics/ip-location-db/releases/download/checksum/"
+	asnDownloadURL     = geoReleaseBaseURL + "iptoasn-asn.mmdb"
+	countryDownloadURL = geoReleaseBaseURL + "iptoasn-country.mmdb"
 	cityV4DownloadURL  = geoReleaseBaseURL + "dbip-city-ipv4.mmdb"
 	cityV6DownloadURL  = geoReleaseBaseURL + "dbip-city-ipv6.mmdb"
 )
@@ -75,7 +69,7 @@ type GeoIPManager struct {
 
 // NewGeoIPManager creates a new GeoIP manager.
 // Per AI.md PART 19: databases stored at {data_dir}/security/geoip/ as
-// asn.mmdb, country.mmdb, dbip-city-ipv4.mmdb, dbip-city-ipv6.mmdb
+// iptoasn-asn.mmdb, iptoasn-country.mmdb, dbip-city-ipv4.mmdb, dbip-city-ipv6.mmdb
 // (download sources — see the const block doc comment above).
 // No whois.mmdb file is downloaded; whois is computed from the ASN +
 // Country readers per AI.md PART 19's own text.
@@ -83,8 +77,8 @@ func NewGeoIPManager(dataDir string) *GeoIPManager {
 	geoipDir := filepath.Join(dataDir, "security", "geoip")
 	m := &GeoIPManager{
 		dataDir:        geoipDir,
-		asnFile:        filepath.Join(geoipDir, "asn.mmdb"),
-		countryFile:    filepath.Join(geoipDir, "country.mmdb"),
+		asnFile:        filepath.Join(geoipDir, "iptoasn-asn.mmdb"),
+		countryFile:    filepath.Join(geoipDir, "iptoasn-country.mmdb"),
 		cityV4File:     filepath.Join(geoipDir, "dbip-city-ipv4.mmdb"),
 		cityV6File:     filepath.Join(geoipDir, "dbip-city-ipv6.mmdb"),
 		updateInterval: updateInterval,
@@ -303,22 +297,23 @@ func (m *GeoIPManager) refreshLiveReader() {
 func (m *GeoIPManager) DownloadDatabases() error {
 	type dbSpec struct {
 		url      string
+		checksum string
 		filepath string
 	}
 	specs := []struct {
 		name string
 		dbSpec
 	}{
-		{"asn", dbSpec{asnDownloadURL, m.asnFile}},
-		{"country", dbSpec{countryDownloadURL, m.countryFile}},
-		{"city-ipv4", dbSpec{cityV4DownloadURL, m.cityV4File}},
-		{"city-ipv6", dbSpec{cityV6DownloadURL, m.cityV6File}},
+		{"asn", dbSpec{asnDownloadURL, geoChecksumBaseURL + "iptoasn-asn.mmdb.sha256", m.asnFile}},
+		{"country", dbSpec{countryDownloadURL, geoChecksumBaseURL + "iptoasn-country.mmdb.sha256", m.countryFile}},
+		{"city-ipv4", dbSpec{cityV4DownloadURL, geoChecksumBaseURL + "dbip-city-ipv4.mmdb.sha256", m.cityV4File}},
+		{"city-ipv6", dbSpec{cityV6DownloadURL, geoChecksumBaseURL + "dbip-city-ipv6.mmdb.sha256", m.cityV6File}},
 	}
 
 	var errs []error
 	for _, s := range specs {
 		log.Printf("  Downloading %s.mmdb...", s.name)
-		if err := m.downloadFile(s.url, s.filepath); err != nil {
+		if err := m.downloadVerifiedFile(s.url, s.checksum, s.filepath); err != nil {
 			log.Printf("  Download %s.mmdb failed: %v (continuing with remaining databases)", s.name, err)
 			errs = append(errs, fmt.Errorf("download %s: %w", s.name, err))
 			continue
@@ -329,6 +324,67 @@ func (m *GeoIPManager) DownloadDatabases() error {
 		return fmt.Errorf("all GeoIP database downloads failed: %w", errs[0])
 	}
 	return nil
+}
+
+// downloadVerifiedFile downloads a database and its published SHA-256 before
+// atomically replacing the current file.
+func (m *GeoIPManager) downloadVerifiedFile(url, checksumURL, localPath string) error {
+	checksum, err := downloadChecksum(checksumURL)
+	if err != nil {
+		return fmt.Errorf("download checksum: %w", err)
+	}
+	client := tor.NewHTTPClient(5 * time.Minute)
+	resp, err := client.Get(url)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("HTTP %d: %s", resp.StatusCode, resp.Status)
+	}
+	tmpPath := localPath + ".tmp"
+	out, err := os.Create(tmpPath)
+	if err != nil {
+		return err
+	}
+	hasher := sha256.New()
+	if _, err := io.Copy(io.MultiWriter(out, hasher), resp.Body); err != nil {
+		return errors.Join(err, out.Close(), os.Remove(tmpPath))
+	}
+	if err := out.Close(); err != nil {
+		return errors.Join(err, os.Remove(tmpPath))
+	}
+	if !strings.EqualFold(hex.EncodeToString(hasher.Sum(nil)), checksum) {
+		return errors.Join(errors.New("SHA-256 checksum mismatch"), os.Remove(tmpPath))
+	}
+	if err := os.Rename(tmpPath, localPath); err != nil {
+		return errors.Join(err, os.Remove(tmpPath))
+	}
+	return nil
+}
+
+func downloadChecksum(url string) (string, error) {
+	client := tor.NewHTTPClient(30 * time.Second)
+	resp, err := client.Get(url)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("HTTP %d: %s", resp.StatusCode, resp.Status)
+	}
+	data, err := io.ReadAll(io.LimitReader(resp.Body, 4097))
+	if err != nil {
+		return "", err
+	}
+	fields := strings.Fields(string(data))
+	if len(fields) == 0 || len(fields[0]) != sha256.Size*2 {
+		return "", errors.New("invalid SHA-256 checksum response")
+	}
+	if _, err := hex.DecodeString(fields[0]); err != nil {
+		return "", errors.New("invalid SHA-256 checksum response")
+	}
+	return fields[0], nil
 }
 
 // downloadFile downloads a file from URL to local path

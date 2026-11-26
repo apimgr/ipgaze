@@ -58,7 +58,7 @@
   <section class="section-card" id="linked-token-list" aria-labelledby="linked-tokens">
     <h2 id="linked-tokens">{{t .Lang "preferences.tokens_linked_heading"}} ({{len .LinkedTokens}})</h2>
     {{range .LinkedTokens}}
-    <article class="section-card" id="token-{{.ID}}" aria-labelledby="token-name-{{.ID}}">
+    <article id="token-{{.ID}}" aria-labelledby="token-name-{{.ID}}">
       <h3 id="token-name-{{.ID}}">{{.Name}}</h3>
       <p><span class="badge">{{t $.Lang (printf "preferences.tokens_status_%s" .Status)}}</span></p>
       {{if eq $.RevealTokenID .ID}}

@@ -1,12 +1,12 @@
 #!/bin/bash
 # ipgaze backup script
 
-set -e
+set -euo pipefail
+umask 077
 
 PROJECTNAME="ipgaze"
 DATA_DIR="/var/lib/ipgaze"
 CONFIG_DIR="/etc/ipgaze"
-LOG_DIR="/var/log/ipgaze"
 BACKUP_DIR="${BACKUP_DIR:-/var/backups}"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 BACKUP_FILE="$BACKUP_DIR/${PROJECTNAME}_${TIMESTAMP}.tar.gz"
@@ -15,7 +15,7 @@ echo "📦 Backing up ipgaze..."
 
 # Check if running as root
 if [ "$EUID" -ne 0 ]; then
-    echo "❌ Please run as root (use sudo)"
+    echo "ERROR: Please run as root (use sudo)" >&2
     exit 1
 fi
 
@@ -24,12 +24,16 @@ mkdir -p "$BACKUP_DIR"
 
 # Create backup
 echo "📁 Creating backup archive..."
-tar -czf "$BACKUP_FILE" \
+if ! tar -czf "$BACKUP_FILE" \
     -C / \
     --exclude='*.log' \
-    var/lib/ipgaze \
-    etc/ipgaze \
-    2>/dev/null || true
+    "${DATA_DIR#/}" \
+    "${CONFIG_DIR#/}" \
+    2>/dev/null; then
+    echo "ERROR: Backup archive creation failed" >&2
+    rm -f -- "$BACKUP_FILE"
+    exit 1
+fi
 
 # Check if backup was created
 if [ -f "$BACKUP_FILE" ]; then
@@ -38,11 +42,14 @@ if [ -f "$BACKUP_FILE" ]; then
 
     # Keep only last 7 backups
     echo "🧹 Cleaning old backups (keeping last 7)..."
-    ls -t "$BACKUP_DIR/${PROJECTNAME}"_*.tar.gz | tail -n +8 | xargs -r rm -f
+    mapfile -d '' -t backups < <(find "$BACKUP_DIR" -mindepth 1 -maxdepth 1 -type f -name "${PROJECTNAME}_*.tar.gz" -printf '%T@ %f\0' | sort -zrn)
+    for ((index = 7; index < ${#backups[@]}; index++)); do
+        rm -f -- "$BACKUP_DIR/${backups[index]#* }"
+    done
 
     echo "✅ Backup complete!"
-    ls -lh "$BACKUP_DIR/${PROJECTNAME}"_*.tar.gz 2>/dev/null || true
+    find "$BACKUP_DIR" -mindepth 1 -maxdepth 1 -type f -name "${PROJECTNAME}_*.tar.gz" -printf '%TY-%Tm-%Td %TH:%TM %s %p\n' | sort -r
 else
-    echo "❌ Backup failed"
+    echo "ERROR: Backup failed" >&2
     exit 1
 fi

@@ -2769,10 +2769,7 @@ func removeSelectedSecretValues(content []byte, removeToken, removeKey bool) ([]
 
 func atomicPrivateWrite(path string, content []byte) error {
 	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return err
-	}
-	if err := os.Chmod(dir, 0o700); err != nil {
+	if err := ensureConfigFileDirectory(dir); err != nil {
 		return err
 	}
 	tmp, err := os.CreateTemp(dir, ".config-secret-*")
@@ -2923,6 +2920,20 @@ func validateConfig(cfg *AppConfig) {
 		}
 	}
 	if cfg.Pages.Contact.Captcha == "" {
+		cfg.Pages.Contact.Captcha = def.Pages.Contact.Captcha
+	}
+	cfg.Pages.Contact.Captcha = strings.ToLower(strings.TrimSpace(cfg.Pages.Contact.Captcha))
+	if err := ValidateContactCaptcha(cfg.Pages.Contact); err != nil {
+		key := "server.pages.contact.captcha"
+		invalid := cfg.Pages.Contact.Captcha
+		if invalid == "recaptcha" || invalid == "hcaptcha" {
+			if strings.TrimSpace(cfg.Pages.Contact.CaptchaSiteKey) == "" {
+				key, invalid = "server.pages.contact.captcha_site_key", "<missing>"
+			} else {
+				key, invalid = "server.pages.contact.captcha_secret_key", "<missing>"
+			}
+		}
+		warnConfigReplaced(key, invalid, def.Pages.Contact.Captcha)
 		cfg.Pages.Contact.Captcha = def.Pages.Contact.Captcha
 	}
 
@@ -3239,9 +3250,6 @@ func reloadConfigFromFile() error {
 // validateOperatorSecurityConfig rejects security-sensitive settings whose
 // invalid values must leave the currently active configuration untouched.
 func validateOperatorSecurityConfig(cfg *AppConfig) error {
-	if err := ValidateContactCaptcha(cfg.Pages.Contact); err != nil {
-		return err
-	}
 	blocked, err := NormalizeBlockedIPs(cfg.Server.Security.BlockedIPs)
 	if err != nil {
 		return err
@@ -3316,11 +3324,8 @@ func saveConfig(cfg *AppConfig, path string) error {
 		return fmt.Errorf("persist connection credentials: %w", err)
 	}
 	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return fmt.Errorf("failed to create config directory: %w", err)
-	}
-	if err := os.Chmod(dir, 0o700); err != nil {
-		return fmt.Errorf("secure config directory: %w", err)
+	if err := ensureConfigDirectory(dir); err != nil {
+		return fmt.Errorf("prepare config directory: %w", err)
 	}
 
 	var original []byte
@@ -3467,7 +3472,7 @@ func saveGeneratedSecrets(cfg *AppConfig, path string, saveToken, saveEncryption
 	if err != nil {
 		return fmt.Errorf("marshal secrets file: %w", err)
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+	if err := ensureConfigDirectory(filepath.Dir(path)); err != nil {
 		return err
 	}
 	tmp, err := os.CreateTemp(filepath.Dir(path), ".secrets.yml-*")

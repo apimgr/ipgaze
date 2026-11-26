@@ -148,13 +148,19 @@ func TestNoJSPreferencesImportFormAppliesThemeAndLanguage(t *testing.T) {
 		chromedp.Navigate(baseURL+"/server/preferences/sync"),
 		chromedp.WaitVisible("#preferences-import-code", chromedp.ByQuery),
 		chromedp.SendKeys("#preferences-import-code", code, chromedp.ByQuery),
-		chromedp.Submit(`form[action="/server/preferences/sync"]`, chromedp.ByQuery),
+	); err != nil {
+		t.Fatalf("preparing the preferences import form without JavaScript: %v", err)
+	}
+	if err := chromedp.Run(ctx, chromedp.Click(`form[action="/server/preferences/sync"] button[type="submit"]`, chromedp.ByQuery)); err != nil && !strings.Contains(err.Error(), "net::ERR_ABORTED") {
+		t.Fatalf("submitting the preferences import form without JavaScript: %v", err)
+	}
+	if err := chromedp.Run(ctx,
 		chromedp.WaitVisible(`html.theme-light[lang="es"]`, chromedp.ByQuery),
 		chromedp.WaitVisible("#preferences-export-code", chromedp.ByQuery),
 		chromedp.AttributeValue("html", "class", &htmlClass, nil, chromedp.ByQuery),
 		chromedp.AttributeValue("html", "lang", &langAttr, nil, chromedp.ByQuery),
 	); err != nil {
-		t.Fatalf("submitting the preferences import form without JavaScript: %v", err)
+		t.Fatalf("checking the imported preferences page without JavaScript: %v", err)
 	}
 	if themeClassPattern.FindString(htmlClass) != "theme-light" {
 		t.Errorf("imported theme not applied, <html> class is %q", htmlClass)
@@ -200,9 +206,9 @@ func TestNoJSErrorPageRenders(t *testing.T) {
 	var title, containerHTML string
 	if err := chromedp.Run(ctx,
 		chromedp.Navigate(baseURL+"/this-page-does-not-exist"),
-		chromedp.WaitVisible(".error-title", chromedp.ByQuery),
-		chromedp.Text(".error-title", &title, chromedp.ByQuery),
-		chromedp.OuterHTML(".error-container", &containerHTML, chromedp.ByQuery),
+		chromedp.WaitVisible(".page-title", chromedp.ByQuery),
+		chromedp.Text(".page-title", &title, chromedp.ByQuery),
+		chromedp.OuterHTML(".section-card", &containerHTML, chromedp.ByQuery),
 	); err != nil {
 		t.Fatalf("rendering the 404 page without JavaScript: %v", err)
 	}
@@ -212,5 +218,63 @@ func TestNoJSErrorPageRenders(t *testing.T) {
 	if !strings.Contains(containerHTML, `href="/"`) {
 		saveArtifact(t, "nojs-404.html", []byte(containerHTML))
 		t.Error("404 page offers no link back to the landing page")
+	}
+}
+
+func TestNoJSPublicOwnerTokenFormsWork(t *testing.T) {
+	ctx := noJSTab(t)
+	var hasOwnerControls bool
+	if err := chromedp.Run(ctx,
+		chromedp.Navigate(baseURL+"/server/preferences/tokens"),
+		chromedp.WaitVisible(`form[action="/server/preferences/token/create"] button[type="submit"]`, chromedp.ByQuery),
+		chromedp.Click(`form[action="/server/preferences/token/create"] button[type="submit"]`, chromedp.ByQuery),
+		chromedp.WaitVisible("#primary-token-heading", chromedp.ByQuery),
+		chromedp.WaitVisible("#linked-token-name", chromedp.ByQuery),
+		chromedp.Evaluate(`document.querySelector('#primary-token-heading') !== null && document.querySelector('#linked-token-name') !== null`, &hasOwnerControls),
+	); err != nil {
+		t.Fatalf("issuing an owner token without JavaScript: %v", err)
+	}
+	if !hasOwnerControls {
+		t.Fatal("the server did not render owner-only token controls after the native issue form")
+	}
+
+	if err := chromedp.Run(ctx,
+		chromedp.SendKeys("#linked-token-name", "e2e-nojs-client", chromedp.ByQuery),
+		chromedp.Submit(`form[action="/server/preferences/tokens"]`, chromedp.ByQuery),
+		chromedp.WaitVisible("#linked-token-list article", chromedp.ByQuery),
+		chromedp.Evaluate(`document.body.innerText.includes('e2e-nojs-client')`, &hasOwnerControls),
+	); err != nil {
+		t.Fatalf("creating a linked token with JavaScript disabled: %v", err)
+	}
+	if !hasOwnerControls {
+		t.Error("the linked-token form submission did not render the created token")
+	}
+}
+
+func TestNoJSDocsRemainUsableWithoutScripts(t *testing.T) {
+	ctx := noJSTab(t)
+	var heading, specHref string
+	if err := chromedp.Run(ctx,
+		chromedp.Navigate(baseURL+"/server/docs/swagger"),
+		chromedp.WaitVisible("noscript a", chromedp.ByQuery),
+		chromedp.Text("h1", &heading, chromedp.ByQuery),
+		chromedp.AttributeValue("noscript a", "href", &specHref, nil, chromedp.ByQuery),
+	); err != nil {
+		t.Fatalf("opening Swagger docs without JavaScript: %v", err)
+	}
+	if !strings.Contains(heading, "Swagger") || !strings.Contains(specHref, "swagger") {
+		t.Errorf("no-JS Swagger page did not expose its OpenAPI document: heading=%q href=%q", heading, specHref)
+	}
+
+	var endpointHref string
+	if err := chromedp.Run(ctx,
+		chromedp.Navigate(baseURL+"/server/docs/graphql"),
+		chromedp.WaitVisible("noscript a", chromedp.ByQuery),
+		chromedp.AttributeValue("noscript a", "href", &endpointHref, nil, chromedp.ByQuery),
+	); err != nil {
+		t.Fatalf("opening GraphQL docs without JavaScript: %v", err)
+	}
+	if !strings.Contains(endpointHref, "graphql") {
+		t.Errorf("no-JS GraphQL page did not link to its endpoint: %q", endpointHref)
 	}
 }

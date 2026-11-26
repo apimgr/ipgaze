@@ -118,6 +118,9 @@ jobs:
             manifest:org.opencontainers.image.documentation=${{ github.server_url }}/${{ github.repository }}
             manifest:org.opencontainers.image.licenses=MIT
 
+      - name: Validate standard image
+        run: tests/image.sh "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.COMMIT_ID }}"
+
   build-devel:
     runs-on: ubuntu-latest
     if: github.event_name == 'schedule' || (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')) || (github.event_name == 'workflow_dispatch' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'))
@@ -187,3 +190,6 @@ jobs:
             manifest:org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
             manifest:org.opencontainers.image.documentation=${{ github.server_url }}/${{ github.repository }}
             manifest:org.opencontainers.image.licenses=MIT
+
+      - name: Validate development image
+        run: tests/image.sh "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:devel"

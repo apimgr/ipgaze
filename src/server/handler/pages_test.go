@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -38,6 +39,28 @@ func newBrowserRequest(target string) *http.Request {
 	req := httptest.NewRequest(http.MethodGet, target, nil)
 	req.Header.Set("User-Agent", browserUserAgent)
 	return req
+}
+
+var captchaExpression = regexp.MustCompile(`(\d+)\s*([+-])\s*(\d+)`)
+
+func captchaAnswer(t *testing.T, question string) int {
+	t.Helper()
+	match := captchaExpression.FindStringSubmatch(question)
+	if len(match) != 4 {
+		t.Fatalf("captcha question %q has no arithmetic expression", question)
+	}
+	first, err := strconv.Atoi(match[1])
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := strconv.Atoi(match[3])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if match[2] == "-" {
+		return first - second
+	}
+	return first + second
 }
 
 func newTestPagesHandler() *PagesHandler {
@@ -583,7 +606,7 @@ func TestAPIV1ServerContactHandler_POST(t *testing.T) {
 	if _, err := db.Exec(`CREATE TABLE app_secrets (name TEXT PRIMARY KEY, value TEXT NOT NULL, previous_value TEXT, previous_until INTEGER, created_at INTEGER, rotated_at INTEGER)`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`CREATE TABLE contact_captcha_challenges (token_hash TEXT PRIMARY KEY, answer_hash TEXT NOT NULL, created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL, used_at INTEGER)`); err != nil {
+	if _, err := db.Exec(`CREATE TABLE captcha_challenges (id VARCHAR(32) PRIMARY KEY, answer_hash VARCHAR(64) NOT NULL, expires_at INTEGER NOT NULL)`); err != nil {
 		t.Fatal(err)
 	}
 	h.DB = db
@@ -595,19 +618,8 @@ func TestAPIV1ServerContactHandler_POST(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	parts := strings.Fields(strings.TrimSuffix(strings.TrimPrefix(question, "What is "), "?"))
-	answer := 0
-	for _, part := range parts {
-		if part == "+" {
-			continue
-		}
-		value, err := strconv.Atoi(part)
-		if err != nil {
-			t.Fatal(err)
-		}
-		answer += value
-	}
-	encoded, err := json.Marshal(ContactRequest{Name: "Example User", Email: "user@example.com", Type: "privacy", RequestKind: "access", Subject: "Question", Message: "hello", FormToken: h.newContactFormToken(time.Now().Add(-4 * time.Second)), Captcha: strconv.Itoa(answer), CaptchaToken: token})
+	answer := captchaAnswer(t, question)
+	encoded, err := json.Marshal(ContactRequest{Name: "Example User", Email: "user@example.com", Type: "privacy", RequestKind: "access", Subject: "Question", Message: "hello", FormToken: h.newContactFormToken(time.Now().Add(-4 * time.Second)), CaptchaAnswer: strconv.Itoa(answer), CaptchaID: token})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -630,29 +642,11 @@ func TestAPIV1ServerContactHandler_POST(t *testing.T) {
 	if !body.OK || !ok || data["review"] == nil || data["review_token"] == nil {
 		t.Errorf("response = %#v, want first-step review envelope (question %s)", body, question)
 	}
-	challenge, ok := data["captcha"].(map[string]interface{})
-	if !ok {
-		t.Fatalf("review captcha = %#v", data["captcha"])
-	}
-	confirmQuestion, _ := challenge["question"].(string)
-	confirmToken, _ := challenge["challenge_id"].(string)
-	confirmAnswer := 0
-	for _, part := range strings.Fields(strings.TrimSuffix(strings.TrimPrefix(confirmQuestion, "What is "), "?")) {
-		if part == "+" {
-			continue
-		}
-		value, err := strconv.Atoi(part)
-		if err != nil {
-			t.Fatal(err)
-		}
-		confirmAnswer += value
-	}
 	reqData := data["review"].(map[string]interface{})
 	confirmRequest := ContactRequest{
 		Name: "Example User", Email: "user@example.com", Type: "privacy", RequestKind: "access",
 		Subject: "Question", Message: "hello", Step: "confirm", Confirmed: true,
 		FormToken: data["form_token"].(string), ReviewToken: data["review_token"].(string),
-		Captcha: strconv.Itoa(confirmAnswer), CaptchaToken: confirmToken,
 	}
 	if reqData["email"] != confirmRequest.Email {
 		t.Fatal("review response did not identify the request email")
@@ -687,7 +681,7 @@ func TestSimpleCaptcha_ValidWrongExpiredAndTampered(t *testing.T) {
 	if _, err := db.Exec(`CREATE TABLE app_secrets (name TEXT PRIMARY KEY, value TEXT NOT NULL, previous_value TEXT, previous_until INTEGER, created_at INTEGER, rotated_at INTEGER)`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`CREATE TABLE contact_captcha_challenges (token_hash TEXT PRIMARY KEY, answer_hash TEXT NOT NULL, created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL, used_at INTEGER)`); err != nil {
+	if _, err := db.Exec(`CREATE TABLE captcha_challenges (id VARCHAR(32) PRIMARY KEY, answer_hash VARCHAR(64) NOT NULL, expires_at INTEGER NOT NULL)`); err != nil {
 		t.Fatal(err)
 	}
 	now := time.Date(2026, time.November, 6, 12, 0, 0, 0, time.UTC)
@@ -695,18 +689,25 @@ func TestSimpleCaptcha_ValidWrongExpiredAndTampered(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	parts := strings.Fields(strings.TrimSuffix(strings.TrimPrefix(question, "What is "), "?"))
-	answer := 0
-	for _, part := range parts {
-		if part == "+" {
-			continue
-		}
-		value, err := strconv.Atoi(part)
-		if err != nil {
-			t.Fatal(err)
-		}
-		answer += value
+	match := captchaExpression.FindStringSubmatch(question)
+	if len(match) != 4 {
+		t.Fatalf("captcha question %q has no arithmetic expression", question)
 	}
+	first, err := strconv.Atoi(match[1])
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := strconv.Atoi(match[3])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first < 1 || first > 20 || second < 1 || second > 20 || match[2] == "-" && first < second {
+		t.Fatalf("captcha operands/operator are outside the contract: %q", question)
+	}
+	if len(token) != 32 {
+		t.Fatalf("captcha id length = %d, want 32", len(token))
+	}
+	answer := captchaAnswer(t, question)
 	if !verifySimpleCaptcha(context.Background(), db, token, strconv.Itoa(answer), now) {
 		t.Fatal("valid captcha answer was rejected")
 	}
@@ -717,18 +718,7 @@ func TestSimpleCaptcha_ValidWrongExpiredAndTampered(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wrongParts := strings.Fields(strings.TrimSuffix(strings.TrimPrefix(wrongQuestion, "What is "), "?"))
-	wrongAnswer := 0
-	for _, part := range wrongParts {
-		if part == "+" {
-			continue
-		}
-		value, err := strconv.Atoi(part)
-		if err != nil {
-			t.Fatal(err)
-		}
-		wrongAnswer += value
-	}
+	wrongAnswer := captchaAnswer(t, wrongQuestion)
 	if verifySimpleCaptcha(context.Background(), db, wrongToken, strconv.Itoa(wrongAnswer+1), now) {
 		t.Fatal("incorrect captcha answer was accepted")
 	}
@@ -739,18 +729,7 @@ func TestSimpleCaptcha_ValidWrongExpiredAndTampered(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	expiredParts := strings.Fields(strings.TrimSuffix(strings.TrimPrefix(expiredQuestion, "What is "), "?"))
-	expiredAnswer := 0
-	for _, part := range expiredParts {
-		if part == "+" {
-			continue
-		}
-		value, err := strconv.Atoi(part)
-		if err != nil {
-			t.Fatal(err)
-		}
-		expiredAnswer += value
-	}
+	expiredAnswer := captchaAnswer(t, expiredQuestion)
 	if verifySimpleCaptcha(context.Background(), db, expiredToken, strconv.Itoa(expiredAnswer), now.Add(11*time.Minute)) {
 		t.Fatal("expired captcha token was accepted")
 	}
@@ -777,15 +756,7 @@ func TestSubmitSecurityReportEncryptedAndNotifies(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	parts := strings.Fields(strings.TrimSuffix(strings.TrimPrefix(question, "What is "), "?"))
-	first, err := strconv.Atoi(parts[0])
-	if err != nil {
-		t.Fatal(err)
-	}
-	second, err := strconv.Atoi(parts[2])
-	if err != nil {
-		t.Fatal(err)
-	}
+	answer := captchaAnswer(t, question)
 	host, port, messages := fakeTwoMessageSMTPServer(t)
 	cfg := config.DefaultConfig()
 	encryptionKey := make([]byte, 32)
@@ -801,7 +772,7 @@ func TestSubmitSecurityReportEncryptedAndNotifies(t *testing.T) {
 		AffectedComponent: "API", Severity: "high", Summary: "Private vulnerability details",
 		StepsToReproduce: "Private reproduction steps", Impact: "Private impact details",
 		CreditPreference: "real_name", CoordinatedAgreement: true,
-		Captcha: strconv.Itoa(first + second), CaptchaToken: captchaToken,
+		CaptchaAnswer: strconv.Itoa(answer), CaptchaID: captchaToken,
 	}
 	trackingID, err := h.submitSecurityReport(httptest.NewRequest(http.MethodPost, "https://example.test/api/v1/server/contact", nil), req)
 	if err != nil {
@@ -1135,43 +1106,20 @@ func TestContactHoneypotReviewSilentlyDropsWithoutDelivery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	answer := 0
-	for _, part := range strings.Fields(strings.TrimSuffix(strings.TrimPrefix(question, "What is "), "?")) {
-		if part == "+" {
-			continue
-		}
-		value, parseErr := strconv.Atoi(part)
-		if parseErr != nil {
-			t.Fatal(parseErr)
-		}
-		answer += value
-	}
+	answer := captchaAnswer(t, question)
 	request := httptest.NewRequest(http.MethodPost, "https://example.test/api/v1/server/contact", nil)
 	req := ContactRequest{
 		Website: "bot-filled", FormToken: h.newContactFormToken(time.Now().Add(-4 * time.Second)),
 		Name: "Reporter", Email: "reporter@example.net", Type: "privacy", RequestKind: "access",
-		Subject: "Privacy request", Message: "Export my data", Captcha: strconv.Itoa(answer), CaptchaToken: captchaToken,
+		Subject: "Privacy request", Message: "Export my data", CaptchaAnswer: strconv.Itoa(answer), CaptchaID: captchaToken,
 	}
 	first := h.processContactStep(request, req)
 	if first.Kind != "review" || first.Flags != "d" {
 		t.Fatalf("honeypot submit = %+v, want normal review carrying drop flag", first)
 	}
-	_, confirmQuestion, confirmToken := h.newContactCaptcha(request, time.Now())
-	confirmAnswer := 0
-	for _, part := range strings.Fields(strings.TrimSuffix(strings.TrimPrefix(confirmQuestion, "What is "), "?")) {
-		if part == "+" {
-			continue
-		}
-		value, parseErr := strconv.Atoi(part)
-		if parseErr != nil {
-			t.Fatal(parseErr)
-		}
-		confirmAnswer += value
-	}
 	req.Website = ""
 	req.Step, req.Confirmed, req.ReviewToken = "confirm", true, first.ReviewToken
 	req.FormToken = first.FormToken
-	req.Captcha, req.CaptchaToken = strconv.Itoa(confirmAnswer), confirmToken
 	if result := h.processContactStep(request, req); result.Kind != "done" {
 		t.Fatalf("honeypot confirm = %+v, want silent success", result)
 	}
@@ -1448,7 +1396,7 @@ func TestContactFieldLengthViolationSecurityFields(t *testing.T) {
 		t.Errorf("oversized key violation = %#v, want max 16384", violation)
 	}
 	request = ContactRequest{Handle: strings.Repeat("h", 101)}
-	if violation := contactFieldLengthViolation(request, true); violation == nil || violation.Field != "handle" || violation.MaxLength != 100 {
+	if violation := contactFieldLengthViolation(request, true); violation == nil || violation.Field != "credit_handle" || violation.MaxLength != 100 {
 		t.Errorf("oversized handle violation = %#v, want max 100", violation)
 	}
 }
@@ -1477,7 +1425,7 @@ func TestContactFormDefinitionSecurityReportLimits(t *testing.T) {
 		limits[field.Name] = field.MaxLength
 		required[field.Name] = field.Required
 	}
-	for field, expected := range map[string]int{"name": 100, "email": 254, "handle": 100, "researcher_gpg": 16384, "affected_component": 255, "affected_endpoint": 2048, "summary": 200, "steps_to_reproduce": 10000, "impact": 5000, "suggested_fix": 5000} {
+	for field, expected := range map[string]int{"name": 100, "email": 254, "credit_handle": 100, "researcher_gpg": 16384, "affected_component": 255, "affected_endpoint": 2048, "summary": 200, "steps_to_reproduce": 10000, "impact": 5000, "suggested_fix": 5000} {
 		if limits[field] == nil || *limits[field] != expected {
 			t.Errorf("field %s max_length = %v, want %d", field, limits[field], expected)
 		}

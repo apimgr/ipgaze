@@ -64,8 +64,21 @@ license-check:
 secret-scan:
   stage: security
   script:
-    - set -o pipefail
-    - docker run --rm --name "ipgaze-trufflehog-${CI_PIPELINE_ID}" -v "$CI_PROJECT_DIR:/repo:ro" -w /repo trufflesecurity/trufflehog@sha256:674b2f187620a19df77f44cf9a7d77efcc581a5662accef2f2739cbb46ba4a3a git file:///repo --json --results=verified,unknown --exclude-paths=.github/trufflehog-exclude.txt --no-update --fail-on-scan-errors | python3 scripts/trufflehog_scan.py --jsonl-stdin
+    - |
+      set -eu
+      BASE=""
+      RESULTS=verified
+      if [ "$CI_PIPELINE_SOURCE" = "merge_request_event" ] && [ -n "${CI_MERGE_REQUEST_DIFF_BASE_SHA:-}" ]; then
+        BASE="$CI_MERGE_REQUEST_DIFF_BASE_SHA"
+      elif [ "$CI_PIPELINE_SOURCE" = "push" ] && [ -n "${CI_COMMIT_BEFORE_SHA:-}" ] && [ "$CI_COMMIT_BEFORE_SHA" != "0000000000000000000000000000000000000000" ]; then
+        BASE="$CI_COMMIT_BEFORE_SHA"
+      fi
+      if [ -n "$BASE" ]; then RESULTS=verified,unknown; fi
+      if [ -n "$BASE" ]; then
+        docker run --rm --name "ipgaze-trufflehog-${CI_PIPELINE_ID}" -v "$CI_PROJECT_DIR:/repo:ro" -w /repo trufflesecurity/trufflehog@sha256:674b2f187620a19df77f44cf9a7d77efcc581a5662accef2f2739cbb46ba4a3a git file:///repo --since-commit "$BASE" --results="$RESULTS" --exclude-paths=.github/trufflehog-exclude.txt --no-update --fail
+      else
+        docker run --rm --name "ipgaze-trufflehog-${CI_PIPELINE_ID}" -v "$CI_PROJECT_DIR:/repo:ro" -w /repo trufflesecurity/trufflehog@sha256:674b2f187620a19df77f44cf9a7d77efcc581a5662accef2f2739cbb46ba4a3a git file:///repo --results=verified --exclude-paths=.github/trufflehog-exclude.txt --no-update --fail
+      fi
   rules:
     - when: always
 
@@ -103,6 +116,7 @@ image-scan:
   stage: security
   script:
     - docker build --pull -t "$SCAN_IMAGE" -f docker/Dockerfile .
+    - tests/image.sh "$SCAN_IMAGE"
     - docker run --rm --name "ipgaze-trivy-${CI_PIPELINE_ID}" -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy@sha256:be1190afcb28352bfddc4ddeb71470835d16462af68d310f9f4bca710961a41e image --exit-code 1 --severity CRITICAL,HIGH "$SCAN_IMAGE"
   after_script:
     - docker image rm "$SCAN_IMAGE" >/dev/null 2>&1 || true
@@ -113,8 +127,7 @@ docker:build:
     - |
       set -eu
       printf '%s' "$CI_REGISTRY_PASSWORD" | docker login "$CI_REGISTRY" --username "$CI_REGISTRY_USER" --password-stdin
-      BUILDER="ipgaze-${CI_PIPELINE_ID}"
-      docker buildx create --name "$BUILDER" --use
+      docker buildx create --name multiarch-builder --use 2>/dev/null || docker buildx use multiarch-builder
       SHORT_SHA="${CI_COMMIT_SHA:0:7}"
       BUILD_EPOCH="$(date -u +%s)"
       BUILD_DATE="$(date -u -d "@$BUILD_EPOCH" +%Y-%m-%dT%H:%M:%SZ)"
@@ -151,7 +164,8 @@ docker:build:
         --annotation "manifest:org.opencontainers.image.source=$CI_PROJECT_URL" \
         --annotation "manifest:org.opencontainers.image.documentation=$CI_PROJECT_URL" \
         "${TAGS[@]}" --push .
-      docker buildx rm "$BUILDER"
+      docker buildx rm multiarch-builder
+      tests/image.sh "${CI_REGISTRY_IMAGE}:${SHORT_SHA}"
       docker logout "$CI_REGISTRY"
   rules:
     - if: '$CI_COMMIT_TAG =~ /^v?\d+\.\d+\.\d+/'
@@ -165,8 +179,7 @@ docker:devel:
     - |
       set -eu
       printf '%s' "$CI_REGISTRY_PASSWORD" | docker login "$CI_REGISTRY" --username "$CI_REGISTRY_USER" --password-stdin
-      BUILDER="ipgaze-devel-${CI_PIPELINE_ID}"
-      docker buildx create --name "$BUILDER" --use
+      docker buildx create --name multiarch-builder --use 2>/dev/null || docker buildx use multiarch-builder
       BUILD_EPOCH="$(date -u +%s)"
       BUILD_DATE="$(date -u -d "@$BUILD_EPOCH" +%Y-%m-%dT%H:%M:%SZ)"
       OFFICIAL_SITE="${OFFICIAL_SITE:-}"
@@ -184,7 +197,8 @@ docker:devel:
         --label "org.opencontainers.image.documentation=$CI_PROJECT_URL" \
         --tag "$CI_REGISTRY_IMAGE:devel" \
         --tag "$CI_REGISTRY_IMAGE:devel-${CI_COMMIT_SHA:0:7}" --push .
-      docker buildx rm "$BUILDER"
+      docker buildx rm multiarch-builder
+      tests/image.sh "$CI_REGISTRY_IMAGE:devel"
       docker logout "$CI_REGISTRY"
   rules:
     - if: '$CI_PIPELINE_SOURCE == "schedule"'

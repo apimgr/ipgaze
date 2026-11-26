@@ -336,8 +336,8 @@ func (m *I2PManager) finishStart(ctx context.Context, cancel context.CancelFunc,
 		// A missing provider or failed start is recorded for status reporting,
 		// never returned as a fatal server-startup error.
 		m.startErr = err
-		m.provider = ProviderNone
 		if errors.Is(err, ErrNoProvider) {
+			m.provider = ProviderNone
 			m.phase = "no_provider"
 		} else {
 			m.phase = "error"
@@ -1173,7 +1173,7 @@ func loadOrCreateSAMDestination(conn net.Conn, r *bufio.Reader, keysPath string,
 	if err != nil {
 		return samDestination{}, fmt.Errorf("DEST GENERATE: %w", err)
 	}
-	if !strings.HasPrefix(line, "DEST REPLY") || !strings.Contains(line, "RESULT=OK") {
+	if !strings.HasPrefix(line, "DEST REPLY") || (strings.Contains(line, "RESULT=") && !strings.Contains(line, "RESULT=OK")) {
 		return samDestination{}, fmt.Errorf("DEST GENERATE rejected: %s", samResult(line))
 	}
 	var priv string

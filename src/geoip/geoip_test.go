@@ -1,11 +1,15 @@
 package geoip
 
 import (
+	"crypto/sha256"
+	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -82,10 +86,10 @@ func TestNewGeoIPManager_PathConstruction(t *testing.T) {
 	if m.dataDir != want {
 		t.Errorf("dataDir = %q, want %q", m.dataDir, want)
 	}
-	if m.asnFile != filepath.Join(want, "asn.mmdb") {
+	if m.asnFile != filepath.Join(want, "iptoasn-asn.mmdb") {
 		t.Errorf("asnFile = %q", m.asnFile)
 	}
-	if m.countryFile != filepath.Join(want, "country.mmdb") {
+	if m.countryFile != filepath.Join(want, "iptoasn-country.mmdb") {
 		t.Errorf("countryFile = %q", m.countryFile)
 	}
 	if m.cityV4File != filepath.Join(want, "dbip-city-ipv4.mmdb") {
@@ -500,6 +504,44 @@ func TestDownloadFile_HTTP500(t *testing.T) {
 	}
 }
 
+func TestDownloadVerifiedFile_ChecksumAndAtomicReplacement(t *testing.T) {
+	content := []byte("verified database")
+	digest := sha256.Sum256(content)
+	var badChecksum bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, ".sha256") {
+			if badChecksum {
+				_, _ = io.WriteString(w, strings.Repeat("0", sha256.Size*2)+"\n")
+				return
+			}
+			_, _ = fmt.Fprintf(w, "%x  database.mmdb\n", digest)
+			return
+		}
+		_, _ = w.Write(content)
+	}))
+	defer srv.Close()
+
+	dest := filepath.Join(t.TempDir(), "database.mmdb")
+	m := NewGeoIPManager(t.TempDir())
+	if err := m.downloadVerifiedFile(srv.URL+"/database.mmdb", srv.URL+"/database.mmdb.sha256", dest); err != nil {
+		t.Fatalf("downloadVerifiedFile() error = %v", err)
+	}
+	badChecksum = true
+	if err := os.WriteFile(dest, []byte("old database"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.downloadVerifiedFile(srv.URL+"/database.mmdb", srv.URL+"/database.mmdb.sha256", dest); err == nil {
+		t.Fatal("downloadVerifiedFile() accepted an invalid checksum")
+	}
+	got, err := os.ReadFile(dest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "old database" {
+		t.Fatalf("live file after failed verification = %q, want old database", got)
+	}
+}
+
 func TestDownloadFile_ConnectionRefused(t *testing.T) {
 	dir := t.TempDir()
 	m := NewGeoIPManager(dir)
@@ -534,10 +576,10 @@ func TestDownloadDatabases_FilePathsCorrect(t *testing.T) {
 	geoDir := filepath.Join(dir, "security", "geoip")
 
 	// Validate file paths are correctly derived from the data dir
-	if m.asnFile != filepath.Join(geoDir, "asn.mmdb") {
+	if m.asnFile != filepath.Join(geoDir, "iptoasn-asn.mmdb") {
 		t.Errorf("asnFile path mismatch: %q", m.asnFile)
 	}
-	if m.countryFile != filepath.Join(geoDir, "country.mmdb") {
+	if m.countryFile != filepath.Join(geoDir, "iptoasn-country.mmdb") {
 		t.Errorf("countryFile path mismatch: %q", m.countryFile)
 	}
 	if m.cityV4File != filepath.Join(geoDir, "dbip-city-ipv4.mmdb") {
@@ -595,5 +637,15 @@ func TestMinimalMMDB_LookupReturnsEmpty(t *testing.T) {
 	}
 	if len(result) != 0 {
 		t.Errorf("expected empty result, got %v", result)
+	}
+}
+
+func TestE2EFixtureOpensFromDisk(t *testing.T) {
+	reader, err := maxminddb.Open(filepath.Join("..", "..", "tests", "e2e", "testdata", "minimal.mmdb"))
+	if err != nil {
+		t.Fatalf("E2E fixture failed to open: %v", err)
+	}
+	if err := reader.Close(); err != nil {
+		t.Fatal(err)
 	}
 }

@@ -104,7 +104,7 @@ func ensureSystemUser(username, homeDir string) (uid, gid int, err error) {
 			return 0, 0, fmt.Errorf("groupadd: %w: %s", cmdErr, out)
 		}
 		if out, cmdErr := exec.Command("useradd", "--system", "--uid", strconv.Itoa(id), "--gid", strconv.Itoa(id),
-			"--home-dir", homeDir, "--shell", "/sbin/nologin", "--comment", gecos, username).CombinedOutput(); cmdErr != nil {
+			"--home-dir", homeDir, "--no-create-home", "--shell", "/sbin/nologin", "--comment", gecos, username).CombinedOutput(); cmdErr != nil {
 			return 0, 0, fmt.Errorf("useradd: %w: %s", cmdErr, out)
 		}
 	} else if _, lookErr := exec.LookPath("addgroup"); lookErr == nil {

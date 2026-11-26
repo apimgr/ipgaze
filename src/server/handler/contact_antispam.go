@@ -556,9 +556,9 @@ func duplicateContactSubmission(req ContactRequest, now time.Time, window time.D
 
 func validateContactReportShape(req ContactRequest) bool {
 	fields := []string{
-		req.Name, req.Handle, req.Email, req.Subject, req.Message, req.SecurityID, req.ResearcherGPG,
+		req.Name, req.Handle, req.Email, req.SecurityID, req.ResearcherGPG,
 		req.AffectedComponent, req.AffectedEndpoint, req.Severity, req.Summary,
-		req.StepsToReproduce, req.Impact, req.SuggestedFix, req.CreditPreference, req.Type,
+		req.StepsToReproduce, req.Impact, req.SuggestedFix, req.CreditPreference,
 	}
 	if !validContactTextFields(fields, 0, 2, 3) || strings.ContainsAny(req.Email, ",;<>\r\n") {
 		return false
@@ -578,7 +578,7 @@ func validateContactStandardShape(req ContactRequest) bool {
 
 func validContactTypeShape(req ContactRequest, securityMode bool) bool {
 	if securityMode {
-		return req.Type == "security" && strings.TrimSpace(req.SecurityID) != "" && validateContactReportShape(req)
+		return req.Type == "security" && strings.TrimSpace(req.SecurityID) != "" && strings.TrimSpace(req.Subject) == "" && strings.TrimSpace(req.Message) == "" && validateContactReportShape(req)
 	}
 	if req.SecurityID != "" {
 		return false

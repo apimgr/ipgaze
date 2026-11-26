@@ -1,13 +1,26 @@
 {{template "base" .}}
 {{define "title"}}{{t .Lang "swagger.ui.title"}} — {{.ProjectName}}{{end}}
 {{define "meta_description"}}{{t .Lang "swagger.info.description"}}{{end}}
+{{define "extra_scripts"}}
+  <script src="{{asset "/static/vendor/swagger-ui/swagger-ui-bundle.js"}}"></script>
+  <script src="{{asset "/static/vendor/swagger-ui/swagger-ui-standalone-preset.js"}}"></script>
+  <script src="{{asset "/static/js/docs-swagger.js"}}"></script>
+{{end}}
 {{define "extra_head"}}
   <link rel="stylesheet" href="{{asset "/static/vendor/swagger-ui/swagger-ui.css"}}">
   <link rel="stylesheet" href="{{asset (printf "/server/docs/swagger/theme.css?theme=%s" .Theme)}}">
 {{end}}
 {{define "content"}}
-<h1 class="page-title">{{t .Lang "swagger.ui.title"}}</h1>
-<div id="swagger-ui" data-spec-url="{{.SwaggerSpecURL}}"></div>
-<script src="{{asset "/static/vendor/swagger-ui/swagger-ui-bundle.js"}}"></script>
-<script src="{{asset "/static/vendor/swagger-ui/swagger-ui-standalone-preset.js"}}"></script>
+<header class="page-header">
+  <h1 class="page-title">{{t .Lang "swagger.ui.title"}}</h1>
+  <p class="page-lead">{{t .Lang "swagger.ui.lead"}}</p>
+</header>
+<section class="section-card" aria-labelledby="swagger-explorer-heading">
+  <h2 id="swagger-explorer-heading">{{t .Lang "swagger.ui.openapi_json"}}</h2>
+  <div id="swagger-ui" data-spec-url="{{.SwaggerSpecURL}}"></div>
+</section>
+<noscript><section class="section-card" aria-labelledby="swagger-noscript-heading">
+  <h2 id="swagger-noscript-heading">{{t .Lang "swagger.ui.javascript_required"}}</h2>
+  <p><a href="{{.SwaggerSpecURL}}">{{t .Lang "swagger.ui.openapi_json"}}</a></p>
+</section></noscript>
 {{end}}

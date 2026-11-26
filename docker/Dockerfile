@@ -4,7 +4,7 @@
 FROM --platform=$BUILDPLATFORM casjaysdev/go:latest AS builder
 
 ARG TARGETARCH
-ARG VERSION=dev
+ARG VERSION=devel
 # BUILD_EPOCH is the single embedded time source; BuildDate is derived from it at process start
 ARG BUILD_EPOCH
 ARG COMMIT_ID
@@ -30,7 +30,7 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} go build \
 FROM alpine:latest
 
 # ARGs for build-time values (set by docker build --build-arg)
-ARG VERSION=dev
+ARG VERSION=devel
 ARG BUILD_DATE
 ARG BUILD_EPOCH
 ARG COMMIT_ID

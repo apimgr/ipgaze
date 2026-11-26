@@ -14,6 +14,7 @@ import (
 
 	"golang.org/x/net/html"
 
+	"github.com/apimgr/ipgaze/src/config"
 	"github.com/apimgr/ipgaze/src/server/handler"
 )
 
@@ -131,10 +132,18 @@ func assertPageConformance(t *testing.T, page, source string) {
 		t.Fatalf("parse %s: %v", page, err)
 	}
 	counts := map[string]int{"main": 0, "h1": 0}
+	previousHeadingLevel := 0
 	var walk func(*html.Node, *html.Node)
 	walk = func(node, parent *html.Node) {
 		if node.Type == html.ElementNode {
 			counts[node.Data]++
+			if len(node.Data) == 2 && node.Data[0] == 'h' && node.Data[1] >= '1' && node.Data[1] <= '6' {
+				level := int(node.Data[1] - '0')
+				if previousHeadingLevel > 0 && level > previousHeadingLevel+1 {
+					t.Errorf("%s: heading level jumps from h%d to h%d", page, previousHeadingLevel, level)
+				}
+				previousHeadingLevel = level
+			}
 			if node.Data == "style" {
 				t.Errorf("%s: inline style element is forbidden", page)
 			}
@@ -160,9 +169,18 @@ func assertPageConformance(t *testing.T, page, source string) {
 				if findElement(node, "thead") == nil {
 					t.Errorf("%s: table is missing a thead", page)
 				}
+				if !hasClass(node, "data-table") {
+					t.Errorf("%s: table is missing the data-table class", page)
+				}
 				if !hasAncestorClass(parent, "table-wrapper") {
 					t.Errorf("%s: table is outside .table-wrapper", page)
 				}
+				if thead := findElement(node, "thead"); thead != nil {
+					assertColumnHeaderScopes(t, page, thead)
+				}
+			}
+			if page != "index.tmpl" && node.Data == "h1" && !hasClass(node, "page-title") {
+				t.Errorf("%s: h1 is missing the page-title class", page)
 			}
 			if isFormControl(node) && elementAttribute(node, "type") != "hidden" && !hasAssociatedLabel(doc, node) {
 				t.Errorf("%s: form control %q has no associated label", page, elementAttribute(node, "id"))
@@ -185,6 +203,20 @@ func assertPageConformance(t *testing.T, page, source string) {
 		t.Errorf("%s: the two skip links must be the first body elements", page)
 	}
 	assertHeaderConformance(t, page, doc)
+}
+
+func assertColumnHeaderScopes(t *testing.T, page string, thead *html.Node) {
+	t.Helper()
+	var walk func(*html.Node)
+	walk = func(node *html.Node) {
+		if node.Type == html.ElementNode && node.Data == "th" && elementAttribute(node, "scope") != "col" {
+			t.Errorf("%s: table column header is missing scope=\"col\"", page)
+		}
+		for child := node.FirstChild; child != nil; child = child.NextSibling {
+			walk(child)
+		}
+	}
+	walk(thead)
 }
 
 func assertHeaderConformance(t *testing.T, page string, doc *html.Node) {
@@ -316,6 +348,8 @@ func TestHubRegistryPagesAreRenderedAndListedOnce(t *testing.T) {
 			t.Fatalf("GET %s returned %d, want 200", hub, res.StatusCode)
 		}
 		hubBodies[hub] = string(body)
+		assertPageConformance(t, hub, string(body))
+		assertBreadcrumbConformance(t, hub, string(body), "")
 	}
 	for _, path := range paths {
 		req, err := http.NewRequest(http.MethodGet, ts.URL+path, nil)
@@ -342,6 +376,7 @@ func TestHubRegistryPagesAreRenderedAndListedOnce(t *testing.T) {
 		if strings.HasPrefix(path, "/server/help/") {
 			hub = "/server/help"
 		}
+		assertBreadcrumbConformance(t, path, string(body), hub)
 		if got := strings.Count(hubBodies[hub], `href="`+path+`"`); got != 1 {
 			t.Errorf("hub %s links registered page %s %d times, want once", hub, path, got)
 		}
@@ -378,6 +413,54 @@ func TestHubRegistryPagesAreRenderedAndListedOnce(t *testing.T) {
 			t.Errorf("help JSON lists registered page %s %d times, want once", path, count)
 		}
 	}
+}
+
+func assertBreadcrumbConformance(t *testing.T, page, source, hub string) {
+	t.Helper()
+	doc, err := html.Parse(strings.NewReader(source))
+	if err != nil {
+		t.Fatalf("parse %s breadcrumb: %v", page, err)
+	}
+	var breadcrumbs []*html.Node
+	var walk func(*html.Node)
+	walk = func(node *html.Node) {
+		if node.Type == html.ElementNode && hasClass(node, "breadcrumb") {
+			breadcrumbs = append(breadcrumbs, node)
+		}
+		for child := node.FirstChild; child != nil; child = child.NextSibling {
+			walk(child)
+		}
+	}
+	walk(doc)
+	if hub == "" {
+		if len(breadcrumbs) != 0 {
+			t.Errorf("%s: hub page has %d breadcrumbs, want none", page, len(breadcrumbs))
+		}
+		return
+	}
+	if len(breadcrumbs) != 1 {
+		t.Errorf("%s: sub-page has %d breadcrumbs, want exactly one", page, len(breadcrumbs))
+		return
+	}
+	links := nestedLinks(breadcrumbs[0])
+	if len(links) != 1 || elementAttribute(links[0], "href") != hub {
+		t.Errorf("%s: breadcrumb must contain one link to %s", page, hub)
+	}
+}
+
+func nestedLinks(node *html.Node) []*html.Node {
+	var links []*html.Node
+	var walk func(*html.Node)
+	walk = func(current *html.Node) {
+		if current.Type == html.ElementNode && current.Data == "a" {
+			links = append(links, current)
+		}
+		for child := current.FirstChild; child != nil; child = child.NextSibling {
+			walk(child)
+		}
+	}
+	walk(node)
+	return links
 }
 
 func TestErrorAndHealthFallbackPagesConform(t *testing.T) {
@@ -486,6 +569,14 @@ func isFormControl(node *html.Node) bool {
 }
 
 func hasAssociatedLabel(doc, control *html.Node) bool {
+	if strings.TrimSpace(elementAttribute(control, "aria-label")) != "" {
+		return true
+	}
+	for _, id := range strings.Fields(elementAttribute(control, "aria-labelledby")) {
+		if label := findElementByID(doc, id); label != nil && strings.TrimSpace(nodeText(label)) != "" {
+			return true
+		}
+	}
 	id := elementAttribute(control, "id")
 	if id != "" {
 		var findLabel func(*html.Node) bool
@@ -644,6 +735,7 @@ func TestAccessibility(t *testing.T) {
 		}
 
 		assertAccessibleDocument(t, "index.tmpl", string(body))
+		assertPageConformance(t, "index.tmpl", string(body))
 	})
 
 	t.Run("layout pages", func(t *testing.T) {
@@ -652,7 +744,7 @@ func TestAccessibility(t *testing.T) {
 			t.Fatal("NewPageRenderer returned nil")
 		}
 
-		for _, page := range []string{"about.tmpl", "terms.tmpl", "help.tmpl", "help_mcp.tmpl", "contact.tmpl", "preferences_tokens.tmpl", "swagger.tmpl", "graphql.tmpl"} {
+		for _, page := range []string{"about.tmpl", "terms.tmpl", "help.tmpl", "help_mcp.tmpl", "contact.tmpl", "preferences_tokens.tmpl", "privacy.tmpl", "healthz.tmpl", "swagger.tmpl", "graphql.tmpl"} {
 			rec := httptest.NewRecorder()
 			req := httptest.NewRequest(http.MethodGet, "/server/"+strings.TrimSuffix(page, ".tmpl"), nil)
 			var data any = testPageData()
@@ -671,6 +763,25 @@ func TestAccessibility(t *testing.T) {
 			if page == "preferences_tokens.tmpl" {
 				data = handler.OwnerTokensPageData{PageData: testPageData()}
 			}
+			if page == "privacy.tmpl" {
+				pageData := testPageData()
+				pageData.CSRFToken = "test-csrf-token"
+				pageData.Privacy = &config.PrivacyConfig{
+					Data:      config.DataPolicy{StoredOnServer: true, Sold: true},
+					Retention: config.RetentionPolicy{Period: "30 days", ExportAvailable: true, DeletionAvailable: true},
+					Cookies: config.CookieCategories{
+						Essential:   config.CookieCategory{Enabled: true, Description: "Required for site operation."},
+						Preferences: config.CookieCategory{Enabled: true, Description: "Stores visitor preferences."},
+						Analytics:   config.AnalyticsCookie{CookieCategory: config.CookieCategory{Enabled: true, Description: "Usage analytics."}},
+					},
+					ThirdParty: config.ThirdPartyConfig{Services: []config.ThirdPartyService{{Name: "Analytics", Purpose: "Measure usage", DataSent: "Aggregated events", PolicyURL: "https://example.com/privacy"}}},
+					Content:    config.PrivacyContent{DataCollection: "Data collection details.", DataUsage: "Data usage details.", DataUsageIfSold: "Data usage details when data is sold.", DataSecurity: "Data security details."},
+				}
+				data = pageData
+			}
+			if page == "healthz.tmpl" {
+				data = handler.HealthzPageData{PageData: testPageData(), AssetStamp: "1.0.0-testcommit"}
+			}
 			if page == "swagger.tmpl" || page == "graphql.tmpl" {
 				pageData := testPageData()
 				pageData.AssetStamp = "1.0.0-testcommit"
@@ -682,10 +793,17 @@ func TestAccessibility(t *testing.T) {
 				t.Fatalf("render %s: %v", page, err)
 			}
 			assertAccessibleDocument(t, page, rec.Body.String())
-			if page != "preferences_tokens.tmpl" && page != "swagger.tmpl" {
+			if page != "preferences_tokens.tmpl" && page != "swagger.tmpl" && page != "healthz.tmpl" {
 				assertLayoutStructure(t, page, rec.Body.String())
 			}
 			assertPageConformance(t, page, rec.Body.String())
+			if page == "help_mcp.tmpl" {
+				assertBreadcrumbConformance(t, page, rec.Body.String(), "/server/help")
+			} else if page == "preferences_tokens.tmpl" {
+				assertBreadcrumbConformance(t, page, rec.Body.String(), "/server/preferences")
+			} else {
+				assertBreadcrumbConformance(t, page, rec.Body.String(), "")
+			}
 		}
 
 		rec := httptest.NewRecorder()
@@ -729,6 +847,7 @@ func TestAccessibility(t *testing.T) {
 		syncBody := syncRec.Body.String()
 		assertAccessibleDocument(t, "preferences_sync.tmpl", syncBody)
 		assertPageConformance(t, "preferences_sync.tmpl", syncBody)
+		assertBreadcrumbConformance(t, "preferences_sync.tmpl", syncBody, "/server/preferences")
 		if !strings.Contains(syncBody, `name="code"`) || !strings.Contains(syncBody, `preferences-export-url`) {
 			t.Error("preference sync page is missing its export block or code import field")
 		}

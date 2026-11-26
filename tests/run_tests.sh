@@ -9,7 +9,7 @@ if command -v docker &>/dev/null; then
     echo "Docker detected - running container tests..."
     exec "$(dirname "$0")/docker.sh"
 else
-    echo "ERROR: Docker is required for the basic integration tests"
-    echo "Install Docker: https://docker.com/"
-    exit 1
+    echo "ERROR: Docker is required for the basic integration tests" >&2
+    echo "Install Docker: https://docker.com/" >&2
+    exit 69
 fi

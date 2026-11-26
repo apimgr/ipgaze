@@ -11,6 +11,8 @@ import (
 	"log/slog"
 	"strings"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 // createStatements are the idempotent CREATE TABLE / CREATE INDEX statements
@@ -170,6 +172,7 @@ END`,
 	// ----------------------------------------------------------------------------
 	`CREATE TABLE IF NOT EXISTS api_tokens (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    public_id     TEXT UNIQUE,
     owner_id      TEXT NOT NULL REFERENCES owners(id) ON DELETE CASCADE,
     kind          TEXT NOT NULL CHECK (kind IN ('primary', 'linked')),
     name          TEXT,
@@ -267,14 +270,12 @@ END`,
     disclosed_year     INTEGER,
     short_credit       TEXT NOT NULL DEFAULT ''
 )`,
-	`CREATE TABLE IF NOT EXISTS contact_captcha_challenges (
-    token_hash  TEXT PRIMARY KEY,
-    answer_hash TEXT NOT NULL,
-    created_at  INTEGER NOT NULL,
-    expires_at  INTEGER NOT NULL,
-    used_at     INTEGER
+	`CREATE TABLE IF NOT EXISTS captcha_challenges (
+    id          VARCHAR(32) PRIMARY KEY,
+    answer_hash VARCHAR(64) NOT NULL,
+    expires_at  TIMESTAMP NOT NULL
 )`,
-	`CREATE INDEX IF NOT EXISTS idx_contact_captcha_challenges_expires ON contact_captcha_challenges(expires_at)`,
+	`CREATE INDEX IF NOT EXISTS idx_captcha_challenges_expires ON captcha_challenges(expires_at)`,
 	`CREATE INDEX IF NOT EXISTS idx_security_reports_public ON security_reports(status, created_at)`,
 }
 
@@ -290,6 +291,8 @@ var schemaUpdates = []string{
 	`CREATE INDEX IF NOT EXISTS idx_security_reports_public ON security_reports(status, created_at)`,
 	`ALTER TABLE rate_limits ADD COLUMN prev_count INTEGER NOT NULL DEFAULT 0`,
 	`ALTER TABLE api_tokens ADD COLUMN token_last4 TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE api_tokens ADD COLUMN public_id TEXT`,
+	`CREATE UNIQUE INDEX IF NOT EXISTS idx_api_tokens_public_id ON api_tokens(public_id)`,
 }
 
 // migrationTimeout is the AI.md PART 10 "Query Timeouts" ceiling for schema
@@ -298,7 +301,8 @@ const migrationTimeout = 5 * time.Minute
 
 // EnsureSchema creates all required tables and applies idempotent schema updates
 // under the PART 10 migration timeout.
-// It is safe to call on an existing database; nothing is dropped or truncated.
+// Existing application data is preserved; the one-time CAPTCHA schema upgrade
+// invalidates only transient challenges that expire after ten minutes.
 // Call once at startup, before the server accepts requests.
 func EnsureSchema(db *sql.DB) error {
 	ctx, cancel := context.WithTimeout(context.Background(), migrationTimeout)
@@ -311,6 +315,9 @@ func EnsureSchema(db *sql.DB) error {
 func EnsureSchemaContext(ctx context.Context, db *sql.DB) error {
 	if err := upgradeAPITokensSchema(ctx, db); err != nil {
 		return fmt.Errorf("db: upgrade API tokens schema: %w", err)
+	}
+	if err := upgradeContactCaptchaSchema(ctx, db); err != nil {
+		return fmt.Errorf("db: upgrade CAPTCHA schema: %w", err)
 	}
 	for _, stmt := range createStatements {
 		if _, err := db.ExecContext(ctx, stmt); err != nil {
@@ -331,7 +338,83 @@ func EnsureSchemaContext(ctx context.Context, db *sql.DB) error {
 			return fmt.Errorf("db: schema update: %w", err)
 		}
 	}
+	if err := backfillAPITokenPublicIDs(ctx, db); err != nil {
+		return fmt.Errorf("db: backfill API token public IDs: %w", err)
+	}
 
+	return nil
+}
+
+// upgradeContactCaptchaSchema replaces the former hashed-token table. Captcha
+// challenges are short-lived and single-use, so outstanding challenges are
+// invalidated once when upgrading to the canonical ID-based schema.
+func upgradeContactCaptchaSchema(ctx context.Context, db *sql.DB) error {
+	rows, err := db.QueryContext(ctx, `PRAGMA table_info(contact_captcha_challenges)`)
+	if err != nil {
+		return err
+	}
+	legacy := rows.Next()
+	if err := rows.Err(); err != nil {
+		return errors.Join(err, rows.Close())
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	if !legacy {
+		return nil
+	}
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if rollbackErr := tx.Rollback(); rollbackErr != nil && !errors.Is(rollbackErr, sql.ErrTxDone) {
+			slog.Warn("legacy CAPTCHA schema rollback failed", "error", rollbackErr)
+		}
+	}()
+	if _, err := tx.ExecContext(ctx, `DROP TABLE contact_captcha_challenges`); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DROP INDEX IF EXISTS idx_contact_captcha_challenges_expires`); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `CREATE TABLE captcha_challenges (
+		id VARCHAR(32) PRIMARY KEY,
+		answer_hash VARCHAR(64) NOT NULL,
+		expires_at TIMESTAMP NOT NULL
+	)`); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `CREATE INDEX idx_captcha_challenges_expires ON captcha_challenges(expires_at)`); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func backfillAPITokenPublicIDs(ctx context.Context, db *sql.DB) error {
+	rows, err := db.QueryContext(ctx, `SELECT id FROM api_tokens WHERE public_id IS NULL OR public_id = ''`)
+	if err != nil {
+		return err
+	}
+	var ids []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return errors.Join(err, rows.Close())
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		return errors.Join(err, rows.Close())
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	for _, id := range ids {
+		if _, err := db.ExecContext(ctx, `UPDATE api_tokens SET public_id = ? WHERE id = ? AND (public_id IS NULL OR public_id = '')`, uuid.NewString(), id); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 

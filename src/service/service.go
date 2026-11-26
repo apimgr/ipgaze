@@ -50,10 +50,13 @@ func DetectServiceManager() ServiceType {
 		if os.Getenv("RC_SVCNAME") != "" {
 			return ServiceOpenRC
 		}
-		if ppid == 1 && isStatOK("/run/systemd/system") {
+		// Incus and similar system containers run systemd as PID 1, but an
+		// `exec` command is a child of the init process rather than PID 1.
+		// The runtime directory confirms that systemd is the active manager.
+		if isStatOK("/run/systemd/system") {
 			return ServiceSystemd
 		}
-		if ppid == 1 && isStatOK("/run/openrc") {
+		if isStatOK("/run/openrc") {
 			return ServiceOpenRC
 		}
 	}
@@ -1057,7 +1060,6 @@ name="%s"
 description="%s service"
 command="%s"
 command_args=""
-command_user="%s:%s"
 pidfile="/var/run/%s/%s/%s.pid"
 command_background=true
 output_log="/var/log/%s/%s/server.log"
@@ -1070,17 +1072,19 @@ depend() {
 }
 
 start_pre() {
-    checkpath -d -m 0755 -o %s:%s /var/run/%s/%s
-    checkpath -d -m 0755 -o %s:%s /var/log/%s/%s
+    mkdir -p /var/run/%s/%s /var/log/%s/%s
+    checkpath -d -m 0755 /var/run/%s/%s
+    checkpath -d -m 0755 /var/log/%s/%s
 }
 `,
 		appName, appName, binaryPath,
-		appName, appName,
 		orgName, appName, appName,
 		orgName, appName,
 		orgName, appName,
-		appName, appName, orgName, appName,
-		appName, appName, orgName, appName,
+		orgName, appName,
+		orgName, appName,
+		orgName, appName,
+		orgName, appName,
 	)
 
 	if err := os.WriteFile(initPath, []byte(initContent), 0755); err != nil {

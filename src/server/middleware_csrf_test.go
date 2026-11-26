@@ -159,6 +159,47 @@ func TestCSRFMiddleware_APIToken_Bypasses(t *testing.T) {
 	}
 }
 
+func TestCSRFMiddleware_PrimaryTokenIssueAPIBypassesWithoutCredentials(t *testing.T) {
+	cfg := DefaultCSRFConfig()
+	handler := CSRFMiddleware(cfg, false, nil)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusCreated)
+	}))
+
+	for _, path := range []string{
+		"/api/v1/server/preferences/tokens/primary",
+		"/service/api/v2/server/preferences/tokens/primary",
+	} {
+		req := httptest.NewRequest(http.MethodPost, path, nil)
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		if rec.Code != http.StatusCreated {
+			t.Errorf("POST %s without credentials should issue a primary token, got %d", path, rec.Code)
+		}
+	}
+}
+
+func TestCSRFMiddleware_PrimaryTokenOtherMutationsStillRequireToken(t *testing.T) {
+	cfg := DefaultCSRFConfig()
+	handler := CSRFMiddleware(cfg, false, nil)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	for _, test := range []struct {
+		path string
+		want int
+	}{
+		{path: "/api/v1/server/preferences/tokens/primary/rotate", want: http.StatusOK},
+		{path: "/server/preferences/token/create", want: http.StatusForbidden},
+	} {
+		req := httptest.NewRequest(http.MethodPost, test.path, nil)
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		if rec.Code != test.want {
+			t.Errorf("POST %s without a CSRF token returned %d, want %d", test.path, rec.Code, test.want)
+		}
+	}
+}
+
 func TestCSRFMiddleware_WebSocket_Bypasses(t *testing.T) {
 	cfg := DefaultCSRFConfig()
 	handler := CSRFMiddleware(cfg, false, nil)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -193,20 +234,20 @@ func TestCSRFMiddleware_ExemptPath_Bypasses(t *testing.T) {
 	}
 }
 
-func TestCSRFMiddleware_NonExemptPath_RequiresToken(t *testing.T) {
+func TestCSRFMiddleware_BackendPathBypassesTokenCheck(t *testing.T) {
 	cfg := DefaultCSRFConfig()
 	cfg.ExemptPaths = []string{"/api/v1/webhooks/*"}
 	handler := CSRFMiddleware(cfg, false, nil)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
-	// Path that looks similar but isn't exempt
+	// Backend paths never use browser-cookie authentication.
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/users", nil)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusForbidden {
-		t.Errorf("POST to non-exempt path should require token, got %d", rec.Code)
+	if rec.Code != http.StatusOK {
+		t.Errorf("POST to backend API should bypass CSRF, got %d", rec.Code)
 	}
 }
 
@@ -488,5 +529,21 @@ func TestCSRFMiddleware_ErrorResponse_BrowserIsNotJSON(t *testing.T) {
 	}
 	if strings.Contains(rec.Body.String(), `"error"`) {
 		t.Errorf("Browser CSRF rejection leaked the JSON envelope: %s", rec.Body.String())
+	}
+}
+
+func TestCSRFMiddleware_APIClassPOSTsReachTheirHandlersWithoutCookies(t *testing.T) {
+	for _, path := range []string{"/api/v1/server/graphql", "/mcp", "/server/mcp"} {
+		t.Run(path, func(t *testing.T) {
+			handler := CSRFMiddleware(DefaultCSRFConfig(), false, nil)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(http.StatusNoContent)
+			}))
+			request := httptest.NewRequest(http.MethodPost, path, nil)
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(response, request)
+			if response.Code != http.StatusNoContent {
+				t.Fatalf("API POST status = %d, want handler response 204", response.Code)
+			}
+		})
 	}
 }

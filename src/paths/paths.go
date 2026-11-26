@@ -572,10 +572,34 @@ var testSkipDockerEnvCheck bool
 // testProcCommPath and testProcCgroupPath allow tests to override /proc file paths.
 var testProcCommPath = "/proc/1/comm"
 var testProcCgroupPath = "/proc/1/cgroup"
+var testSystemdRuntimePath = "/run/systemd/system"
+var testOpenRCRuntimePath = "/run/openrc"
+
+func isSystemContainerWithInit() bool {
+	if runtime.GOOS != "linux" {
+		return false
+	}
+	containerType := strings.ToLower(os.Getenv("container"))
+	if containerType != "incus" && containerType != "lxc" && containerType != "systemd-nspawn" {
+		return false
+	}
+	for _, path := range []string{testSystemdRuntimePath, testOpenRCRuntimePath} {
+		if _, err := os.Stat(path); err == nil {
+			return true
+		}
+	}
+	return false
+}
 
 // IsRunningInContainer checks if running inside a container.
 // Detects Docker, Podman, LXC/LXD/Incus, Kubernetes, and generic container environments.
 func IsRunningInContainer() bool {
+	// Incus/LXC system containers with an active init behave like hosts for
+	// service management and host directory defaults.
+	if isSystemContainerWithInit() {
+		return false
+	}
+
 	// File-based detection: Docker, Podman, LXC/LXD/Incus
 	containerFiles := []string{
 		"/.dockerenv",

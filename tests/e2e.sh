@@ -2,6 +2,7 @@
 # @@License : WTFPL
 # tests/e2e.sh — Browser E2E beta testing, all three tiers (PART 28)
 set -eo pipefail
+umask 077
 
 # Everything below runs in Docker: a chromedp/headless-shell sidecar provides
 # Chromium over CDP and casjaysdev/go:latest runs `go test -tags e2e`. The two
@@ -10,20 +11,27 @@ set -eo pipefail
 
 IPGAZE_E2E_ROOT="${IPGAZE_E2E_ROOT:-$(cd -- "${BASH_SOURCE[0]%/*}/.." && pwd)}"
 IPGAZE_E2E_PROJECT="${IPGAZE_E2E_ROOT##*/}"
-IPGAZE_E2E_GO_IMAGE="${IPGAZE_E2E_GO_IMAGE:-casjaysdev/go:latest}"
+IPGAZE_E2E_ORG="$(git -C "$IPGAZE_E2E_ROOT" remote get-url origin 2>/dev/null | sed -E 's|.*/([^/]+)/[^/]+(\.git)?$|\1|' || basename "$(dirname "$IPGAZE_E2E_ROOT")")"
+IPGAZE_E2E_INTERNAL="$(sed -n 's/^internal_name:[[:space:]]*//p' "$IPGAZE_E2E_ROOT/IDEA.md" | head -n1)"
+IPGAZE_E2E_INTERNAL="${IPGAZE_E2E_INTERNAL:-$IPGAZE_E2E_PROJECT}"
 IPGAZE_E2E_BROWSER_IMAGE="${IPGAZE_E2E_BROWSER_IMAGE:-chromedp/headless-shell:latest}"
 IPGAZE_E2E_GO_CACHE="${IPGAZE_E2E_GO_CACHE:-$HOME/go/pkg/mod}"
 IPGAZE_E2E_GO_BUILD="${IPGAZE_E2E_GO_BUILD:-$HOME/.cache/go-build/${IPGAZE_E2E_PROJECT}}"
-IPGAZE_E2E_BINARY="${IPGAZE_E2E_BINARY:-binaries/${IPGAZE_E2E_PROJECT}}"
+IPGAZE_E2E_BINARY="${IPGAZE_E2E_BINARY:-}"
+IPGAZE_E2E_BINARY_DIR=""
+IPGAZE_E2E_BINARY_NAME=""
 IPGAZE_E2E_TIMEOUT="${IPGAZE_E2E_TIMEOUT:-20m}"
+IPGAZE_E2E_CONTAINER_TIMEOUT="${IPGAZE_E2E_CONTAINER_TIMEOUT:-3600}"
+IPGAZE_E2E_MEMORY="${IPGAZE_E2E_MEMORY:-4g}"
+IPGAZE_E2E_CPUS="${IPGAZE_E2E_CPUS:-2}"
+IPGAZE_E2E_CPU_SHARES="${IPGAZE_E2E_CPU_SHARES:-256}"
 IPGAZE_E2E_SKIP_BUILD="${IPGAZE_E2E_SKIP_BUILD:-false}"
 IPGAZE_E2E_VERBOSE="${IPGAZE_E2E_VERBOSE:-true}"
 IPGAZE_E2E_RUN="${IPGAZE_E2E_RUN:-}"
 
-IPGAZE_E2E_TAG="$(od -An -tx1 -N4 /dev/urandom | tr -d ' \n')"
-IPGAZE_E2E_BROWSER_CONTAINER="${IPGAZE_E2E_PROJECT}-e2e-browser-${IPGAZE_E2E_TAG}"
-IPGAZE_E2E_TEST_CONTAINER="${IPGAZE_E2E_PROJECT}-e2e-tests-${IPGAZE_E2E_TAG}"
-IPGAZE_E2E_BUILD_CONTAINER="${IPGAZE_E2E_PROJECT}-e2e-build-${IPGAZE_E2E_TAG}"
+IPGAZE_E2E_BROWSER_CONTAINER="${IPGAZE_E2E_PROJECT}-$(od -An -N4 -tx1 /dev/urandom | tr -d ' \n')"
+IPGAZE_E2E_TEST_CONTAINER="${IPGAZE_E2E_PROJECT}-$(od -An -N4 -tx1 /dev/urandom | tr -d ' \n')"
+IPGAZE_E2E_BUILD_CONTAINER="${IPGAZE_E2E_PROJECT}-$(od -An -N4 -tx1 /dev/urandom | tr -d ' \n')"
 IPGAZE_E2E_ARTIFACTS=""
 IPGAZE_E2E_BROWSER_HOST_PORT=""
 
@@ -49,9 +57,9 @@ Options:
   -r, --run REGEX   Only run tests whose name matches REGEX
 
 Environment overrides:
-  IPGAZE_E2E_GO_IMAGE       Go toolchain image (default ${IPGAZE_E2E_GO_IMAGE})
   IPGAZE_E2E_BROWSER_IMAGE  Chromium image (default ${IPGAZE_E2E_BROWSER_IMAGE})
   IPGAZE_E2E_TIMEOUT        go test timeout (default ${IPGAZE_E2E_TIMEOUT})
+  IPGAZE_E2E_CONTAINER_TIMEOUT  Docker run ceiling in seconds (default ${IPGAZE_E2E_CONTAINER_TIMEOUT})
 EOF
 }
 
@@ -92,21 +100,23 @@ __wait_for_port() {
 # __build compiles the server the suite drives. The E2E harness launches this
 # binary itself so the tests exercise the real application, not a test double.
 __build() {
-  if [ "$IPGAZE_E2E_SKIP_BUILD" = "true" ] && [ -x "${IPGAZE_E2E_ROOT}/${IPGAZE_E2E_BINARY}" ]; then
+  if [ "$IPGAZE_E2E_SKIP_BUILD" = "true" ] && [ -x "$IPGAZE_E2E_BINARY" ]; then
     __log "Reusing existing ${IPGAZE_E2E_BINARY}"
     return 0
   fi
-  __log "Building ${IPGAZE_E2E_BINARY} in ${IPGAZE_E2E_GO_IMAGE}"
-  docker run --rm \
+  __log "Building ${IPGAZE_E2E_BINARY_NAME} in casjaysdev/go:latest"
+  timeout -k 30 "$IPGAZE_E2E_CONTAINER_TIMEOUT" docker run --rm --no-healthcheck \
     --name "$IPGAZE_E2E_BUILD_CONTAINER" \
+    --memory="$IPGAZE_E2E_MEMORY" --cpus="$IPGAZE_E2E_CPUS" --cpu-shares="$IPGAZE_E2E_CPU_SHARES" \
     -v "${IPGAZE_E2E_ROOT}:/app" \
+    -v "${IPGAZE_E2E_BINARY_DIR}:/e2e-binary" \
     -v "${IPGAZE_E2E_GO_CACHE}:/usr/local/share/go/pkg/mod" \
     -v "${IPGAZE_E2E_GO_BUILD}:/usr/local/share/go/cache" \
     -w /app \
     -e CGO_ENABLED=0 \
     -e GOFLAGS=-buildvcs=false \
-    "$IPGAZE_E2E_GO_IMAGE" \
-    go build -buildvcs=false -trimpath -o "/app/${IPGAZE_E2E_BINARY}" ./src
+    casjaysdev/go:latest \
+    go build -buildvcs=false -trimpath -o "/e2e-binary/${IPGAZE_E2E_BINARY_NAME}" ./src
 }
 
 # __start_browser launches the Chromium sidecar and waits for its DevTools
@@ -117,13 +127,14 @@ __build() {
 # breaks that proxy.
 __start_browser() {
   __log "Starting Chromium sidecar ${IPGAZE_E2E_BROWSER_CONTAINER}"
-  docker run -d --rm \
+  timeout -k 30 "$IPGAZE_E2E_CONTAINER_TIMEOUT" docker run -d --rm --no-healthcheck \
     --name "$IPGAZE_E2E_BROWSER_CONTAINER" \
+    --memory="$IPGAZE_E2E_MEMORY" --cpus="$IPGAZE_E2E_CPUS" --cpu-shares="$IPGAZE_E2E_CPU_SHARES" \
     --shm-size=1g \
     -p 127.0.0.1::9222 \
     "$IPGAZE_E2E_BROWSER_IMAGE" >/dev/null
 
-  IPGAZE_E2E_BROWSER_HOST_PORT="$(docker port "$IPGAZE_E2E_BROWSER_CONTAINER" 9222/tcp | head -n1)"
+  IPGAZE_E2E_BROWSER_HOST_PORT="$(timeout -k 30 "$IPGAZE_E2E_CONTAINER_TIMEOUT" docker port "$IPGAZE_E2E_BROWSER_CONTAINER" 9222/tcp | head -n1)"
   IPGAZE_E2E_BROWSER_HOST_PORT="${IPGAZE_E2E_BROWSER_HOST_PORT##*:}"
   [ -n "$IPGAZE_E2E_BROWSER_HOST_PORT" ] || __die "Chromium sidecar published no DevTools port"
 
@@ -147,22 +158,25 @@ __run_tests() {
   args+=(./tests/e2e/...)
 
   __log "Running the three-tier suite"
-  docker run --rm \
+  timeout -k 30 "$IPGAZE_E2E_CONTAINER_TIMEOUT" docker run --rm --no-healthcheck \
     --name "$IPGAZE_E2E_TEST_CONTAINER" \
+    --memory="$IPGAZE_E2E_MEMORY" --cpus="$IPGAZE_E2E_CPUS" --cpu-shares="$IPGAZE_E2E_CPU_SHARES" \
     --network "container:${IPGAZE_E2E_BROWSER_CONTAINER}" \
     -v "${IPGAZE_E2E_ROOT}:/app" \
+    -v "${IPGAZE_E2E_BINARY_DIR}:/e2e-binary:ro" \
     -v "${IPGAZE_E2E_GO_CACHE}:/usr/local/share/go/pkg/mod" \
     -v "${IPGAZE_E2E_GO_BUILD}:/usr/local/share/go/cache" \
     -v "${IPGAZE_E2E_ARTIFACTS}:/e2e-tmp" \
+    -v "${IPGAZE_E2E_ARTIFACTS}/data:/data/ipgaze" \
     -w /app \
     -e CGO_ENABLED=0 \
     -e GOFLAGS=-buildvcs=false \
     -e NO_COLOR=1 \
-    -e "IPGAZE_E2E_BINARY=/app/${IPGAZE_E2E_BINARY}" \
+    -e "IPGAZE_E2E_BINARY=/e2e-binary/${IPGAZE_E2E_BINARY_NAME}" \
     -e "IPGAZE_E2E_BROWSER=http://127.0.0.1:9222" \
     -e IPGAZE_E2E_TMPDIR=/e2e-tmp \
-    "$IPGAZE_E2E_GO_IMAGE" \
-    "${args[@]}"
+    casjaysdev/go:latest \
+    sh -c 'umask 077; exec "$@"' sh "${args[@]}"
 }
 
 while [ "$#" -gt 0 ]; do
@@ -191,13 +205,28 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
-command -v docker >/dev/null 2>&1 || __die "docker is required — every test runs in a container"
+if ! command -v docker >/dev/null 2>&1; then
+  echo "ERROR: docker is required — every test runs in a container" >&2
+  exit 69
+fi
 [ -d "${IPGAZE_E2E_ROOT}/tests/e2e" ] || __die "tests/e2e is missing from ${IPGAZE_E2E_ROOT}"
 
-mkdir -p "$IPGAZE_E2E_GO_CACHE" "$IPGAZE_E2E_GO_BUILD" "${IPGAZE_E2E_ROOT}/binaries" "${TMPDIR:-/tmp}/apimgr"
-IPGAZE_E2E_ARTIFACTS="$(mktemp -d "${TMPDIR:-/tmp}/apimgr/${IPGAZE_E2E_PROJECT}-XXXXXX")"
+mkdir -p "$IPGAZE_E2E_GO_CACHE" "$IPGAZE_E2E_GO_BUILD" "${TMPDIR:-/tmp}/${IPGAZE_E2E_ORG}"
+IPGAZE_E2E_ARTIFACTS="$(mktemp -d "${TMPDIR:-/tmp}/${IPGAZE_E2E_ORG}/${IPGAZE_E2E_INTERNAL}-XXXXXX")"
+chmod 0700 "$IPGAZE_E2E_ARTIFACTS"
+if [ -z "$IPGAZE_E2E_BINARY" ]; then
+  IPGAZE_E2E_BINARY="$IPGAZE_E2E_ARTIFACTS/$IPGAZE_E2E_PROJECT"
+elif [ "${IPGAZE_E2E_BINARY#/}" = "$IPGAZE_E2E_BINARY" ]; then
+  IPGAZE_E2E_BINARY="$IPGAZE_E2E_ROOT/$IPGAZE_E2E_BINARY"
+fi
+IPGAZE_E2E_BINARY_DIR="${IPGAZE_E2E_BINARY%/*}"
+IPGAZE_E2E_BINARY_NAME="${IPGAZE_E2E_BINARY##*/}"
+mkdir -p "$IPGAZE_E2E_BINARY_DIR"
+mkdir -p "$IPGAZE_E2E_ARTIFACTS/data"
 
 trap __cleanup EXIT INT TERM
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 __build
 __start_browser

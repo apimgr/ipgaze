@@ -1,33 +1,36 @@
 {{template "base" .}}
 {{define "title"}}{{t .Lang "terms.title"}} — {{.ProjectName}}{{end}}
 {{define "content"}}
+<header class="page-header">
+  <h1 class="page-title">{{t .Lang "terms.title"}}</h1>
+  <p class="page-lead">{{t .Lang "terms.acceptance_body"}}</p>
+</header>
 {{if index .OperatorContents "terms"}}
 {{index .OperatorContents "terms"}}
 {{else}}
-<h1>{{t .Lang "terms.title"}}</h1>
 <p>{{t .Lang "privacy.last_updated"}} {{.BuildDate}}</p>
-<section class="section-card">
-  <h2>{{t .Lang "terms.acceptance"}}</h2>
+<section class="section-card" aria-labelledby="terms-section-1">
+  <h2 id="terms-section-1">{{t .Lang "terms.acceptance"}}</h2>
   <p>{{t .Lang "terms.acceptance_body"}}</p>
 </section>
-<section class="section-card">
-  <h2>{{t .Lang "terms.acceptable_use"}}</h2>
+<section class="section-card" aria-labelledby="terms-section-2">
+  <h2 id="terms-section-2">{{t .Lang "terms.acceptable_use"}}</h2>
   <p>{{t .Lang "terms.acceptable_use_body"}}</p>
 </section>
-<section class="section-card">
-  <h2>{{t .Lang "terms.no_warranty_heading"}}</h2>
+<section class="section-card" aria-labelledby="terms-section-3">
+  <h2 id="terms-section-3">{{t .Lang "terms.no_warranty_heading"}}</h2>
   <p>{{t .Lang "terms.no_warranty_body"}}</p>
 </section>
-<section class="section-card">
-  <h2>{{t .Lang "terms.rate_limiting_heading"}}</h2>
+<section class="section-card" aria-labelledby="terms-section-4">
+  <h2 id="terms-section-4">{{t .Lang "terms.rate_limiting_heading"}}</h2>
   <p>{{t .Lang "terms.rate_limiting_body"}}</p>
 </section>
-<section class="section-card">
-  <h2>{{t .Lang "terms.changes"}}</h2>
+<section class="section-card" aria-labelledby="terms-section-5">
+  <h2 id="terms-section-5">{{t .Lang "terms.changes"}}</h2>
   <p>{{t .Lang "terms.changes_body"}}</p>
 </section>
-<section class="section-card">
-  <h2>{{t .Lang "terms.governing_law"}}</h2>
+<section class="section-card" aria-labelledby="terms-section-6">
+  <h2 id="terms-section-6">{{t .Lang "terms.governing_law"}}</h2>
   <p>{{t .Lang "terms.governing_law_body"}}</p>
 </section>
 {{end}}

@@ -1,13 +1,13 @@
 {{define "error"}}
-<div class="error-container" role="alert" aria-live="assertive">
-  <div class="error-card">
-    <span class="error-icon">{{if eq .Code 404}}🔍{{else if eq .Code 403}}🚫{{else if eq .Code 429}}⏱️{{else}}⚠️{{end}}</span>
-    <h1 class="error-title">{{.Code}} {{.Title}}</h1>
-    <p class="error-message">{{.Message}}</p>
-    {{if .RequestID}}
-    <p class="error-id">{{t .Lang "errors.request_id_label"}}: <code>{{.RequestID}}</code></p>
-    {{end}}
-    <a href="/" class="btn btn-primary">← {{t .Lang "common.return_home"}}</a>
-  </div>
-</div>
+<header class="page-header">
+  <h1 class="page-title">{{.Code}} {{.Title}}</h1>
+  <p class="page-lead">{{.Message}}</p>
+</header>
+<section class="section-card" aria-labelledby="error-details-heading" role="alert" aria-live="assertive">
+  <h2 id="error-details-heading">{{t .Lang "errors.details"}}</h2>
+  {{if .RequestID}}
+  <p>{{t .Lang "errors.request_id_label"}}: <code>{{.RequestID}}</code></p>
+  {{end}}
+  <a href="/" class="btn btn-primary">← {{t .Lang "common.return_home"}}</a>
+</section>
 {{end}}

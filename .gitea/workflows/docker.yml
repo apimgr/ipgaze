@@ -120,6 +120,9 @@ jobs:
             manifest:org.opencontainers.image.documentation=${{ gitea.server_url }}/${{ gitea.repository }}
             manifest:org.opencontainers.image.licenses=MIT
 
+      - name: Validate standard image
+        run: tests/image.sh "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.COMMIT_ID }}"
+
   build-devel:
     runs-on: ubuntu-latest
     if: gitea.event_name == 'schedule' || (gitea.event_name == 'push' && (gitea.ref == 'refs/heads/main' || gitea.ref == 'refs/heads/master')) || (gitea.event_name == 'workflow_dispatch' && (gitea.ref == 'refs/heads/main' || gitea.ref == 'refs/heads/master'))
@@ -192,3 +195,6 @@ jobs:
             manifest:org.opencontainers.image.source=${{ gitea.server_url }}/${{ gitea.repository }}
             manifest:org.opencontainers.image.documentation=${{ gitea.server_url }}/${{ gitea.repository }}
             manifest:org.opencontainers.image.licenses=MIT
+
+      - name: Validate development image
+        run: tests/image.sh "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:devel"

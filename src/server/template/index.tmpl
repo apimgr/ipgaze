@@ -36,7 +36,14 @@
         <div class="section-card">
           <h2>{{ t .Lang "index.column1_heading" }}</h2>
           <div class="table-wrapper">
-            <table class="info-table">
+            <table class="data-table info-table">
+              <thead class="sr-only">
+                <tr>
+                  <th scope="col">{{ t .Lang "index.column_field" }}</th>
+                  <th scope="col">{{ t .Lang "index.column_value" }}</th>
+                </tr>
+              </thead>
+              <tbody>
               <tr>
                 <th scope="row">{{ t .Lang "ip.address" }}</th>
                 <td>{{ .IP }}</td>
@@ -146,13 +153,12 @@
                 <td>{{ .UserAgent.RawValue }}</td>
               </tr>
               {{ end }} {{ end }}
+              </tbody>
             </table>
           </div>
-          <!-- CC BY 4.0 attribution is a license condition for all three databases (AI.md PART 19); both notices are required verbatim and must stay visible unconditionally, never gated on a resolved lookup -->
+          <!-- The City database requires a visible DB-IP attribution (AI.md PART 19). -->
           <p class="geoip-attribution">
-            {{ t .Lang "index.geoip_attribution_pre" }} <a href="https://github.com/sapics/ip-location-db" target="_blank" rel="noopener noreferrer">sapics/ip-location-db</a>.
             <a href="https://db-ip.com/">IP Geolocation by DB-IP</a>.
-            Country and ASN data licensed CC BY 4.0 by the Number Resource Organization (NRO).
           </p>
         </div>
         <!-- COLUMN 2 -->

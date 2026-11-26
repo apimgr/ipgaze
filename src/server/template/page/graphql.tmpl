@@ -1,35 +1,30 @@
 {{template "base" .}}
 {{define "title"}}{{t .Lang "graphql.ui.title"}} — {{.ProjectName}}{{end}}
+{{define "extra_scripts"}}
+  <script src="{{asset "/static/vendor/graphiql/react-18.3.1.production.min.js"}}"></script>
+  <script src="{{asset "/static/vendor/graphiql/react-dom-18.3.1.production.min.js"}}"></script>
+  <script src="{{asset "/static/vendor/graphiql/graphiql-3.9.0.min.js"}}"></script>
+  <script src="{{asset "/static/js/docs-graphql.js"}}"></script>
+{{end}}
 {{define "extra_head"}}
+  <link rel="stylesheet" href="{{asset "/static/vendor/graphiql/graphiql-3.9.0.min.css"}}">
+  <link rel="stylesheet" href="{{asset (printf "/server/docs/graphql/theme.css?theme=%s" .Theme)}}">
   <link rel="stylesheet" href="{{asset "/static/css/graphql.css"}}">
 {{end}}
 {{define "content"}}
-<h1 class="page-title">{{t .Lang "graphql.ui.title"}} — {{.Version}}</h1>
-<div id="graphql-workbench" data-endpoint="{{.GraphQLEndpoint}}">
-  <div id="main">
-    <section id="left" class="section-card" aria-labelledby="graphql-query-heading">
-      <h2 id="graphql-query-heading">{{t .Lang "graphql.ui.query"}}</h2>
-      <label for="query">{{t .Lang "graphql.ui.query"}}</label>
-      <textarea id="query" spellcheck="false">query {
-  health {
-    status
-    version
-  }
-  myIP {
-    ip
-    country
-    city
-    asn
-  }
-}</textarea>
-      <label class="variables-label" for="vars">{{t .Lang "graphql.ui.variables"}}</label>
-      <textarea id="vars" spellcheck="false">{}</textarea>
-      <button id="run" class="btn btn-primary" type="button">{{t .Lang "graphql.ui.run"}}</button>
-    </section>
-    <section id="right" class="section-card" aria-labelledby="graphql-response-heading">
-      <h2 id="graphql-response-heading">{{t .Lang "graphql.ui.response"}}</h2>
-      <pre id="result" aria-live="polite">{{t .Lang "graphql.ui.placeholder"}}</pre>
-    </section>
+<header class="page-header">
+  <h1 class="page-title">{{t .Lang "graphql.ui.title"}}</h1>
+  <p class="page-lead">{{t .Lang "graphql.ui.lead"}}</p>
+</header>
+<section class="section-card" aria-labelledby="graphql-explorer-heading">
+  <h2 id="graphql-explorer-heading">{{t .Lang "graphql.ui.endpoint_link"}}</h2>
+  <p><a href="{{.GraphQLEndpoint}}">{{t .Lang "graphql.ui.endpoint_link"}}</a></p>
+  <div id="graphiql" data-endpoint="{{.GraphQLEndpoint}}" aria-label="{{t .Lang "graphql.ui.title"}}">
+    <p role="status">{{t .Lang "common.loading"}}</p>
   </div>
-</div>
+</section>
+<noscript><section class="section-card" aria-labelledby="graphql-noscript-heading">
+  <h2 id="graphql-noscript-heading">{{t .Lang "graphql.ui.javascript_required"}}</h2>
+  <p><a href="{{.GraphQLEndpoint}}">{{t .Lang "graphql.ui.endpoint_link"}}</a></p>
+</section></noscript>
 {{end}}

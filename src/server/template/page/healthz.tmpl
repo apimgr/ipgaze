@@ -4,16 +4,18 @@
 <meta http-equiv="refresh" content="30">
 {{end}}
 {{define "content"}}
-<header class="health-header">
-  <h1>📦 {{.Health.Project.Name}}</h1>
-  <p class="tagline">{{.Health.Project.Tagline}}</p>
+<header class="page-header">
+  <h1 class="page-title">{{.Health.Project.Name}} — {{t .Lang "healthz.page_title"}}</h1>
+  <p class="page-lead">{{.Health.Project.Tagline}}</p>
   <p>{{.Health.Project.Description}}</p>
 </header>
 
-<div class="status-banner {{.StatusClass}}" data-health-status="{{.Health.Status}}">
+<section class="section-card" aria-labelledby="healthz-status-heading">
+  <h2 id="healthz-status-heading">{{t .Lang "health.status"}}</h2>
+  <div class="status-banner {{.StatusClass}}" data-health-status="{{.Health.Status}}">
   <span class="status-icon">{{.StatusIcon}}</span>
   <span class="status-text">{{t .Lang .StatusMessageKey}}</span>
-</div>
+  </div>
 
 {{if .Health.PendingRestart}}
 <div class="status-banner status-warning">
@@ -21,9 +23,12 @@
   <span class="status-text">{{t .Lang "healthz.restart_pending"}} {{range .Health.RestartReason}}{{.}} {{end}}</span>
 </div>
 {{end}}
+  <p>{{t .Lang "health.last_checked"}} <time datetime="{{.Health.Timestamp}}">{{.TimestampText}}</time></p>
+  <p class="refresh-countdown">{{t .Lang "healthz.refreshing_in_prefix"}} <span id="healthz-countdown">30</span>s</p>
+</section>
 
-<section class="section-card">
-  <h2>{{t .Lang "health.version"}} &amp; {{t .Lang "health.build"}}</h2>
+<section class="section-card" aria-labelledby="healthz-section-1">
+  <h2 id="healthz-section-1">{{t .Lang "health.version"}} &amp; {{t .Lang "health.build"}}</h2>
   <ul class="info-list">
     <li><strong>{{t .Lang "health.version"}}:</strong> <code>{{.Health.Version}}</code></li>
     <li><strong>{{t .Lang "health.go_version"}}:</strong> <code>{{.Health.GoVersion}}</code></li>
@@ -32,8 +37,8 @@
   </ul>
 </section>
 
-<section class="section-card">
-  <h2>{{t .Lang "healthz.runtime_heading"}}</h2>
+<section class="section-card" aria-labelledby="healthz-section-2">
+  <h2 id="healthz-section-2">{{t .Lang "healthz.runtime_heading"}}</h2>
   <ul class="info-list">
     <li><strong>{{t .Lang "health.uptime"}}:</strong> {{.UptimeText}}</li>
     <li><strong>{{t .Lang "health.mode"}}:</strong> <span class="badge badge-{{.Health.Mode}}">{{.Health.Mode}}</span></li>
@@ -41,8 +46,8 @@
   </ul>
 </section>
 
-<section class="section-card">
-  <h2>{{t .Lang "health.features"}}</h2>
+<section class="section-card" aria-labelledby="healthz-section-3">
+  <h2 id="healthz-section-3">{{t .Lang "health.features"}}</h2>
   <ul class="feature-list">
     <li class="{{if .Health.Features.Tor.Enabled}}feature-enabled{{else}}feature-disabled{{end}}">🧅 {{t .Lang "healthz.check_tor"}}
       <span class="feature-detail">{{t .Lang "health.status"}}: {{.TorStatusText}}</span>
@@ -76,11 +81,11 @@
   </ul>
 </section>
 
-<section class="section-card">
-  <h2>{{t .Lang "healthz.checks_heading"}}</h2>
+<section class="section-card" aria-labelledby="healthz-section-4">
+  <h2 id="healthz-section-4">{{t .Lang "healthz.checks_heading"}}</h2>
   <div class="table-wrapper">
     <table class="data-table" role="table">
-      <thead><tr><th>{{t .Lang "healthz.column_component"}}</th><th>{{t .Lang "health.status"}}</th></tr></thead>
+      <thead><tr><th scope="col">{{t .Lang "healthz.column_component"}}</th><th scope="col">{{t .Lang "health.status"}}</th></tr></thead>
       <tbody>
       <tr><td>{{t .Lang "healthz.check_database"}}</td><td><span class="status {{if eq .Health.Checks.Database "ok"}}status-ok{{else}}status-error{{end}}">{{if eq .Health.Checks.Database "ok"}}✅ {{t .Lang "health.ok"}}{{else}}❌ {{t .Lang "common.error"}}{{end}}</span></td></tr>
       <tr><td>{{t .Lang "healthz.check_cache"}}</td><td><span class="status {{if eq .Health.Checks.Cache "ok"}}status-ok{{else}}status-error{{end}}">{{if eq .Health.Checks.Cache "ok"}}✅ {{t .Lang "health.ok"}}{{else}}❌ {{t .Lang "common.error"}}{{end}}</span></td></tr>
@@ -100,8 +105,8 @@
   </div>
 </section>
 
-<section class="section-card">
-  <h2>{{t .Lang "health.server_statistics"}}</h2>
+<section class="section-card" aria-labelledby="healthz-section-5">
+  <h2 id="healthz-section-5">{{t .Lang "health.server_statistics"}}</h2>
   <ul class="info-list stats-grid">
     <li><strong>{{t .Lang "health.total_requests"}}:</strong> {{.RequestsTotalText}}</li>
     <li><strong>{{t .Lang "health.requests_24h"}}:</strong> {{.Requests24hText}}</li>
@@ -109,8 +114,4 @@
   </ul>
 </section>
 
-<footer class="health-footer">
-  <p>{{t .Lang "health.last_checked"}} <time datetime="{{.Health.Timestamp}}">{{.TimestampText}}</time></p>
-  <p class="refresh-countdown">{{t .Lang "healthz.refreshing_in_prefix"}} <span id="healthz-countdown">30</span>s</p>
-</footer>
 {{end}}

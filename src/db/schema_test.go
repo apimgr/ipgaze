@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
+
 	_ "modernc.org/sqlite"
 )
 
@@ -44,6 +46,7 @@ func TestEnsureSchema_CreatesAllTables(t *testing.T) {
 		"backups",
 		"owners",
 		"api_tokens",
+		"captcha_challenges",
 	}
 	for _, tbl := range expected {
 		var name string
@@ -51,6 +54,69 @@ func TestEnsureSchema_CreatesAllTables(t *testing.T) {
 		if err := row.Scan(&name); err != nil {
 			t.Errorf("table %q not found after EnsureSchema: %v", tbl, err)
 		}
+	}
+}
+
+func TestEnsureSchemaUpgradesLegacyCaptchaChallenges(t *testing.T) {
+	db := openMemDB(t)
+	if _, err := db.Exec(`CREATE TABLE contact_captcha_challenges (
+		token_hash TEXT PRIMARY KEY, answer_hash TEXT NOT NULL,
+		created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL, used_at INTEGER
+	)`); err != nil {
+		t.Fatalf("create legacy captcha table: %v", err)
+	}
+	if _, err := db.Exec(`CREATE INDEX idx_contact_captcha_challenges_expires ON contact_captcha_challenges(expires_at)`); err != nil {
+		t.Fatalf("create legacy captcha index: %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO contact_captcha_challenges VALUES ('legacy', 'answer', 1, 2, NULL)`); err != nil {
+		t.Fatalf("insert legacy captcha row: %v", err)
+	}
+	if err := EnsureSchema(db); err != nil {
+		t.Fatalf("EnsureSchema: %v", err)
+	}
+	var count int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='contact_captcha_challenges'`).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Fatal("legacy captcha table remains after upgrade")
+	}
+	if err := db.QueryRow(`SELECT COUNT(*) FROM captcha_challenges`).Scan(&count); err != nil {
+		t.Fatalf("query canonical captcha table: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("canonical table contains %d legacy rows, want none", count)
+	}
+	if err := EnsureSchema(db); err != nil {
+		t.Fatalf("second EnsureSchema: %v", err)
+	}
+}
+
+func TestEnsureSchemaBackfillsOpaqueAPITokenIDs(t *testing.T) {
+	db := openMemDB(t)
+	if err := EnsureSchema(db); err != nil {
+		t.Fatalf("EnsureSchema: %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO owners(id) VALUES('owner-public-id-test')`); err != nil {
+		t.Fatalf("insert owner: %v", err)
+	}
+	result, err := db.Exec(`INSERT INTO api_tokens(owner_id, kind, token_hash, token_prefix, token_last4, token_enc) VALUES('owner-public-id-test', 'linked', 'public-id-test-hash', 'own_public12', 'last', 'encrypted')`)
+	if err != nil {
+		t.Fatalf("insert token without a public ID: %v", err)
+	}
+	id, err := result.LastInsertId()
+	if err != nil {
+		t.Fatalf("read internal ID: %v", err)
+	}
+	if err := EnsureSchema(db); err != nil {
+		t.Fatalf("EnsureSchema backfill: %v", err)
+	}
+	var publicID string
+	if err := db.QueryRow(`SELECT public_id FROM api_tokens WHERE id = ?`, id).Scan(&publicID); err != nil {
+		t.Fatalf("read public ID: %v", err)
+	}
+	if _, err := uuid.Parse(publicID); err != nil {
+		t.Fatalf("public ID = %q, want UUID: %v", publicID, err)
 	}
 }
 

@@ -584,7 +584,7 @@ func TestLoadOrCreateSAMDestination_GeneratesAndPersistsAtomically(t *testing.T)
 		if !strings.HasPrefix(line, "DEST GENERATE SIGNATURE_TYPE=7") {
 			t.Errorf("server received %q, want DEST GENERATE", line)
 		}
-		_, _ = server.Write([]byte("DEST REPLY RESULT=OK PRIV=" + priv + "\n"))
+		_, _ = server.Write([]byte("DEST REPLY PUB=public PRIV=" + priv + "\n"))
 	}()
 	dest, err := loadOrCreateSAMDestination(client, bufio.NewReader(client), keysPath, 7)
 	if err != nil {
@@ -648,7 +648,7 @@ func TestStartSAMEepsite_UsesSAM31AndSeparateSilentForwardSocket(t *testing.T) {
 			}
 			return got, c, nil
 		}
-		control, controlConn, e := readConn("DEST GENERATE", "DEST REPLY RESULT=OK PRIV="+priv+"\n")
+		control, controlConn, e := readConn("DEST GENERATE", "DEST REPLY PUB=public PRIV="+priv+"\n")
 		if e != nil {
 			serverErr <- e
 			return

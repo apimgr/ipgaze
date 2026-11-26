@@ -188,18 +188,20 @@
     "abuse_reports_body": "如需举报滥用内容或违规行为，请使用此联系表单。",
     "abuse_reports_body_email": "如需举报滥用内容或违规行为，请使用此联系表单或发送邮件至 {email}。",
     "github": "GitHub",
-    "form_heading": "发送消息",
+    "form_heading": "报告详情",
     "report_received": "已收到安全报告",
     "report_received_body": "我们已收到您的报告。请查看电子邮件中的状态链接和确认信息。",
     "submit_error": "无法提交表单。请检查必填字段和验证码，然后重试。",
     "tracking_id": "跟踪 ID",
     "security_report_intro": "提交有关 IPGaze 官方服务的安全报告。请勿包含凭据或属于他人的数据。",
     "captcha": "验证码",
+    "captcha_addition": "{first} + {second} 等于多少？",
+    "captcha_subtraction": "{first} - {second} 等于多少？",
     "report_details": "安全报告详情",
     "researcher_key": "研究者 GPG 公钥或 HTTPS 密钥 URL（可选）",
     "affected_component": "受影响的组件",
     "affected_endpoint": "受影响的端点或 URL（可选）",
-    "severity": "严重程度",
+    "severity": "严重程度（研究者自评）",
     "severity_critical": "严重",
     "severity_high": "高",
     "severity_medium": "中",
@@ -216,8 +218,54 @@
     "credit_handle": "使用昵称署名",
     "credit_no": "不署名",
     "credit_anonymous": "匿名署名",
-    "researcher_handle": "公开署名昵称（选择使用昵称时必填）",
-    "coordinated_disclosure_agreement": "我同意协调披露。"
+    "researcher_handle": "署名昵称",
+    "coordinated_disclosure_agreement": "我同意协调披露。",
+    "purpose": "此表单仅用于提交安全报告、举报本网站网址上的条款违规、发送 DMCA 通知和提出隐私请求。不得用于支持、错误报告、功能请求或一般咨询。",
+    "thanks_title": "已收到报告",
+    "thanks_body": "谢谢，您的报告已收到。",
+    "review_title": "检查您的报告",
+    "type_label": "类型",
+    "review_confirm": "此电子邮件地址正确，且这是一份真实报告，并非广告、推销或垃圾邮件。",
+    "confirm_report": "确认报告",
+    "edit_report": "编辑报告",
+    "honeypot": "请将此字段留空",
+    "reported_url": "举报网址",
+    "reported_url_help": "本网站上的页面，例如 https://{host}/...",
+    "required": "必填",
+    "optional": "可选",
+    "reason": "原因",
+    "choose_reason": "选择原因",
+    "reason_illegal_content": "非法内容",
+    "reason_terms_violation": "违反条款",
+    "reason_harassment": "骚扰",
+    "reason_malware_phishing": "恶意软件或网络钓鱼",
+    "other": "其他",
+    "copyrighted_work": "受版权保护的作品",
+    "good_faith_statement": "善意声明",
+    "good_faith_text": "我善意地认为，此用途未经版权所有者、其代理人或法律授权",
+    "accuracy_statement": "准确性声明",
+    "accuracy_text": "信息准确；本人是权利人或经授权代表权利人行事，并愿承担伪证责任",
+    "signature": "签名",
+    "request_kind": "请求类型",
+    "choose_request": "选择请求",
+    "request_access": "访问",
+    "request_export": "导出",
+    "request_deletion": "删除",
+    "request_correction": "更正",
+    "request_opt_out": "退出",
+    "review_report": "检查报告",
+    "choose_type": "选择报告类型",
+    "action_abuse": "举报滥用行为",
+    "action_dmca": "发送 DMCA 通知",
+    "action_privacy": "提出隐私请求",
+    "action_security": "报告安全漏洞",
+    "security_pointer_pre": "如需报告安全漏洞，请参阅",
+    "security_pointer_link": "安全页面",
+    "type_abuse": "滥用行为报告",
+    "type_dmca": "DMCA 通知",
+    "type_privacy": "隐私请求",
+    "type_security": "安全报告",
+    "credit_handle_help": "当署名偏好选择“使用昵称署名”时必填。"
   },
   "help": {
     "more_heading": "更多帮助",
@@ -408,7 +456,9 @@
     "api_heading": "API",
     "api_description_pre": "API 可通过以下地址访问：",
     "api_description_post": "完整文档请访问：",
-    "attribution_heading": "署名"
+    "attribution_heading": "署名",
+    "dbip_attribution": "DB-IP 提供的 IP 地理位置",
+    "nro_attribution": "国家和 ASN 数据由 Number Resource Organization (NRO) 根据 CC BY 4.0 许可。"
   },
   "preferences": {
     "title": "Preferences",
@@ -544,7 +594,8 @@
     "rate_limited": "请求过多",
     "server_error": "内部服务器错误",
     "maintenance_mode": "服务不可用",
-    "request_id_label": "请求 ID"
+    "request_id_label": "请求 ID",
+    "details": "错误详情"
   },
   "plurals": {
     "items": {
@@ -755,6 +806,8 @@
     "heading": "我的 IP 地址是什么？",
     "subtitle": "查找您自己的 IP 地址及相关信息的最佳工具。",
     "ip_info_aria": "IP 信息",
+    "column_field": "字段",
+    "column_value": "值",
     "ip_details_heading": "IP 详情",
     "field_postal_code": "邮政编码",
     "api_usage_aria": "API 用法",
@@ -1089,7 +1142,7 @@
       "port_path": "要检测的端口号（1-65535）",
       "ipgaze_pref_widget_query": "默认查询示例：ip、country、country-iso、city、asn、json 或 port",
       "theme_query": "要应用的主题：dark、light 或 auto",
-      "token_id": "关联所有者令牌的数字标识"
+      "token_id": "关联所有者令牌的不透明 UUID"
     },
     "paths": {
       "announcements_dismiss": {
@@ -1489,7 +1542,10 @@
       "well_known": "Well-Known"
     },
     "ui": {
-      "title": "IPGaze API - Swagger 界面"
+      "title": "IPGaze API - Swagger 界面",
+      "lead": "浏览并试用 REST API。",
+      "javascript_required": "交互式浏览器需要 JavaScript。请查看 OpenAPI 文档：",
+      "openapi_json": "OpenAPI JSON"
     }
   },
   "graphql": {
@@ -1643,7 +1699,10 @@
       "response": "响应",
       "run": "运行",
       "title": "IPGaze GraphQL 浏览器",
-      "variables": "变量（JSON）"
+      "variables": "变量（JSON）",
+      "lead": "运行 GraphQL API 查询。",
+      "javascript_required": "交互式浏览器需要 JavaScript。请使用 GraphQL 端点：",
+      "endpoint_link": "GraphQL 端点"
     }
   },
   "version": {

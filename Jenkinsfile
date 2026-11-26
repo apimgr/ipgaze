@@ -400,8 +400,7 @@ pipeline {
                                 --name "${PROJECT_NAME}-trufflehog-$(tr -dc 'a-z0-9' </dev/urandom | head -c8)" \
                                 -v ${WORKSPACE}:/repo:ro \
                                 trufflesecurity/trufflehog@sha256:674b2f187620a19df77f44cf9a7d77efcc581a5662accef2f2739cbb46ba4a3a \
-                                git file:///repo --json --results=verified,unknown --exclude-paths=.github/trufflehog-exclude.txt --no-update --fail-on-scan-errors \
-                                | python3 scripts/trufflehog_scan.py --jsonl-stdin
+                                git file:///repo --since-commit HEAD~1 --results=verified,unknown --exclude-paths=.github/trufflehog-exclude.txt --no-update --fail
                         '''
                     }
                 }
@@ -669,7 +668,7 @@ pipeline {
 
                     // Build multi-arch with OCI labels and manifest annotations
                     sh """
-                        docker buildx create --name ${PROJECT_NAME}-builder --use 2>/dev/null || docker buildx use ${PROJECT_NAME}-builder
+                        docker buildx create --name multiarch-builder --use 2>/dev/null || docker buildx use multiarch-builder
                         docker buildx build \
                             -f docker/Dockerfile \
                             --platform linux/amd64,linux/arm64 \
@@ -705,6 +704,7 @@ pipeline {
                             --push \
                             .
                     """
+                    sh 'tests/image.sh "${REGISTRY}:${COMMIT_ID}"'
                 }
             }
         }
@@ -723,7 +723,7 @@ pipeline {
                     """
 
                     sh """
-                        docker buildx create --name ${PROJECT_NAME}-devel-builder --use 2>/dev/null || docker buildx use ${PROJECT_NAME}-devel-builder
+                        docker buildx create --name multiarch-builder --use 2>/dev/null || docker buildx use multiarch-builder
                         docker buildx build \
                             -f docker/Dockerfile.dev \
                             --platform linux/amd64,linux/arm64 \
@@ -756,6 +756,7 @@ pipeline {
                             --push \
                             .
                     """
+                    sh 'tests/image.sh "${REGISTRY}:devel"'
                 }
             }
         }

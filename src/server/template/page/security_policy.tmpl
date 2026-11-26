@@ -1,9 +1,13 @@
 {{template "base" .}}
 {{define "title"}}{{t .Lang "security.disclosure_title"}} — {{.ProjectName}}{{end}}
 {{define "content"}}
-<h1>{{t .Lang "security.disclosure_title"}}</h1>
+<header class="page-header">
+  <h1 class="page-title">{{t .Lang "security.disclosure_title"}}</h1>
+  <p class="page-lead">{{t .Lang "security.coordinated_disclosure"}}</p>
+</header>
 {{if .PolicyMarkdown}}
-<section class="section-card" aria-label="{{t .Lang "security.disclosure_title"}}">
+<section class="section-card" aria-labelledby="policy-content-heading">
+  <h2 id="policy-content-heading">{{t .Lang "security.disclosure_policy"}}</h2>
   {{markdownToHTML .PolicyMarkdown}}
 </section>
 {{else}}

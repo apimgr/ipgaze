@@ -1,9 +1,12 @@
 {{template "base" .}}
 {{define "title"}}{{t .Lang "security.title"}} — {{.ProjectName}}{{end}}
 {{define "content"}}
-<h1>{{t .Lang "security.title"}}</h1>
-<section class="section-card">
-  <h2>{{t .Lang "security.reporting_channels"}}</h2>
+<header class="page-header">
+  <h1 class="page-title">{{t .Lang "security.title"}}</h1>
+  <p class="page-lead">{{t .Lang "security.intro"}}</p>
+</header>
+<section class="section-card" aria-labelledby="security-reporting">
+  <h2 id="security-reporting">{{t .Lang "security.reporting_channels"}}</h2>
   <p>{{t .Lang "security.intro"}}</p>
   <ol>
     {{range .ReportingChannels}}
@@ -15,12 +18,12 @@
   <p>{{t .Lang "security.contact_file_expires"}}: <time>{{.Expires}}</time></p>
   {{if .EncryptionURL}}<p>{{t .Lang "security.pgp_encryption_key"}}: <a href="{{.EncryptionURL}}">{{.EncryptionURL}}</a></p>{{end}}
 </section>
-<section class="section-card">
-  <h2>{{t .Lang "security.txt_heading"}}</h2>
+<section class="section-card" aria-labelledby="security-section-2">
+  <h2 id="security-section-2">{{t .Lang "security.txt_heading"}}</h2>
   <p>{{t .Lang "security.txt_body"}} <a href="{{.SecurityTxt}}">/.well-known/security.txt</a>.</p>
 </section>
-<section class="section-card">
-  <h2>{{t .Lang "security.resources"}}</h2>
+<section class="section-card" aria-labelledby="security-section-3">
+  <h2 id="security-section-3">{{t .Lang "security.resources"}}</h2>
   <ul>
     <li><a href="/server/security/policy">{{t .Lang "security.disclosure_policy"}}</a></li>
     <li><a href="/server/security/thanks">{{t .Lang "security.researcher_acknowledgments"}}</a></li>

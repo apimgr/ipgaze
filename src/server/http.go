@@ -40,6 +40,7 @@ import (
 	"github.com/apimgr/ipgaze/src/threat"
 	"github.com/go-chi/chi/v5"
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
+	"github.com/google/uuid"
 	"github.com/rs/cors"
 )
 
@@ -386,18 +387,44 @@ func (s *Server) ValidateAPIToken(rawToken string) bool {
 			return false
 		}
 	}
-	hash := sha256.Sum256([]byte(rawToken))
-	var tokenID int64
-	var ownerID string
-	err := s.sqlDB.QueryRow(`SELECT id, owner_id FROM api_tokens WHERE token_hash = ? AND revoked_at IS NULL
-		AND (expires_at IS NULL OR expires_at > strftime('%s', 'now'))`, hex.EncodeToString(hash[:])).Scan(&tokenID, &ownerID)
-	if err != nil {
+	tokenID, ownerID, ok := s.findOwnerToken(rawToken)
+	if !ok {
 		return false
 	}
 	_, _ = s.sqlDB.Exec(`UPDATE api_tokens SET last_used_at = strftime('%s', 'now')
 		WHERE id = ? AND (last_used_at IS NULL OR last_used_at < strftime('%s', 'now') - 60)`, tokenID)
 	_, _ = s.sqlDB.Exec(`UPDATE owners SET last_seen_at = strftime('%s', 'now') WHERE id = ?`, ownerID)
 	return true
+}
+
+// findOwnerToken resolves an active owner token by its non-secret prefix, then
+// compares the stored SHA-256 digest to the inbound digest in constant time.
+func (s *Server) findOwnerToken(rawToken string) (tokenID int64, ownerID string, ok bool) {
+	if s.sqlDB == nil || len(rawToken) != len("own_")+32 || !strings.HasPrefix(rawToken, "own_") {
+		return 0, "", false
+	}
+	rows, err := s.sqlDB.Query(`SELECT id, owner_id, token_hash FROM api_tokens WHERE token_prefix = ? AND revoked_at IS NULL
+		AND (expires_at IS NULL OR expires_at > strftime('%s', 'now'))`, rawToken[:12])
+	if err != nil {
+		return 0, "", false
+	}
+	defer func() {
+		if closeErr := rows.Close(); closeErr != nil {
+			tokenID, ownerID, ok = 0, "", false
+		}
+	}()
+	inboundHash := sha256.Sum256([]byte(rawToken))
+	for rows.Next() {
+		var storedHash string
+		if rows.Scan(&tokenID, &ownerID, &storedHash) != nil {
+			return 0, "", false
+		}
+		expectedHash, decodeErr := hex.DecodeString(storedHash)
+		if decodeErr == nil && len(expectedHash) == len(inboundHash) && subtle.ConstantTimeCompare(expectedHash, inboundHash[:]) == 1 {
+			return tokenID, ownerID, true
+		}
+	}
+	return 0, "", false
 }
 
 // SetAllowlist configures the IP allowlist. Allowlisted IPs bypass blocklist,
@@ -440,8 +467,8 @@ func (s *Server) SetRateLimiter(rl *RateLimiter) {
 				return "", false
 			}
 			hash := sha256.Sum256([]byte(rawToken))
-			var ownerID string
-			if err := s.sqlDB.QueryRow(`SELECT owner_id FROM api_tokens WHERE token_hash = ? AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > strftime('%s','now'))`, hex.EncodeToString(hash[:])).Scan(&ownerID); err != nil {
+			_, ownerID, ok := s.findOwnerToken(rawToken)
+			if !ok {
 				return "", false
 			}
 			if strict {
@@ -1196,7 +1223,6 @@ func (s *Server) buildHandler() http.Handler {
 	r.Head("/.well-known/llms.txt", s.SpecialHandler.LLMsTxtHandler)
 	r.Get("/manifest.json", s.SpecialHandler.ManifestHandler)
 	r.Get("/sw.js", s.SpecialHandler.ServiceWorkerHandler)
-	r.Get("/offline.html", s.SpecialHandler.OfflineHandler)
 
 	// i18n locale files — served from embedded binary for WebUI JavaScript
 	// GET /locales/{lang}.json — returns the JSON translation file for the given locale
@@ -1407,12 +1433,12 @@ func (s *Server) buildHandler() http.Handler {
 	r.Post("/server/preferences/tokens", s.PagesHandler.ServerPreferencesLinkedTokenCreateHandler)
 	linkedTokenFormAction := func(action string) http.HandlerFunc {
 		return func(w http.ResponseWriter, req *http.Request) {
-			id, err := strconv.ParseInt(chi.URLParam(req, "id"), 10, 64)
-			if err != nil {
+			publicID := chi.URLParam(req, "id")
+			if _, err := uuid.Parse(publicID); err != nil {
 				http.Redirect(w, req, "/server/preferences/tokens", http.StatusSeeOther)
 				return
 			}
-			s.PagesHandler.ServerPreferencesLinkedTokenActionHandler(w, req, id, action)
+			s.PagesHandler.ServerPreferencesLinkedTokenActionHandler(w, req, publicID, action)
 		}
 	}
 	r.Post("/server/preferences/tokens/{id}/reveal", linkedTokenFormAction("reveal"))
@@ -1470,12 +1496,12 @@ func (s *Server) buildHandler() http.Handler {
 		})
 		linkedTokenAction := func(action string) http.HandlerFunc {
 			return func(w http.ResponseWriter, req *http.Request) {
-				id, err := strconv.ParseInt(chi.URLParam(req, "id"), 10, 64)
-				if err != nil {
+				publicID := chi.URLParam(req, "id")
+				if _, err := uuid.Parse(publicID); err != nil {
 					handler.SendAPIResponseError(w, http.StatusBadRequest, "BAD_REQUEST", "Invalid token id", nil)
 					return
 				}
-				s.PagesHandler.APIV1ServerLinkedTokenActionHandler(w, req, id, action)
+				s.PagesHandler.APIV1ServerLinkedTokenActionHandler(w, req, publicID, action)
 			}
 		}
 		operationHandlers := map[string]http.Handler{

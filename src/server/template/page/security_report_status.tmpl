@@ -1,7 +1,10 @@
 {{template "base" .}}
 {{define "title"}}{{t .Lang "security.report_status_title"}} — {{.ProjectName}}{{end}}
 {{define "content"}}
-<h1>{{t .Lang "security.report_status_title"}}</h1>
+<header class="page-header">
+  <h1 class="page-title">{{t .Lang "security.report_status_title"}}</h1>
+  <p class="page-lead">{{t .Lang "security.report_label"}} {{.SecurityReportStatus.TrackingID}}</p>
+</header>
 <section class="section-card" aria-labelledby="report-status">
   <h2 id="report-status">{{t .Lang "security.report_label"}} {{.SecurityReportStatus.TrackingID}}</h2>
   <dl>

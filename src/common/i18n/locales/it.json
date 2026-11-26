@@ -188,18 +188,20 @@
     "abuse_reports_body": "Per segnalare contenuti offensivi o violazioni delle norme, utilizzare questo modulo di contatto.",
     "abuse_reports_body_email": "Per segnalare contenuti offensivi o violazioni delle norme, utilizzare questo modulo di contatto o inviare un'e-mail a {email}.",
     "github": "GitHub",
-    "form_heading": "Invia un messaggio",
+    "form_heading": "Dettagli della segnalazione",
     "report_received": "Rapporto sulla sicurezza ricevuto",
     "report_received_body": "Abbiamo ricevuto la tua segnalazione. Controlla la tua email per il collegamento allo stato e la conferma.",
     "submit_error": "Non è stato possibile inviare il modulo. Controlla i campi obbligatori e il CAPTCHA, poi riprova.",
     "tracking_id": "ID di monitoraggio",
     "security_report_intro": "Invia una segnalazione di sicurezza relativa al servizio ufficiale IPGaze. Non includere credenziali né dati appartenenti ad altre persone.",
     "captcha": "Captcha",
+    "captcha_addition": "Quanto fa {first} + {second}?",
+    "captcha_subtraction": "Quanto fa {first} - {second}?",
     "report_details": "Dettagli del rapporto sulla sicurezza",
     "researcher_key": "Chiave pubblica GPG del ricercatore o URL della chiave HTTPS (facoltativo)",
     "affected_component": "Componente interessato",
     "affected_endpoint": "Endpoint o URL interessato (facoltativo)",
-    "severity": "Gravità",
+    "severity": "Gravità (autovalutazione del ricercatore)",
     "severity_critical": "Critica",
     "severity_high": "Alta",
     "severity_medium": "Media",
@@ -216,8 +218,54 @@
     "credit_handle": "Attribuisci la segnalazione al mio handle",
     "credit_no": "Non indicare il mio nome",
     "credit_anonymous": "Attribuisci la segnalazione in forma anonima",
-    "researcher_handle": "Handle pubblico (obbligatorio se scegli l’attribuzione tramite handle)",
-    "coordinated_disclosure_agreement": "Accetto la divulgazione coordinata."
+    "researcher_handle": "Alias per i riconoscimenti",
+    "coordinated_disclosure_agreement": "Accetto la divulgazione coordinata.",
+    "purpose": "Questo modulo è riservato alle segnalazioni di sicurezza, alle violazioni dei termini relative a un URL di questo sito, alle notifiche DMCA e alle richieste sulla privacy. Non può essere usato per assistenza, bug, richieste di funzionalità o domande generali.",
+    "thanks_title": "Segnalazione ricevuta",
+    "thanks_body": "Grazie. La segnalazione è stata ricevuta.",
+    "review_title": "Controlla la segnalazione",
+    "type_label": "Tipo",
+    "review_confirm": "Questo indirizzo e-mail è corretto e questa è una segnalazione autentica, non una pubblicità, una sollecitazione o spam.",
+    "confirm_report": "Conferma la segnalazione",
+    "edit_report": "Modifica la segnalazione",
+    "honeypot": "Lascia vuoto questo campo",
+    "reported_url": "URL segnalato",
+    "reported_url_help": "Una pagina di questo sito, ad esempio https://{host}/...",
+    "required": "obbligatorio",
+    "optional": "facoltativo",
+    "reason": "Motivo",
+    "choose_reason": "Scegli un motivo",
+    "reason_illegal_content": "Contenuto illegale",
+    "reason_terms_violation": "Violazione dei termini",
+    "reason_harassment": "Molestie",
+    "reason_malware_phishing": "Malware o phishing",
+    "other": "Altro",
+    "copyrighted_work": "Opera protetta da copyright",
+    "good_faith_statement": "Dichiarazione di buona fede",
+    "good_faith_text": "Ritengo in buona fede che questo uso non sia autorizzato dal titolare del copyright, dal suo agente o dalla legge",
+    "accuracy_statement": "Dichiarazione di accuratezza",
+    "accuracy_text": "Le informazioni sono accurate e, sotto pena di spergiuro, sono il titolare o autorizzato ad agire per conto del titolare",
+    "signature": "Firma",
+    "request_kind": "Tipo di richiesta",
+    "choose_request": "Scegli una richiesta",
+    "request_access": "Accesso",
+    "request_export": "Esportazione",
+    "request_deletion": "Cancellazione",
+    "request_correction": "Correzione",
+    "request_opt_out": "Opposizione",
+    "review_report": "Rivedi la segnalazione",
+    "choose_type": "Scegli il tipo di segnalazione",
+    "action_abuse": "Segnala un abuso",
+    "action_dmca": "Invia una notifica DMCA",
+    "action_privacy": "Invia una richiesta sulla privacy",
+    "action_security": "Segnala una vulnerabilità di sicurezza",
+    "security_pointer_pre": "Per segnalare una vulnerabilità di sicurezza, consulta",
+    "security_pointer_link": "la pagina sulla sicurezza",
+    "type_abuse": "Segnalazione di abuso",
+    "type_dmca": "Notifica DMCA",
+    "type_privacy": "Richiesta sulla privacy",
+    "type_security": "Segnalazione di sicurezza",
+    "credit_handle_help": "Obbligatorio quando la preferenza è «Accreditami con il mio alias»."
   },
   "help": {
     "more_heading": "Altra assistenza",
@@ -408,7 +456,9 @@
     "api_heading": "API",
     "api_description_pre": "L’API è disponibile all’indirizzo",
     "api_description_post": "La documentazione completa è disponibile all'indirizzo",
-    "attribution_heading": "Attribuzione"
+    "attribution_heading": "Attribuzione",
+    "dbip_attribution": "Geolocalizzazione IP di DB-IP",
+    "nro_attribution": "I dati relativi a paesi e ASN sono concessi in licenza CC BY 4.0 dalla Number Resource Organization (NRO)."
   },
   "preferences": {
     "title": "Preferenze",
@@ -544,7 +594,8 @@
     "rate_limited": "Troppe richieste",
     "server_error": "Errore interno del server",
     "maintenance_mode": "Servizio non disponibile",
-    "request_id_label": "ID richiesta"
+    "request_id_label": "ID richiesta",
+    "details": "Dettagli dell’errore"
   },
   "plurals": {
     "items": {
@@ -767,6 +818,8 @@
     "heading": "Qual è il mio indirizzo IP?",
     "subtitle": "Lo strumento migliore per trovare il tuo indirizzo IP e informazioni su di esso.",
     "ip_info_aria": "Informazioni sull'IP",
+    "column_field": "Campo",
+    "column_value": "Valore",
     "ip_details_heading": "Dettagli IP",
     "field_postal_code": "Codice postale",
     "api_usage_aria": "Utilizzo dell'API",
@@ -1101,7 +1154,7 @@
       "port_path": "Numero di porta da verificare (1-65535)",
       "ipgaze_pref_widget_query": "Esempio di ricerca predefinito: ip, country, country-iso, city, asn, json o port",
       "theme_query": "Tema da applicare: scuro, chiaro o automatico",
-      "token_id": "Identificatore numerico del token proprietario collegato"
+      "token_id": "UUID opaco del token proprietario collegato"
     },
     "paths": {
       "announcements_dismiss": {
@@ -1501,7 +1554,10 @@
       "well_known": "Ben noto"
     },
     "ui": {
-      "title": "API IPGaze: interfaccia utente spavalda"
+      "title": "API IPGaze: interfaccia utente spavalda",
+      "lead": "Esplora e prova l’API REST.",
+      "javascript_required": "L’esploratore interattivo richiede JavaScript. Consulta il documento OpenAPI:",
+      "openapi_json": "JSON OpenAPI"
     }
   },
   "graphql": {
@@ -1655,7 +1711,10 @@
       "response": "Risposta",
       "run": "Corri",
       "title": "IPGaze GraphQL Explorer",
-      "variables": "Variabili (JSON)"
+      "variables": "Variabili (JSON)",
+      "lead": "Esegui query sull’API GraphQL.",
+      "javascript_required": "L’esploratore interattivo richiede JavaScript. Usa l’endpoint GraphQL:",
+      "endpoint_link": "Endpoint GraphQL"
     }
   },
   "version": {

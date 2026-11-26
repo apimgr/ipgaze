@@ -188,18 +188,20 @@
     "abuse_reports_body": "Um missbräuchliche Inhalte oder Regelverstöße zu melden, verwenden Sie dieses Kontaktformular.",
     "abuse_reports_body_email": "Um missbräuchliche Inhalte oder Regelverstöße zu melden, verwenden Sie dieses Kontaktformular oder schreiben Sie an {email}.",
     "github": "GitHub",
-    "form_heading": "Nachricht senden",
+    "form_heading": "Berichtsdetails",
     "report_received": "Sicherheitsbericht erhalten",
     "report_received_body": "Wir haben Ihren Bericht erhalten. Prüfen Sie Ihre E-Mail auf den Statuslink und die Bestätigung.",
     "submit_error": "Das Formular konnte nicht gesendet werden. Prüfen Sie die Pflichtfelder und das Captcha und versuchen Sie es erneut.",
     "tracking_id": "Tracking-ID",
     "security_report_intro": "Melden Sie ein Sicherheitsproblem beim offiziellen IPGaze-Dienst. Geben Sie keine Zugangsdaten oder Daten anderer Personen an.",
     "captcha": "Captcha",
+    "captcha_addition": "Was ist {first} + {second}?",
+    "captcha_subtraction": "Was ist {first} - {second}?",
     "report_details": "Details zum Sicherheitsbericht",
     "researcher_key": "GPG-Öffentlicher Schlüssel der meldenden Person oder HTTPS-Schlüssel-URL (optional)",
     "affected_component": "Betroffene Komponente",
     "affected_endpoint": "Betroffener Endpunkt oder URL (optional)",
-    "severity": "Schweregrad",
+    "severity": "Schweregrad (Selbsteinschätzung der forschenden Person)",
     "severity_critical": "Kritisch",
     "severity_high": "Hoch",
     "severity_medium": "Mittel",
@@ -216,8 +218,54 @@
     "credit_handle": "Meinen Benutzernamen nennen",
     "credit_no": "Mich nicht nennen",
     "credit_anonymous": "Mich anonym nennen",
-    "researcher_handle": "Benutzername für die öffentliche Nennung (erforderlich bei Nennung per Benutzername)",
-    "coordinated_disclosure_agreement": "Ich stimme einer koordinierten Offenlegung zu."
+    "researcher_handle": "Pseudonym für die Nennung",
+    "coordinated_disclosure_agreement": "Ich stimme einer koordinierten Offenlegung zu.",
+    "purpose": "Dieses Formular ist ausschließlich für Sicherheitsmeldungen, Verstöße gegen die Nutzungsbedingungen zu einer URL auf dieser Website, DMCA-Mitteilungen und Datenschutzanfragen vorgesehen. Es dient nicht dem Support, der Meldung von Fehlern, Funktionswünschen oder allgemeinen Fragen.",
+    "thanks_title": "Meldung erhalten",
+    "thanks_body": "Vielen Dank. Ihre Meldung ist eingegangen.",
+    "review_title": "Meldung überprüfen",
+    "type_label": "Typ",
+    "review_confirm": "Diese E-Mail-Adresse ist korrekt und dies ist eine echte Meldung, keine Werbung, Anfrage oder Spam.",
+    "confirm_report": "Meldung bestätigen",
+    "edit_report": "Meldung bearbeiten",
+    "honeypot": "Dieses Feld leer lassen",
+    "reported_url": "Gemeldete URL",
+    "reported_url_help": "Eine Seite auf dieser Website, zum Beispiel https://{host}/...",
+    "required": "erforderlich",
+    "optional": "optional",
+    "reason": "Grund",
+    "choose_reason": "Grund auswählen",
+    "reason_illegal_content": "Illegale Inhalte",
+    "reason_terms_violation": "Verstoß gegen die Nutzungsbedingungen",
+    "reason_harassment": "Belästigung",
+    "reason_malware_phishing": "Schadsoftware oder Phishing",
+    "other": "Sonstiges",
+    "copyrighted_work": "Urheberrechtlich geschütztes Werk",
+    "good_faith_statement": "Erklärung nach bestem Wissen und Gewissen",
+    "good_faith_text": "Ich bin nach bestem Wissen und Gewissen überzeugt, dass diese Nutzung weder vom Urheberrechtsinhaber noch dessen Vertreter oder gesetzlich genehmigt ist",
+    "accuracy_statement": "Richtigkeitserklärung",
+    "accuracy_text": "Die Angaben sind richtig und ich bin unter Strafandrohung wegen Meineids der Rechteinhaber oder zu dessen Vertretung befugt",
+    "signature": "Unterschrift",
+    "request_kind": "Art der Anfrage",
+    "choose_request": "Anfrage auswählen",
+    "request_access": "Auskunft",
+    "request_export": "Export",
+    "request_deletion": "Löschung",
+    "request_correction": "Berichtigung",
+    "request_opt_out": "Widerspruch",
+    "review_report": "Meldung überprüfen",
+    "choose_type": "Meldungstyp auswählen",
+    "action_abuse": "Missbrauch melden",
+    "action_dmca": "DMCA-Mitteilung senden",
+    "action_privacy": "Datenschutzanfrage stellen",
+    "action_security": "Sicherheitslücke melden",
+    "security_pointer_pre": "Um eine Sicherheitslücke zu melden, lesen Sie",
+    "security_pointer_link": "die Sicherheitsseite",
+    "type_abuse": "Missbrauchsmeldung",
+    "type_dmca": "DMCA-Mitteilung",
+    "type_privacy": "Datenschutzanfrage",
+    "type_security": "Sicherheitsmeldung",
+    "credit_handle_help": "Erforderlich, wenn als Nennungspräferenz „Mit Pseudonym nennen“ gewählt wurde."
   },
   "help": {
     "more_heading": "Weitere Hilfe",
@@ -408,7 +456,9 @@
     "api_heading": "API",
     "api_description_pre": "Die API ist verfügbar unter",
     "api_description_post": "Die vollständige Dokumentation ist verfügbar unter",
-    "attribution_heading": "Namensnennung"
+    "attribution_heading": "Namensnennung",
+    "dbip_attribution": "IP-Geolokalisierung von DB-IP",
+    "nro_attribution": "Länder- und ASN-Daten sind von der Number Resource Organization (NRO) unter CC BY 4.0 lizenziert."
   },
   "preferences": {
     "title": "Preferences",
@@ -544,7 +594,8 @@
     "rate_limited": "Zu viele Anfragen",
     "server_error": "Interner Serverfehler",
     "maintenance_mode": "Dienst nicht verfügbar",
-    "request_id_label": "Anfrage-ID"
+    "request_id_label": "Anfrage-ID",
+    "details": "Fehlerdetails"
   },
   "plurals": {
     "items": {
@@ -761,6 +812,8 @@
     "heading": "Wie lautet meine IP-Adresse?",
     "subtitle": "Das beste Werkzeug, um Ihre eigene IP-Adresse und Informationen dazu zu finden.",
     "ip_info_aria": "IP-Informationen",
+    "column_field": "Feld",
+    "column_value": "Wert",
     "ip_details_heading": "IP-Details",
     "field_postal_code": "Postleitzahl",
     "api_usage_aria": "API-Nutzung",
@@ -1095,7 +1148,7 @@
       "port_path": "Zu prüfende Portnummer (1-65535)",
       "ipgaze_pref_widget_query": "Standardbeispiel für die Suche: ip, country, country-iso, city, asn, json oder port",
       "theme_query": "Anzuwendendes Design: dark, light oder auto",
-      "token_id": "Numerische Kennung des verknüpften Eigentümer-Tokens"
+      "token_id": "Opake UUID des verknüpften Eigentümer-Tokens"
     },
     "paths": {
       "announcements_dismiss": {
@@ -1495,7 +1548,10 @@
       "well_known": "Well-Known"
     },
     "ui": {
-      "title": "IPGaze-API – Swagger-Oberfläche"
+      "title": "IPGaze-API – Swagger-Oberfläche",
+      "lead": "REST-API erkunden und ausprobieren.",
+      "javascript_required": "Der interaktive Explorer benötigt JavaScript. Öffnen Sie das OpenAPI-Dokument:",
+      "openapi_json": "OpenAPI-JSON"
     }
   },
   "graphql": {
@@ -1649,7 +1705,10 @@
       "response": "Antwort",
       "run": "Ausführen",
       "title": "IPGaze-GraphQL-Explorer",
-      "variables": "Variablen (JSON)"
+      "variables": "Variablen (JSON)",
+      "lead": "Abfragen an die GraphQL-API ausführen.",
+      "javascript_required": "Der interaktive Explorer benötigt JavaScript. Verwenden Sie den GraphQL-Endpunkt:",
+      "endpoint_link": "GraphQL-Endpunkt"
     }
   },
   "version": {

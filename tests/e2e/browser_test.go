@@ -126,7 +126,6 @@ func TestBrowserEveryPageLoadsCleanly(t *testing.T) {
 		"/server/preferences",
 		"/server/preferences/tokens",
 		"/server/preferences/sync",
-		"/offline.html",
 		"/server/docs/swagger",
 		"/server/docs/graphql",
 	}
@@ -334,22 +333,81 @@ func TestBrowserMobileViewportHasNoHorizontalScroll(t *testing.T) {
 func TestBrowserAPIDocsPagesInitialise(t *testing.T) {
 	ctx := newBrowserContext(t)
 
-	var swaggerMount, graphiqlMount bool
+	var swaggerMount, swaggerOperations, graphiqlMount, graphqlResponse bool
 	if err := chromedp.Run(ctx,
 		chromedp.Navigate(baseURL+"/server/docs/swagger"),
 		chromedp.WaitVisible("#swagger-ui", chromedp.ByQuery),
+		chromedp.WaitVisible(".swagger-ui .opblock", chromedp.ByQuery),
 		chromedp.Evaluate(`document.querySelector('#swagger-ui').dataset.specUrl !== undefined`, &swaggerMount),
+		chromedp.Evaluate(`document.querySelectorAll('.swagger-ui .opblock').length > 0`, &swaggerOperations),
 		chromedp.Navigate(baseURL+"/server/docs/graphql"),
-		chromedp.WaitVisible("main", chromedp.ByQuery),
-		chromedp.Evaluate(`document.querySelector('#graphiql') !== null || document.body.innerHTML.includes('graphql')`, &graphiqlMount),
+		chromedp.WaitVisible("#graphiql .graphiql-container", chromedp.ByQuery),
+		chromedp.Evaluate(`document.querySelector('#graphiql .graphiql-container') !== null`, &graphiqlMount),
+		chromedp.WaitVisible("button.graphiql-execute-button", chromedp.ByQuery),
+		chromedp.Click("button.graphiql-execute-button", chromedp.ByQuery),
+		chromedp.Sleep(2*time.Second),
+		chromedp.Evaluate(`document.querySelector('.graphiql-response')?.innerText.includes('"health"') && document.querySelector('.graphiql-response')?.innerText.includes('"status"')`, &graphqlResponse),
 	); err != nil {
 		t.Fatalf("loading the API documentation pages: %v", err)
 	}
-	if !swaggerMount {
-		t.Error("Swagger UI mount point carries no data-spec-url, so it can never fetch a spec")
+	if !swaggerMount || !swaggerOperations {
+		t.Error("Swagger UI did not load documented operations from its OpenAPI spec")
 	}
 	if !graphiqlMount {
 		t.Error("GraphiQL page rendered without a GraphQL surface")
+	}
+	if !graphqlResponse {
+		t.Error("running the sample GraphQL query did not render a health response")
+	}
+}
+
+func TestBrowserOwnerTokenIssueAndLinkedTokenFormsWork(t *testing.T) {
+	ctx := newBrowserContext(t)
+	watcher := watchPage(t, ctx)
+	var primaryShown, linkedShown bool
+	if err := chromedp.Run(ctx,
+		chromedp.Navigate(baseURL+"/"),
+		chromedp.WaitVisible(".consent-banner__btn--accept", chromedp.ByQuery),
+		chromedp.Click(".consent-banner__btn--accept", chromedp.ByQuery),
+		chromedp.Navigate(baseURL+"/server/preferences/tokens"),
+		chromedp.WaitVisible(`form[action="/server/preferences/token/create"] button[type="submit"]`, chromedp.ByQuery),
+		chromedp.Click(`form[action="/server/preferences/token/create"] button[type="submit"]`, chromedp.ByQuery),
+		chromedp.WaitVisible("#primary-token-heading", chromedp.ByQuery),
+		chromedp.Evaluate(`document.querySelector('#primary code.copy-value')?.textContent.trim().length > 0`, &primaryShown),
+	); err != nil {
+		t.Fatalf("issuing an owner token in the browser: %v", err)
+	}
+	var linkedName string
+	var linkedFormValid bool
+	if err := chromedp.Run(ctx,
+		chromedp.SendKeys("#linked-token-name", "e2e-browser-client", chromedp.ByQuery),
+		chromedp.Evaluate(`document.querySelector('form[action="/server/preferences/tokens"]').checkValidity()`, &linkedFormValid),
+		chromedp.Evaluate(`document.querySelector('#linked-token-name').value`, &linkedName),
+		chromedp.Click(`form[action="/server/preferences/tokens"] button[type="submit"]`, chromedp.ByQuery),
+	); err != nil {
+		t.Fatalf("submitting the linked-token form in the browser: %v", err)
+	}
+	waitCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	if err := chromedp.Run(waitCtx,
+		chromedp.WaitVisible("#linked-token-list article", chromedp.ByQuery),
+		chromedp.Evaluate(`document.body.innerText.includes('e2e-browser-client')`, &linkedShown),
+	); err != nil {
+		var location string
+		var state struct {
+			URL          string `json:"url"`
+			ArticleCount int    `json:"articleCount"`
+			HasName      bool   `json:"hasName"`
+		}
+		_ = chromedp.Run(ctx, chromedp.Location(&location), chromedp.Evaluate(`({url: location.href, articleCount: document.querySelectorAll('#linked-token-list article').length, hasName: document.body.innerText.includes('e2e-browser-client')})`, &state))
+		watcher.report(t, "owner-token browser flow")
+		t.Fatalf("linked token was not rendered within 10s (location %q, input %q, form valid %t, articles %d, name present %t): %v", location, linkedName, linkedFormValid, state.ArticleCount, state.HasName, err)
+	}
+	if !primaryShown {
+		t.Error("new owner token was not revealed once after issuance")
+	}
+	if !linkedShown {
+		t.Error("linked-token form did not render the created token in the browser")
 	}
 }
 
@@ -361,8 +419,8 @@ func TestBrowserErrorPageIsThemedNotBlank(t *testing.T) {
 	var background string
 	if err := chromedp.Run(ctx,
 		chromedp.Navigate(baseURL+"/definitely-not-a-real-page"),
-		chromedp.WaitVisible(".error-title", chromedp.ByQuery),
-		chromedp.Text(".error-title", &title, chromedp.ByQuery),
+		chromedp.WaitVisible(".page-title", chromedp.ByQuery),
+		chromedp.Text(".page-title", &title, chromedp.ByQuery),
 		chromedp.Evaluate(`document.body.innerText.trim().length`, &bodyLength),
 		chromedp.Evaluate(`getComputedStyle(document.body).backgroundColor`, &background),
 	); err != nil {

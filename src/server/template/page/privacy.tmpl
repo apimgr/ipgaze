@@ -1,13 +1,15 @@
 {{template "base" .}}
 {{define "title"}}{{t .Lang "privacy.title"}} — {{.ProjectName}}{{end}}
 {{define "content"}}
-<article class="privacy-policy">
-  <h1>{{t .Lang "privacy.title"}}</h1>
-  <p class="last-updated">{{t .Lang "privacy.last_updated"}} {{.BuildDate}}</p>
+<header class="page-header">
+  <h1 class="page-title">{{t .Lang "privacy.title"}}</h1>
+  <p class="page-lead">{{t .Lang "privacy.summary"}}</p>
+</header>
 
   <!-- Summary - Key Points (always shown first) -->
-  <section id="summary" class="section-card privacy-summary">
-    <h2>{{t .Lang "privacy.summary"}}</h2>
+  <section id="summary" class="section-card" aria-labelledby="privacy-section-1">
+    <h2 id="privacy-section-1">{{t .Lang "privacy.summary"}}</h2>
+    <p>{{t .Lang "privacy.last_updated"}} {{.BuildDate}}</p>
     <div class="key-points">
       <div class="key-point">
         <span class="icon">🔒</span>
@@ -33,8 +35,8 @@
   </section>
 
   <!-- Cookie Policy Section - from server.privacy.cookies -->
-  <section id="cookies" class="section-card">
-    <h2>{{t .Lang "privacy.cookie_policy"}}</h2>
+  <section id="cookies" class="section-card" aria-labelledby="privacy-section-2">
+    <h2 id="privacy-section-2">{{t .Lang "privacy.cookie_policy"}}</h2>
 
     <h3>{{t .Lang "privacy.essential_cookies"}}</h3>
     <p>{{.Privacy.Cookies.Essential.Description}}</p>
@@ -56,26 +58,26 @@
   </section>
 
   <!-- Data Collection - operator-defined content -->
-  <section id="data-collection" class="section-card">
-    <h2>{{t .Lang "privacy.data_we_collect"}}</h2>
+  <section id="data-collection" class="section-card" aria-labelledby="privacy-section-3">
+    <h2 id="privacy-section-3">{{t .Lang "privacy.data_we_collect"}}</h2>
     {{.Privacy.Content.DataCollection | markdownToHTML}}
   </section>
 
   <!-- Data Usage - operator-defined content, dynamic based on data.sold -->
-  <section id="data-usage" class="section-card">
-    <h2>{{t .Lang "privacy.how_we_use"}}</h2>
+  <section id="data-usage" class="section-card" aria-labelledby="privacy-section-4">
+    <h2 id="privacy-section-4">{{t .Lang "privacy.how_we_use"}}</h2>
     {{.Privacy.GetDataUsageContent | markdownToHTML}}
   </section>
 
   <!-- Data Security - operator-defined content -->
-  <section id="data-security" class="section-card">
-    <h2>{{t .Lang "privacy.data_security"}}</h2>
+  <section id="data-security" class="section-card" aria-labelledby="privacy-section-5">
+    <h2 id="privacy-section-5">{{t .Lang "privacy.data_security"}}</h2>
     {{.Privacy.Content.DataSecurity | markdownToHTML}}
   </section>
 
   <!-- Data Storage - from server.privacy.data -->
-  <section id="data-storage" class="section-card">
-    <h2>{{t .Lang "privacy.data_storage"}}</h2>
+  <section id="data-storage" class="section-card" aria-labelledby="privacy-section-6">
+    <h2 id="privacy-section-6">{{t .Lang "privacy.data_storage"}}</h2>
     <p><strong>{{t .Lang "privacy.all_data_stored"}}</strong></p>
 
     <h3>{{t .Lang "privacy.when_shared"}}</h3>
@@ -95,22 +97,23 @@
   </section>
 
   <!-- Data Retention - from server.privacy.retention -->
-  <section id="data-retention" class="section-card">
-    <h2>{{t .Lang "privacy.data_retention"}}</h2>
+  <section id="data-retention" class="section-card" aria-labelledby="privacy-section-7">
+    <h2 id="privacy-section-7">{{t .Lang "privacy.data_retention"}}</h2>
     <p>{{.Privacy.Retention.Period}}</p>
   </section>
 
   <!-- Third Parties - from server.privacy.third_party -->
-  <section id="third-parties" class="section-card">
-    <h2>{{t .Lang "privacy.third_party_services"}}</h2>
+  <section id="third-parties" class="section-card" aria-labelledby="privacy-section-8">
+    <h2 id="privacy-section-8">{{t .Lang "privacy.third_party_services"}}</h2>
     {{ if .Privacy.ThirdParty.Services }}
-    <table>
+    <div class="table-wrapper">
+    <table class="data-table">
       <thead>
         <tr>
-          <th>{{t .Lang "privacy.service"}}</th>
-          <th>{{t .Lang "privacy.purpose"}}</th>
-          <th>{{t .Lang "privacy.data_sent"}}</th>
-          <th>{{t .Lang "privacy.view_policy"}}</th>
+          <th scope="col">{{t .Lang "privacy.service"}}</th>
+          <th scope="col">{{t .Lang "privacy.purpose"}}</th>
+          <th scope="col">{{t .Lang "privacy.data_sent"}}</th>
+          <th scope="col">{{t .Lang "privacy.view_policy"}}</th>
         </tr>
       </thead>
       <tbody>
@@ -124,14 +127,15 @@
         {{ end }}
       </tbody>
     </table>
+    </div>
     {{ else }}
     <p><strong>{{t .Lang "privacy.no_third_party"}}</strong></p>
     {{ end }}
   </section>
 
   <!-- Your Rights - from server.privacy.retention -->
-  <section id="your-rights" class="section-card">
-    <h2>{{t .Lang "privacy.your_rights"}}</h2>
+  <section id="your-rights" class="section-card" aria-labelledby="privacy-section-9">
+    <h2 id="privacy-section-9">{{t .Lang "privacy.your_rights"}}</h2>
     <ul>
       <li><strong>{{t .Lang "privacy.right_access"}}</strong></li>
       {{ if .Privacy.Retention.ExportAvailable }}
@@ -150,8 +154,8 @@
 
   <!-- CCPA "Do Not Sell" - ONLY shown when server.privacy.data.sold = true -->
   {{ if .Privacy.Data.Sold }}
-  <section id="ccpa-opt-out" class="section-card ccpa-section">
-    <h2>{{t .Lang "privacy.ccpa_title"}}</h2>
+  <section id="ccpa-opt-out" class="section-card" aria-labelledby="privacy-section-10">
+    <h2 id="privacy-section-10">{{t .Lang "privacy.ccpa_title"}}</h2>
 
     <div class="ccpa-opt-out-box">
       {{ if .CCPAOptedOut }}
@@ -181,9 +185,8 @@
   {{index .OperatorContents "privacy"}}
 
   <!-- Contact -->
-  <section id="contact" class="section-card">
-    <h2>{{t .Lang "privacy.contact_us"}}</h2>
+  <section id="contact" class="section-card" aria-labelledby="privacy-section-11">
+    <h2 id="privacy-section-11">{{t .Lang "privacy.contact_us"}}</h2>
     <p><a href="/server/security">{{t .Lang "security.title"}}</a></p>
   </section>
-</article>
 {{end}}

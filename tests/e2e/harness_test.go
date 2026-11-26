@@ -8,12 +8,14 @@ package e2e
 
 import (
 	"context"
+	_ "embed"
 	"encoding/json"
 	"fmt"
 	"io"
 	"math/rand"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -47,6 +49,12 @@ var (
 	// always lives under the tempdir structure, never the project tree.
 	artifactDir string
 )
+
+// e2eGeoIPDatabase is a valid empty MMDB used to keep the suite independent
+// of the live GeoIP release service while exercising enabled GeoIP routes.
+//
+//go:embed testdata/minimal.mmdb
+var e2eGeoIPDatabase []byte
 
 func TestMain(m *testing.M) {
 	code, err := runSuite(m)
@@ -84,13 +92,20 @@ func runSuite(m *testing.M) (int, error) {
 		return 0, err
 	}
 
+	// Every outbound dependency is routed to a local deterministic stub so
+	// first-run downloads and public-IP discovery work without external access.
+	outboundStub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "E2E outbound dependency stub", http.StatusBadGateway)
+	}))
+	defer outboundStub.Close()
+
 	port, err := reserveServerPort()
 	if err != nil {
 		return 0, err
 	}
 	baseURL = fmt.Sprintf("http://127.0.0.1:%d", port)
 
-	stop, err := startServer(binary, root, port)
+	stop, err := startServer(binary, root, port, outboundStub.URL)
 	if err != nil {
 		return 0, err
 	}
@@ -151,7 +166,7 @@ func reserveServerPort() (int, error) {
 // the run's scratch root, so the suite is hermetic and never touches the
 // developer's real config or database. The returned closure terminates the
 // process group and is safe to call once.
-func startServer(binary, root string, port int) (func(), error) {
+func startServer(binary, root string, port int, outboundStubURL string) (func(), error) {
 	dirs := map[string]string{}
 	for _, name := range []string{"config", "data", "cache", "logs", "backups"} {
 		path := filepath.Join(root, name)
@@ -159,6 +174,9 @@ func startServer(binary, root string, port int) (func(), error) {
 			return nil, err
 		}
 		dirs[name] = path
+	}
+	if err := seedE2ESecurityData(dirs["data"]); err != nil {
+		return nil, err
 	}
 	if err := writeE2EServerConfig(dirs["config"]); err != nil {
 		return nil, err
@@ -182,7 +200,10 @@ func startServer(binary, root string, port int) (func(), error) {
 	)
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
-	cmd.Env = append(os.Environ(), "NO_COLOR=1", "MODE=production")
+	cmd.Env = append(os.Environ(), "NO_COLOR=1", "MODE=production", "DATA_DIR="+dirs["data"], "DATABASE_DIR="+filepath.Join(dirs["data"], "db", "sqlite"),
+		"HTTP_PROXY="+outboundStubURL, "HTTPS_PROXY="+outboundStubURL,
+		"http_proxy="+outboundStubURL, "https_proxy="+outboundStubURL,
+		"NO_PROXY=localhost,127.0.0.1,::1", "no_proxy=localhost,127.0.0.1,::1")
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
 	if err := cmd.Start(); err != nil {
@@ -213,6 +234,28 @@ func startServer(binary, root string, port int) (func(), error) {
 		return nil, fmt.Errorf("%w (server log: %s)", err, logPath)
 	}
 	return stop, nil
+}
+
+func seedE2ESecurityData(dataDir string) error {
+	geoIPDir := filepath.Join(dataDir, "security", "geoip")
+	if err := os.MkdirAll(geoIPDir, 0o700); err != nil {
+		return fmt.Errorf("create E2E GeoIP fixture directory: %w", err)
+	}
+	for _, name := range []string{"iptoasn-asn.mmdb", "iptoasn-country.mmdb", "dbip-city-ipv4.mmdb", "dbip-city-ipv6.mmdb"} {
+		if err := os.WriteFile(filepath.Join(geoIPDir, name), e2eGeoIPDatabase, 0o600); err != nil {
+			return fmt.Errorf("seed E2E GeoIP fixture %s: %w", name, err)
+		}
+	}
+	threatDir := filepath.Join(dataDir, "security", "threat")
+	if err := os.MkdirAll(threatDir, 0o700); err != nil {
+		return fmt.Errorf("create E2E threat fixture directory: %w", err)
+	}
+	for _, name := range []string{"tor_exit.txt", "vpn_ipv4.txt", "vpn_ipv6.txt", "proxy_socks.txt", "proxy_http.txt"} {
+		if err := os.WriteFile(filepath.Join(threatDir, name), nil, 0o600); err != nil {
+			return fmt.Errorf("seed E2E threat fixture %s: %w", name, err)
+		}
+	}
+	return nil
 }
 
 // writeE2EServerConfig raises request ceilings for the many-route browser

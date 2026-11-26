@@ -99,10 +99,23 @@ jobs:
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: 0
-      - name: Test TruffleHog finding allowlist
-        run: PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/test_trufflehog_scan.py
-      - name: Scan full Git history with TruffleHog
-        run: PYTHONDONTWRITEBYTECODE=1 python3 scripts/trufflehog_scan.py
+      - name: Determine scan range
+        id: range
+        run: |
+          BASE=""; HEAD=""
+          if [ "${{ github.event_name }}" = "push" ] && [ "${{ github.event.before }}" != "0000000000000000000000000000000000000000" ]; then
+            BASE="${{ github.event.before }}"; HEAD="${{ github.sha }}"
+          elif [ "${{ github.event_name }}" = "pull_request" ]; then
+            BASE="${{ github.event.pull_request.base.sha }}"; HEAD="${{ github.event.pull_request.head.sha }}"
+          fi
+          echo "base=$BASE" >> "$GITHUB_OUTPUT"
+          echo "head=$HEAD" >> "$GITHUB_OUTPUT"
+      - name: Scan for secrets (truffleHog)
+        uses: trufflesecurity/trufflehog@b2b0a92070f206ab7b5a1105d82a7f2f48d92341 # v3.99.0
+        with:
+          base: ${{ steps.range.outputs.base }}
+          head: ${{ steps.range.outputs.head }}
+          extra_args: --results=${{ steps.range.outputs.base == '' && 'verified' || 'verified,unknown' }} --exclude-paths=.github/trufflehog-exclude.txt
 
   workflow-policy:
     name: Workflow SHA Policy

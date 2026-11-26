@@ -311,10 +311,7 @@ func backupAndWriteConfig(path string, content []byte) error {
 
 func atomicConfigWrite(path string, content []byte) error {
 	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return err
-	}
-	if err := os.Chmod(dir, 0o700); err != nil {
+	if err := ensureConfigFileDirectory(dir); err != nil {
 		return err
 	}
 	tmp, err := os.CreateTemp(dir, ".config-migrate-*")

@@ -602,7 +602,7 @@ func runMain() {
 		ownershipDirs = append(ownershipDirs, filepath.Dir(dirs.PID))
 	}
 	if isElevated() {
-		uid, gid, userErr := ensureSystemUser(projectName, dirs.Config)
+		uid, gid, userErr := ensureSystemUser(projectName, dirs.Data)
 		if userErr != nil {
 			log.Printf("Warning: Failed to create system user %s: %v", projectName, userErr)
 		} else {
@@ -1689,12 +1689,20 @@ func runMain() {
 			Schedule: scheduleFor("@every 15m", cfg.Server.Schedule.Tasks.TokenCleanup),
 			Enabled:  enabledFor(true, cfg.Server.Schedule.Tasks.TokenCleanup),
 			Fn: func() error {
+				if serverDB == nil {
+					return nil
+				}
+				cleanupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				defer cancel()
+				if _, err := serverDB.ExecContext(cleanupCtx, `DELETE FROM captcha_challenges WHERE expires_at <= ?`, time.Now().Unix()); err != nil {
+					return err
+				}
 				days := cfg.Server.Tokens.IdlePurgeDays
-				if days <= 0 || serverDB == nil {
+				if days <= 0 {
 					return nil
 				}
 				cutoff := time.Now().Add(-time.Duration(days) * 24 * time.Hour).Unix()
-				_, err := serverDB.ExecContext(context.Background(), `DELETE FROM owners WHERE last_seen_at < ?`, cutoff)
+				_, err := serverDB.ExecContext(cleanupCtx, `DELETE FROM owners WHERE last_seen_at < ?`, cutoff)
 				return err
 			},
 		}); err != nil {
@@ -1957,7 +1965,7 @@ func runMain() {
 			}
 			return map[string]interface{}{
 				"fields":      fields,
-				"captcha":     map[string]interface{}{"provider": form.Captcha.Provider, "siteKey": form.Captcha.SiteKey, "challengeId": form.Captcha.Challenge, "question": form.Captcha.Question},
+				"captcha":     map[string]interface{}{"provider": form.Captcha.Provider, "siteKey": form.Captcha.SiteKey, "captchaId": form.Captcha.CaptchaID, "question": form.Captcha.Question, "fallback": form.Captcha.Fallback},
 				"securityUrl": form.SecurityURL,
 				"abuseEmail":  form.AbuseEmail,
 			}, nil

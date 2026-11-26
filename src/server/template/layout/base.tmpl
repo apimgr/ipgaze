@@ -1,5 +1,5 @@
 {{define "base"}}<!DOCTYPE html>
-<html lang="{{.Lang}}" dir="{{.Dir}}" class="theme-{{.Theme}}">
+<html lang="{{.Lang}}" dir="{{.Dir}}" class="theme-{{.Theme}}" data-offline-title="{{t .Lang "pwa.offline_title"}}" data-offline-message="{{t .Lang "pwa.offline_description"}}" data-offline-try-again="{{t .Lang "pwa.offline_try_again"}}">
 {{template "head" .}}
 <body{{block "body_attrs" .}}{{end}}>
   <a href="#main-content" class="skip-link">{{t .Lang "accessibility.skip_to_content"}}</a>

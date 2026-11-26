@@ -162,11 +162,8 @@ func configDropInPaths(dir string) ([]string, error) {
 
 func secureConfigPermissions(path string) error {
 	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return fmt.Errorf("%s: create config directory: %w", dir, err)
-	}
-	if err := os.Chmod(dir, 0o700); err != nil {
-		return fmt.Errorf("%s: secure config directory: %w", dir, err)
+	if err := ensureConfigDirectory(dir); err != nil {
+		return fmt.Errorf("%s: %w", dir, err)
 	}
 	if info, err := os.Lstat(path); err == nil {
 		if !info.Mode().IsRegular() {

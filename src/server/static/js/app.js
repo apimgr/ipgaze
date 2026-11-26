@@ -679,64 +679,6 @@ window.addEventListener('pageshow', function() {
 });
 
 // ============================================================================
-// Swagger UI init — /swagger page only (element absent elsewhere, no-op).
-// Kept out of an inline <script> so it runs under the site's strict CSP
-// (script-src 'self', no unsafe-inline).
-// ============================================================================
-
-function initSwaggerUI() {
-  const el = document.getElementById('swagger-ui');
-  if (!el || typeof SwaggerUIBundle === 'undefined') { return; }
-  SwaggerUIBundle({
-    url: el.dataset.specUrl,
-    dom_id: '#swagger-ui',
-    deepLinking: true,
-    presets: [
-      SwaggerUIBundle.presets.apis,
-      SwaggerUIBundle.SwaggerUIStandalonePreset
-    ]
-  });
-}
-
-// ============================================================================
-// GraphQL explorer init — /server/docs/graphql page only (element absent
-// elsewhere, no-op). Queries POST to the versioned GraphQL route per AI.md PART 14; the root
-// /graphql path was removed and is never served.
-// ============================================================================
-
-function initGraphQLExplorer() {
-  const runBtn = document.getElementById('run');
-  const queryBox = document.getElementById('query');
-  if (!runBtn || !queryBox) { return; }
-  const workbench = document.getElementById('graphql-workbench');
-  const endpoint = workbench && workbench.dataset.endpoint
-    ? workbench.dataset.endpoint
-    : '/api/v1/server/graphql';
-  runBtn.addEventListener('click', function() {
-    const q = queryBox.value;
-    const v = document.getElementById('vars').value;
-    // Leave vars empty on invalid JSON rather than blocking the query.
-    let vars = {};
-    try { vars = JSON.parse(v || '{}'); } catch (e) { vars = {}; }
-    const result = document.getElementById('result');
-    result.textContent = i18nStr('i18nRunning', 'Running…');
-    fetch(endpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-      body: JSON.stringify({ query: q, variables: vars })
-    }).then(function(r) { return r.json(); }).then(function(d) {
-      result.textContent = JSON.stringify(d, null, 2);
-    }).catch(function(e) {
-      result.textContent = i18nStr('i18nErrorPrefix', 'Error: ') + e.message;
-      result.classList.add('err');
-    });
-  });
-  queryBox.addEventListener('keydown', function(e) {
-    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { runBtn.click(); }
-  });
-}
-
-// ============================================================================
 // data-action event delegation — all behaviors bound here; no inline onclick
 // ============================================================================
 
@@ -744,8 +686,6 @@ document.addEventListener('DOMContentLoaded', function() {
   initCopyButtons();
   initThemeToggleForms();
   initSiteBannerDismiss();
-  initSwaggerUI();
-  initGraphQLExplorer();
 
   document.addEventListener('click', function(e) {
     const btn = e.target.closest('[data-action]');
@@ -924,6 +864,23 @@ function applyServiceWorkerUpdate(worker, registration) {
 // ============================================================================
 
 if ('serviceWorker' in navigator) {
+  if ('caches' in window && typeof Response === 'function') {
+    var offlineRoot = document.documentElement;
+    window.OFFLINE_STRINGS = {
+      lang: offlineRoot.lang || 'en',
+      dir: offlineRoot.dir || 'ltr',
+      title: offlineRoot.dataset.offlineTitle || 'Offline',
+      heading: offlineRoot.dataset.offlineTitle || 'You are offline',
+      message: offlineRoot.dataset.offlineMessage || 'Check your connection and try again.',
+      tryAgain: offlineRoot.dataset.offlineTryAgain || 'Try again'
+    };
+    caches.open('ipgaze-offline-strings').then(function(cache) {
+      return cache.put('/offline-strings.json', new Response(JSON.stringify(window.OFFLINE_STRINGS), {
+        headers: { 'Content-Type': 'application/json' }
+      }));
+    }).catch(function() {});
+  }
+
   // Register once, before update acceptance can occur. A controller change
   // reloads only after the user accepts the update and only once.
   navigator.serviceWorker.addEventListener('controllerchange', function() {
