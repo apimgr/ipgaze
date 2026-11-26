@@ -70,6 +70,7 @@ distributions; included license texts are `LICENSE-graphiql.txt`,
 | GraphiQL | 3.9.0 | MIT | [graphql/graphiql](https://github.com/graphql/graphiql) |
 | React | 18.3.1 | MIT | [facebook/react](https://github.com/facebook/react) |
 | ReactDOM | 18.3.1 | MIT | [facebook/react](https://github.com/facebook/react) |
+| Swagger UI bundle and standalone preset | 5.32.12 | Apache-2.0 | [swagger-api/swagger-ui](https://github.com/swagger-api/swagger-ui) |
 
 Example query:
 
