@@ -57,7 +57,8 @@ it is automatically renamed to `server.yml` on startup.
 
 ### Example Configuration
 
-All configuration keys are nested under `server:` and `web:`.
+Most configuration keys are grouped under `server:` and `web:`. Page
+configuration uses the top-level `pages:` section.
 
 ```yaml
 # IPGaze Server Configuration

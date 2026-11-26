@@ -6,7 +6,7 @@ deployment may apply rate limits and block abusive traffic.
 
 The REST API is public. MCP uses the same API but requires an `Authorization:
 Bearer` token. Visitors can issue an owner token from the tokens page or
-`POST /api/v1/server/preferences/tokens/primary`; use a linked token for each
+`POST https://ifcfg.us/api/v1/server/preferences/tokens/primary`; use a linked token for each
 MCP client. Every MCP request must carry a valid owner, linked, or operator
 Bearer token; cookies are not accepted by MCP. The public lookup API does not
 require authentication.
@@ -22,17 +22,17 @@ automatic header order, pinning, and chain-walk behavior.
 
 | Request | Result |
 |---------|--------|
-| `GET /` | The caller's address and lookup data, negotiated as HTML, JSON, or plain text |
-| `GET /json` | The caller's lookup data as JSON |
-| `GET /ip` | The caller's IP address as plain text |
-| `GET /country` | Country name |
-| `GET /country-iso` | ISO country code |
-| `GET /city` | City |
-| `GET /coordinates` | Latitude and longitude |
-| `GET /asn` | Autonomous system number |
-| `GET /asn-org` | Autonomous system organization |
-| `GET /{ip}` | Lookup the supplied IPv4 or IPv6 address |
-| `GET /port/{port}` | Check TCP reachability for a port |
+| `GET https://ifcfg.us/` | The caller's address and lookup data, negotiated as HTML, JSON, or plain text |
+| `GET https://ifcfg.us/json` | The caller's lookup data as JSON |
+| `GET https://ifcfg.us/ip` | The caller's IP address as plain text |
+| `GET https://ifcfg.us/country` | Country name |
+| `GET https://ifcfg.us/country-iso` | ISO country code |
+| `GET https://ifcfg.us/city` | City |
+| `GET https://ifcfg.us/coordinates` | Latitude and longitude |
+| `GET https://ifcfg.us/asn` | Autonomous system number |
+| `GET https://ifcfg.us/asn-org` | Autonomous system organization |
+| `GET https://ifcfg.us/{ip}` | Lookup the supplied IPv4 or IPv6 address |
+| `GET https://ifcfg.us/port/{port}` | Check TCP reachability for a port |
 
 GeoIP field routes require the corresponding database to be enabled and
 available. A `.txt` suffix forces plain text for supported field and API
@@ -64,57 +64,77 @@ Health endpoints are the exception and return the bare health document.
 
 | Request | Description |
 |---------|-------------|
-| `GET /api/v1` | Caller lookup information |
-| `GET /api/v1/json` | Caller lookup information (JSON alias) |
-| `GET /api/v1/ip` | Caller IP |
-| `GET /api/v1/ip/{ip}` | Lookup a specific IP address |
-| `GET /api/v1/country` | Caller country name |
-| `GET /api/v1/country-iso` | Caller ISO country code |
-| `GET /api/v1/city` | Caller city |
-| `GET /api/v1/coordinates` | Caller latitude and longitude |
-| `GET /api/v1/asn` | Caller autonomous system number |
-| `GET /api/v1/asn-org` | Caller autonomous system organization |
-| `GET /api/v1/port/{port}` | Check TCP reachability for a port |
-| `GET /api/v1/server/healthz` | Server health |
-| `GET /api/v1/version` | Version, commit, and build date |
-| `GET /api/v1/server/about` | Application information |
-| `GET /api/v1/server/help` | Help sections |
-| `GET /server/help/mcp` | MCP setup guide |
-| `GET /api/v1/server/help/mcp` | MCP setup data in the standard JSON envelope |
-| `GET /api/v1/server/privacy` | Current privacy and tracking configuration |
-| `GET /server/dpo` | Public Data Protection Officer contact page |
-| `GET /api/v1/server/dpo` | DPO contact JSON (`name`, `email`, `privacy_url`) |
-| `GET /server/tracking.js` | Consent-gated tracking script generated from live configuration; returns 404 without analytics consent or over Tor/I2P |
-| `GET /api/v1/server/terms` | Terms sections |
-| `GET /api/v1/server/security` | Security contact information |
-| `GET /server/security/policy` | Coordinated disclosure policy |
-| `GET /api/v1/server/security/policy` | Disclosure policy in the standard JSON envelope |
-| `GET /server/security/thanks` | Public researcher acknowledgments |
-| `GET /api/v1/server/security/thanks` | Acknowledgments in the standard JSON envelope |
-| `GET /api/v1/server/contact` | Public report-form definition, CAPTCHA challenge, security URL, and abuse contact |
-| `GET /api/v1/server/auth/check` | Validate an operator Bearer token; returns `data.kind = "operator"` or 401 |
-| `GET /server/security/report/{tracking_id}` | Researcher status page; requires the one-shot token when an acknowledgment email was delivered |
-| `GET /api/v1/server/preferences` | Current guest preferences |
-| `GET /server/preferences/tokens` | Public owner-token management page; lists tokens only with a valid owner cookie |
-| `POST /server/preferences/token/create` | Issue an owner token without creating a resource; sets the owner cookie |
-| `POST /server/preferences/token/restore` | Restore a primary owner token into this browser |
-| `POST /server/preferences/token/reveal` | Reveal the primary token; requires the owner cookie and CSRF token |
-| `POST /server/preferences/token/rotate` | Rotate the primary token; requires the owner cookie and CSRF token |
-| `POST /server/preferences/token/forget` | Clear this browser's saved owner token without revoking it |
-| `POST /server/preferences/tokens` | Create a linked token; requires the primary owner cookie and CSRF token |
-| `POST /server/preferences/tokens/{id}/reveal` | Reveal one linked token; requires the primary owner cookie and CSRF token |
-| `POST /server/preferences/tokens/{id}/rotate` | Rotate one linked token; requires the primary owner cookie and CSRF token |
-| `POST /server/preferences/tokens/{id}/update` | Rename a linked token or change its expiry; requires the primary owner cookie and CSRF token |
-| `POST /server/preferences/tokens/{id}/revoke` | Revoke a linked token; requires the primary owner cookie and CSRF token |
-| `GET /api/v1/server/preferences/tokens` | List masked owner and linked token metadata; requires the primary Bearer token |
-| `POST /api/v1/server/preferences/tokens/primary` | Issue a primary owner token without other credentials |
-| `POST /api/v1/server/preferences/tokens/primary/reveal` | Reveal the primary token; requires the primary Bearer token |
-| `POST /api/v1/server/preferences/tokens/primary/rotate` | Rotate the primary token; requires the primary Bearer token |
-| `POST /api/v1/server/preferences/tokens` | Create a linked token; requires the primary Bearer token |
-| `POST /api/v1/server/preferences/tokens/{id}/reveal` | Reveal a linked token; requires the primary Bearer token |
-| `POST /api/v1/server/preferences/tokens/{id}/rotate` | Rotate a linked token; requires the primary Bearer token |
-| `PATCH /api/v1/server/preferences/tokens/{id}` | Rename or change linked-token expiry; requires the primary Bearer token |
-| `DELETE /api/v1/server/preferences/tokens/{id}` | Revoke a linked token; requires the primary Bearer token |
+| `GET https://ifcfg.us/api/v1` | Caller lookup information |
+| `GET https://ifcfg.us/api/v1/json` | Caller lookup information (JSON alias) |
+| `GET https://ifcfg.us/api/v1/ip` | Caller IP |
+| `GET https://ifcfg.us/api/v1/ip/{ip}` | Lookup a specific IP address |
+| `GET https://ifcfg.us/api/v1/country` | Caller country name |
+| `GET https://ifcfg.us/api/v1/country-iso` | Caller ISO country code |
+| `GET https://ifcfg.us/api/v1/city` | Caller city |
+| `GET https://ifcfg.us/api/v1/coordinates` | Caller latitude and longitude |
+| `GET https://ifcfg.us/api/v1/asn` | Caller autonomous system number |
+| `GET https://ifcfg.us/api/v1/asn-org` | Caller autonomous system organization |
+| `GET https://ifcfg.us/api/v1/port/{port}` | Check TCP reachability for a port |
+| `GET https://ifcfg.us/api/v1/server/healthz` | Server health |
+| `GET https://ifcfg.us/api/v1/version` | Version, commit, and build date |
+| `GET https://ifcfg.us/api/v1/server/about` | Application information |
+| `GET https://ifcfg.us/api/v1/server/help` | Help sections |
+| `GET https://ifcfg.us/server/help/mcp` | MCP setup guide |
+| `GET https://ifcfg.us/api/v1/server/help/mcp` | MCP setup data in the standard JSON envelope |
+| `GET https://ifcfg.us/api/v1/server/privacy` | Current privacy and tracking configuration |
+| `GET https://ifcfg.us/server/dpo` | Public Data Protection Officer contact page |
+| `GET https://ifcfg.us/api/v1/server/dpo` | DPO contact JSON (`name`, `email`, `privacy_url`) |
+| `GET https://ifcfg.us/server/tracking.js` | Consent-gated tracking script generated from live configuration; returns 404 without analytics consent or over Tor/I2P |
+| `GET https://ifcfg.us/api/v1/server/terms` | Terms sections |
+| `GET https://ifcfg.us/api/v1/server/security` | Security contact information |
+| `GET https://ifcfg.us/server/security/policy` | Coordinated disclosure policy |
+| `GET https://ifcfg.us/api/v1/server/security/policy` | Disclosure policy in the standard JSON envelope |
+| `GET https://ifcfg.us/server/security/thanks` | Public researcher acknowledgments |
+| `GET https://ifcfg.us/api/v1/server/security/thanks` | Acknowledgments in the standard JSON envelope |
+| `GET https://ifcfg.us/api/v1/server/contact` | Public report-form definition, CAPTCHA challenge, security URL, and abuse contact |
+| `GET https://ifcfg.us/api/v1/server/auth/check` | Validate an operator Bearer token; returns `data.kind = "operator"` or 401 |
+| `GET https://ifcfg.us/server/security/report/{tracking_id}` | Researcher status page; requires the one-shot token when an acknowledgment email was delivered |
+| `GET https://ifcfg.us/api/v1/server/preferences` | Current guest preferences |
+| `GET https://ifcfg.us/server/preferences/tokens` | Public owner-token management page; lists tokens only with a valid owner cookie |
+| `POST https://ifcfg.us/server/preferences/token/create` | Issue an owner token without creating a resource; sets the owner cookie |
+| `POST https://ifcfg.us/server/preferences/token/restore` | Restore a primary owner token into this browser |
+| `POST https://ifcfg.us/server/preferences/token/reveal` | Reveal the primary token; requires the owner cookie and CSRF token |
+| `POST https://ifcfg.us/server/preferences/token/rotate` | Rotate the primary token; requires the owner cookie and CSRF token |
+| `POST https://ifcfg.us/server/preferences/token/forget` | Clear this browser's saved owner token without revoking it |
+| `POST https://ifcfg.us/server/preferences/tokens` | Create a linked token; requires the primary owner cookie and CSRF token |
+| `POST https://ifcfg.us/server/preferences/tokens/{id}/reveal` | Reveal one linked token; requires the primary owner cookie and CSRF token |
+| `POST https://ifcfg.us/server/preferences/tokens/{id}/rotate` | Rotate one linked token; requires the primary owner cookie and CSRF token |
+| `POST https://ifcfg.us/server/preferences/tokens/{id}/update` | Rename a linked token or change its expiry; requires the primary owner cookie and CSRF token |
+| `POST https://ifcfg.us/server/preferences/tokens/{id}/revoke` | Revoke a linked token; requires the primary owner cookie and CSRF token |
+| `GET https://ifcfg.us/api/v1/server/preferences/tokens` | List masked owner and linked token metadata; requires the primary Bearer token |
+| `POST https://ifcfg.us/api/v1/server/preferences/tokens/primary` | Issue a primary owner token without other credentials |
+| `POST https://ifcfg.us/api/v1/server/preferences/tokens/primary/reveal` | Reveal the primary token; requires the primary Bearer token |
+| `POST https://ifcfg.us/api/v1/server/preferences/tokens/primary/rotate` | Rotate the primary token; requires the primary Bearer token |
+| `POST https://ifcfg.us/api/v1/server/preferences/tokens` | Create a linked token; requires the primary Bearer token |
+| `POST https://ifcfg.us/api/v1/server/preferences/tokens/{id}/reveal` | Reveal a linked token; requires the primary Bearer token |
+| `POST https://ifcfg.us/api/v1/server/preferences/tokens/{id}/rotate` | Rotate a linked token; requires the primary Bearer token |
+| `PATCH https://ifcfg.us/api/v1/server/preferences/tokens/{id}` | Rename or change linked-token expiry; requires the primary Bearer token |
+| `DELETE https://ifcfg.us/api/v1/server/preferences/tokens/{id}` | Revoke a linked token; requires the primary Bearer token |
+| `POST https://ifcfg.us/api/v1/server/preferences` | Update guest preferences |
+| `GET https://ifcfg.us/server/preferences/sync` | Export guest preferences as a URL and base64url code; negotiates HTML, text, and JSON. Consent and credentials are excluded |
+| `POST https://ifcfg.us/server/preferences/sync` | Import guest preferences from the form's `code` field |
+| `GET https://ifcfg.us/server/preferences/sync/import` | Apply guest preferences from direct query parameters or a code |
+| `GET https://ifcfg.us/api/v1/server/preferences/sync` | Export guest preferences, including the full URL and code |
+| `GET https://ifcfg.us/api/v1/server/preferences/sync/import` | Import guest preferences and return applied/ignored fields |
+| `POST https://ifcfg.us/api/v1/server/contact` | Submit a report for review, then repeat its fields with the review token and confirmation to deliver it |
+| `POST https://ifcfg.us/api/v1/server/consent` | Save cookie consent choices |
+| `POST https://ifcfg.us/api/v1/server/ccpa` | Record a CCPA data-sale opt-out |
+| `POST https://ifcfg.us/announcements/dismiss` | Dismiss a site announcement |
+| `POST https://ifcfg.us/api/v1/server/reports/csp` | Submit a Content Security Policy browser report |
+| `POST https://ifcfg.us/api/v1/server/reports/nel` | Submit a Network Error Logging browser report |
+| `POST https://ifcfg.us/api/v1/server/reports/deprecation` | Submit a browser deprecation report |
+| `POST https://ifcfg.us/api/v1/server/reports/intervention` | Submit a browser intervention report |
+| `POST https://ifcfg.us/api/v1/server/reports/crash` | Submit a browser crash report |
+| `POST https://ifcfg.us/api/v1/server/reports/error` | Submit a browser error report |
+| `POST https://ifcfg.us/api/v1/server/reports/default` | Submit a generic browser report |
+| `GET https://ifcfg.us/api/v1/server/swagger` | OpenAPI document |
+| `GET` or `POST https://ifcfg.us/api/v1/server/graphql` | GraphQL endpoint |
+| `POST https://ifcfg.us/api/v1/server/mcp` | MCP Streamable HTTP endpoint |
 
 The `{id}` path value and `id` fields in token responses are opaque UUIDs. The database integer key stays private.
 
@@ -124,26 +144,7 @@ raw tokens appear only in issue, create, reveal, or rotate responses. Linked-tok
 create, reveal, and rotate responses name the raw credential `linked_token`.
 Create and update requests accept `expires` (`never`, `7d`, `30d`, `90d`, or
 `1y`) or `expires_on` (`YYYY-MM-DD`), but not both.
-| `POST /api/v1/server/preferences` | Update guest preferences |
-| `GET /server/preferences/sync` | Export guest preferences as a URL and base64url code; negotiates HTML, text, and JSON. Consent and credentials are excluded |
-| `POST /server/preferences/sync` | Import guest preferences from the form's `code` field |
-| `GET /server/preferences/sync/import` | Apply guest preferences from direct query parameters or a code |
-| `GET /api/v1/server/preferences/sync` | Export guest preferences, including the full URL and code |
-| `GET /api/v1/server/preferences/sync/import` | Import guest preferences and return applied/ignored fields |
-| `POST /api/v1/server/contact` | Submit a report for review, then repeat its fields with the review token and confirmation to deliver it |
-| `POST /api/v1/server/consent` | Save cookie consent choices |
-| `POST /api/v1/server/ccpa` | Record a CCPA data-sale opt-out |
-| `POST /api/v1/announcements/dismiss` | Dismiss a site announcement |
-| `POST /api/v1/server/reports/csp` | Submit a Content Security Policy browser report |
-| `POST /api/v1/server/reports/nel` | Submit a Network Error Logging browser report |
-| `POST /api/v1/server/reports/deprecation` | Submit a browser deprecation report |
-| `POST /api/v1/server/reports/intervention` | Submit a browser intervention report |
-| `POST /api/v1/server/reports/crash` | Submit a browser crash report |
-| `POST /api/v1/server/reports/error` | Submit a browser error report |
-| `POST /api/v1/server/reports/default` | Submit a generic browser report |
-| `GET /api/v1/server/swagger` | OpenAPI document |
-| `GET` or `POST /api/v1/server/graphql` | GraphQL endpoint |
-| `POST /api/v1/server/mcp` | MCP Streamable HTTP endpoint |
+
 
 Token list responses contain masked values and metadata only. The raw value is
 returned only by a token issuance or reveal action; reveal responses disable
@@ -172,17 +173,17 @@ inventory and request schemas.
 
 ## Health Checks
 
-- `GET /server/healthz` is the canonical public route. Browsers receive the
+- `GET https://ifcfg.us/server/healthz` is the canonical public route. Browsers receive the
   health page; recognized non-interactive HTTP clients without an explicit
   `Accept` header and `Accept: text/plain` receive localized, human-readable
   text; `Accept: application/json` returns the bare health JSON.
-- `GET /api/v1/server/healthz` returns bare JSON by default. It returns
+- `GET https://ifcfg.us/api/v1/server/healthz` returns bare JSON by default. It returns
   machine-readable dot-notation text for `.txt`, `Accept: text/plain`, or a
   non-interactive client without an explicit `Accept` header. Explicit
   `Accept: application/json` overrides User-Agent detection.
-- `GET /api/healthz` is a direct, versionless alias using the same API
+- `GET https://ifcfg.us/api/healthz` is a direct, versionless alias using the same API
   negotiation rules.
-- `GET /healthz` is available only when `server.healthz.root.enabled` is true;
+- `GET https://ifcfg.us/healthz` is available only when `server.healthz.root.enabled` is true;
   it directly uses the canonical frontend handler and never redirects.
 
 Every health route reports the status code from the health state: healthy,
@@ -201,13 +202,13 @@ filesystem paths.
 
 | Request | Description |
 |---------|-------------|
-| `GET /server/docs/swagger` | Interactive Swagger UI |
-| `GET /api/swagger` | OpenAPI JSON, direct alias for the current API version |
-| `GET` or `POST /server/docs/graphql` | GraphiQL UI |
-| `GET` or `POST /api/graphql` | GraphQL direct alias |
-| `GET /api/autodiscover` | Unversioned `{ok,data}` discovery document containing `name`, `version`, `api.current_version`, public `urls`, and CLI `cli_versions` / `cli_min_version`; `onion` and `i2p` appear only when their overlay is running and `server.tor.expose` or `server.i2p.expose` is true |
-| `GET /llms.txt` | Machine-readable service and API summary |
-| `GET /.well-known/llms.txt` | Well-known alias for the same summary |
+| `GET https://ifcfg.us/server/docs/swagger` | Interactive Swagger UI |
+| `GET https://ifcfg.us/api/swagger` | OpenAPI JSON, direct alias for the current API version |
+| `GET` or `POST https://ifcfg.us/server/docs/graphql` | GraphiQL UI |
+| `GET` or `POST https://ifcfg.us/api/graphql` | GraphQL direct alias |
+| `GET https://ifcfg.us/api/autodiscover` | Unversioned `{ok,data}` discovery document containing `name`, `version`, `api.current_version`, public `urls`, and CLI `cli_versions` / `cli_min_version`; `onion` and `i2p` appear only when their overlay is running and `server.tor.expose` or `server.i2p.expose` is true |
+| `GET https://ifcfg.us/llms.txt` | Machine-readable service and API summary |
+| `GET https://ifcfg.us/.well-known/llms.txt` | Well-known alias for the same summary |
 
 `llms.txt` includes the API rate limit, public endpoints, the MCP endpoint and
 canonical API/security contact addresses. Operators can disable generated
@@ -223,30 +224,30 @@ core flows work without JavaScript.
 
 | Page | Purpose |
 |------|---------|
-| `GET /` | Look up the visitor's address and show the lookup interface |
-| `GET /server` | Redirect to the server About page |
-| `GET /server/about` | Application and service information |
-| `GET /server/help` | Usage help |
-| `GET /server/help/mcp` | MCP client setup instructions |
-| `GET /server/healthz` | Public server health page |
-| `GET /server/privacy` | Privacy and tracking information |
-| `GET /server/terms` | Terms of service |
-| `GET /server/contact` | Contact and typed report forms; submissions use `POST /server/contact` |
-| `GET /server/dpo` | Data protection contact information |
-| `GET /server/security` | Security overview and reporting links |
-| `GET /server/security/policy` | Coordinated disclosure policy |
-| `GET /server/security/thanks` | Public researcher acknowledgments |
-| `GET /server/security/report/{tracking_id}` | Private researcher report status |
-| `GET /server/preferences` | Guest theme, language, consent, and lookup preferences |
-| `GET /server/preferences/tokens` | Owner and linked token management; credentials gate actions |
-| `GET /server/preferences/sync` | Export or import portable guest preferences |
-| `GET /server/docs/swagger` | Interactive REST API documentation |
-| `GET /server/docs/graphql` | Interactive GraphQL explorer |
+| `GET https://ifcfg.us/` | Look up the visitor's address and show the lookup interface |
+| `GET https://ifcfg.us/server` | Redirect to the server About page |
+| `GET https://ifcfg.us/server/about` | Application and service information |
+| `GET https://ifcfg.us/server/help` | Usage help |
+| `GET https://ifcfg.us/server/help/mcp` | MCP client setup instructions |
+| `GET https://ifcfg.us/server/healthz` | Public server health page |
+| `GET https://ifcfg.us/server/privacy` | Privacy and tracking information |
+| `GET https://ifcfg.us/server/terms` | Terms of service |
+| `GET https://ifcfg.us/server/contact` | Contact and typed report forms; submissions use `POST https://ifcfg.us/server/contact` |
+| `GET https://ifcfg.us/server/dpo` | Data protection contact information |
+| `GET https://ifcfg.us/server/security` | Security overview and reporting links |
+| `GET https://ifcfg.us/server/security/policy` | Coordinated disclosure policy |
+| `GET https://ifcfg.us/server/security/thanks` | Public researcher acknowledgments |
+| `GET https://ifcfg.us/server/security/report/{tracking_id}` | Private researcher report status |
+| `GET https://ifcfg.us/server/preferences` | Guest theme, language, consent, and lookup preferences |
+| `GET https://ifcfg.us/server/preferences/tokens` | Owner and linked token management; credentials gate actions |
+| `GET https://ifcfg.us/server/preferences/sync` | Export or import portable guest preferences |
+| `GET https://ifcfg.us/server/docs/swagger` | Interactive REST API documentation |
+| `GET https://ifcfg.us/server/docs/graphql` | Interactive GraphQL explorer |
 
-`GET /theme.css` serves the shared, build-versioned theme variables as an
+`GET https://ifcfg.us/theme.css` serves the shared, build-versioned theme variables as an
 external stylesheet. The Swagger and GraphQL theme stylesheets are served at
-`GET /server/docs/swagger/theme.css` and
-`GET /server/docs/graphql/theme.css`; both use the selected theme. These are
+`GET https://ifcfg.us/server/docs/swagger/theme.css` and
+`GET https://ifcfg.us/server/docs/graphql/theme.css`; both use the selected theme. These are
 page assets rather than navigable pages. `/server/tracking.js` is a
 consent-gated script endpoint, not a page. The service worker and other static
 or machine-readable resources are listed in the relevant API and integration

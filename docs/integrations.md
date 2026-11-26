@@ -12,16 +12,16 @@ ipgaze implements the same routes and response formats used by echoip-compatible
 
 | Route | Response |
 |-------|----------|
-| `GET /` | Content negotiation: JSON / plain text / HTML |
-| `GET /json` | Full JSON response |
-| `GET /ip` | Plain text IP address |
-| `GET /{ip}` | Lookup specific IP |
-| `GET /country` | Country name |
-| `GET /country-iso` | ISO 3166-1 alpha-2 code |
-| `GET /city` | City name |
-| `GET /coordinates` | `latitude,longitude` |
-| `GET /asn` | ASN number |
-| `GET /asn-org` | ASN organization name |
+| `GET https://ifcfg.us/` | Content negotiation: JSON / plain text / HTML |
+| `GET https://ifcfg.us/json` | Full JSON response |
+| `GET https://ifcfg.us/ip` | Plain text IP address |
+| `GET https://ifcfg.us/{ip}` | Lookup specific IP |
+| `GET https://ifcfg.us/country` | Country name |
+| `GET https://ifcfg.us/country-iso` | ISO 3166-1 alpha-2 code |
+| `GET https://ifcfg.us/city` | City name |
+| `GET https://ifcfg.us/coordinates` | `latitude,longitude` |
+| `GET https://ifcfg.us/asn` | ASN number |
+| `GET https://ifcfg.us/asn-org` | ASN organization name |
 
 **CLI user-agent detection:** `curl`, `wget`, `HTTPie`, `xh`, `Go-http-client`, `Mikrotik`, `ddclient` — all receive plain text automatically.
 
@@ -33,9 +33,9 @@ ipgaze publishes a machine-readable OpenAPI 3 schema and an interactive Swagger 
 
 | Endpoint | Format |
 |----------|--------|
-| `GET /server/docs/swagger` | Interactive Swagger UI (HTML) |
-| `GET /api/v1/server/swagger` | Canonical OpenAPI 3 schema (JSON) |
-| `GET /api/swagger` | Direct alias for the current version's OpenAPI schema |
+| `GET https://ifcfg.us/server/docs/swagger` | Interactive Swagger UI (HTML) |
+| `GET https://ifcfg.us/api/v1/server/swagger` | Canonical OpenAPI 3 schema (JSON) |
+| `GET https://ifcfg.us/api/swagger` | Direct alias for the current version's OpenAPI schema |
 
 Use `/api/v1/server/swagger` to generate client SDKs with
 `openapi-generator`, `oapi-codegen`, or any OpenAPI-compatible toolchain.
@@ -55,7 +55,7 @@ ipgaze exposes a GraphQL endpoint for flexible IP lookup queries:
 GraphQL is query-only. Its `authCheck` field validates the caller's operator
 Bearer token without returning it; invalid tokens produce a GraphQL error.
 The REST contact-form description is available through
-`GET /api/v1/server/contact`.
+`GET https://ifcfg.us/api/v1/server/contact`.
 
 Example query:
 
@@ -83,14 +83,14 @@ Streamable HTTP:
 
 | Endpoint | Purpose |
 |----------|---------|
-| `POST /api/v1/server/mcp` | Canonical MCP endpoint |
-| `POST /api/mcp`, `POST /mcp` | Direct aliases |
-| `GET /server/help/mcp` | Client setup guide, available tools, and troubleshooting |
-| `GET /api/v1/server/help/mcp` | MCP help data as JSON |
+| `POST https://ifcfg.us/api/v1/server/mcp` | Canonical MCP endpoint |
+| `POST https://ifcfg.us/api/mcp`, `POST https://ifcfg.us/mcp` | Direct aliases |
+| `GET https://ifcfg.us/server/help/mcp` | Client setup guide, available tools, and troubleshooting |
+| `GET https://ifcfg.us/api/v1/server/help/mcp` | MCP help data as JSON |
 
 MCP requires an owner or operator Bearer token; the REST API's public lookup
 operations remain anonymous. Issue an owner token from `/server/preferences/tokens`
-or `POST /api/v1/server/preferences/tokens/primary`, then create one linked
+or `POST https://ifcfg.us/api/v1/server/preferences/tokens/primary`, then create one linked
 token per MCP client. Operator-only API tools are listed only when the request
 carries a valid `server.token` bearer credential. Token-management operations
 are never exposed as MCP tools. Use a linked token for each client; do not put
@@ -109,9 +109,9 @@ by default; keep these routes on a trusted monitoring network.
 
 | Endpoint | Purpose |
 |----------|---------|
-| `GET /server/metrics/prometheus` | Prometheus text exposition format |
-| `GET /server/metrics/grafana` | Importable Grafana dashboard JSON |
-| `GET /server/metrics/loki` | Recent logs in Loki stream JSON format |
+| `GET https://ifcfg.us/server/metrics/prometheus` | Prometheus text exposition format |
+| `GET https://ifcfg.us/server/metrics/grafana` | Importable Grafana dashboard JSON |
+| `GET https://ifcfg.us/server/metrics/loki` | Recent logs in Loki stream JSON format |
 
 **Enable in `server.yml`:**
 ```yaml
@@ -239,8 +239,8 @@ ipgaze ships PWA assets for installation as a home-screen app on mobile and desk
 
 | Endpoint | Purpose |
 |----------|---------|
-| `GET /manifest.json` | Web App Manifest (name, icons, theme color) |
-| `GET /sw.js` | Service worker (offline support) |
+| `GET https://ifcfg.us/manifest.json` | Web App Manifest (name, icons, theme color) |
+| `GET https://ifcfg.us/sw.js` | Service worker (offline support) |
 
 These endpoints are public and do not require authentication. The service
 worker and manifest are served with revalidation headers so browsers can
@@ -263,7 +263,7 @@ No native app association files (`apple-app-site-association`, `assetlinks.json`
 
 ## Autodiscovery
 
-`GET /api/autodiscover` returns the service name and version, current API
+`GET https://ifcfg.us/api/autodiscover` returns the service name and version, current API
 version, public endpoint URLs, and available CLI versions. Onion and I2P
 addresses are included only while the corresponding overlay is running and
 its `expose` setting is enabled. See [API Documentation and Discovery](api.md#api-documentation-and-discovery)

@@ -34,47 +34,47 @@ The following endpoints are accessible without authentication:
 
 | Endpoint | Purpose |
 |----------|---------|
-| `GET /` | IP lookup for caller (content negotiation: JSON/text/HTML) |
-| `GET /ip` | Caller IP address (plain text) |
-| `GET /json` | Full JSON lookup for caller |
-| `GET /{ip}` | Lookup a specific IP address |
-| `GET /country` | Country name for caller |
-| `GET /country-iso` | ISO country code for caller |
-| `GET /city` | City for caller |
-| `GET /coordinates` | Latitude/longitude for caller |
-| `GET /asn` | ASN number for caller |
-| `GET /asn-org` | ASN organization for caller |
-| `GET /server/healthz` | Health check (content negotiation) |
-| `GET /api/v1/server/healthz` | Versioned health check |
-| `GET /api/healthz` | Direct JSON health alias |
-| `GET /healthz` | Optional health alias when enabled in `server.yml` |
-| `GET /server/security` | Security overview and reporting links |
-| `GET /server/dpo` | Public DPO contact details, privacy link, and security page link |
-| `GET /server/security/policy` | Coordinated disclosure policy |
-| `GET /server/security/thanks` | Public researcher acknowledgments |
-| `GET /server/security/report/{tracking_id}` | Researcher report status using the one-shot token in the private acknowledgment link |
-| `GET /server/preferences` | Guest preferences hub |
-| `GET /server/preferences/tokens` | Public token page; token lists/actions require the primary owner cookie |
-| `POST /server/preferences` | Update guest preference cookies; CSRF-protected browser form |
-| `GET /server/preferences/sync` | Export guest preferences |
-| `POST /server/preferences/sync` | Import guest preferences; CSRF-protected browser form |
-| `GET /server/preferences/sync/import` | Apply preferences from a shared link |
-| `GET /api/v1/server/preferences` | Read guest preference state |
-| `POST /api/v1/server/preferences` | Update guest preference cookies without browser-session authority |
-| `GET /api/v1/server/preferences/sync` | Export guest preferences |
-| `GET /api/v1/server/preferences/sync/import` | Apply preferences from a code or query |
-| `GET /.well-known/security.txt` | RFC 9116 security contact information |
-| `GET /.well-known/pgp-key.asc` | Public report encryption key when configured |
-| `GET /robots.txt` | Robots policy |
-| `GET /favicon.ico` | Site favicon |
-| `GET /manifest.json` | PWA manifest |
-| `GET /sw.js` | Service worker |
-| `GET /server/docs/swagger` | OpenAPI documentation (HTML) |
-| `GET /api/v1/server/swagger` | Canonical OpenAPI schema (JSON) |
-| `GET /api/swagger` | Direct alias for the current version's OpenAPI schema |
-| `GET` or `POST /server/docs/graphql` | GraphiQL UI |
-| `GET` or `POST /api/v1/server/graphql` | Canonical GraphQL endpoint |
-| `GET` or `POST /api/graphql` | Direct alias for the current version's GraphQL endpoint |
+| `GET https://ifcfg.us/` | IP lookup for caller (content negotiation: JSON/text/HTML) |
+| `GET https://ifcfg.us/ip` | Caller IP address (plain text) |
+| `GET https://ifcfg.us/json` | Full JSON lookup for caller |
+| `GET https://ifcfg.us/{ip}` | Lookup a specific IP address |
+| `GET https://ifcfg.us/country` | Country name for caller |
+| `GET https://ifcfg.us/country-iso` | ISO country code for caller |
+| `GET https://ifcfg.us/city` | City for caller |
+| `GET https://ifcfg.us/coordinates` | Latitude/longitude for caller |
+| `GET https://ifcfg.us/asn` | ASN number for caller |
+| `GET https://ifcfg.us/asn-org` | ASN organization for caller |
+| `GET https://ifcfg.us/server/healthz` | Health check (content negotiation) |
+| `GET https://ifcfg.us/api/v1/server/healthz` | Versioned health check |
+| `GET https://ifcfg.us/api/healthz` | Direct JSON health alias |
+| `GET https://ifcfg.us/healthz` | Optional health alias when enabled in `server.yml` |
+| `GET https://ifcfg.us/server/security` | Security overview and reporting links |
+| `GET https://ifcfg.us/server/dpo` | Public DPO contact details, privacy link, and security page link |
+| `GET https://ifcfg.us/server/security/policy` | Coordinated disclosure policy |
+| `GET https://ifcfg.us/server/security/thanks` | Public researcher acknowledgments |
+| `GET https://ifcfg.us/server/security/report/{tracking_id}` | Researcher report status using the one-shot token in the private acknowledgment link |
+| `GET https://ifcfg.us/server/preferences` | Guest preferences hub |
+| `GET https://ifcfg.us/server/preferences/tokens` | Public token page; token lists/actions require the primary owner cookie |
+| `POST https://ifcfg.us/server/preferences` | Update guest preference cookies; CSRF-protected browser form |
+| `GET https://ifcfg.us/server/preferences/sync` | Export guest preferences |
+| `POST https://ifcfg.us/server/preferences/sync` | Import guest preferences; CSRF-protected browser form |
+| `GET https://ifcfg.us/server/preferences/sync/import` | Apply preferences from a shared link |
+| `GET https://ifcfg.us/api/v1/server/preferences` | Read guest preference state |
+| `POST https://ifcfg.us/api/v1/server/preferences` | Update guest preference cookies without browser-session authority |
+| `GET https://ifcfg.us/api/v1/server/preferences/sync` | Export guest preferences |
+| `GET https://ifcfg.us/api/v1/server/preferences/sync/import` | Apply preferences from a code or query |
+| `GET https://ifcfg.us/.well-known/security.txt` | RFC 9116 security contact information |
+| `GET https://ifcfg.us/.well-known/pgp-key.asc` | Public report encryption key when configured |
+| `GET https://ifcfg.us/robots.txt` | Robots policy |
+| `GET https://ifcfg.us/favicon.ico` | Site favicon |
+| `GET https://ifcfg.us/manifest.json` | PWA manifest |
+| `GET https://ifcfg.us/sw.js` | Service worker |
+| `GET https://ifcfg.us/server/docs/swagger` | OpenAPI documentation (HTML) |
+| `GET https://ifcfg.us/api/v1/server/swagger` | Canonical OpenAPI schema (JSON) |
+| `GET https://ifcfg.us/api/swagger` | Direct alias for the current version's OpenAPI schema |
+| `GET` or `POST https://ifcfg.us/server/docs/graphql` | GraphiQL UI |
+| `GET` or `POST https://ifcfg.us/api/v1/server/graphql` | Canonical GraphQL endpoint |
+| `GET` or `POST https://ifcfg.us/api/graphql` | Direct alias for the current version's GraphQL endpoint |
 
 The `cookie_consent` cookie stores compact JSON percent-encoded for a cookie
 value. The server decodes it with path-unescaping; malformed values count as
@@ -94,15 +94,15 @@ ipgaze serves the following well-known endpoints:
 
 | Endpoint | Purpose |
 |----------|---------|
-| `GET /.well-known/security.txt` | RFC 9116 security contact |
-| `GET /.well-known/pgp-key.asc` | Public PGP key when configured |
-| `GET /.well-known/llms.txt` | Service and API summary |
+| `GET https://ifcfg.us/.well-known/security.txt` | RFC 9116 security contact |
+| `GET https://ifcfg.us/.well-known/pgp-key.asc` | Public PGP key when configured |
+| `GET https://ifcfg.us/.well-known/llms.txt` | Service and API summary |
 
 The canonical security contact file is `/.well-known/security.txt` and follows
 [RFC 9116](https://www.rfc-editor.org/rfc/rfc9116). `/security.txt` is not a
 supported canonical route. Unknown `/.well-known/*` paths return `404`.
 When a PGP key is active, the file also includes its 40-character OpenPGP v4
-fingerprint as a comment; `GET /api/v1/server/security` returns the same
+fingerprint as a comment; `GET https://ifcfg.us/api/v1/server/security` returns the same
 fingerprint with the public-key URL.
 
 ---

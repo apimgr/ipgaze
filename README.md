@@ -383,17 +383,17 @@ Environment variables (`DOMAIN`, `MODE`, `DEBUG`, `DATABASE_DRIVER`, `SMTP_*`, a
 
 ### Health Check
 
-`GET /server/healthz` returns the public server status. Browsers receive the
+`GET https://ifcfg.us/server/healthz` returns the public server status. Browsers receive the
 health page, while recognized non-interactive HTTP tools such as curl and wget
 receive readable text when they omit `Accept`. `Accept: application/json`
 returns bare JSON on either frontend route. The versioned
-API route is `GET /api/v1/server/healthz`; it returns JSON by default and text
+API route is `GET https://ifcfg.us/api/v1/server/healthz`; it returns JSON by default and text
 for `.txt`, `Accept: text/plain`, or a non-interactive client without an
 explicit `Accept` header. The root `/healthz` alias is disabled by default and
 can be enabled in `server.yml`.
 
-The versioned API also provides `GET /api/v1/server/contact` for the public
-report-form definition and `GET /api/v1/server/auth/check` to validate a
+The versioned API also provides `GET https://ifcfg.us/api/v1/server/contact` for the public
+report-form definition and `GET https://ifcfg.us/api/v1/server/auth/check` to validate a
 configured operator Bearer token. Reports use a review-and-confirm submission
 flow and enforce the limits returned by the form definition. See
 [docs/api.md](docs/api.md) for the complete route list and validation details.
