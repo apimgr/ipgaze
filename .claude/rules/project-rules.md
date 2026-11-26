@@ -2,7 +2,7 @@
 
 ⚠️ **These rules are NON-NEGOTIABLE. Violations are bugs.** ⚠️
 
-> Synced against AI.md revision `3fc6dbb7c534` (2026-11-26). AI.md remains authoritative for complete requirements.
+> Synced against AI.md revision `8276804bc60a` (2026-11-26). AI.md remains authoritative for complete requirements.
 
 ## CRITICAL - NEVER DO
 - **PART 2:** | **GPL/AGPL/LGPL** | ⚠️ AVOID | Copyleft licenses - do not use |
@@ -75,6 +75,7 @@
 - Before embedding third-party content or datasets, document exact source/publisher, version and retrieval date, and verify the license permits the intended use.
 - `PROMPT.md`, when present, is human-owned: read and follow it; never rewrite, delete or restructure it.
 - License scans target `./src/...`; generate reports and license artifacts in the prescribed project temp directory.
+- FreeBSD amd64 and arm64 are the required BSD build targets; OpenBSD and NetBSD require no build target. On macOS, system config/data live under `/Library/Application Support/{org}/{name}/`, with data in its `data/` subdirectory, and logs live under `/Library/Logs/{org}/{name}/`.
 
 ## Key Rules Summary
 
@@ -114,4 +115,4 @@
 
 For complete details, see AI.md PART 2, PART 3, PART 4.
 
-<!-- AI.md source: 3fc6dbb7c534 -->
+<!-- AI.md source: 8276804bc60a -->

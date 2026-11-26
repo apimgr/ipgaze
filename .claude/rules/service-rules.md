@@ -2,7 +2,7 @@
 
 ⚠️ **These rules are NON-NEGOTIABLE. Violations are bugs.** ⚠️
 
-> Synced against AI.md revision `3fc6dbb7c534` (2026-11-26). AI.md remains authoritative for complete requirements.
+> Synced against AI.md revision `8276804bc60a` (2026-11-26). AI.md remains authoritative for complete requirements.
 
 ## CRITICAL - NEVER DO
 - **PART 23:** Never prompts if user cannot escalate → shows informative error instead
@@ -26,6 +26,7 @@
 - Service account setup creates required directories first, creates the account without creating a home, then assigns the data directory as its home after startup has created and owned it.
 - Distinguish application containers from system containers: detect systemd/OpenRC before generic container defaults so system containers retain service-manager behavior.
 - Keep the application's PID path separate from supervisor PID files; do not let OpenRC, SysV or BSD daemon management overwrite it.
+- The macOS system LaunchDaemon uses `/Library/Application Support/{org}/{name}/data/` as the service account home and `/Library/Logs/{org}/{name}/` for stdout/stderr.
 
 ## Key Rules Summary
 
@@ -47,4 +48,4 @@
 
 For complete details, see AI.md PART 23, PART 24.
 
-<!-- AI.md source: 3fc6dbb7c534 -->
+<!-- AI.md source: 8276804bc60a -->

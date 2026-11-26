@@ -2,7 +2,7 @@
 
 ⚠️ **These rules are NON-NEGOTIABLE. Violations are bugs.** ⚠️
 
-> Synced against AI.md revision `3fc6dbb7c534` (2026-11-26). AI.md remains authoritative for complete requirements.
+> Synced against AI.md revision `8276804bc60a` (2026-11-26). AI.md remains authoritative for complete requirements.
 
 ## CRITICAL - NEVER DO
 - **PART 13:** *Healthz is PUBLIC. NEVER expose sensitive data.**
@@ -157,6 +157,9 @@
 
 - GraphQL is query-only: GET is allowed for queries and POST is supported; mutations/writes belong to REST. GraphQL execution uses its standard response map; pre-execution failures use the canonical API error contract.
 - The GraphQL route and docs must describe GET-for-query behavior; preserve canonical versioned paths and same-handler aliases.
+- The canonical JSON envelope includes `details` as a `map[string]any` when structured error context exists; client parsing preserves that field.
+- Routes marked `Internal` are excluded from Swagger, llms.txt, GraphQL, and MCP regardless of `Listed` or auth; service-auth routes are also excluded from GraphQL and MCP.
+- A rejected or revoked CLI token receives the same generic 401 response as an unknown token; the server records `cli.token_rejected` without exposing token contents.
 
 ## Key Rules Summary
 
@@ -183,4 +186,4 @@
 
 For complete details, see AI.md PART 13, PART 14, PART 15.
 
-<!-- AI.md source: 3fc6dbb7c534 -->
+<!-- AI.md source: 8276804bc60a -->

@@ -2,7 +2,7 @@
 
 ⚠️ **These rules are NON-NEGOTIABLE. Violations are bugs.** ⚠️
 
-> Synced against AI.md revision `3fc6dbb7c534` (2026-11-26). AI.md remains authoritative for complete requirements.
+> Synced against AI.md revision `8276804bc60a` (2026-11-26). AI.md remains authoritative for complete requirements.
 
 ## CRITICAL - NEVER DO
 - **PART 27:** *CI/CD workflows are DIFFERENT from local development. Do NOT mix them.**
@@ -43,6 +43,7 @@
 - Docker builds run on pushes to `main`, stable version tags and beta tags. Devel image jobs run on `main`, daily schedule and manual dispatch on `main`.
 - Coverage collection and enforcement are steps of the test job, not a separate coverage job.
 - GitHub CI keeps lint/test/security jobs in the prescribed order and runs the required security jobs on schedule; preserve full history for full-history secret scanning.
+- Required BSD build coverage is FreeBSD amd64 and arm64; OpenBSD and NetBSD builds are optional and no architecture is required for them.
 
 ## Key Rules Summary
 
@@ -75,4 +76,4 @@
 
 For complete details, see AI.md PART 27.
 
-<!-- AI.md source: 3fc6dbb7c534 -->
+<!-- AI.md source: 8276804bc60a -->

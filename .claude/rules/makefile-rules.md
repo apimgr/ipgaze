@@ -2,7 +2,7 @@
 
 ⚠️ **These rules are NON-NEGOTIABLE. Violations are bugs.** ⚠️
 
-> Synced against AI.md revision `3fc6dbb7c534` (2026-11-26). AI.md remains authoritative for complete requirements.
+> Synced against AI.md revision `8276804bc60a` (2026-11-26). AI.md remains authoritative for complete requirements.
 
 ## CRITICAL - NEVER DO
 - **PART 25:** *Six core targets. DO NOT ADD MORE.** The only other permitted target is `clean`, a housekeeping target that removes `binaries/` and `releases/` and builds nothing. There is no `all` target and none is required.
@@ -42,6 +42,7 @@
 - Local branches are temporary and never pushed; beta is a timestamped `*-beta` tag created from a clean `main` tree. Devel is built by CI, not a pushed branch/tag workflow.
 - `IDEA.md` `official_site` is documentation metadata; operational defaults come from `site.txt` or `OFFICIAL_SITE`/CI configuration.
 - Container examples use a bounded named container and the project-scoped cache mounts.
+- Required BSD release targets are FreeBSD amd64 and arm64; OpenBSD and NetBSD targets remain optional.
 
 ## Key Rules Summary
 
@@ -64,4 +65,4 @@
 
 For complete details, see AI.md PART 25.
 
-<!-- AI.md source: 3fc6dbb7c534 -->
+<!-- AI.md source: 8276804bc60a -->

@@ -2,7 +2,7 @@
 
 ⚠️ **These rules are NON-NEGOTIABLE. Violations are bugs.** ⚠️
 
-> Synced against AI.md revision `3fc6dbb7c534` (2026-11-26). AI.md remains authoritative for complete requirements.
+> Synced against AI.md revision `8276804bc60a` (2026-11-26). AI.md remains authoritative for complete requirements.
 
 ## CRITICAL - NEVER DO
 - **PART 7:** *Security databases are NEVER embedded in the binary.** They are downloaded on first run and kept updated via the built-in scheduler.
@@ -157,6 +157,7 @@
 - The server binary is console/daemon only: it never opens a GUI window or tray. `TERM=dumb` forces plain CLI mode even with a local display.
 - Operational CLI server defaults come from `site.txt`, then `OFFICIAL_SITE`/CI configuration; IDEA.md `official_site` is documentation metadata only. `{PROJECT_NAME}_SERVER_PRIMARY` is a non-persistent override when `--server` is absent.
 - Client TUI styles derive from the shared ANSI `TerminalPalette`; do not define a separate literal-hex palette.
+- Exit code 77 applies to a non-root `--service` action on a system service; non-root `--service --install` installs a per-user service and is not an error.
 
 ## Key Rules Summary
 
@@ -205,4 +206,4 @@
 
 For complete details, see AI.md PART 7, PART 8, PART 32.
 
-<!-- AI.md source: 3fc6dbb7c534 -->
+<!-- AI.md source: 8276804bc60a -->

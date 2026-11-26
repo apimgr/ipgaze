@@ -2,7 +2,7 @@
 
 ⚠️ **These rules are NON-NEGOTIABLE. Violations are bugs.** ⚠️
 
-> Synced against AI.md revision `3fc6dbb7c534` (2026-11-26). AI.md remains authoritative for complete requirements.
+> Synced against AI.md revision `8276804bc60a` (2026-11-26). AI.md remains authoritative for complete requirements.
 
 ## CRITICAL - NEVER DO
 - **PART 26:** NEVER place Dockerfile or docker-compose.yml in project root
@@ -68,6 +68,7 @@
 - Publish application images for pushes to `main`, stable version tags and `*-beta` tags; no other branch is pushed remotely.
 - The rolling `:devel` image is built by `build-devel` in `docker.yml` from pushes to `main` plus the daily schedule and manual dispatch on `main`; it is not built from `master`.
 - I2P is required in the container image/build/tests; container activation defaults on through detection, with no image-level `I2P_ENABLED` override.
+- The required BSD image/build target is FreeBSD only (amd64 and arm64); OpenBSD and NetBSD are optional unsupported-by-default builds.
 
 ## Key Rules Summary
 
@@ -82,4 +83,4 @@
 
 For complete details, see AI.md PART 26.
 
-<!-- AI.md source: 3fc6dbb7c534 -->
+<!-- AI.md source: 8276804bc60a -->

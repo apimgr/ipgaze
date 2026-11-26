@@ -2,7 +2,7 @@
 
 ⚠️ **These rules are NON-NEGOTIABLE. Violations are bugs.** ⚠️
 
-> Synced against AI.md revision `3fc6dbb7c534` (2026-11-26). AI.md remains authoritative for complete requirements.
+> Synced against AI.md revision `8276804bc60a` (2026-11-26). AI.md remains authoritative for complete requirements.
 
 ## CRITICAL - NEVER DO
 - **PART 28:** When a test or debug step requires `reboot`, `systemctl`, `iptables`, `mount`, package install, network reconfiguration, or any other host-affecting command, that step MUST run inside a container, VM, chroot, or network namespace — never on the host.
@@ -164,6 +164,7 @@
 - Coverage uses `-test.gocoverdir` and `go tool covdata textfmt`; generated coverage artifacts stay in project-scoped temp storage, never in the checkout.
 - I2P is built and tested for all targets, defaults on in containers, and has an explicit opt-out integration test.
 - Translation changes keep every locale synchronized. Preference cookies are consent-gated, and accessibility checks are required by PART 30.
+- Exercise encrypted-backup parameter ceilings before Argon2id, verify generic 401 parity for revoked and unknown CLI tokens, and assert internal routes are excluded from API discovery surfaces.
 
 ## Key Rules Summary
 
@@ -226,4 +227,4 @@
 
 For complete details, see AI.md PART 28, PART 29, PART 30.
 
-<!-- AI.md source: 3fc6dbb7c534 -->
+<!-- AI.md source: 8276804bc60a -->

@@ -2,7 +2,7 @@
 
 ⚠️ **These rules are NON-NEGOTIABLE. Violations are bugs.** ⚠️
 
-> Synced against AI.md revision `3fc6dbb7c534` (2026-11-26). AI.md remains authoritative for complete requirements.
+> Synced against AI.md revision `8276804bc60a` (2026-11-26). AI.md remains authoritative for complete requirements.
 
 ## CRITICAL - NEVER DO
 - **PART 17:** *Display Note:** Detected SMTP `{host}:{port}` is shown in console/logs (exempt from "never show localhost" rules - users need to see the actual detected server for troubleshooting).
@@ -128,6 +128,7 @@
 - Scheduler and metrics requirements include the exact registered task set, per-task panic isolation and the required internal DB busy/write-wait instrumentation from PARTs 18 and 20.
 - GeoIP attribution, source/license terms, and current backup retention/encryption rules in PARTs 19 and 21 are mandatory; do not use stale summaries as substitutes for those contracts.
 - Beta updates select the newest eligible beta or stable release; devel selection uses embedded build epoch and ignores `defer_days`.
+- Encrypted backup readers reject Argon2 header parameters before key derivation unless `m` is 8192–1048576 KiB, `t` is 1–10, `p` is 1–16, and `m >= 8*p`; writers use 65536/3/4.
 
 ## Key Rules Summary
 
@@ -198,4 +199,4 @@
 
 For complete details, see AI.md PART 17, PART 18, PART 19, PART 20, PART 21, PART 22.
 
-<!-- AI.md source: 3fc6dbb7c534 -->
+<!-- AI.md source: 8276804bc60a -->

@@ -2,7 +2,7 @@
 
 ⚠️ **These rules are NON-NEGOTIABLE. Violations are bugs.** ⚠️
 
-> Synced against AI.md revision `3fc6dbb7c534` (2026-11-26). AI.md remains authoritative for complete requirements.
+> Synced against AI.md revision `8276804bc60a` (2026-11-26). AI.md remains authoritative for complete requirements.
 
 ## CRITICAL - NEVER DO
 - **PART 9:** | **No stack traces** | Never expose stack traces in production responses |
@@ -304,6 +304,9 @@
 - I2P support is required in code, image and tests; activation is off by default on bare metal/VM and on by default in containers. Persist the SAM destination `PRIV` payload without the `PRIV=` label and without a trailing newline.
 - A Tor config change is handled by the file watcher; SIGHUP is ignored. Use the exact process/control lifecycle and restart triggers in PART 31.
 - Preserve current database schema, transaction, backup and security contracts in PARTs 10–11; never rely on a rule-file summary where the detailed AI.md contract is more specific.
+- `scheduler_history.task_id` is a logical reference to `scheduler_tasks.id`, not a SQL foreign key; do not add a constraint that would require rebuilding an existing table.
+- System and anonymous audit actors omit `actor.id`; do not substitute placeholder IDs such as `server` or `scheduler`.
+- The I2P SAM forward command supplies the backend port; the advertised virtual port is only the address/URL port. The persisted destination file contains the raw `PRIV` payload without a newline.
 
 ## Key Rules Summary
 
@@ -370,4 +373,4 @@
 
 For complete details, see AI.md PART 9, PART 10, PART 11, PART 31.
 
-<!-- AI.md source: 3fc6dbb7c534 -->
+<!-- AI.md source: 8276804bc60a -->

@@ -2,7 +2,7 @@
 
 ⚠️ **These rules are NON-NEGOTIABLE. Violations are bugs.** ⚠️
 
-> Synced against AI.md revision `3fc6dbb7c534` (2026-11-26). AI.md remains authoritative for complete requirements.
+> Synced against AI.md revision `8276804bc60a` (2026-11-26). AI.md remains authoritative for complete requirements.
 
 ## CRITICAL - NEVER DO
 - **PART 5:** *CRITICAL: ALL comments in YAML files MUST go ABOVE the setting, NEVER inline.**
@@ -113,6 +113,7 @@
 - Port `0` is invalid for the configured server port; replace invalid values with a random port in `64000–64999` and warn.
 - Development mode uses verbose logging while preserving sanitization; only explicit debug mode enables minimal sanitization, and credentials remain redacted in every mode.
 - The admin contact email has no invented default; leave it empty until the operator supplies the real address.
+- Restart only for TLS listener keys (`server.ssl.enabled`, `cert`, `key`, `min_version`), not `server.ssl.letsencrypt.*`; ACME changes apply at the next issuance or renewal.
 
 ## Key Rules Summary
 
@@ -156,4 +157,4 @@
 
 For complete details, see AI.md PART 5, PART 6, PART 12.
 
-<!-- AI.md source: 3fc6dbb7c534 -->
+<!-- AI.md source: 8276804bc60a -->

@@ -850,6 +850,11 @@ paths under `/etc/letsencrypt/live/`, then
 and be unexpired. The `min_version` setting accepts `TLS1.2` (default) or
 `TLS1.3`.
 
+Changes to the TLS listener settings (`enabled`, `cert`, `key`, and
+`min_version`) require a process restart. Changes under
+`server.ssl.letsencrypt.*` are picked up by the ACME client at its next
+issuance or renewal and do not require a restart.
+
 To request and renew certificates automatically, set
 `server.ssl.letsencrypt.enabled: true` and configure the contact `email`.
 Challenges include `http-01` (default), `tls-alpn-01`, and `dns-01`; staging
