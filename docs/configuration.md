@@ -6,8 +6,9 @@ Complete configuration reference for **ipgaze**.
 
 ipgaze creates `server.yml` with sane defaults on first run. Ordered files in
 `yaml.d/` override it, and `secrets.yml` is merged last for credentials. The
-database stores operational state, issued API token records, and the audit log,
-never operator settings. Optional public-page content lives in
+database stores operational state and issued API token records; `audit.log` is
+the authoritative audit record, with database rows as a queryable mirror.
+Operator settings never live in the database. Optional public-page content lives in
 `yaml.d/branding.yml`.
 
 ### Default Location

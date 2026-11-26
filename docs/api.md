@@ -100,6 +100,7 @@ Health endpoints are the exception and return the bare health document.
 | `POST https://ifcfg.us/server/preferences/token/restore` | Restore a primary owner token into this browser |
 | `POST https://ifcfg.us/server/preferences/token/reveal` | Reveal the primary token; requires the owner cookie and CSRF token |
 | `POST https://ifcfg.us/server/preferences/token/rotate` | Rotate the primary token; requires the owner cookie and CSRF token |
+| `POST https://ifcfg.us/server/preferences/token/revoke` | Revoke the primary token and delete its owner, linked tokens, and owned resources; requires typing the primary token's last four characters and a CSRF token |
 | `POST https://ifcfg.us/server/preferences/token/forget` | Clear this browser's saved owner token without revoking it |
 | `POST https://ifcfg.us/server/preferences/tokens` | Create a linked token; requires the primary owner cookie and CSRF token |
 | `POST https://ifcfg.us/server/preferences/tokens/{id}/reveal` | Reveal one linked token; requires the primary owner cookie and CSRF token |
@@ -110,6 +111,7 @@ Health endpoints are the exception and return the bare health document.
 | `POST https://ifcfg.us/api/v1/server/preferences/tokens/primary` | Issue a primary owner token without other credentials |
 | `POST https://ifcfg.us/api/v1/server/preferences/tokens/primary/reveal` | Reveal the primary token; requires the primary Bearer token |
 | `POST https://ifcfg.us/api/v1/server/preferences/tokens/primary/rotate` | Rotate the primary token; requires the primary Bearer token |
+| `DELETE https://ifcfg.us/api/v1/server/preferences/tokens/primary` | Revoke the primary token and delete its owner; requires the primary Bearer token and `{"confirm":"<last4>"}` |
 | `POST https://ifcfg.us/api/v1/server/preferences/tokens` | Create a linked token; requires the primary Bearer token |
 | `POST https://ifcfg.us/api/v1/server/preferences/tokens/{id}/reveal` | Reveal a linked token; requires the primary Bearer token |
 | `POST https://ifcfg.us/api/v1/server/preferences/tokens/{id}/rotate` | Rotate a linked token; requires the primary Bearer token |
@@ -122,8 +124,7 @@ Health endpoints are the exception and return the bare health document.
 | `GET https://ifcfg.us/api/v1/server/preferences/sync` | Export guest preferences, including the full URL and code |
 | `GET https://ifcfg.us/api/v1/server/preferences/sync/import` | Import guest preferences and return applied/ignored fields |
 | `POST https://ifcfg.us/api/v1/server/contact` | Submit a report for review, then repeat its fields with the review token and confirmation to deliver it |
-| `POST https://ifcfg.us/api/v1/server/consent` | Save cookie consent choices |
-| `POST https://ifcfg.us/api/v1/server/ccpa` | Record a CCPA data-sale opt-out |
+| `POST https://ifcfg.us/server/contact` | Submit a report for review and confirm delivery; the browser form is CSRF-protected |
 | `POST https://ifcfg.us/announcements/dismiss` | Dismiss a site announcement |
 | `POST https://ifcfg.us/api/v1/server/reports/csp` | Submit a Content Security Policy browser report |
 | `POST https://ifcfg.us/api/v1/server/reports/nel` | Submit a Network Error Logging browser report |
@@ -204,7 +205,7 @@ filesystem paths.
 |---------|-------------|
 | `GET https://ifcfg.us/server/docs/swagger` | Interactive Swagger UI |
 | `GET https://ifcfg.us/api/swagger` | OpenAPI JSON, direct alias for the current API version |
-| `GET` or `POST https://ifcfg.us/server/docs/graphql` | GraphiQL UI |
+| `GET https://ifcfg.us/server/docs/graphql` | GraphiQL UI |
 | `GET` or `POST https://ifcfg.us/api/graphql` | GraphQL direct alias |
 | `GET https://ifcfg.us/api/autodiscover` | Unversioned `{ok,data}` discovery document containing `name`, `version`, `api.current_version`, public `urls`, and CLI `cli_versions` / `cli_min_version`; `onion` and `i2p` appear only when their overlay is running and `server.tor.expose` or `server.i2p.expose` is true |
 | `GET https://ifcfg.us/llms.txt` | Machine-readable service and API summary |

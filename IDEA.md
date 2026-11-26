@@ -162,6 +162,32 @@ versioned routes expose the same lookup operations under `/api/v1`.
 | `GET` | `/api/v1/asn` | None | Return the caller's autonomous system number when GeoIP data is available. |
 | `GET` | `/api/v1/asn-org` | None | Return the caller's autonomous system organization when GeoIP data is available. |
 | `GET` | `/api/v1/port/{port}` | None | Check TCP reachability for the requested port and return the result. |
+| `GET` | `/ip.txt` | None | Plain-text compatibility alias for `/ip`. |
+| `GET` | `/country.txt` | None | Plain-text compatibility alias for `/country`. |
+| `GET` | `/country-iso.txt` | None | Plain-text compatibility alias for `/country-iso`. |
+| `GET` | `/city.txt` | None | Plain-text compatibility alias for `/city`. |
+| `GET` | `/coordinates.txt` | None | Plain-text compatibility alias for `/coordinates`. |
+| `GET` | `/asn.txt` | None | Plain-text compatibility alias for `/asn`. |
+| `GET` | `/asn-org.txt` | None | Plain-text compatibility alias for `/asn-org`. |
+| `GET` | `/branding/logo` | None | Serve the configured or embedded brand logo. |
+| `GET` | `/locales/{lang}.json` | None | Serve the embedded translation catalog for the requested language. |
+| `GET` | `/static/{path}` | None | Serve an allowlisted embedded static asset. |
+| `GET` | `/theme.css` | None | Serve the theme stylesheet for the current request preferences. |
+| `GET` | `/cli/binaries/{filename}` | Optional bearer token | Download a published CLI binary when binary download authorization is enabled. |
+| `GET` | `/api/healthz.txt` | None | Plain-text response from the unversioned health alias. |
+| `GET` | `/api/v1/server/healthz.txt` | None | Plain-text response from the versioned health endpoint. |
+| `GET` | `/api/v1/version` | None | Return the running server version for CLI compatibility checks. |
+| `GET` | `/manifest.json` | None | Serve the installable web app manifest. |
+| `GET` | `/sw.js` | None | Serve the service worker for offline static assets. |
+| `GET` | `/robots.txt` | None | Serve the crawler policy and sitemap location. |
+| `GET` | `/sitemap.xml` | None | Serve the dynamically generated public-page sitemap. |
+| `GET` | `/feed.xml` | None | Serve the Atom feed; IPGaze returns a valid empty feed because it has no public item collection. |
+| `GET` | `/rss.xml` | None | Serve the RSS feed; IPGaze returns a valid empty feed because it has no public item collection. |
+| `GET` | `/favicon.ico` | None | Serve the embedded or configured browser icon. |
+| `GET` | `/.well-known/llms.txt` | None | Serve the generated AI agent discovery document. |
+| `GET` | `/llms.txt` | None | Alias for the generated AI agent discovery document. |
+| `GET` | `/server/docs/swagger/theme.css` | None | Serve the Swagger UI theme stylesheet. |
+| `GET` | `/server/docs/graphql/theme.css` | None | Serve the GraphiQL theme stylesheet. |
 The compatibility endpoints preserve echoip request and response behavior.
 GeoIP-dependent fields are available when lookup data is available. The
 versioned lookup routes return the same product information through JSON,

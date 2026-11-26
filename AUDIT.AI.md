@@ -1,23 +1,19 @@
 # Project Audit
 
 Started: 2026-11-26
-Spec version: AI.md at HEAD 8276804bc60a
+Status: In progress; this is a current-state checkpoint, not a completed line-by-line AI.md audit.
 
-## Issues Found
+## Findings
 
-- [ ] API runtime mounting does not yet use registry values for every route; server pages, static assets, and root lookup aliases still have direct router registrations.
-- [ ] The required AI.md + IDEA.md + generated OpenAPI + router route-drift test is missing.
-- [x] OpenAPI schema generation now uses route `Request` and `Response` metadata, including typed struct, map, IP, and time schemas.
-- [ ] OpenAPI, GraphQL, llms.txt, and runtime route snapshots need parity checks across disabled and internal routes.
-- [ ] Current docs and generated route descriptions need a final sync against the implemented pages and APIs.
+- [ ] **PART 14 route inventory parser does not follow its own format contract.** AI.md lines 20504–20505 require explicit `Endpoint`/`Path` and `Method`/`Methods` columns, a backticked path, and an explicit method; they say other table forms are not inventories. `src/server/route_drift_test.go` additionally infers GET for frontend/static/well-known tables and hard-codes routes found in prose. This makes the test useful against drift, but not deterministic under the documented parser rule. AI.md also requires optional routes to be gated by `x-mounted-when`; `optionalTemplateRoute` currently exempts every absent `/.well-known/*` route (except three paths) without checking its feature condition. The template inconsistency has been recorded in `~/Projects/github/apimgr/TODO.API.md`; resolve it in the API template before treating this test as a strict implementation of AI.md.
+- [ ] **Documentation review is incomplete.** `IDEA.md` now has an expanded route inventory, but README and all user-facing docs still need a final review against current behavior and the full AI.md requirements.
+- [ ] **The exhaustive AI.md requirement walk and final gates are not complete.** Verify every PART and its required server pages, docs, security, runtime behavior, and CI/build/test/lint checks before removing this audit file.
 
-## Sync Required
+## Completed in the current working tree
 
-- [ ] README.md and IDEA.md are current after implementation review.
-- [ ] CI/CD and Makefile verification targets enforce the required project checks.
-
-## Completed
-
-- API and diagnostic routes now use handler-bearing registry values for runtime mounting, OpenAPI, GraphQL, MCP, llms.txt, and text serialization.
-- OpenAPI request and response operations now consume exported route model metadata; reflection derives schemas from struct and map models.
-- Rendered page and error-page conformance checks already exist; an explicit hub-registry coverage and ordering test was added.
+- Runtime API, root, page, and asset routes are mounted from handler-bearing route values in `src/server/http.go`; route definitions are assembled in `src/server/api_routes.go` and shared with OpenAPI and discovery.
+- `src/server/route_drift_test.go` now compares the AI.md/IDEA.md inventories with registered routes, mounted-router matches, and generated OpenAPI, including internal/unlisted-route exclusion.
+- Rendered page and error/health fallback checks exist in `src/server/accessibility_test.go` and `src/server/templates_test.go`; hub registry coverage and ordering checks exist in `src/server/handler/pages_test.go`.
+- OpenAPI, GraphQL, and MCP have route-registry coverage tests in `src/swagger`, `src/graphql`, and `src/server`.
+- Removed route declarations for API consent/CCPA/announcement writes and GraphQL POST on the docs UI path; AI.md specifies those privacy actions as web-only and GraphQL POST at the API endpoint.
+- Added primary-token revocation coverage for confirmation failure, linked-token rejection, owner/token cascade deletion, and response counts.
