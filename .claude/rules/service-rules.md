@@ -2,7 +2,7 @@
 
 ⚠️ **These rules are NON-NEGOTIABLE. Violations are bugs.** ⚠️
 
-> Synced against AI.md revision `fbd22cdebc89` (2026-11-24). AI.md remains authoritative for complete requirements.
+> Synced against AI.md revision `3fc6dbb7c534` (2026-11-26). AI.md remains authoritative for complete requirements.
 
 ## CRITICAL - NEVER DO
 - **PART 23:** Never prompts if user cannot escalate → shows informative error instead
@@ -20,6 +20,12 @@
 - Keep the server's PID file separate from any service supervisor PID file; never let OpenRC, SysV, or FreeBSD daemon management overwrite the server's own PID path.
 - Application containers and system containers are distinct. Detect systemd/OpenRC init before generic container defaults so system containers retain normal service-manager behavior.
 - Create the service account without creating its home; the data directory is assigned as its home after startup creates and owns the required directories.
+
+## AI.md 2026-11-26 Updates
+
+- Service account setup creates required directories first, creates the account without creating a home, then assigns the data directory as its home after startup has created and owned it.
+- Distinguish application containers from system containers: detect systemd/OpenRC before generic container defaults so system containers retain service-manager behavior.
+- Keep the application's PID path separate from supervisor PID files; do not let OpenRC, SysV or BSD daemon management overwrite it.
 
 ## Key Rules Summary
 
@@ -41,4 +47,4 @@
 
 For complete details, see AI.md PART 23, PART 24.
 
-<!-- AI.md source: fbd22cdebc89 -->
+<!-- AI.md source: 3fc6dbb7c534 -->

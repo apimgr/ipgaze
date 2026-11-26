@@ -2,7 +2,7 @@
 
 ⚠️ **These rules are NON-NEGOTIABLE. Violations are bugs.** ⚠️
 
-> Synced against AI.md revision `fbd22cdebc89` (2026-11-24). AI.md remains authoritative for complete requirements.
+> Synced against AI.md revision `3fc6dbb7c534` (2026-11-26). AI.md remains authoritative for complete requirements.
 
 ## CRITICAL - NEVER DO
 - **PART 25:** *Six core targets. DO NOT ADD MORE.** The only other permitted target is `clean`, a housekeeping target that removes `binaries/` and `releases/` and builds nothing. There is no `all` target and none is required.
@@ -36,6 +36,13 @@
 - `IDEA.md` `official_site` is documentation metadata only. Operational CLI defaults come from `site.txt`, `OFFICIAL_SITE`, or CI configuration.
 - Batch Go work should share one bounded Docker toolchain run; use named containers, resource limits, and the project-scoped Go build cache.
 
+## AI.md 2026-11-26 Updates
+
+- The six core targets remain fixed; `beta` is the prescribed additional release target, with only the documented housekeeping/internal helpers allowed. Stable `make release` accepts numeric semantic versions only.
+- Local branches are temporary and never pushed; beta is a timestamped `*-beta` tag created from a clean `main` tree. Devel is built by CI, not a pushed branch/tag workflow.
+- `IDEA.md` `official_site` is documentation metadata; operational defaults come from `site.txt` or `OFFICIAL_SITE`/CI configuration.
+- Container examples use a bounded named container and the project-scoped cache mounts.
+
 ## Key Rules Summary
 
 ### PART 25 — MAKEFILE
@@ -57,4 +64,4 @@
 
 For complete details, see AI.md PART 25.
 
-<!-- AI.md source: fbd22cdebc89 -->
+<!-- AI.md source: 3fc6dbb7c534 -->

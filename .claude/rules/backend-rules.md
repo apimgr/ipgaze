@@ -2,7 +2,7 @@
 
 ⚠️ **These rules are NON-NEGOTIABLE. Violations are bugs.** ⚠️
 
-> Synced against AI.md revision `fbd22cdebc89` (2026-11-24). AI.md remains authoritative for complete requirements.
+> Synced against AI.md revision `3fc6dbb7c534` (2026-11-26). AI.md remains authoritative for complete requirements.
 
 ## CRITICAL - NEVER DO
 - **PART 9:** | **No stack traces** | Never expose stack traces in production responses |
@@ -299,6 +299,12 @@
 - Debug output must not expose process arguments: `/debug/pprof/cmdline` and `/debug/vars` cmdline are sanitized, and every debug route requires the operator token.
 - The canonical AES key is `server.security.encryption_key` in `secrets.yml`; report content and other sensitive data use this key, not an unrelated database secret.
 
+## AI.md 2026-11-26 Updates
+
+- I2P support is required in code, image and tests; activation is off by default on bare metal/VM and on by default in containers. Persist the SAM destination `PRIV` payload without the `PRIV=` label and without a trailing newline.
+- A Tor config change is handled by the file watcher; SIGHUP is ignored. Use the exact process/control lifecycle and restart triggers in PART 31.
+- Preserve current database schema, transaction, backup and security contracts in PARTs 10–11; never rely on a rule-file summary where the detailed AI.md contract is more specific.
+
 ## Key Rules Summary
 
 ## AI.md 2026-11-22 Updates
@@ -364,4 +370,4 @@
 
 For complete details, see AI.md PART 9, PART 10, PART 11, PART 31.
 
-<!-- AI.md source: fbd22cdebc89 -->
+<!-- AI.md source: 3fc6dbb7c534 -->

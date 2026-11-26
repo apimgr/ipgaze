@@ -165,7 +165,12 @@ These are re-read on every start and take priority over `server.yml`:
 | Variable | Description |
 |----------|-------------|
 | `DOMAIN` | FQDN override (highest priority for hostname resolution) |
-| `MODE` | `production` (default) or `development`; `prod`/`dev`/`devel` accepted; `debug` implies development + debug unless `DEBUG` is explicitly set |
+| `MODE` | `production` (default), `development` or explicit `debug`; `prod`/`dev`/`devel` accepted. Development keeps sanitization enforced; debug behavior follows PART 6 and never exposes credentials |
+| `PORT` | Listener port; `--port` wins, then `PORT`, then config/default according to the server startup precedence |
+| `LISTEN` | Listener address; `--address` wins, then `LISTEN`, then config/default according to the server startup precedence |
+| `PID_FILE` | PID file path; `--pid` wins, then `PID_FILE`, then the platform default |
+| `I2P_ENABLED` | I2P eepsite activation; `--i2p` wins, then `I2P_ENABLED`, then config/computed default (on in containers, off elsewhere) |
+| `CACHE_DIR` | Cache directory; environment value overrides the platform default on every start |
 | `DATABASE_DRIVER` | `sqlite` (+ `sqlite2`, `sqlite3` aliases) or `libsql` (+ `turso` alias) |
 | `DATABASE_URL` | Database connection string (libsql/Turso only) |
 | `CACHE_URL` | Cache backend connection string (`valkey://`/`redis://`/`rediss://`); overrides `server.cache.url` and upgrades `server.cache.type` to `valkey` when it was `none`/`memory` |
@@ -200,8 +205,6 @@ persisted config:
 | `CONFIG_DIR` | Configuration directory |
 | `DATA_DIR` | Data directory |
 | `LOG_DIR` | Log directory |
-| `CACHE_DIR` | Cache directory |
-| `PID_FILE` | PID file path |
 | `DATABASE_DIR` | SQLite database directory (changeable) |
 | `BACKUP_DIR` | Backup directory (changeable) |
 | `PORT` | Server port |

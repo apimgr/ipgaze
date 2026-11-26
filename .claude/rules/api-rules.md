@@ -2,7 +2,7 @@
 
 ⚠️ **These rules are NON-NEGOTIABLE. Violations are bugs.** ⚠️
 
-> Synced against AI.md revision `fbd22cdebc89` (2026-11-24). AI.md remains authoritative for complete requirements.
+> Synced against AI.md revision `3fc6dbb7c534` (2026-11-26). AI.md remains authoritative for complete requirements.
 
 ## CRITICAL - NEVER DO
 - **PART 13:** *Healthz is PUBLIC. NEVER expose sensitive data.**
@@ -153,6 +153,11 @@
 - API roots have no trailing slash. `/api/{api_version}` is canonical; `/api/{api_version}/` is not a route.
 - Content negotiation gives an explicit `Accept` header priority over User-Agent detection; non-interactive HTTP tools without an explicit `Accept` receive plain text where supported.
 
+## AI.md 2026-11-26 Updates
+
+- GraphQL is query-only: GET is allowed for queries and POST is supported; mutations/writes belong to REST. GraphQL execution uses its standard response map; pre-execution failures use the canonical API error contract.
+- The GraphQL route and docs must describe GET-for-query behavior; preserve canonical versioned paths and same-handler aliases.
+
 ## Key Rules Summary
 
 ### PART 13 — HEALTH & VERSIONING
@@ -178,4 +183,4 @@
 
 For complete details, see AI.md PART 13, PART 14, PART 15.
 
-<!-- AI.md source: fbd22cdebc89 -->
+<!-- AI.md source: 3fc6dbb7c534 -->

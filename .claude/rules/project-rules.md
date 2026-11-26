@@ -2,7 +2,7 @@
 
 ⚠️ **These rules are NON-NEGOTIABLE. Violations are bugs.** ⚠️
 
-> Synced against AI.md revision `fbd22cdebc89` (2026-11-24). AI.md remains authoritative for complete requirements.
+> Synced against AI.md revision `3fc6dbb7c534` (2026-11-26). AI.md remains authoritative for complete requirements.
 
 ## CRITICAL - NEVER DO
 - **PART 2:** | **GPL/AGPL/LGPL** | ⚠️ AVOID | Copyleft licenses - do not use |
@@ -69,6 +69,13 @@
 - Use Goldmark with raw HTML disabled and sanitize every rendered Markdown surface with bluemonday.
 - The remote libSQL driver is remote-only; its optional local cache is a separate SQLite handle and the remote remains authoritative.
 
+## AI.md 2026-11-26 Updates
+
+- Stable identifiers include both `internal_name` and `internal_org`; when migration cannot prove them, initialize from `project_name` and `project_org` respectively. `plist_name` derives from both stable identifiers.
+- Before embedding third-party content or datasets, document exact source/publisher, version and retrieval date, and verify the license permits the intended use.
+- `PROMPT.md`, when present, is human-owned: read and follow it; never rewrite, delete or restructure it.
+- License scans target `./src/...`; generate reports and license artifacts in the prescribed project temp directory.
+
 ## Key Rules Summary
 
 ### PART 2 — LICENSE & ATTRIBUTION
@@ -107,4 +114,4 @@
 
 For complete details, see AI.md PART 2, PART 3, PART 4.
 
-<!-- AI.md source: fbd22cdebc89 -->
+<!-- AI.md source: 3fc6dbb7c534 -->

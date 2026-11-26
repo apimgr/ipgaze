@@ -2,7 +2,7 @@
 
 ⚠️ **These rules are NON-NEGOTIABLE. Violations are bugs.** ⚠️
 
-> Synced against AI.md revision `fbd22cdebc89` (2026-11-24). AI.md remains authoritative for complete requirements.
+> Synced against AI.md revision `3fc6dbb7c534` (2026-11-26). AI.md remains authoritative for complete requirements.
 
 ## CRITICAL - NEVER DO
 - **PART 16:** Routes are registered on the router in `main.go`/`routes.go`. All frontend routes are public; there is no admin web UI or user account system. Guest preferences live at `/server/preferences`, with registered sub-pages such as `/server/preferences/sync` and, in API projects, `/server/preferences/tokens`. Bearer-token auth applies to `/api/` routes. The tokens page is public but credential-gated: it always offers the restore form and lists/manages tokens only with a valid owner cookie. The owner cookie is the only cookie credential, used only by token-management forms.
@@ -259,6 +259,12 @@
 - Documentation-hosted pages must link to live server pages only with the configured `{official_site}`; otherwise show runtime paths as code text, not root-relative links.
 - Shared configuration forms do not make an otherwise public page private solely because they carry an online-only CSRF value.
 
+## AI.md 2026-11-26 Updates
+
+- Theme CSS uses the current shared palette values from PART 16; CLI/TUI colors derive from the shared ANSI `TerminalPalette`, not a separate literal-hex palette.
+- Preference cookies (`theme`, `lang`, app preferences) are written only after the Preferences consent category is accepted. Import is additive and consent itself is never exported.
+- Keep the latest PART 16 consent gate, CCPA visibility, and preference-sync behavior authoritative over older examples in this cheatsheet.
+
 ## Key Rules Summary
 
 ### PART 16 — WEB FRONTEND
@@ -294,4 +300,4 @@
 
 For complete details, see AI.md PART 16.
 
-<!-- AI.md source: fbd22cdebc89 -->
+<!-- AI.md source: 3fc6dbb7c534 -->

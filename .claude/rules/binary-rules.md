@@ -2,7 +2,7 @@
 
 ⚠️ **These rules are NON-NEGOTIABLE. Violations are bugs.** ⚠️
 
-> Synced against AI.md revision `fbd22cdebc89` (2026-11-24). AI.md remains authoritative for complete requirements.
+> Synced against AI.md revision `3fc6dbb7c534` (2026-11-26). AI.md remains authoritative for complete requirements.
 
 ## CRITICAL - NEVER DO
 - **PART 7:** *Security databases are NEVER embedded in the binary.** They are downloaded on first run and kept updated via the built-in scheduler.
@@ -151,6 +151,13 @@
 - The server's `--status` exit status is only 0 or 1 for container health checks. Scripts use 69 when the required environment is unavailable and must distinguish a skipped check from a passed check.
 - Keep the default client static and GUI-free; GUI artifacts are separate optional `gui` builds because their dynamic loader requirement breaks cross-distribution static binaries.
 
+## AI.md 2026-11-26 Updates
+
+- Never execute any project binary on the host, including `--help` and `--version`; use a named container or the prescribed isolated test environment.
+- The server binary is console/daemon only: it never opens a GUI window or tray. `TERM=dumb` forces plain CLI mode even with a local display.
+- Operational CLI server defaults come from `site.txt`, then `OFFICIAL_SITE`/CI configuration; IDEA.md `official_site` is documentation metadata only. `{PROJECT_NAME}_SERVER_PRIMARY` is a non-persistent override when `--server` is absent.
+- Client TUI styles derive from the shared ANSI `TerminalPalette`; do not define a separate literal-hex palette.
+
 ## Key Rules Summary
 
 ### PART 7 — BINARY REQUIREMENTS
@@ -198,4 +205,4 @@
 
 For complete details, see AI.md PART 7, PART 8, PART 32.
 
-<!-- AI.md source: fbd22cdebc89 -->
+<!-- AI.md source: 3fc6dbb7c534 -->

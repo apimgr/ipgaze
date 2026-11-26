@@ -2,7 +2,7 @@
 
 ⚠️ **These rules are NON-NEGOTIABLE. Violations are bugs.** ⚠️
 
-> Synced against AI.md revision `fbd22cdebc89` (2026-11-24). AI.md remains authoritative for complete requirements.
+> Synced against AI.md revision `3fc6dbb7c534` (2026-11-26). AI.md remains authoritative for complete requirements.
 
 ## CRITICAL - NEVER DO
 - **PART 27:** *CI/CD workflows are DIFFERENT from local development. Do NOT mix them.**
@@ -37,6 +37,13 @@
 - AI.md, IDEA.md, README.md, and docs must not contain credential-shaped example strings. The sole random-looking identifier exception is the 8-lowercase-letter owner-token cookie-name suffix.
 - Preserve complete Git history for full-history secret scanning.
 
+## AI.md 2026-11-26 Updates
+
+- `main` is the only long-lived branch; working branches are local/temporary and never pushed. Stable and beta releases use tags; beta is a `*-beta` tag, not a branch.
+- Docker builds run on pushes to `main`, stable version tags and beta tags. Devel image jobs run on `main`, daily schedule and manual dispatch on `main`.
+- Coverage collection and enforcement are steps of the test job, not a separate coverage job.
+- GitHub CI keeps lint/test/security jobs in the prescribed order and runs the required security jobs on schedule; preserve full history for full-history secret scanning.
+
 ## Key Rules Summary
 
 ### PART 27 — CI/CD WORKFLOWS
@@ -68,4 +75,4 @@
 
 For complete details, see AI.md PART 27.
 
-<!-- AI.md source: fbd22cdebc89 -->
+<!-- AI.md source: 3fc6dbb7c534 -->

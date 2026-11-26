@@ -2,7 +2,7 @@
 
 ⚠️ **These rules are NON-NEGOTIABLE. Violations are bugs.** ⚠️
 
-> Synced against AI.md revision `fbd22cdebc89` (2026-11-24). AI.md remains authoritative for complete requirements.
+> Synced against AI.md revision `3fc6dbb7c534` (2026-11-26). AI.md remains authoritative for complete requirements.
 
 ## CRITICAL - NEVER DO
 - **PART 0:** | **AI.md (PARTS 0-33 + PART 33 reference)** | Implementation patterns, standards, rules, and reference material | **NEVER** |
@@ -224,6 +224,14 @@
 - Keep migration backups in the project-scoped OS temp directory and retain them until the user confirms the migrated IDEA.md.
 - The `incus.sh` full-app check is explicit; `tests/run_tests.sh` stays Docker-only.
 
+## AI.md 2026-11-26 Updates
+
+- A task is complete only after the commit is pushed; remove each resolved `TODO.AI.md` item in the same change/commit that resolves it, before preparing `COMMIT_MESS`.
+- If IDEA.md defines a feature with no AI.md-specific protocol, build it under the full AI.md baseline; its project-specific technical contract belongs in SPEC.md. AI.md remains read-only.
+- Before embedding third-party datasets or content, record source, version and retrieval date and verify redistribution/license terms.
+- Verification examples must execute binaries in named containers; never run even `--help` or `--version` on the host.
+- Project documentation and API examples use `official_site` only where defined; localhost is limited to explicitly labeled local development/container try-out examples.
+
 ## Key Rules Summary
 
 ### PART 0 — AI ASSISTANT RULES (READ FIRST)
@@ -297,4 +305,4 @@
 
 For complete details, see AI.md PART 0, PART 1.
 
-<!-- AI.md source: fbd22cdebc89 -->
+<!-- AI.md source: 3fc6dbb7c534 -->
