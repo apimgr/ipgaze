@@ -246,6 +246,28 @@ Configuration saved to ~/.config/apimgr/ipgaze/cli.yml
 Your IP: 203.0.113.42
 ```
 
+## Client Binary Distribution
+
+The server serves operator-provisioned client release artifacts from
+`{data_dir}/cli/`. Copy the platform binaries plus `version.txt` and
+`sha256.txt` from a release into that directory. The server validates each
+binary against its listed SHA-256 before advertising it through
+`/api/autodiscover`; unmatched or missing artifacts are not offered to clients.
+The default directory and optional download authentication are configured in
+`yaml.d/maintenance.yml` under `cli.binary_download` (see the
+[configuration guide](configuration.md#cli-release-distribution)).
+
+The client checks `/api/autodiscover` at startup and supports explicit update
+commands:
+
+```bash
+ipgaze-cli --update check
+ipgaze-cli --update yes
+```
+
+Downloads use HTTPS, verify SHA-256 before installation, replace the executable
+atomically, and re-exec the original command.
+
 ## Exit Codes
 
 | Code | Meaning |

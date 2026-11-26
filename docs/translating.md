@@ -6,11 +6,20 @@ target locale file and never change `en.json` as part of a translation update.
 
 ## Current languages
 
-IPGaze embeds eight locale files in both binaries: English (`en`), Spanish
-(`es`), French (`fr`), German (`de`), Italian (`it`), Chinese (`zh`), Arabic
-(`ar`), and Japanese (`ja`). Arabic uses a right-to-left layout. The language
-selector and CLI help derive their supported-language list from the same
-registry as these embedded files.
+IPGaze embeds eight complete locale files in both binaries. The locale
+registry supplies the language selector, CLI help, text direction, and plural
+rules for the same set.
+
+| Code | Language | Native name | Direction | Plural categories |
+|------|----------|-------------|-----------|-------------------|
+| `en` | English | English | `ltr` | `one`, `other` |
+| `es` | Spanish | Español | `ltr` | `one`, `other` |
+| `fr` | French | Français | `ltr` | `one`, `other` (0 is `one`) |
+| `de` | German | Deutsch | `ltr` | `one`, `other` |
+| `it` | Italian | Italiano | `ltr` | `one`, `many`, `other` (`many` for round multiples of 1,000,000) |
+| `zh` | Chinese | 中文 | `ltr` | `other` |
+| `ar` | Arabic | العربية | `rtl` | `zero`, `one`, `two`, `few`, `many`, `other` |
+| `ja` | Japanese | 日本語 | `ltr` | `other` |
 
 ## Contribute or update a translation
 
@@ -28,9 +37,9 @@ registry as these embedded files.
    `one` and `other`. Preserve the plural key structure from the source file.
 6. Keep product names, protocol names, config keys, file names, URLs, and
    literal option values such as `dark` and `auto` unchanged.
-7. Submit the locale file and, for a new language, the registry and default
-   language configuration changes together. Update the README language list
-   and this page's language count in the same change.
+7. Submit the locale file and, for a new language, the registry entry with its
+   direction and plural categories together. Update this table, the README
+   language list, and the stated language count in the same change.
 
 AI-assisted and machine translations are welcome as best-effort contributions;
 they do not need to wait for native-speaker review before merging. Human

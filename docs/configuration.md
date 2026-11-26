@@ -293,6 +293,29 @@ compatibility fallback.
 In the standard Docker layout, Tor stores the onion hostname at
 `/data/ipgaze/tor/site/hostname`.
 
+### CLI Release Distribution
+
+The server does not build or download client binaries. Provision release files
+in the configured directory; the server reads `version.txt` and `sha256.txt`,
+recomputes each binary's SHA-256, and advertises only matching files from
+`/api/autodiscover`. A missing directory, metadata file, or binary returns an
+empty version map, so clients see no available update. Directory changes are
+picked up on the next autodiscover request.
+
+The default directory is `{data_dir}/cli`. These settings belong in
+`yaml.d/maintenance.yml`:
+
+```yaml
+cli:
+  binary_download:
+    dir: "{data_dir}/cli"
+    require_auth: false
+```
+
+Set `require_auth: true` to require an operator bearer token for binary
+downloads. See the [CLI reference](cli.md#client-binary-distribution) for the
+release filenames and update endpoint.
+
 ### Request Flood Detection and Permanent IP Blocks
 
 Flood detection counts every request, including `429` responses, by client IP
