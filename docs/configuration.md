@@ -729,7 +729,7 @@ server:
     token: ""
 ```
 
-## Complete Example
+## Representative Example
 
 ```yaml
 # server.yml - representative configuration example
@@ -793,8 +793,24 @@ web:
   cors: "*"
 ```
 
-See `server.yml` itself for the full, always-current set of keys — it is
-regenerated with every default field present on first run.
+### Other top-level settings
+
+These top-level settings are part of the supported configuration surface in
+addition to the `server`, `web`, and `pages` settings described above.
+
+| Key | Type | Default | Behavior |
+|-----|------|---------|----------|
+| `output.color` | boolean, optional | automatic | Selects color output for CLI commands. An explicit CLI flag takes precedence, then this setting, then `NO_COLOR`, then terminal autodetection. |
+| `output.emoji` | boolean, optional | automatic | Selects emoji output for CLI commands. When explicitly enabled, emoji output remains enabled even when `NO_COLOR` disables color. |
+| `data.cve.source` | URL string | NVD CVE API 2.0 endpoint | Selects the source for the CVE feed. An empty string uses the compiled-in NVD API endpoint. |
+| `data.cve.filter_by_cpe` | boolean | `false` | Enables CPE filtering. The default remains false because dependency-to-CPE mappings are not verified and could hide applicable CVEs. |
+| `tor.onion_address` | string (legacy) | empty | Accepted for compatibility; ignored because the active address comes from the running Tor service. |
+| `tor.contact_email` | string (legacy) | empty | Migrated to `server.tor.contact_email` when a legacy file is loaded. |
+
+The complete reference is the settings described throughout this page,
+including the nested `server`, `web`, `pages`, `data`, `output`, and legacy
+`tor` keys. Generated `server.yml` is a defaults file, not a substitute for
+this operator reference.
 
 ### TLS and Let's Encrypt
 

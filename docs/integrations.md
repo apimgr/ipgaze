@@ -57,6 +57,20 @@ Bearer token without returning it; invalid tokens produce a GraphQL error.
 The REST contact-form description is available through
 `GET https://ifcfg.us/api/v1/server/contact`.
 
+The GraphiQL page loads pinned React 18.3.1 and GraphiQL 3.9.0 assets from the
+instance's own static files. It works without a third-party CDN, follows the
+site's theme, and provides a no-JavaScript link to the GraphQL endpoint.
+The assets and their redistribution notices are under
+`src/server/static/vendor/graphiql/`. The bundles are unmodified upstream
+distributions; included license texts are `LICENSE-graphiql.txt`,
+`LICENSE-react.txt`, and `LICENSE-react-dom.txt`.
+
+| Local asset package | Pinned version | License | Upstream |
+|---------------------|----------------|---------|----------|
+| GraphiQL | 3.9.0 | MIT | [graphql/graphiql](https://github.com/graphql/graphiql) |
+| React | 18.3.1 | MIT | [facebook/react](https://github.com/facebook/react) |
+| ReactDOM | 18.3.1 | MIT | [facebook/react](https://github.com/facebook/react) |
+
 Example query:
 
 ```graphql
