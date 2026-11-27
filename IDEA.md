@@ -176,8 +176,6 @@ versioned routes expose the same lookup operations under `/api/v1`.
 | `GET` | `/cli/binaries/{filename}` | Optional bearer token | Download a published CLI binary when binary download authorization is enabled. |
 | `GET` | `/api/healthz.txt` | None | Plain-text response from the unversioned health alias. |
 | `GET` | `/api/v1/server/healthz.txt` | None | Plain-text response from the versioned health endpoint. |
-| `POST` | `/api/v1/server/backups/restore` | Operator bearer token | Multipart fields: `archive` (`.tar.gz` or `.tar.gz.enc`), optional `base_archive` for an incremental backup, optional `password` for encrypted backups, and `confirmation` exactly `RESTORE {uploaded filename}`. Verifies the archive before entering maintenance and returns `202` when the restore restart is scheduled. |
-| `GET` | `/server/backups/restore` | None | Operator restore page; the upload action requires an operator token. |
 | `GET` | `/api/v1/version` | None | Return the running server version for CLI compatibility checks. |
 | `GET` | `/manifest.json` | None | Serve the installable web app manifest. |
 | `GET` | `/sw.js` | None | Serve the service worker for offline static assets. |
@@ -195,9 +193,3 @@ GeoIP-dependent fields are available when lookup data is available. The
 versioned lookup routes return the same product information through JSON,
 plain text, or HTML as appropriate. The standard GraphQL and CLI capabilities
 follow AI.md PARTS 14 and 32.
-
-The restore page and API accept an uploaded backup only after archive
-verification and a typed `RESTORE {filename}` confirmation. The server enters
-maintenance, stops scheduled writers, executes the same restore command used
-by the offline CLI flow, and exits through the update-restart path so its
-service manager can start it with restored state.

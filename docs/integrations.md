@@ -208,8 +208,9 @@ clearnet contact address.
 
 Tor starts when its binary is available. The project does not expose an
 enable/disable toggle; installing Tor changes this behavior.
-The address is omitted from `/api/autodiscover` by default. Set
-`server.tor.expose: true` to advertise it to clients.
+The address is omitted from `/api/autodiscover` and clearnet `Onion-Location`
+headers by default. Set `server.tor.expose: true` to publish it; the header is
+limited to clearnet HTML document responses.
 
 Optional outbound Tor routing is controlled by `server.tor.use_network` and
 defaults to `false`. When enabled, the managed Tor process opens a loopback-only
