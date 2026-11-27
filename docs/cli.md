@@ -34,6 +34,11 @@ ipgaze [flags]
 | `--maintenance data export --owner <prefix> [--output FILE]` | Write the owner's JSON data export (`0600` by default; `--output -` writes to stdout) |
 | `--maintenance data delete --owner <prefix> [--yes]` | Delete that owner's tokens and data in one transaction; confirmation requires the owner ID unless `--yes` is supplied |
 | `--maintenance compliance report` | Print standards/settings, owner/token/report counts, recent compliance events, last backup time, and audit integrity |
+
+Programmable completions are available for bash, zsh, fish, PowerShell, and
+pwsh. Requests for sh, dash, or ksh return exit code 2. The `--shell init`
+command remains safe in those shells and prints a comment instead of trying to
+load a completion function.
 | `--maintenance email test [--to ADDRESS]` | Send an authenticated SMTP test email; `--dry-run` previews and validates configured templates without sending |
 | `--maintenance tor <status|validate|restart|regenerate|vanity|import-keys>` | Inspect or manage the running Tor hidden service through its loopback-only control channel |
 | `--shell --help` | Show shell integration usage and supported shells |

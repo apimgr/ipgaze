@@ -64,7 +64,7 @@ The following endpoints are accessible without authentication:
 | `GET https://ifcfg.us/api/v1/server/preferences/sync` | Export guest preferences |
 | `GET https://ifcfg.us/api/v1/server/preferences/sync/import` | Apply preferences from a code or query |
 | `GET https://ifcfg.us/.well-known/security.txt` | RFC 9116 security contact information |
-| `GET https://ifcfg.us/.well-known/pgp-key.asc` | Public report encryption key when configured |
+| `GET https://ifcfg.us/.well-known/pgp-key.asc` | Public report encryption key while a keypair exists |
 | `GET https://ifcfg.us/robots.txt` | Robots policy |
 | `GET https://ifcfg.us/favicon.ico` | Site favicon |
 | `GET https://ifcfg.us/manifest.json` | PWA manifest |
@@ -95,7 +95,7 @@ ipgaze serves the following well-known endpoints:
 | Endpoint | Purpose |
 |----------|---------|
 | `GET https://ifcfg.us/.well-known/security.txt` | RFC 9116 security contact |
-| `GET https://ifcfg.us/.well-known/pgp-key.asc` | Public PGP key when configured |
+| `GET https://ifcfg.us/.well-known/pgp-key.asc` | Public PGP key while a keypair exists |
 | `GET https://ifcfg.us/.well-known/llms.txt` | Service and API summary |
 
 The canonical security contact file is `/.well-known/security.txt` and follows

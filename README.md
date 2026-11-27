@@ -219,7 +219,7 @@ docker run -d \
 | `--maintenance email test [--to ADDRESS]` | Send an authenticated SMTP test email; `--dry-run` previews and validates configured templates without sending |
 | `--maintenance tor <status|validate|restart|regenerate|vanity|import-keys>` | Inspect or manage Tor through its loopback-only control channel |
 | `--shell --help` | Show shell integration usage and supported shells |
-| `--shell completions [SHELL]` | Print shell completions (bash, zsh, fish, sh, dash, ksh, powershell, pwsh) |
+| `--shell completions [SHELL]` | Print completions for bash, zsh, fish, PowerShell, and pwsh; sh, dash, and ksh return a usage error because they have no programmable completion |
 | `--shell init [SHELL]` | Print the shell init snippet |
 | `--update check` | Check GitHub Releases for a newer binary |
 | `--update yes` | Download and install the newer binary |
@@ -230,6 +230,10 @@ based on the previous full. The incremental is verified and retained with its
 base; restoring it applies both archives. Hourly incrementals are optional and
 disabled by default. See [backup configuration](docs/configuration.md#backups)
 for retention and restore details.
+
+Backup copies of `secrets.yml` blank `server.token` and
+`server.backup.encryption_password`. Restore preserves the target host's
+operator token.
 
 ## Client
 

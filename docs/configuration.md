@@ -37,7 +37,9 @@ inside `yaml.d/`. Changes to `server.yml`, this directory, or `secrets.yml` are
 merged and reloaded; an invalid result leaves the last valid configuration
 active. Generated settings are written to `server.yml`; generated credentials
 are written only to `secrets.yml`. Backups include `yaml.d/` and `secrets.yml`
-when they exist.
+when they exist. The archived copy blanks `server.token` and
+`server.backup.encryption_password`; restore keeps the target host's operator
+token.
 
 ### Operator Page Content
 
