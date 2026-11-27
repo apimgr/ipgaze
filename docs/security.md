@@ -183,8 +183,10 @@ Report repository vulnerabilities privately:
 The coordinated disclosure policy applies to the official `ifcfg.us` service.
 For issues against that deployed service, use the security report link in
 [`security.txt`](https://ifcfg.us/.well-known/security.txt), which opens the
-security mode of the contact form. The ordinary contact mode remains for
-general questions. Repository vulnerabilities should use GitHub private
+security mode of the contact form. For abuse, DMCA, and privacy reports, use
+the corresponding typed form linked from [`/server/security`](https://ifcfg.us/server/security).
+The form does not accept general questions, support requests, bug reports, or
+feature requests. Repository vulnerabilities should use GitHub private
 reporting. Researcher acknowledgments are shown at
 [`/server/security/thanks`](https://ifcfg.us/server/security/thanks) when
 consented credits are available. The report form asks separately for a public

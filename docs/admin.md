@@ -52,8 +52,9 @@ Archives include `app_secrets.json` with every generated database secret and
 rotation row, including when the primary database is remote. A local SQLite
 database is archived as `db/server.db`; with libSQL, that file is the optional
 local cache snapshot when `server.database.cache.enabled` is true. The remote
-database itself is never included. Restore validates and imports the secret
-rows before reporting success.
+database itself is never included. On a remote restore, `db/server.db` seeds an
+empty remote database; existing application data is left untouched. Restore
+validates and imports the secret rows before reporting success.
 
 ## Email Maintenance
 

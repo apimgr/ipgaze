@@ -606,14 +606,14 @@ docker run --rm --network host casjaysdev/go:latest \
 
 #### GitHub Actions
 
-- **Triggers**: Push and pull request to main/master, weekly schedule, manual
+- **Triggers**: Push and pull request to main, weekly schedule, manual
 - **Workflows**:
-  - `ci.yml` - Lint, tests, builds, coverage, vulnerability and full-history secret scans, image scan, and action SHA policy; main/master push and pull request, weekly, or manual
-  - `licenses.yml` - Dependency license check; main/master push and pull request, or manual
-  - `devel.yml` - Eight-platform devel builds and rolling release; daily, main/master push, or manual
-  - `beta.yml` - Beta builds; push to `beta` or manual
+  - `ci.yml` - Lint, tests, builds, coverage, vulnerability and full-history secret scans, image scan, and action SHA policy; main push and pull request, weekly, or manual
+  - `licenses.yml` - Dependency license check; main push and pull request, or manual
+  - `devel.yml` - Eight-platform devel builds and rolling release; daily, main push, or manual
+  - `beta.yml` - Beta builds; immutable timestamped beta tag push or manual run for an existing beta tag
   - `release.yml` - Eight-platform tagged release; version tag or manual
-  - `docker.yml` - Multi-architecture Docker images (amd64, arm64); all branch pushes, version tags, daily, or manual
+  - `docker.yml` - Multi-architecture Docker images (amd64, arm64); main pushes, version and beta tags, daily, or manual
 
 #### Other CI Providers
 
