@@ -125,6 +125,21 @@ retained compliance events from the last 30 days, the last backup time, and
 the audit-chain integrity result. A standard flag records the operator's
 configured scope; it does not certify that the deployment meets that standard.
 
+## WebUI Toasts
+
+Visitor-facing success and information toasts default to three seconds;
+warnings default to five seconds, and errors always require manual dismissal.
+Configure placement and durations under `server.notifications.webui`:
+
+```yaml
+server:
+  notifications:
+    webui:
+      position: top-right # top-right, top-left, bottom-right, bottom-left
+      duration: 3 # success and information; 0 disables auto-dismiss
+      warning_duration: 5 # warnings; 0 disables auto-dismiss
+```
+
 `server.security.encryption_key` is generated and stored in `secrets.yml` on
 first run. It protects sensitive data stored by the application, including
 security report contents and researcher credit names. Keep the secrets file

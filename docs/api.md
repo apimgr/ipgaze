@@ -143,7 +143,12 @@ The owner-token list response contains `data.primary`, `data.linked`, and
 `data.max_linked`. Token objects use `token_masked` and UTC RFC 3339 timestamps;
 raw tokens appear only in issue, create, reveal, or rotate responses. Linked-token
 create, reveal, and rotate responses name the raw credential `linked_token`.
-Create and update requests accept `expires` (`never`, `7d`, `30d`, `90d`, or
+Token objects expose `scope`: primary tokens use `global`; linked tokens use
+`read` or `read-write`. Linked-token creation accepts an optional `scope` field
+(default `read-write`), and the browser token page offers the same choices.
+Insufficient scope is rejected with `403` and
+`WWW-Authenticate: Bearer error="insufficient_scope"`. Create and update
+requests accept `expires` (`never`, `7d`, `30d`, `90d`, or
 `1y`) or `expires_on` (`YYYY-MM-DD`), but not both.
 
 

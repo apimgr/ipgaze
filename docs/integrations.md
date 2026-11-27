@@ -106,7 +106,9 @@ Streamable HTTP:
 MCP requires an owner or operator Bearer token; the REST API's public lookup
 operations remain anonymous. Issue an owner token from `/server/preferences/tokens`
 or `POST https://ifcfg.us/api/v1/server/preferences/tokens/primary`, then create one linked
-token per MCP client. Operator-only API tools are listed only when the request
+token per MCP client. Linked tokens default to `read-write`; choose `read` for
+clients that only need lookup access. Read tokens can call `GET`, `HEAD`, and
+`OPTIONS` operations; writes require `read-write`. Operator-only API tools are listed only when the request
 carries a valid `server.token` bearer credential. Token-management operations
 are never exposed as MCP tools. Use a linked token for each client; do not put
 the primary owner token or operator token in an MCP client's configuration.

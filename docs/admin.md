@@ -1,7 +1,9 @@
 # Server Administration
 
-Server administration for **ipgaze** is file-only — there is no admin web UI and no
-runtime configuration API.
+Server configuration for **ipgaze** remains file-only; there is no general admin
+panel or runtime configuration API. A protected backup-restore page is available
+at `/server/backups/restore` and requires the operator token when submitting an
+archive.
 
 ## Overview
 
@@ -37,6 +39,19 @@ not display it. Owner tokens are separate credentials for resources visitors
 create and for MCP access. Visitors can issue them from the public tokens page.
 
 To replace the token, update its value in `secrets.yml` and restart the service.
+
+## Online Backup Restore
+
+The restore page accepts `.tar.gz` and `.tar.gz.enc` archives, plus the base
+archive for an incremental backup. Encrypted archives require their separate
+backup password. The server verifies the archive before entering maintenance.
+Type `RESTORE` followed by the uploaded archive filename to confirm. A successful
+request returns `202`; the server stops scheduled writers, restores using the
+offline CLI flow, and exits through its restart path.
+
+The equivalent API endpoint is `POST /api/v1/server/backups/restore`. It requires
+an operator Bearer token and multipart fields `archive`, `confirmation`, and,
+when needed, `password` and `base_archive`. See the [API reference](api.md).
 
 ## Email Maintenance
 
