@@ -779,6 +779,9 @@ func TestRootDirs_Windows(t *testing.T) {
 	if data == "" || logs == "" || cache == "" || pid == "" || ssl == "" || sec == "" || db == "" || backup == "" {
 		t.Error("rootDirs(windows) returned empty paths")
 	}
+	if db != filepath.Join(data, "db") {
+		t.Errorf("rootDirs(windows) database path = %q, want %q", db, filepath.Join(data, "db"))
+	}
 }
 
 func TestRootDirs_Windows_NoProgramData(t *testing.T) {

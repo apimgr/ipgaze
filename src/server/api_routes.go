@@ -175,26 +175,34 @@ func (s *Server) apiRoutes(versionHandler http.Handler, mcpHandler http.Handler)
 	if s.HealthzRootEnabled {
 		handlers.ServerHealthRoot = s.HealthHandler.HealthzHandler
 	}
-	if s.gr != nil && !s.gr.IsEmpty() {
-		handlers.CountryRoot = appHandlerToHTTP(s.CLICountryHandler)
-		handlers.CountryTxtRoot = appHandlerToHTTP(s.CLICountryHandler)
-		handlers.CountryISORoot = appHandlerToHTTP(s.CLICountryISOHandler)
-		handlers.CountryISOTxtRoot = appHandlerToHTTP(s.CLICountryISOHandler)
-		handlers.CityRoot = appHandlerToHTTP(s.CLICityHandler)
-		handlers.CityTxtRoot = appHandlerToHTTP(s.CLICityHandler)
-		handlers.CoordinatesRoot = appHandlerToHTTP(s.CLICoordinatesHandler)
-		handlers.CoordinatesTxtRoot = appHandlerToHTTP(s.CLICoordinatesHandler)
-		handlers.ASNRoot = appHandlerToHTTP(s.CLIASNHandler)
-		handlers.ASNTxtRoot = appHandlerToHTTP(s.CLIASNHandler)
-		handlers.ASNOrgRoot = appHandlerToHTTP(s.CLIASNOrgHandler)
-		handlers.ASNOrgTxtRoot = appHandlerToHTTP(s.CLIASNOrgHandler)
-		handlers.Country = appHandlerToHTTP(s.APIV1CountryHandler)
-		handlers.City = appHandlerToHTTP(s.APIV1CityHandler)
-		handlers.ASN = appHandlerToHTTP(s.APIV1ASNHandler)
-		handlers.CountryISO = appHandlerToHTTP(s.APIV1CountryISOHandler)
-		handlers.Coordinates = appHandlerToHTTP(s.APIV1CoordinatesHandler)
-		handlers.ASNOrg = appHandlerToHTTP(s.APIV1ASNOrgHandler)
+	geoIPRoute := func(handler appHandler) http.HandlerFunc {
+		adapted := appHandlerToHTTP(handler)
+		return func(w http.ResponseWriter, r *http.Request) {
+			if s.gr == nil || s.gr.IsEmpty() {
+				writeNegotiatedError(w, r, http.StatusNotFound, "", i18n.T(r.Context(), "errors.not_found"))
+				return
+			}
+			adapted.ServeHTTP(w, r)
+		}
 	}
+	handlers.CountryRoot = geoIPRoute(s.CLICountryHandler)
+	handlers.CountryTxtRoot = geoIPRoute(s.CLICountryHandler)
+	handlers.CountryISORoot = geoIPRoute(s.CLICountryISOHandler)
+	handlers.CountryISOTxtRoot = geoIPRoute(s.CLICountryISOHandler)
+	handlers.CityRoot = geoIPRoute(s.CLICityHandler)
+	handlers.CityTxtRoot = geoIPRoute(s.CLICityHandler)
+	handlers.CoordinatesRoot = geoIPRoute(s.CLICoordinatesHandler)
+	handlers.CoordinatesTxtRoot = geoIPRoute(s.CLICoordinatesHandler)
+	handlers.ASNRoot = geoIPRoute(s.CLIASNHandler)
+	handlers.ASNTxtRoot = geoIPRoute(s.CLIASNHandler)
+	handlers.ASNOrgRoot = geoIPRoute(s.CLIASNOrgHandler)
+	handlers.ASNOrgTxtRoot = geoIPRoute(s.CLIASNOrgHandler)
+	handlers.Country = geoIPRoute(s.APIV1CountryHandler)
+	handlers.City = geoIPRoute(s.APIV1CityHandler)
+	handlers.ASN = geoIPRoute(s.APIV1ASNHandler)
+	handlers.CountryISO = geoIPRoute(s.APIV1CountryISOHandler)
+	handlers.Coordinates = geoIPRoute(s.APIV1CoordinatesHandler)
+	handlers.ASNOrg = geoIPRoute(s.APIV1ASNOrgHandler)
 	if s.LookupPort != nil {
 		handlers.PortRoot = appHandlerToHTTP(s.PortHandler)
 		handlers.PortCheck = appHandlerToHTTP(s.PortHandler)

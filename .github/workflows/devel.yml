@@ -6,12 +6,11 @@ on:
   push:
     branches:
       - main
-      - master
   workflow_dispatch:
 
 concurrency:
   group: devel-${{ github.ref }}
-  cancel-in-progress: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || github.ref == 'refs/heads/devel' || github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/beta' }}
+  cancel-in-progress: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/devel' || github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/beta' }}
 
 permissions:
   contents: read
@@ -171,7 +170,7 @@ jobs:
           prerelease: true
           generate_release_notes: false
           body: |
-            Automated devel build from the latest commit on main/master branch.
+            Automated devel build from the latest commit on main branch.
 
             **Version:** ${{ env.VERSION }}
             **Commit:** ${{ github.sha }}

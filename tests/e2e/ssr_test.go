@@ -93,7 +93,7 @@ func ownerTokenResponseField(t *testing.T, body []byte, field string) string {
 
 func mcpLookupStatus(t *testing.T, token string) int {
 	t.Helper()
-	requestBody := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{}},"name":"v1_ip_lookup","arguments":{"ip":"8.8.8.8"}}}`
+	requestBody := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{}},"name":"v1IpLookup","arguments":{"ip":"8.8.8.8"}}}`
 	req, err := http.NewRequest(http.MethodPost, baseURL+"/mcp", strings.NewReader(requestBody))
 	if err != nil {
 		t.Fatalf("building MCP lookup request: %v", err)
@@ -102,7 +102,7 @@ func mcpLookupStatus(t *testing.T, token string) int {
 	req.Header.Set("Accept", "application/json, text/event-stream")
 	req.Header.Set("MCP-Protocol-Version", "2026-07-28")
 	req.Header.Set("Mcp-Method", "tools/call")
-	req.Header.Set("Mcp-Name", "v1_ip_lookup")
+	req.Header.Set("Mcp-Name", "v1IpLookup")
 	if token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
 	}
@@ -112,6 +112,14 @@ func mcpLookupStatus(t *testing.T, token string) int {
 		t.Fatalf("calling the MCP lookup tool: %v", err)
 	}
 	defer res.Body.Close()
+	if res.StatusCode == http.StatusBadRequest {
+		body, readErr := io.ReadAll(res.Body)
+		if readErr != nil {
+			t.Logf("MCP lookup returned %d (could not read response body: %v)", res.StatusCode, readErr)
+		} else {
+			t.Logf("MCP lookup returned %d: %s", res.StatusCode, strings.TrimSpace(string(body)))
+		}
+	}
 	return res.StatusCode
 }
 

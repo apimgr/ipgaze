@@ -127,6 +127,24 @@ func TestOpenAPIUsesRegisteredUnversionedAPIAliases(t *testing.T) {
 	}
 }
 
+func TestRegistryPublishesRuntimeRouteMetadata(t *testing.T) {
+	var registry Registry
+	registry.Add(Route{
+		method:       http.MethodGet,
+		path:         "/static/{path}",
+		id:           "staticAsset",
+		runtimePath:  "/static/*",
+		runtimeAlias: true,
+	})
+	route := registry.Routes()[0]
+	if route.RuntimePath != "/static/*" {
+		t.Errorf("runtime path = %q, want /static/*", route.RuntimePath)
+	}
+	if !route.RuntimeAlias {
+		t.Error("runtime alias metadata was not published")
+	}
+}
+
 func TestOpenAPISchemasUseRouteRequestAndResponseModels(t *testing.T) {
 	type requestModel struct {
 		Address string `json:"address"`

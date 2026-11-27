@@ -145,31 +145,38 @@ func (fn appHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// "Error Pages (MUST Match Theme)") instead of the bare plain-text
 	// fallback below. Rendered into a buffer first so a template failure
 	// never corrupts a partially-written response — on failure we log it
-	// and fall straight through to the guaranteed plain-text response,
-	// untouched, since nothing has been written to w yet.
-	if !e.IsJSON() && detectClientType(r) == "html" && errorPageExecute != nil && errorPageData != nil {
-		pd := errorPageData(r)
-		pd.Code = e.Code
-		pd.Title = handler.ErrorMessageForStatus(r, e.Code)
-		pd.Message = msg
-		pd.RequestID = RequestIDFromContext(r.Context())
-		var buf bytes.Buffer
-		err := errorPageExecute(&buf, "error_page.tmpl", pd)
-		if err == nil {
-			w.Header().Set("Content-Type", "text/html; charset=utf-8")
-			w.Header().Set("Cache-Control", "no-store")
-			// AI.md PART 9 "HTML is never cached": every HTML document pairs
-			// no-store with a build-stamp ETag so an intermediary that ignores
-			// no-store still revalidates rather than serving a stale error page.
-			if errorPageAssetStamp != "" {
-				w.Header().Set("ETag", `"`+errorPageAssetStamp+`"`)
+	// and use the minimal HTML fallback, untouched, since nothing has been
+	// written to w yet.
+	if !e.IsJSON() && detectClientType(r) == "html" {
+		if errorPageExecute != nil && errorPageData != nil {
+			pd := errorPageData(r)
+			pd.Code = e.Code
+			pd.Title = http.StatusText(e.Code)
+			pd.Message = msg
+			pd.RequestID = RequestIDFromContext(r.Context())
+			var buf bytes.Buffer
+			err := errorPageExecute(&buf, "error_page.tmpl", pd)
+			if err == nil {
+				w.Header().Set("Content-Type", "text/html; charset=utf-8")
+				w.Header().Set("Cache-Control", "no-store")
+				// AI.md PART 9 "HTML is never cached": every HTML document pairs
+				// no-store with a build-stamp ETag so an intermediary that ignores
+				// no-store still revalidates rather than serving a stale error page.
+				if errorPageAssetStamp != "" {
+					w.Header().Set("ETag", `"`+errorPageAssetStamp+`"`)
+				}
+				w.WriteHeader(e.Code)
+				buf.WriteTo(w) //nolint:errcheck
+				return
 			}
-			w.WriteHeader(e.Code)
-			buf.WriteTo(w) //nolint:errcheck
-			return
+			log.Printf("error page render failed: request_id=%s http_status=%d err=%v",
+				RequestIDFromContext(r.Context()), e.Code, err)
 		}
-		log.Printf("error page render failed: request_id=%s http_status=%d err=%v",
-			RequestIDFromContext(r.Context()), e.Code, err)
+		// AI.md PART 16 allows the minimal hardcoded page only when the shared
+		// themed renderer is unavailable or fails. The fallback does not depend
+		// on templates, theme state, or translations.
+		handler.WriteErrorHTML(w, r, e.Code, msg)
+		return
 	}
 	// When Content-Type for error is JSON, marshal the response as JSON.
 	// Format per AI.md PART 9: {"ok": false, "error": "ERROR_CODE", "message": "Human text"}

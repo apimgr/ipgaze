@@ -93,8 +93,10 @@ Example query:
 
 ## Model Context Protocol (MCP)
 
-IPGaze exposes its registered public API operations as tools over stateless
-Streamable HTTP:
+IPGaze exposes its registered versioned API operations as tools over stateless
+Streamable HTTP. A caller's Bearer token determines which tools are available;
+each tool dispatches through the matching API operation, and token-management
+operations are excluded:
 
 | Endpoint | Purpose |
 |----------|---------|

@@ -235,7 +235,7 @@ persisted config:
 The `--port`/`--address` CLI flags resolve in this order:
 
 - Port: `--port` flag → `server.port` in config (once persisted) → `PORT` env (first run only) → random `64xxx` default
-- Address: `--address` flag → `server.address` in config (once persisted, seeded from `LISTEN` on first run) → default `[::]`
+- Address: `--address` flag → `LISTEN` environment variable on every start → `server.address` → default `[::]` (dual-stack; falls back to `0.0.0.0` if the kernel has no IPv6)
 
 ### Docker Environment
 

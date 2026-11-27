@@ -35,7 +35,8 @@ const brandingDefaultTitle = "ipgaze"
 // Config represents the complete server configuration
 // TorIdentityConfig holds legacy top-level Tor settings for compatibility with old server.yml files.
 type TorIdentityConfig struct {
-	// OnionAddress is ignored; the active address comes from the running Tor service.
+	// OnionAddress is the optional published address used by clearnet discovery.
+	// When empty, the running Tor service's hostname is used.
 	OnionAddress string `yaml:"onion_address"`
 	// ContactEmail is migrated to server.tor.contact_email when a legacy file is loaded.
 	ContactEmail string `yaml:"contact_email"`
@@ -1393,10 +1394,26 @@ type DatabaseConfig struct {
 	Token string `yaml:"token"`
 	// Pool holds the connection pool settings applied by src/db.
 	Pool DatabasePoolConfig `yaml:"pool"`
+	// Cache controls the optional local SQLite read replica for remote libSQL.
+	Cache DatabaseCacheConfig `yaml:"cache"`
 	// SlowQueryThreshold is the minimum query duration, as a Go duration
 	// string, that triggers a slow-query warning log. Applies regardless of
 	// debug.log_queries. Empty or unparseable falls back to 1s.
 	SlowQueryThreshold string `yaml:"slow_query_threshold"`
+}
+
+// DatabaseCacheConfig describes the local SQLite read replica for a remote
+// libSQL database. The cache remains disabled unless explicitly enabled.
+type DatabaseCacheConfig struct {
+	Enabled      bool   `yaml:"enabled"`
+	Path         string `yaml:"path"`
+	SyncInterval string `yaml:"sync_interval"`
+	OfflineMode  bool   `yaml:"offline_mode"`
+	MaxAge       string `yaml:"max_age"`
+}
+
+func DefaultDatabaseCacheConfig() DatabaseCacheConfig {
+	return DatabaseCacheConfig{SyncInterval: "30s", OfflineMode: true, MaxAge: "1h"}
 }
 
 func resolveDatabaseDriverFromURL(cfg *AppConfig, root *yaml.Node) {
@@ -1915,9 +1932,17 @@ func (a *AnnouncementsConfig) Active(dismissed []string) []AnnouncementMessage {
 	return active
 }
 
-// ServerNotificationsConfig contains server-level notification settings per AI.md PART 17.
+// ServerNotificationsConfig contains server-level notification settings per AI.md PART 16/17.
 type ServerNotificationsConfig struct {
+	WebUI WebUINotificationsConfig `yaml:"webui"`
 	Email EmailNotificationsConfig `yaml:"email"`
+}
+
+// WebUINotificationsConfig controls visitor-facing toast behavior per AI.md PART 16.
+type WebUINotificationsConfig struct {
+	Position        string `yaml:"position"`
+	Duration        int    `yaml:"duration"`
+	WarningDuration int    `yaml:"warning_duration"`
 }
 
 // EmailNotificationsConfig holds email/SMTP configuration per AI.md PART 17.
@@ -2213,6 +2238,7 @@ func DefaultConfig() *AppConfig {
 			Database: DatabaseConfig{
 				Driver:             "sqlite",
 				Pool:               DefaultDatabasePoolConfig(),
+				Cache:              DefaultDatabaseCacheConfig(),
 				SlowQueryThreshold: "1s",
 			},
 			Schedule: ScheduleConfig{
@@ -2435,6 +2461,11 @@ func DefaultConfig() *AppConfig {
 				LiveReload:   true,
 			},
 			Notifications: ServerNotificationsConfig{
+				WebUI: WebUINotificationsConfig{
+					Position:        "top-right",
+					Duration:        3,
+					WarningDuration: 5,
+				},
 				Email: EmailNotificationsConfig{
 					Enabled: false,
 					SMTP: SMTPSubConfig{
@@ -2858,6 +2889,24 @@ func warnIgnoredConnectionEnvironment(cfg *AppConfig) {
 // It logs warnings but never returns an error — the server must start regardless.
 func validateConfig(cfg *AppConfig) {
 	def := DefaultConfig()
+	webuiNotifications := &cfg.Server.Notifications.WebUI
+	if webuiNotifications.Position == "" {
+		webuiNotifications.Position = def.Server.Notifications.WebUI.Position
+	}
+	switch webuiNotifications.Position {
+	case "top-right", "top-left", "bottom-right", "bottom-left":
+	default:
+		warnConfigReplaced("server.notifications.webui.position", webuiNotifications.Position, def.Server.Notifications.WebUI.Position)
+		webuiNotifications.Position = def.Server.Notifications.WebUI.Position
+	}
+	if webuiNotifications.Duration < 0 {
+		warnConfigReplaced("server.notifications.webui.duration", webuiNotifications.Duration, def.Server.Notifications.WebUI.Duration)
+		webuiNotifications.Duration = def.Server.Notifications.WebUI.Duration
+	}
+	if webuiNotifications.WarningDuration < 0 {
+		warnConfigReplaced("server.notifications.webui.warning_duration", webuiNotifications.WarningDuration, def.Server.Notifications.WebUI.WarningDuration)
+		webuiNotifications.WarningDuration = def.Server.Notifications.WebUI.WarningDuration
+	}
 	clientIPHeader := strings.ToLower(strings.TrimSpace(cfg.Server.TrustedProxies.ClientIPHeader))
 	if clientIPHeader == "" {
 		clientIPHeader = "auto"
@@ -4167,6 +4216,13 @@ server:
       max_idle: %d
       max_lifetime: "%s"
       max_idle_time: "%s"
+    # Optional local SQLite read replica when using the remote libSQL driver
+    cache:
+      enabled: %t
+      path: %q
+      sync_interval: %q
+      offline_mode: %t
+      max_age: %q
 
   healthz:
     root:
@@ -4494,6 +4550,10 @@ server:
       title: "%s"
 
   notifications:
+    webui:
+      position: "%s"
+      duration: %d
+      warning_duration: %d
     email:
       smtp:
         host: ""
@@ -4712,6 +4772,11 @@ pages:
 		cfg.Server.Database.Pool.MaxIdle,
 		cfg.Server.Database.Pool.MaxLifetime,
 		cfg.Server.Database.Pool.MaxIdleTime,
+		cfg.Server.Database.Cache.Enabled,
+		cfg.Server.Database.Cache.Path,
+		cfg.Server.Database.Cache.SyncInterval,
+		cfg.Server.Database.Cache.OfflineMode,
+		cfg.Server.Database.Cache.MaxAge,
 		cfg.Server.Healthz.Root.Enabled,
 		cfg.Server.Schedule.Enabled,
 		cfg.Server.Schedule.GeoIPUpdate,
@@ -4925,6 +4990,9 @@ pages:
 		cfg.Server.SEO.Sitemap.IncludeImages,
 		cfg.Server.SEO.Feed.MaxItems,
 		cfg.Server.SEO.Feed.Title,
+		cfg.Server.Notifications.WebUI.Position,
+		cfg.Server.Notifications.WebUI.Duration,
+		cfg.Server.Notifications.WebUI.WarningDuration,
 		cfg.Server.Notifications.Email.Events.Startup,
 		cfg.Server.Notifications.Email.Events.Shutdown,
 		cfg.Server.Notifications.Email.Events.BackupComplete,

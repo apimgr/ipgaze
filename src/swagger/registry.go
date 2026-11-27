@@ -124,6 +124,8 @@ func (r *Registry) Add(route Route) {
 	route.Method = strings.ToUpper(method)
 	route.Path = path
 	route.OperationID = operationID
+	route.RuntimePath = route.runtimePath
+	route.RuntimeAlias = route.runtimeAlias
 	if route.method == "" {
 		route.method = strings.ToLower(method)
 	}

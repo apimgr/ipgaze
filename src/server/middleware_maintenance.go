@@ -11,7 +11,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	serverhandler "github.com/apimgr/ipgaze/src/server/handler"
 )
 
 // maintenanceProbeInterval is the self-healing retry cadence from AI.md PART 12
@@ -239,15 +238,15 @@ func isReadOnlyMethod(method string) bool {
 	}
 }
 
-// writeMaintenanceRejection emits the content-negotiated 503 body. It never
-// renders a template: the maintenance path must not be able to fail for the
-// same reason the server is already degraded (AI.md PART 9 guaranteed response).
+// writeMaintenanceRejection emits the content-negotiated 503 body. Browser
+// requests use the shared error renderer, whose minimal fallback still
+// guarantees a response if rendering fails (AI.md PART 16).
 // The full reason string is deliberately omitted — it names internal subsystems
 // and belongs in the logs and the authenticated status endpoint only; only the
 // coarse reason code reaches the client, per AI.md PART 12.
 func writeMaintenanceRejection(w http.ResponseWriter, r *http.Request, code string) {
 	if detectClientType(r) == "html" {
-		serverhandler.WriteErrorHTML(w, r, http.StatusServiceUnavailable, "The server is in read-only maintenance mode. Please retry shortly.")
+		writeNegotiatedError(w, r, http.StatusServiceUnavailable, "MAINTENANCE", "The server is in read-only maintenance mode. Please retry shortly.")
 		return
 	}
 	w.Header().Set("Content-Type", jsonMediaType)

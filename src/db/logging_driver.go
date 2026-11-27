@@ -49,7 +49,7 @@ func SetSlowQueryThreshold(d time.Duration) {
 func registerLoggingDrivers() {
 	registerOnce.Do(func() {
 		sql.Register("sqlite+logged", &loggingDriver{inner: &sqlite.Driver{}})
-		sql.Register("libsql+logged", &loggingDriver{inner: libsql.Driver{}})
+		sql.Register("libsql+logged", &loggingDriver{inner: libsql.Driver{}, remote: true})
 	})
 }
 
@@ -72,7 +72,7 @@ func openLibSQLConnector(url string, options ...libsql.Option) (*sql.DB, error) 
 	if err != nil {
 		return nil, err
 	}
-	return sql.OpenDB(&loggingConnector{inner: connector, driver: &loggingDriver{inner: libsql.Driver{}}}), nil
+	return sql.OpenDB(&loggingConnector{inner: connector, driver: &loggingDriver{inner: libsql.Driver{}, remote: true}}), nil
 }
 
 type loggingConnector struct {
@@ -85,7 +85,7 @@ func (c *loggingConnector) Connect(ctx context.Context) (driver.Conn, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &loggingConn{inner: conn}, nil
+	return &loggingConn{inner: conn, remote: true}, nil
 }
 
 func (c *loggingConnector) Driver() driver.Driver { return c.driver }
@@ -145,7 +145,8 @@ func logSlowQuery(query string, duration time.Duration, err error) {
 // loggingDriver wraps a database/sql driver.Driver so every connection it
 // opens logs queries via logQuery.
 type loggingDriver struct {
-	inner driver.Driver
+	inner  driver.Driver
+	remote bool
 }
 
 // legacyConnBegin names the base driver.Conn fallback without inheriting its
@@ -172,7 +173,7 @@ func (d *loggingDriver) Open(name string) (driver.Conn, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &loggingConn{inner: conn}, nil
+	return &loggingConn{inner: conn, remote: d.remote}, nil
 }
 
 // loggingConn wraps a driver.Conn, forwarding every method to inner and
@@ -183,10 +184,12 @@ func (d *loggingDriver) Open(name string) (driver.Conn, error) {
 // falling back to the same defaults database/sql applies for drivers that
 // don't implement the optional interface.
 type loggingConn struct {
-	inner driver.Conn
+	inner  driver.Conn
+	remote bool
 }
 
 func (c *loggingConn) Prepare(query string) (driver.Stmt, error) {
+	query = mapDatabaseSQL(query, c.remote)
 	stmt, err := c.inner.Prepare(query)
 	if err != nil {
 		return nil, err
@@ -204,6 +207,7 @@ func (c *loggingConn) Begin() (driver.Tx, error) {
 }
 
 func (c *loggingConn) PrepareContext(ctx context.Context, query string) (driver.Stmt, error) {
+	query = mapDatabaseSQL(query, c.remote)
 	if p, ok := c.inner.(driver.ConnPrepareContext); ok {
 		stmt, err := p.PrepareContext(ctx, query)
 		if err != nil {
@@ -222,6 +226,8 @@ func (c *loggingConn) BeginTx(ctx context.Context, opts driver.TxOptions) (drive
 }
 
 func (c *loggingConn) ExecContext(ctx context.Context, query string, args []driver.NamedValue) (driver.Result, error) {
+	query = mapDatabaseSQL(query, c.remote)
+	args = mapDatabaseArgs(query, args, c.remote)
 	execer, ok := c.inner.(driver.ExecerContext)
 	if !ok {
 		return nil, driver.ErrSkip
@@ -233,6 +239,8 @@ func (c *loggingConn) ExecContext(ctx context.Context, query string, args []driv
 }
 
 func (c *loggingConn) QueryContext(ctx context.Context, query string, args []driver.NamedValue) (driver.Rows, error) {
+	query = mapDatabaseSQL(query, c.remote)
+	args = mapDatabaseArgs(query, args, c.remote)
 	queryer, ok := c.inner.(driver.QueryerContext)
 	if !ok {
 		return nil, driver.ErrSkip

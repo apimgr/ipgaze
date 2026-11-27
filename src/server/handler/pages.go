@@ -144,16 +144,19 @@ func NewPagesHandler(version, buildDate string, trust *netutil.TrustResolver, re
 
 // PageData is the template context for simple public pages.
 type PageData struct {
-	Lang            string
-	LanguageName    string
-	Dir             string
-	RequestPath     string
-	Theme           string
-	AssetStamp      string
-	SwaggerSpecURL  string
-	GraphQLEndpoint string
-	DefaultWidget   string
-	CanonicalURL    string
+	Lang                 string
+	LanguageName         string
+	Dir                  string
+	RequestPath          string
+	ToastPosition        string
+	ToastDuration        int
+	ToastWarningDuration int
+	Theme                string
+	AssetStamp           string
+	SwaggerSpecURL       string
+	GraphQLEndpoint      string
+	DefaultWidget        string
+	CanonicalURL         string
 	// Robots is the per-route <meta name="robots"> directive computed by
 	// ResolveRobotsDirective (AI.md PART 16 "Robots Directive"). Never
 	// hardcoded in a template: every route that is not explicitly public
@@ -421,24 +424,35 @@ func (h *PagesHandler) NewPageData(r *http.Request) PageData {
 		csrfToken = h.CSRFToken(r)
 	}
 	data := PageData{
-		Lang:                lang,
-		LanguageName:        nativeLanguageName(lang),
-		Dir:                 dir,
-		RequestPath:         r.URL.Path,
-		Theme:               theme,
-		DefaultWidget:       lookupWidgetPreference(r),
-		CanonicalURL:        canonicalURL,
-		Robots:              ResolveRobotsDirective(r.URL.Path),
-		CSRFToken:           csrfToken,
-		CurrentYear:         time.Now().Year(),
-		Version:             h.Version,
-		BuildDate:           formatUserTimestamp(h.BuildDate),
-		ProjectName:         "IPGaze",
-		ResourceLabelPlural: "items",
-		ContainerWidthClass: pageContainerWidthClass(r.URL.Path),
-		RepoURL:             "https://github.com/apimgr/ipgaze",
-		Host:                r.Host,
-		BaseURL:             strings.TrimSuffix(netutil.BuildURL(r, h.Trust, ""), "/"),
+		Lang:                 lang,
+		LanguageName:         nativeLanguageName(lang),
+		Dir:                  dir,
+		RequestPath:          r.URL.Path,
+		ToastPosition:        "top-right",
+		ToastDuration:        3,
+		ToastWarningDuration: 5,
+		Theme:                theme,
+		DefaultWidget:        lookupWidgetPreference(r),
+		CanonicalURL:         canonicalURL,
+		Robots:               ResolveRobotsDirective(r.URL.Path),
+		CSRFToken:            csrfToken,
+		CurrentYear:          time.Now().Year(),
+		Version:              h.Version,
+		BuildDate:            formatUserTimestamp(h.BuildDate),
+		ProjectName:          "IPGaze",
+		ResourceLabelPlural:  "items",
+		ContainerWidthClass:  pageContainerWidthClass(r.URL.Path),
+		RepoURL:              "https://github.com/apimgr/ipgaze",
+		Host:                 r.Host,
+		BaseURL:              strings.TrimSuffix(netutil.BuildURL(r, h.Trust, ""), "/"),
+	}
+	if h.Config != nil {
+		webui := h.Config.Server.Notifications.WebUI
+		if webui.Position != "" {
+			data.ToastPosition = webui.Position
+		}
+		data.ToastDuration = webui.Duration
+		data.ToastWarningDuration = webui.WarningDuration
 	}
 	if h.PGPKeyAvailable != nil {
 		data.PGPKeyAvailable = h.PGPKeyAvailable()

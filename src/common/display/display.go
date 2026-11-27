@@ -318,24 +318,16 @@ func ColorEnabled(colorFlag string) bool {
 }
 
 // EmojiEnabled returns true when emoji/Unicode extended characters should be used.
-// Emoji is disabled whenever NO_COLOR is set, TERM=dumb, color is disabled,
-// or the terminal does not support it.  NO_COLOR is checked before the CLI
-// color flag — it governs decorative output beyond just ANSI escapes — but
-// after the config file, where `output.emoji: true` deliberately keeps emojis
-// on under NO_COLOR (AI.md PART 8 "Config override").
-func EmojiEnabled(colorFlag string) bool {
+// TERM=dumb always disables emoji; an explicit config value overrides NO_COLOR.
+func EmojiEnabled() bool {
+	if os.Getenv("TERM") == "dumb" {
+		return false
+	}
 	if _, cfgEmoji := configPrefs(); cfgEmoji != nil {
 		return *cfgEmoji
 	}
 	// NO_COLOR always wins for decorative output including emoji
 	if os.Getenv("NO_COLOR") != "" {
-		return false
-	}
-	// TERM=dumb never renders emoji reliably
-	if os.Getenv("TERM") == "dumb" {
-		return false
-	}
-	if !ColorEnabled(colorFlag) {
 		return false
 	}
 	return true

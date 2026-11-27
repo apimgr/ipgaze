@@ -68,6 +68,7 @@ func classifyDBStatement(query string) (string, string) {
 			}
 			table := strings.Trim(fields[i+1], "(\"`[];,)")
 			table = strings.TrimSuffix(table, ";")
+			table = strings.TrimPrefix(strings.ToLower(table), "srv_")
 			if isKnownDBTable(table) {
 				return op, strings.ToLower(table)
 			}
@@ -78,7 +79,7 @@ func classifyDBStatement(query string) (string, string) {
 
 func isKnownDBTable(table string) bool {
 	switch strings.ToLower(table) {
-	case "config", "config_meta", "rate_limits", "audit_log", "scheduler_tasks", "scheduler_history", "backups", "api_tokens", "app_secrets", "pgp_keypairs", "ip_blocks", "security_reports", "captcha_challenges":
+	case "rate_limits", "audit_log", "scheduler_tasks", "scheduler_history", "backups", "api_tokens", "app_secrets", "pgp_keypairs", "ip_blocks", "security_reports", "captcha_challenges":
 		return true
 	default:
 		return false

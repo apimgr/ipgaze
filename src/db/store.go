@@ -25,6 +25,8 @@ const (
 	maxWriteAttempts = 5
 )
 
+var ErrOfflineReadOnly = errors.New("db: remote database is unavailable; cache mode is read-only")
+
 var memoryDatabaseID atomic.Uint64
 
 // Store owns the database handles. Application code uses its read and write
@@ -35,6 +37,7 @@ type Store struct {
 	remoteDB       bool
 	memory         bool
 	path           string
+	tokenIDColumn  string
 	usageMu        sync.Mutex
 	usageLastToken map[string]time.Time
 	usageLastOwner map[string]time.Time
@@ -42,6 +45,16 @@ type Store struct {
 	usageOwners    map[string]int64
 	closeOnce      sync.Once
 	closeErr       error
+	replica        *databaseReplica
+}
+
+// APITokenIDColumn returns the stable public identifier column for token rows.
+// Legacy databases retain their integer primary key and use public_id instead.
+func (s *Store) APITokenIDColumn() string {
+	if s != nil && s.tokenIDColumn == "public_id" {
+		return "public_id"
+	}
+	return "id"
 }
 
 // OpenSQLite opens a SQLite store with the default reader pool configuration.
@@ -196,6 +209,12 @@ func (s *Store) Read(ctx context.Context) *Reader {
 	return &Reader{store: s, ctx: ctx}
 }
 
+// OfflineReadOnly reports whether the remote database is unavailable while a
+// valid local replica is serving reads.
+func (s *Store) OfflineReadOnly() bool {
+	return s != nil && s.replica != nil && s.replica.offlineMode && s.replica.offline.Load() && !s.replica.dirty.Load()
+}
+
 // Reader performs only reads against the store's query-only handle.
 type Reader struct {
 	store *Store
@@ -204,10 +223,35 @@ type Reader struct {
 
 func (r *Reader) QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
 	queryCtx, cancel := context.WithTimeout(nonNilContext(ctx, r.ctx), queryTimeout(query))
-	rows, err := r.store.readDB.QueryContext(queryCtx, query, args...)
+	readDB := r.store.readDB
+	if r.store.replica != nil && r.store.replica.useCache(query) {
+		rows, err := r.store.replica.cache.readDB.QueryContext(queryCtx, query, args...)
+		if err == nil {
+			time.AfterFunc(queryTimeout(query), cancel)
+			return rows, nil
+		}
+	}
+	rows, err := readDB.QueryContext(queryCtx, query, args...)
 	if err != nil {
+		if r.store.replica != nil {
+			r.store.replica.confirmAvailability()
+			if r.store.replica.offlineMode && r.store.replica.useCache(query) {
+				rows, cacheErr := r.store.replica.cache.readDB.QueryContext(queryCtx, query, args...)
+				if cacheErr == nil {
+					time.AfterFunc(queryTimeout(query), cancel)
+					return rows, nil
+				}
+				err = errors.Join(err, cacheErr)
+			}
+		} else {
+			cancel()
+			return nil, err
+		}
 		cancel()
 		return nil, err
+	}
+	if r.store.replica != nil {
+		r.store.replica.setOffline(false)
 	}
 	// The timer releases the query context if a caller abandons these rows.
 	time.AfterFunc(queryTimeout(query), cancel)
@@ -216,7 +260,11 @@ func (r *Reader) QueryContext(ctx context.Context, query string, args ...any) (*
 
 func (r *Reader) QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row {
 	queryCtx, cancel := context.WithTimeout(nonNilContext(ctx, r.ctx), queryTimeout(query))
-	row := r.store.readDB.QueryRowContext(queryCtx, query, args...)
+	readDB := r.store.readDB
+	if r.store.replica != nil && r.store.replica.useCache(query) {
+		readDB = r.store.replica.cache.readDB
+	}
+	row := readDB.QueryRowContext(queryCtx, query, args...)
 	// QueryRow has no Close method. Its context is deliberately deadline-bounded
 	// and is canceled by the timer even if Scan is never called.
 	time.AfterFunc(queryTimeout(query), cancel)
@@ -268,8 +316,22 @@ func (s *Store) Write(ctx context.Context, fn func(*sql.Tx) error) error {
 	if fn == nil {
 		return errors.New("db: nil write callback")
 	}
+	if s.OfflineReadOnly() {
+		return ErrOfflineReadOnly
+	}
+	var previousDirty bool
+	replicaHeld := false
 	if ctx == nil {
 		ctx = context.Background()
+	}
+	if s.replica != nil {
+		previousDirty = s.replica.beginWrite()
+		replicaHeld = true
+		defer func() {
+			if replicaHeld {
+				s.replica.finishWrite(previousDirty, false)
+			}
+		}()
 	}
 	writeCtx, cancel := context.WithTimeout(ctx, writeTimeout)
 	defer cancel()
@@ -293,6 +355,12 @@ func (s *Store) Write(ctx context.Context, fn func(*sql.Tx) error) error {
 		lastErr = err
 		if lastErr == nil {
 			s.observeWriteWait(totalWait)
+			if s.replica != nil {
+				s.replica.finishWrite(previousDirty, true)
+				replicaHeld = false
+				s.replica.setOffline(false)
+				s.replica.afterWrite()
+			}
 			return nil
 		}
 		if !isBusyError(lastErr) || attempt+1 == maxWriteAttempts {
@@ -305,6 +373,11 @@ func (s *Store) Write(ctx context.Context, fn func(*sql.Tx) error) error {
 		}
 	}
 	s.observeWriteWait(totalWait)
+	if s.replica != nil && lastErr != nil {
+		s.replica.finishWrite(previousDirty, false)
+		replicaHeld = false
+		s.replica.confirmAvailability()
+	}
 	return lastErr
 }
 
@@ -402,9 +475,16 @@ func (s *Store) VacuumInto(ctx context.Context, destination string) error {
 
 func (s *Store) PingContext(ctx context.Context) error {
 	if err := s.readDB.PingContext(ctx); err != nil {
+		if s.replica != nil {
+			s.replica.setOffline(true)
+		}
 		return err
 	}
-	return s.writeDB.PingContext(ctx)
+	err := s.writeDB.PingContext(ctx)
+	if s.replica != nil {
+		s.replica.setOffline(err != nil)
+	}
+	return err
 }
 
 // MarkOwnerUsage queues token and owner activity for the next hot-counter
@@ -452,7 +532,7 @@ func (s *Store) FlushHotCounters(ctx context.Context) error {
 	}
 	if err := s.Write(ctx, func(tx *sql.Tx) error {
 		for id, timestamp := range tokens {
-			if _, err := tx.ExecContext(ctx, `UPDATE api_tokens SET last_used_at = ? WHERE id = ? AND (last_used_at IS NULL OR last_used_at < ? - 60)`, timestamp, id, timestamp); err != nil {
+			if _, err := tx.ExecContext(ctx, `UPDATE api_tokens SET last_used_at = ? WHERE `+s.APITokenIDColumn()+` = ? AND (last_used_at IS NULL OR last_used_at < ? - 60)`, timestamp, id, timestamp); err != nil {
 				return err
 			}
 		}
@@ -507,6 +587,9 @@ func (s *Store) Close() error {
 			ctx, cancel := context.WithTimeout(context.Background(), writeTimeout)
 			usageErr = s.FlushHotCounters(ctx)
 			cancel()
+		}
+		if s.replica != nil {
+			s.replica.close()
 		}
 		var checkpointErr error
 		if !s.remoteDB && s.writeDB != nil {

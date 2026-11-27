@@ -210,7 +210,7 @@ func rootDirs(goos, projectName string) (configDir, dataDir, logsDir, cacheDir, 
 		pidFile = filepath.Join(base, projectName+".pid")
 		sslDir = filepath.Join(base, "ssl")
 		securityDir = filepath.Join(base, "data", "security")
-		dbDir = filepath.Join(base, "db")
+		dbDir = filepath.Join(dataDir, "db")
 	case "darwin":
 		// macOS root per PART 4: /Library/Application Support/{org}/{project}/
 		libSupport := filepath.Join("/Library/Application Support", OrgName, projectName)

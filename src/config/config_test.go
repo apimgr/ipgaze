@@ -55,6 +55,12 @@ func TestDefaultConfig_ServerDefaults(t *testing.T) {
 	if cfg.Server.TrustedProxies.ClientIPHeader != "auto" {
 		t.Errorf("TrustedProxies.ClientIPHeader: got %q, want auto", cfg.Server.TrustedProxies.ClientIPHeader)
 	}
+	if got := cfg.Server.Notifications.WebUI; got.Position != "top-right" || got.Duration != 3 || got.WarningDuration != 5 {
+		t.Errorf("WebUI notification defaults = %+v, want top-right/3/5", got)
+	}
+	if got := cfg.Server.Database.Cache; got.Enabled || got.Path != "" || got.SyncInterval != "30s" || !got.OfflineMode || got.MaxAge != "1h" {
+		t.Errorf("database cache defaults = %+v, want disabled/auto-path/30s/offline/1h", got)
+	}
 }
 
 func TestDefaultConfig_ContactAntispamDefaults(t *testing.T) {
@@ -1135,6 +1141,23 @@ func TestLoadConfigFromFile_MissingFieldsGetDefaults(t *testing.T) {
 	}
 }
 
+func TestLoadConfigDatabaseCacheEnabledUsesOfflineDefaults(t *testing.T) {
+	resetGlobals()
+	path := writeTempYAML(t, `server:
+  database:
+    cache:
+      enabled: true
+`)
+	cfg, err := LoadConfigFromFile(path)
+	if err != nil {
+		t.Fatalf("LoadConfigFromFile: %v", err)
+	}
+	cache := cfg.Server.Database.Cache
+	if !cache.Enabled || cache.SyncInterval != "30s" || !cache.OfflineMode || cache.MaxAge != "1h" {
+		t.Fatalf("database cache settings = %+v, want enabled/30s/offline/1h", cache)
+	}
+}
+
 func TestLoadConfigDropInsMergeMapsReplaceListsAndSortFiles(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "server.yml")
@@ -1598,7 +1621,7 @@ func TestImportLegacyDatabaseSecretsInsertsBeforeRemoving(t *testing.T) {
 			t.Errorf("close test database: %v", err)
 		}
 	})
-	if _, err := db.Exec(`CREATE TABLE app_secrets (name TEXT PRIMARY KEY, value TEXT NOT NULL)`); err != nil {
+	if _, err := db.Exec(`CREATE TABLE app_secrets (name TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL)`); err != nil {
 		t.Fatal(err)
 	}
 	if err := ImportLegacyDatabaseSecrets(testLegacySecretStore{db: db}, path); err != nil {
@@ -1950,6 +1973,9 @@ func TestGenerateConfigYAML_RoundTripsNewFields(t *testing.T) {
 	original.Server.Database.Driver = "libsql"
 	original.Server.Database.URL = "libsql://example.turso.io"
 	original.Server.Database.Token = "db-token-abc123"
+	original.Server.Database.Cache = DatabaseCacheConfig{
+		Enabled: true, Path: "cache.db", SyncInterval: "45s", OfflineMode: false, MaxAge: "2h",
+	}
 	original.Server.Security.Allowlist = []AllowlistEntry{
 		{CIDR: "127.0.0.1/32", Description: "loopback"},
 		{CIDR: "10.0.0.0/8", Description: "internal net"},
@@ -1966,6 +1992,7 @@ func TestGenerateConfigYAML_RoundTripsNewFields(t *testing.T) {
 	original.Server.Debug.MaxBodyLogSize = "20KB"
 	original.Server.Compliance.GDPR = true
 	original.Server.Compliance.FedRAMP = true
+	original.Server.Notifications.WebUI = WebUINotificationsConfig{Position: "bottom-left", Duration: 0, WarningDuration: 9}
 
 	yamlContent := generateConfigYAML(original)
 
@@ -1978,8 +2005,14 @@ func TestGenerateConfigYAML_RoundTripsNewFields(t *testing.T) {
 	if loaded.Server.Token != original.Server.Token {
 		t.Errorf("Round-trip Token: got %q, want %q", loaded.Server.Token, original.Server.Token)
 	}
+	if loaded.Server.Notifications.WebUI != original.Server.Notifications.WebUI {
+		t.Errorf("Round-trip toast settings: got %+v, want %+v", loaded.Server.Notifications.WebUI, original.Server.Notifications.WebUI)
+	}
 	if loaded.Server.Database.Driver != "libsql" || loaded.Server.Database.URL != "libsql://example.turso.io" || loaded.Server.Database.Token != "db-token-abc123" {
 		t.Errorf("Round-trip Database: got %+v", loaded.Server.Database)
+	}
+	if loaded.Server.Database.Cache != original.Server.Database.Cache {
+		t.Errorf("Round-trip database cache: got %+v, want %+v", loaded.Server.Database.Cache, original.Server.Database.Cache)
 	}
 	if len(loaded.Server.Security.Allowlist) != 2 || loaded.Server.Security.Allowlist[0].CIDR != "127.0.0.1/32" || loaded.Server.Security.Allowlist[1].Description != "internal net" {
 		t.Errorf("Round-trip Allowlist: got %+v", loaded.Server.Security.Allowlist)
@@ -2574,6 +2607,15 @@ func TestValidateConfig_InvalidClientIPHeader_ResetToDefault(t *testing.T) {
 	validateConfig(cfg)
 	if cfg.Server.TrustedProxies.ClientIPHeader != "auto" {
 		t.Errorf("TrustedProxies.ClientIPHeader = %q, want auto", cfg.Server.TrustedProxies.ClientIPHeader)
+	}
+}
+
+func TestValidateConfig_ToastNotificationSettings(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Server.Notifications.WebUI = WebUINotificationsConfig{Position: "invalid", Duration: -1, WarningDuration: -2}
+	validateConfig(cfg)
+	if got := cfg.Server.Notifications.WebUI; got.Position != "top-right" || got.Duration != 3 || got.WarningDuration != 5 {
+		t.Fatalf("invalid toast settings normalized to %+v, want top-right/3/5", got)
 	}
 }
 

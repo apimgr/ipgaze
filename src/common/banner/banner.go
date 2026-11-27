@@ -75,12 +75,12 @@ func formatStartedAt(t time.Time) string {
 }
 
 // PrintStartupBanner prints the startup banner at the appropriate verbosity
-// for the current terminal width. It respects NO_COLOR and TERM=dumb via the
-// shared display.ColorEnabled() function.
+// for the current terminal width. It respects NO_COLOR, TERM=dumb and config
+// preferences via the shared display package.
 func PrintStartupBanner(cfg BannerPrintConfig) {
 	size := terminal.GetTerminalSize()
 	color := display.ColorEnabled(cfg.ColorFlag)
-	emoji := display.EmojiEnabled(cfg.ColorFlag)
+	emoji := display.EmojiEnabled()
 
 	switch {
 	case size.Mode >= terminal.SizeModeStandard:

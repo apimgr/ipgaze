@@ -278,7 +278,20 @@ func (m *GeoIPManager) loadDatabases() error {
 // files and installs it into m.liveReader, so every holder of the value
 // previously returned by Reader() immediately sees the refreshed data.
 func (m *GeoIPManager) refreshLiveReader() {
-	r, err := geo.Open(m.countryFile, m.cityV4File, m.cityV6File, m.asnFile)
+	countryPath, cityV4Path, cityV6Path, asnPath := "", "", "", ""
+	if m.countryDB != nil {
+		countryPath = m.countryFile
+	}
+	if m.cityV4DB != nil {
+		cityV4Path = m.cityV4File
+	}
+	if m.cityV6DB != nil {
+		cityV6Path = m.cityV6File
+	}
+	if m.asnDB != nil {
+		asnPath = m.asnFile
+	}
+	r, err := geo.Open(countryPath, cityV4Path, cityV6Path, asnPath)
 	if err != nil {
 		// Best-effort: keep serving whatever was previously loaded rather
 		// than falling back to an empty reader on a transient error.

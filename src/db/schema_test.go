@@ -36,8 +36,6 @@ func TestEnsureSchema_CreatesAllTables(t *testing.T) {
 	}
 
 	expected := []string{
-		"config",
-		"config_meta",
 		"rate_limits",
 		"audit_log",
 		"scheduler_tasks",
@@ -52,6 +50,103 @@ func TestEnsureSchema_CreatesAllTables(t *testing.T) {
 		row := db.QueryRow("SELECT name FROM sqlite_master WHERE type='table' AND name=?", tbl)
 		if err := row.Scan(&name); err != nil {
 			t.Errorf("table %q not found after EnsureSchema: %v", tbl, err)
+		}
+	}
+}
+
+func TestEnsureSchemaMigratesLegacyAppSecretRotationRows(t *testing.T) {
+	db := openMemDB(t)
+	if _, err := db.Exec(`CREATE TABLE app_secrets(name TEXT PRIMARY KEY, value TEXT NOT NULL, previous_value TEXT, previous_until INTEGER, created_at INTEGER, rotated_at INTEGER)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO app_secrets(name, value, previous_value, previous_until, rotated_at) VALUES('installation_secret', 'current', 'previous', 1790000000, 1780000000)`); err != nil {
+		t.Fatal(err)
+	}
+	if err := EnsureSchema(db); err != nil {
+		t.Fatal(err)
+	}
+	for name, want := range map[string]string{
+		"installation_secret":                "current",
+		"installation_secret_previous":       "previous",
+		"installation_secret_previous_until": "2026-09-21T14:13:20Z",
+	} {
+		var got string
+		if err := db.QueryRow(`SELECT value FROM app_secrets WHERE name = ?`, name).Scan(&got); err != nil {
+			t.Fatalf("read migrated %s: %v", name, err)
+		}
+		if got != want {
+			t.Errorf("%s = %q, want %q", name, got, want)
+		}
+	}
+	rows, err := db.Query(`PRAGMA table_info(app_secrets)`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	columns := make(map[string]bool)
+	for rows.Next() {
+		var cid, notNull, primary int
+		var name, kind string
+		var defaultValue sql.NullString
+		if err := rows.Scan(&cid, &name, &kind, &notNull, &defaultValue, &primary); err != nil {
+			_ = rows.Close()
+			t.Fatal(err)
+		}
+		columns[name] = true
+	}
+	if err := rows.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if len(columns) != 3 || !columns["name"] || !columns["value"] || !columns["updated_at"] {
+		t.Errorf("canonical app_secrets columns = %#v", columns)
+	}
+}
+
+func TestEnsureSchemaDoesNotCreateConfigurationTables(t *testing.T) {
+	db := openMemDB(t)
+	if err := EnsureSchema(db); err != nil {
+		t.Fatalf("EnsureSchema: %v", err)
+	}
+	for _, table := range []string{"config", "config_meta"} {
+		var count int
+		if err := db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?`, table).Scan(&count); err != nil {
+			t.Fatalf("check %s table: %v", table, err)
+		}
+		if count != 0 {
+			t.Errorf("configuration table %q was created; configuration belongs in files", table)
+		}
+	}
+}
+
+func TestEnsureSchemaPreservesLegacyConfigurationTableData(t *testing.T) {
+	db := openMemDB(t)
+	for _, statement := range []string{
+		`CREATE TABLE config (key TEXT PRIMARY KEY, value TEXT NOT NULL)`,
+		`CREATE TABLE config_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)`,
+		`INSERT INTO config(key,value) VALUES('server.port','64580')`,
+		`INSERT INTO config_meta(key,value) VALUES('schema_version','1')`,
+	} {
+		if _, err := db.Exec(statement); err != nil {
+			t.Fatalf("prepare legacy configuration state: %v", err)
+		}
+	}
+	if err := EnsureSchema(db); err != nil {
+		t.Fatalf("EnsureSchema: %v", err)
+	}
+	for _, test := range []struct {
+		table string
+		key   string
+		want  string
+	}{
+		{table: "config", key: "server.port", want: "64580"},
+		{table: "config_meta", key: "schema_version", want: "1"},
+	} {
+		var got string
+		query := `SELECT value FROM ` + test.table + ` WHERE key=?`
+		if err := db.QueryRow(query, test.key).Scan(&got); err != nil {
+			t.Fatalf("read preserved legacy %s value: %v", test.table, err)
+		}
+		if got != test.want {
+			t.Errorf("legacy %s value = %q, want %q", test.table, got, test.want)
 		}
 	}
 }
@@ -120,36 +215,84 @@ func TestEnsureSchemaUsesUUIDv7TextTokenIDs(t *testing.T) {
 	}
 }
 
-func TestAdoptLegacyAPITokenIDsRemapsRows(t *testing.T) {
+func TestEnsureSchemaAddsTokenScopeAndPromotesPrimaryTokens(t *testing.T) {
 	store := openMemDB(t)
+	if _, err := store.Exec(`CREATE TABLE owners (id TEXT PRIMARY KEY)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Exec(`CREATE TABLE api_tokens (
+		id TEXT PRIMARY KEY, owner_id TEXT NOT NULL REFERENCES owners(id), kind TEXT NOT NULL,
+		name TEXT, token_hash TEXT NOT NULL UNIQUE, token_prefix TEXT NOT NULL,
+		token_last4 TEXT NOT NULL, token_enc TEXT NOT NULL, created_at INTEGER NOT NULL DEFAULT 1,
+		rotated_at INTEGER, expires_at INTEGER, last_used_at INTEGER, revoked_at INTEGER, revoked_reason TEXT
+	)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Exec(`INSERT INTO owners(id) VALUES('scope-owner')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Exec(`INSERT INTO api_tokens(id,owner_id,kind,token_hash,token_prefix,token_last4,token_enc) VALUES('scope-primary','scope-owner','primary','scope-hash','own_scope','last','enc')`); err != nil {
+		t.Fatal(err)
+	}
 	if err := EnsureSchema(store); err != nil {
+		t.Fatalf("EnsureSchema: %v", err)
+	}
+	var scope string
+	if err := store.QueryRow(`SELECT scope FROM api_tokens WHERE id='scope-primary'`).Scan(&scope); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.Exec(`DROP TABLE api_tokens`); err != nil {
+	if scope != "global" {
+		t.Fatalf("migrated primary scope = %q, want global", scope)
+	}
+	if _, err := store.Exec(`INSERT INTO api_tokens(id,owner_id,kind,token_hash,token_prefix,token_last4,token_enc) VALUES('scope-linked','scope-owner','linked','scope-hash-2','own_scope2','last','enc')`); err != nil {
+		t.Fatalf("linked token default scope: %v", err)
+	}
+	if err := store.QueryRow(`SELECT scope FROM api_tokens WHERE id='scope-linked'`).Scan(&scope); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.Exec(`CREATE TABLE api_tokens (id INTEGER PRIMARY KEY AUTOINCREMENT, owner_id TEXT NOT NULL REFERENCES owners(id), kind TEXT NOT NULL, name TEXT, token_hash TEXT NOT NULL UNIQUE, token_prefix TEXT NOT NULL, token_last4 TEXT NOT NULL, token_enc TEXT NOT NULL, created_at INTEGER NOT NULL DEFAULT 1, rotated_at INTEGER, expires_at INTEGER, last_used_at INTEGER, revoked_at INTEGER, revoked_reason TEXT, public_id TEXT)`); err != nil {
+	if scope != "read-write" {
+		t.Fatalf("default linked scope = %q, want read-write", scope)
+	}
+}
+
+func TestEnsureSchemaPreservesLegacyIntegerTokenIDs(t *testing.T) {
+	store := openMemDB(t)
+	if _, err := store.Exec(`CREATE TABLE owners (id TEXT PRIMARY KEY, created_at INTEGER NOT NULL DEFAULT 0, last_seen_at INTEGER NOT NULL DEFAULT 0)`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.Exec(`INSERT INTO owners(id) VALUES('adopt-owner')`); err != nil {
+	if _, err := store.Exec(`CREATE TABLE api_tokens (id INTEGER PRIMARY KEY AUTOINCREMENT, owner_id TEXT NOT NULL REFERENCES owners(id), kind TEXT NOT NULL, scope TEXT NOT NULL DEFAULT 'read-write', name TEXT, token_hash TEXT NOT NULL UNIQUE, token_prefix TEXT NOT NULL, token_last4 TEXT NOT NULL, token_enc TEXT NOT NULL, created_at INTEGER NOT NULL DEFAULT 1, rotated_at INTEGER, expires_at INTEGER, last_used_at INTEGER, revoked_at INTEGER, revoked_reason TEXT)`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.Exec(`INSERT INTO api_tokens(owner_id,kind,token_hash,token_prefix,token_last4,token_enc) VALUES('adopt-owner','primary','adopt-hash','own_prefix','last','enc')`); err != nil {
+	if _, err := store.Exec(`INSERT INTO owners(id) VALUES('legacy-owner')`); err != nil {
 		t.Fatal(err)
 	}
-	if err := AdoptLegacyAPITokenIDs(store); err != nil {
-		t.Fatalf("adopt IDs: %v", err)
-	}
-	var id, owner, hash string
-	if err := store.QueryRow(`SELECT id,owner_id,token_hash FROM api_tokens`).Scan(&id, &owner, &hash); err != nil {
+	if _, err := store.Exec(`INSERT INTO api_tokens(owner_id,kind,scope,token_hash,token_prefix,token_last4,token_enc) VALUES('legacy-owner','primary','global','legacy-hash','own_prefix','last','enc')`); err != nil {
 		t.Fatal(err)
 	}
-	parsed, err := uuid.Parse(id)
+	if err := EnsureSchema(store); err != nil {
+		t.Fatalf("EnsureSchema: %v", err)
+	}
+	var id int64
+	var publicID, owner, hash string
+	if err := store.QueryRow(`SELECT id,public_id,owner_id,token_hash FROM api_tokens`).Scan(&id, &publicID, &owner, &hash); err != nil {
+		t.Fatal(err)
+	}
+	parsed, err := uuid.Parse(publicID)
 	if err != nil || parsed.Version() != 7 {
-		t.Fatalf("adopted id = %q, want UUIDv7: %v", id, err)
+		t.Fatalf("public_id = %q, want UUIDv7: %v", publicID, err)
 	}
-	if owner != "adopt-owner" || hash != "adopt-hash" {
-		t.Fatalf("adopted row lost data: owner=%q hash=%q", owner, hash)
+	if id != 1 || owner != "legacy-owner" || hash != "legacy-hash" {
+		t.Fatalf("legacy row changed: id=%d owner=%q hash=%q", id, owner, hash)
+	}
+	if store.APITokenIDColumn() != "public_id" {
+		t.Fatalf("token id column = %q, want public_id", store.APITokenIDColumn())
+	}
+	if err := EnsureSchema(store); err != nil {
+		t.Fatalf("second EnsureSchema: %v", err)
+	}
+	var after int64
+	if err := store.QueryRow(`SELECT id FROM api_tokens WHERE public_id = ?`, publicID).Scan(&after); err != nil || after != id {
+		t.Fatalf("legacy id after repeat migration = %d, err=%v", after, err)
 	}
 }
 
@@ -246,53 +389,6 @@ func TestEnsureSchemaRenamesCanonicalSchedulerColumnsInPlace(t *testing.T) {
 	}
 }
 
-// Verify the config_meta seed row is present after schema creation.
-func TestEnsureSchema_SeedsConfigMeta(t *testing.T) {
-	db := openMemDB(t)
-
-	if err := EnsureSchema(db); err != nil {
-		t.Fatalf("EnsureSchema: %v", err)
-	}
-
-	var id, version int
-	row := db.QueryRow("SELECT id, version FROM config_meta WHERE id = 1")
-	if err := row.Scan(&id, &version); err != nil {
-		t.Fatalf("config_meta row missing: %v", err)
-	}
-	if id != 1 {
-		t.Errorf("config_meta.id = %d, want 1", id)
-	}
-	if version < 1 {
-		t.Errorf("config_meta.version = %d, want >= 1", version)
-	}
-}
-
-// Insert into config should trigger the version bump trigger.
-func TestEnsureSchema_ConfigVersionTrigger(t *testing.T) {
-	db := openMemDB(t)
-
-	if err := EnsureSchema(db); err != nil {
-		t.Fatalf("EnsureSchema: %v", err)
-	}
-
-	var before int
-	if err := db.QueryRow("SELECT version FROM config_meta WHERE id=1").Scan(&before); err != nil {
-		t.Fatalf("read before version: %v", err)
-	}
-
-	if _, err := db.Exec("INSERT INTO config(key, value, type) VALUES('test.key', 'v', 'string')"); err != nil {
-		t.Fatalf("insert config: %v", err)
-	}
-
-	var after int
-	if err := db.QueryRow("SELECT version FROM config_meta WHERE id=1").Scan(&after); err != nil {
-		t.Fatalf("read after version: %v", err)
-	}
-	if after <= before {
-		t.Errorf("config_meta.version did not increment: before=%d after=%d", before, after)
-	}
-}
-
 // All required indexes must be present.
 func TestEnsureSchema_CreatesIndexes(t *testing.T) {
 	db := openMemDB(t)
@@ -302,7 +398,6 @@ func TestEnsureSchema_CreatesIndexes(t *testing.T) {
 	}
 
 	expected := []string{
-		"idx_config_key_prefix",
 		"idx_rate_limits_window",
 		"idx_audit_timestamp",
 		"idx_audit_category",
@@ -483,46 +578,6 @@ func TestEnsureSchema_MigratesLegacyResourceTokensWithoutDiscardingRows(t *testi
 	}
 	if err := EnsureSchema(db); err != nil {
 		t.Fatalf("second EnsureSchema: %v", err)
-	}
-}
-
-// Verify that the `config` table correctly stores and retrieves a value.
-func TestSchema_Config_KeyValueRoundTrip(t *testing.T) {
-	db := openMemDB(t)
-	if err := EnsureSchema(db); err != nil {
-		t.Fatalf("EnsureSchema: %v", err)
-	}
-
-	if _, err := db.Exec(`INSERT INTO config(key, value, type) VALUES(?,?,?)`,
-		"ssl.enabled", "true", "bool"); err != nil {
-		t.Fatalf("insert config: %v", err)
-	}
-
-	var val string
-	if err := db.QueryRow("SELECT value FROM config WHERE key=?", "ssl.enabled").Scan(&val); err != nil {
-		t.Fatalf("select config: %v", err)
-	}
-	if val != "true" {
-		t.Errorf("config value = %q, want %q", val, "true")
-	}
-}
-
-// Duplicate config key must be rejected (PRIMARY KEY constraint).
-func TestSchema_Config_DuplicateKeyRejected(t *testing.T) {
-	db := openMemDB(t)
-	if err := EnsureSchema(db); err != nil {
-		t.Fatalf("EnsureSchema: %v", err)
-	}
-
-	ins := func() error {
-		_, err := db.Exec(`INSERT INTO config(key,value,type) VALUES(?,?,?)`, "k", "v", "string")
-		return err
-	}
-	if err := ins(); err != nil {
-		t.Fatalf("first insert: %v", err)
-	}
-	if err := ins(); err == nil {
-		t.Error("duplicate config key should be rejected by PRIMARY KEY constraint")
 	}
 }
 

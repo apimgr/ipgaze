@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/apimgr/ipgaze/src/config"
-	serverhandler "github.com/apimgr/ipgaze/src/server/handler"
 )
 
 // parseByteSize converts a "10MB"/"512KB"/"1GB" style config value (or a bare
@@ -62,12 +61,12 @@ func BodyLimitMiddleware(maxBytes int64) func(http.Handler) http.Handler {
 	}
 }
 
-// writePayloadTooLarge mirrors writeMaintenanceRejection's guaranteed,
-// template-free response shape — the canonical JSON envelope for API/tool
-// clients, a minimal inline HTML page for browsers.
+// writePayloadTooLarge keeps the canonical JSON envelope for API/tool clients;
+// browsers use the shared themed error renderer with the hardcoded fallback
+// reserved for renderer failures.
 func writePayloadTooLarge(w http.ResponseWriter, r *http.Request) {
 	if detectClientType(r) == "html" {
-		serverhandler.WriteErrorHTML(w, r, http.StatusRequestEntityTooLarge, "The request body exceeds the maximum allowed size.")
+		writeNegotiatedError(w, r, http.StatusRequestEntityTooLarge, "PAYLOAD_TOO_LARGE", "The request body exceeds the maximum allowed size.")
 		return
 	}
 	w.Header().Set("Content-Type", jsonMediaType)

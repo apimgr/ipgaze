@@ -337,6 +337,9 @@ func TestLoadDatabases_InvalidFile_OthersStillLoad(t *testing.T) {
 	if m.countryDB == nil || m.cityV4DB == nil || m.cityV6DB == nil {
 		t.Error("expected country/cityV4/cityV6 readers to be loaded despite asn failure")
 	}
+	if m.Reader().IsEmpty() {
+		t.Error("valid country/city databases were hidden by the invalid ASN database")
+	}
 }
 
 func TestLoadDatabases_AllFilesInvalid_ReturnsError(t *testing.T) {

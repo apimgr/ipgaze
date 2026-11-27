@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/apimgr/ipgaze/src/config"
+	"github.com/apimgr/ipgaze/src/netutil"
 )
 
 // cspExtraOverride pairs the *_extra and *_override config values for one
@@ -143,8 +144,27 @@ func (w *onionLocationWriter) WriteHeader(statusCode int) {
 	w.ResponseWriter.WriteHeader(statusCode)
 }
 
+// Write preserves net/http's implicit status and content-type detection while
+// applying the advertisement's response checks.
+func (w *onionLocationWriter) Write(body []byte) (int, error) {
+	if !w.wroteHeader {
+		if w.Header().Get("Content-Type") == "" && len(body) > 0 {
+			probe := body
+			if len(probe) > 512 {
+				probe = probe[:512]
+			}
+			w.Header().Set("Content-Type", http.DetectContentType(probe))
+		}
+		w.WriteHeader(http.StatusOK)
+	}
+	return w.ResponseWriter.Write(body)
+}
+
 // Flush forwards to the wrapped writer so streaming responses keep working.
 func (w *onionLocationWriter) Flush() {
+	if !w.wroteHeader {
+		w.WriteHeader(http.StatusOK)
+	}
 	if flusher, ok := w.ResponseWriter.(http.Flusher); ok {
 		flusher.Flush()
 	}
@@ -193,19 +213,24 @@ func OnionLocationMiddleware(onionAddress func() string) func(http.Handler) http
 				next.ServeHTTP(w, r)
 				return
 			}
-			target := "http://" + address + r.URL.RequestURI()
+			onionRequest := r.Clone(r.Context())
+			onionRequest.Host = address
+			target := netutil.BuildURL(onionRequest, &netutil.TrustResolver{OnionAddress: address}, r.URL.RequestURI())
 			w.Header().Set("Onion-Location", target)
-			next.ServeHTTP(&onionLocationWriter{ResponseWriter: w}, r)
+			wrapped := &onionLocationWriter{ResponseWriter: w}
+			next.ServeHTTP(wrapped, r)
+			if !wrapped.wroteHeader {
+				w.Header().Del("Onion-Location")
+			}
 		})
 	}
 }
 
-// resolveOnionAddress returns the live hidden-service hostname, or "" when Tor
-// is not running. It reads TorStatus rather than a configured onion address
-// because that config field is never populated once the service publishes.
+// resolveOnionAddress returns the published hidden-service hostname only when
+// the operator enabled onion-address exposure.
 func (s *Server) resolveOnionAddress() string {
-	if s.TorStatus == nil || !s.TorStatus.IsAvailable() || !s.TorStatus.IsRunning() {
+	if s.config == nil || !s.config.Server.Tor.Expose || s.TorStatus == nil || !s.TorStatus.IsAvailable() || !s.TorStatus.IsRunning() {
 		return ""
 	}
-	return s.TorStatus.GetHostname()
+	return strings.TrimSpace(s.config.Tor.OnionAddress)
 }

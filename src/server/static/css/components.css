@@ -242,6 +242,18 @@ button.selected {
   pointer-events: none;
 }
 
+body[data-toast-position="top-left"] #toast-container,
+body[data-toast-position="bottom-left"] #toast-container {
+  left: max(1rem, env(safe-area-inset-left));
+  right: auto;
+}
+
+body[data-toast-position="bottom-left"] #toast-container,
+body[data-toast-position="bottom-right"] #toast-container {
+  bottom: max(1rem, env(safe-area-inset-bottom));
+  top: auto;
+}
+
 .toast {
   display: flex;
   align-items: center;
@@ -260,9 +272,9 @@ button.selected {
   overflow: hidden;
 }
 
-.toast.success { border-color: var(--color-success); }
-.toast.error   { border-color: var(--color-error); }
-.toast.warning { border-color: var(--color-warning); }
+.toast-success { border-color: var(--color-success); }
+.toast-error   { border-color: var(--color-error); }
+.toast-warning { border-color: var(--color-warning); }
 
 .toast-close {
   background: none;
@@ -275,8 +287,7 @@ button.selected {
   padding: 0 var(--space-1);
 }
 
-/* Visible auto-dismiss countdown — JS sets animation-duration and toggles
-   animation-play-state on hover/mouseleave (pause, then resume). */
+/* Visible auto-dismiss countdown follows the configured toast type duration. */
 .toast-progress {
   position: absolute;
   bottom: 0;
@@ -285,10 +296,27 @@ button.selected {
   background: rgba(255, 255, 255, 0.5);
 }
 
+.toast-success .toast-progress,
+.toast-info .toast-progress {
+  animation-duration: var(--toast-duration, 3s);
+}
+
+.toast-warning .toast-progress {
+  animation-duration: var(--toast-duration-warning, 5s);
+}
+
 .toast-progress-active {
   animation-name: countdown;
   animation-timing-function: linear;
   animation-fill-mode: forwards;
+}
+
+.toast:hover .toast-progress {
+  animation-play-state: paused;
+}
+
+.toast-removing {
+  animation: slideOut 0.3s ease forwards;
 }
 
 @keyframes countdown {

@@ -2,9 +2,9 @@ name: Beta Release
 
 on:
   push:
-    branches:
-      - beta
-  workflow_dispatch:
+    tags:
+      - '*-beta'
+  workflow_dispatch: {}
 
 concurrency:
   group: beta-${{ forgejo.ref }}
@@ -17,17 +17,34 @@ env:
   PROJECT_NAME: ipgaze
 
 jobs:
-  # Compute VERSION once — matrix legs must never each compute their own timestamp
+  # Read the immutable beta tag once — every matrix leg uses the same release version.
   version:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.set.outputs.version }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
       - name: Compute version
         id: set
+        env:
+          RELEASE_REF: ${{ forgejo.ref }}
         run: |
-          echo "version=$(date -u +%Y%m%d%H%M%S)-beta" >> "$FORGEJO_OUTPUT"
+          if [[ "$RELEASE_REF" != refs/tags/* ]]; then
+            echo "::error::beta.yml can only run for an existing beta tag."
+            exit 1
+          fi
+          tag="${RELEASE_REF#refs/tags/}"
+          if [[ ! "$tag" =~ ^[0-9]{14}-beta$ ]]; then
+            echo "::error::Invalid beta tag '$tag'."
+            exit 1
+          fi
+          if [ "$(git rev-parse "refs/tags/$tag^{commit}")" != "$(git rev-parse HEAD)" ]; then
+            echo "::error::Tag '$tag' does not point at the checked-out commit."
+            exit 1
+          fi
+          echo "version=$tag" >> "$FORGEJO_OUTPUT"
 
   build:
     name: Build ${{ matrix.goos }}/${{ matrix.goarch }}

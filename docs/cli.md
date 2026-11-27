@@ -65,7 +65,7 @@ Only `-h` (help) and `-v` (version) have short forms.
 | `--log DIR` | Log directory | - |
 | `--backup DIR` | Backup directory | - |
 | `--pid FILE` | PID file path | - |
-| `--address ADDR` | Listen address | `0.0.0.0` |
+| `--address ADDR` | Listen address; `[::]` is dual-stack, with an IPv4-only fallback when the kernel has no IPv6 | `[::]` |
 | `--port PORT` | Listen port | random `64xxx` (`80` in container) |
 | `--baseurl PATH` | URL path prefix | `/` |
 | `--daemon` | Run as daemon (detach from terminal) | `false` |

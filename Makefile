@@ -171,6 +171,12 @@ dev:
 release-check:
 	@echo "$(VERSION)" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$$' >/dev/null || { echo "ERROR: make release needs a stable SemVer X.Y.Z in release.txt (got '$(VERSION)')" >&2; exit 78; }
 
+# beta publishes an immutable timestamp tag; CI builds and publishes its release.
+beta:
+	@[ "$$(git branch --show-current)" = main ] || { echo "beta: run it on main" >&2; exit 1; }
+	@[ -z "$$(git status --porcelain)" ] || { echo "beta: the working tree is not clean" >&2; exit 1; }
+	@TAG=$$(date -u +%Y%m%d%H%M%S)-beta; git tag "$$TAG" && git push origin "refs/tags/$$TAG" && echo "Pushed $$TAG"
+
 release: release-check build
 	@mkdir -p $(RELDIR)
 	@echo "Preparing release $(VERSION)..."
@@ -193,12 +199,7 @@ release: release-check build
 	# Generate checksums
 	@cd $(RELDIR) && FILES="$$(ls)" && sha256sum $$FILES > sha256.txt && sha512sum $$FILES > sha512.txt
 
-	# Delete existing release/tag if exists
-	@gh release delete v$(VERSION) --yes 2>/dev/null || true
-	@git tag -d v$(VERSION) 2>/dev/null || true
-	@git push origin :refs/tags/v$(VERSION) 2>/dev/null || true
-
-	# Create new release (stable)
+	# Create the release without moving or deleting an existing tag.
 	@gh release create v$(VERSION) $(RELDIR)/* \
 		--title "v$(VERSION)" \
 		--notes "Release v$(VERSION)" \
@@ -207,7 +208,7 @@ release: release-check build
 	@echo "Release complete: v$(VERSION)"
 
 # =============================================================================
-# DOCKER - Build and push container to registry (set REGISTRY env var)
+# DOCKER - Build the host-platform container locally
 # =============================================================================
 # Uses multi-stage Dockerfile - Go compilation happens inside Docker
 # No pre-built binaries needed
@@ -221,11 +222,10 @@ docker:
 	@docker buildx create --name multiarch-builder --use 2>/dev/null || \
 		docker buildx use multiarch-builder
 
-	# Build multi-arch and push (buildx multi-arch images must be pushed; set REGISTRY first)
+	# Build the host platform locally; CI publishes multi-architecture images.
 	@docker buildx build \
 		-f docker/Dockerfile \
-		--platform linux/amd64,linux/arm64 \
-		--push \
+		--load \
 		--build-arg VERSION="$(VERSION)" \
 		--build-arg BUILD_DATE="$(BUILD_DATE)" \
 		--build-arg COMMIT_ID="$(COMMIT_ID)" \

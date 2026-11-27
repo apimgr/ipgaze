@@ -30,15 +30,17 @@ pipeline {
             steps {
                 script {
                     // Determine build type and version
-                    if (env.TAG_NAME) {
+                    if (env.TAG_NAME && env.TAG_NAME ==~ /v?\d+\.\d+\.\d+/) {
                         // Release build (tag push) - matches release.yml
                         env.BUILD_TYPE = 'release'
                         env.VERSION = env.TAG_NAME.replaceFirst('^v', '')
-                    } else if (env.BRANCH_NAME == 'beta') {
-                        // Beta build - matches beta.yml
+                    } else if (env.TAG_NAME && env.TAG_NAME ==~ /\d{14}-beta/) {
+                        // Beta build from the immutable timestamp tag - matches beta.yml
                         env.BUILD_TYPE = 'beta'
-                        env.VERSION = sh(script: 'date -u +"%Y%m%d%H%M%S"', returnStdout: true).trim() + '-beta'
-                    } else if (env.BRANCH_NAME == 'main' || env.BRANCH_NAME == 'master') {
+                        env.VERSION = env.TAG_NAME
+                    } else if (env.TAG_NAME) {
+                        error("Unsupported release tag: ${env.TAG_NAME}")
+                    } else if (env.BRANCH_NAME == 'main') {
                         // Devel build - matches devel.yml
                         // Daily identity is the commit being built, not a timestamp
                         env.BUILD_TYPE = 'devel'
@@ -47,6 +49,16 @@ pipeline {
                         // Other branches - dev build
                         env.BUILD_TYPE = 'dev'
                         env.VERSION = sh(script: 'date -u +"%Y%m%d%H%M%S"', returnStdout: true).trim() + '-dev'
+                    }
+                    if (env.TAG_NAME) {
+                        env.RELEASE_TAG = env.TAG_NAME
+                        sh '''
+                            git fetch --unshallow --tags 2>/dev/null || git fetch --tags
+                            if [ "$(git rev-parse "refs/tags/${RELEASE_TAG}^{commit}")" != "$(git rev-parse HEAD)" ]; then
+                                echo "ERROR: tag ${RELEASE_TAG} does not point at the checked-out commit" >&2
+                                exit 1
+                            fi
+                        '''
                     }
                     env.COMMIT_ID = sh(script: 'git rev-parse --short=7 HEAD', returnStdout: true).trim()
                     env.BUILD_EPOCH = sh(script: 'date -u +%s', returnStdout: true).trim()
@@ -496,7 +508,6 @@ pipeline {
                         casjaysdev/go:latest \
                         ./scripts/verify-licenses.sh
                 '''
-                archiveArtifacts artifacts: 'licenses.csv,third_party_licenses/**', allowEmptyArchive: false
             }
         }
 
@@ -566,7 +577,7 @@ pipeline {
             }
         }
 
-        // Beta Release - matches beta.yml (beta branch only)
+        // Beta Release - matches beta.yml (immutable timestamp tag only)
         stage('Release: Beta') {
             agent { label 'amd64' }
             when {
@@ -606,7 +617,7 @@ pipeline {
             }
         }
 
-        // Devel Release - matches devel.yml (main/master + scheduled)
+        // Devel Release - matches devel.yml (main + scheduled)
         stage('Release: Devel') {
             agent { label 'amd64' }
             when {
@@ -660,7 +671,7 @@ pipeline {
                         tags += " -t ${REGISTRY}:latest"
                         tags += " -t ${REGISTRY}:${yymm}"
                     } else if (env.BUILD_TYPE == 'beta') {
-                        // Beta branch - beta
+                        // Timestamped beta tag - beta
                         tags += " -t ${REGISTRY}:beta"
                     }
                     // else: all other branches get only the {commit_id} tag

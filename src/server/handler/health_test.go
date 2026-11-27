@@ -197,7 +197,13 @@ func TestHealthCheckRegistryCachesAndAggregatesDatasetResults(t *testing.T) {
 	if resp.Status != statusDegraded {
 		t.Fatalf("overall status = %q, want degraded", resp.Status)
 	}
-	h.RegisterHealthCheck("core_data", true, func() string { return "error" })
+	criticalStatus := "degraded"
+	h.RegisterHealthCheck("core_data", true, func() string { return criticalStatus })
+	h.RefreshHealthChecks()
+	if got := h.HealthSnapshot().Status; got != statusDegraded {
+		t.Fatalf("critical degraded status = %q, want degraded", got)
+	}
+	criticalStatus = "error"
 	h.RefreshHealthChecks()
 	if got := h.HealthSnapshot().Status; got != statusUnhealthy {
 		t.Fatalf("critical failure status = %q, want unhealthy", got)

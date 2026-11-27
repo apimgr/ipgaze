@@ -291,9 +291,13 @@ printf 'server:\n  cli:\n    binary_download:\n      require_auth: true\n' >"$DO
 chmod 0600 "$DOCKER_TEST_ROOT/config/server.yml"
 __check 'server.yml has private permissions' test "$(stat -c %a "$DOCKER_TEST_ROOT/config/server.yml")" = 600
 if [ -x "$DOCKER_TEST_CLIENT" ]; then
-	mkdir -p "$DOCKER_TEST_ROOT/data/binaries"
-	cp "$DOCKER_TEST_CLIENT" "$DOCKER_TEST_ROOT/data/binaries/$DOCKER_TEST_PROJECT_NAME-cli-linux-amd64"
-	chmod 0600 "$DOCKER_TEST_ROOT/data/binaries/$DOCKER_TEST_PROJECT_NAME-cli-linux-amd64"
+	mkdir -p "$DOCKER_TEST_ROOT/data/cli"
+	DOCKER_TEST_CLI_RELEASE="$DOCKER_TEST_ROOT/data/cli/$DOCKER_TEST_PROJECT_NAME-cli-linux-amd64"
+	cp "$DOCKER_TEST_CLIENT" "$DOCKER_TEST_CLI_RELEASE"
+	chmod 0600 "$DOCKER_TEST_CLI_RELEASE"
+	printf 'integration-test\n' >"$DOCKER_TEST_ROOT/data/cli/version.txt"
+	(cd "$DOCKER_TEST_ROOT/data/cli" && sha256sum "$(basename "$DOCKER_TEST_CLI_RELEASE")" >sha256.txt)
+	chmod 0600 "$DOCKER_TEST_ROOT/data/cli/version.txt" "$DOCKER_TEST_ROOT/data/cli/sha256.txt"
 fi
 
 echo '=== Binary checks ==='

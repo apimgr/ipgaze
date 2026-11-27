@@ -2,7 +2,11 @@ package server
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"log"
 	"net"
@@ -152,6 +156,25 @@ func testServer() *Server {
 		Mode:          "development",
 		// Enable root /healthz alias (default config has this enabled).
 		HealthzRootEnabled: true,
+	}
+}
+
+func TestGeoIPRoutesFollowReaderAvailabilityAfterRouterBuild(t *testing.T) {
+	srv := testServer()
+	srv.gr = nil
+	handler := srv.Handler()
+	request := httptest.NewRequest(http.MethodGet, "/country", nil)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("country status without GeoIP data = %d, want 404", response.Code)
+	}
+
+	srv.gr = &testDb{}
+	response = httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/country", nil))
+	if response.Code != http.StatusOK || strings.TrimSpace(response.Body.String()) != "Elbonia" {
+		t.Fatalf("country response after GeoIP load = %d %q, want 200 Elbonia", response.Code, response.Body.String())
 	}
 }
 
@@ -876,6 +899,79 @@ func TestServerSetCacheBackend(t *testing.T) {
 	s.SetCacheBackend(backend)
 	if s.cacheBackend != backend {
 		t.Error("SetCacheBackend did not store the given backend")
+	}
+}
+
+type ownerTokenTestCache struct {
+	values map[string][]byte
+	sets   int
+}
+
+func (c *ownerTokenTestCache) Get(_ context.Context, key string) ([]byte, error) {
+	value, ok := c.values[key]
+	if !ok {
+		return nil, errors.New("cache miss")
+	}
+	return value, nil
+}
+
+func (c *ownerTokenTestCache) Ping(context.Context) error { return nil }
+
+func (c *ownerTokenTestCache) Set(_ context.Context, key string, value []byte, ttl time.Duration) error {
+	if ttl != ownerTokenLookupTTL {
+		return fmt.Errorf("cache TTL = %s, want %s", ttl, ownerTokenLookupTTL)
+	}
+	if c.values == nil {
+		c.values = make(map[string][]byte)
+	}
+	c.values[key] = append([]byte(nil), value...)
+	c.sets++
+	return nil
+}
+
+func TestFindOwnerTokenCachesHashedLookup(t *testing.T) {
+	db := newAbuseTestDB(t)
+	token := "own_0123456789ABCDEFGHIJKLMNOPQRSTUV"
+	digest := sha256.Sum256([]byte(token))
+	if _, err := db.Exec(`INSERT INTO owners(id) VALUES ('cache-owner')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO api_tokens(id, owner_id, kind, scope, token_hash, token_prefix, token_last4, token_enc)
+		VALUES ('cache-token', 'cache-owner', 'primary', 'global', ?, ?, 'QRST', 'encrypted')`, hex.EncodeToString(digest[:]), token[:12]); err != nil {
+		t.Fatal(err)
+	}
+	cache := &ownerTokenTestCache{}
+	srv := &Server{}
+	srv.SetCacheBackend(cache)
+	srv.SetDB(db)
+	tokenID, ownerID, scope, ok := srv.findOwnerToken(token)
+	if !ok || tokenID != "cache-token" || ownerID != "cache-owner" || scope != "global" {
+		t.Fatalf("first lookup = (%q, %q, %q, %v)", tokenID, ownerID, scope, ok)
+	}
+	if cache.sets != 1 {
+		t.Fatalf("cache sets = %d, want 1", cache.sets)
+	}
+	key := "owner-token:" + hex.EncodeToString(digest[:])
+	if _, exists := cache.values[key]; !exists {
+		t.Fatalf("hashed lookup key %q was not cached", key)
+	}
+	for _, value := range cache.values {
+		if strings.Contains(string(value), token) {
+			t.Fatal("cached lookup contains the raw token")
+		}
+	}
+	tokenID, ownerID, scope, ok = srv.findOwnerToken(token)
+	if !ok || tokenID != "cache-token" || ownerID != "cache-owner" || scope != "global" {
+		t.Fatalf("cached lookup = (%q, %q, %q, %v)", tokenID, ownerID, scope, ok)
+	}
+	if cache.sets != 1 {
+		t.Fatalf("cache sets after cache hit = %d, want 1", cache.sets)
+	}
+	if _, err := db.Exec(`UPDATE api_tokens SET revoked_at = strftime('%s', 'now') WHERE id = 'cache-token'`); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, _, ok := srv.findOwnerToken(token); ok {
+		t.Fatal("cached token remained valid after its database row was revoked")
 	}
 }
 

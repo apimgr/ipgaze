@@ -14,7 +14,7 @@
     {{end}}
   </ol>
   {{if .ReportFormURL}}<p>{{t .Lang "security.instance_report_form"}}: <a href="{{.ReportFormURL}}">{{.ReportFormURL}}</a></p>{{end}}
-  {{if .AbuseReportURL}}<p>For terms violations, DMCA notices, or privacy requests, use the <a href="{{.AbuseReportURL}}">report form</a>.</p>{{end}}
+  {{if .AbuseReportURL}}<p>{{t .Lang "security.abuse_report_guidance"}} <a href="{{.AbuseReportURL}}">{{t .Lang "security.abuse_report_link"}}</a>.</p>{{end}}
   <p>{{t .Lang "security.contact_file_expires"}}: <time>{{.Expires}}</time></p>
   {{if .EncryptionURL}}<p>{{t .Lang "security.pgp_encryption_key"}}: <a href="{{.EncryptionURL}}">{{.EncryptionURL}}</a></p>{{end}}
 </section>

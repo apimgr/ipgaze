@@ -8,6 +8,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/url"
 	"os"
@@ -96,10 +97,25 @@ func NewDB(cfg *config.DatabaseConfig, dbDir string) (*Store, error) {
 		}
 		return nil, fmt.Errorf("db: open %s: %w", driver, err)
 	}
+	if cfg.Cache.Enabled {
+		if driver != "libsql" {
+			return nil, errors.Join(errors.New("db: server.database.cache.enabled requires the libsql driver"), store.Close())
+		}
+		replica, replicaErr := newDatabaseReplica(store, cfg.Cache, dbDir, cfg.Pool)
+		if replicaErr != nil {
+			return nil, errors.Join(fmt.Errorf("db: initialize local database cache: %w", replicaErr), store.Close())
+		}
+		store.replica = replica
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := store.PingContext(ctx); err != nil {
+		if store.replica != nil && store.replica.offlineMode && store.replica.hasFreshSnapshot() {
+			store.replica.setOffline(true)
+			store.replica.start()
+			return store, nil
+		}
 		if driver == "libsql" {
 			return nil, errors.Join(fmt.Errorf("db: ping libsql connection failed (URL credentials are omitted)"), store.Close())
 		}
@@ -110,6 +126,12 @@ func NewDB(cfg *config.DatabaseConfig, dbDir string) (*Store, error) {
 	defer schemaCancel()
 	if err := EnsureSchemaContext(schemaCtx, store); err != nil {
 		return nil, errors.Join(fmt.Errorf("db: apply schema: %w", err), store.Close())
+	}
+	if store.replica != nil {
+		if syncErr := store.replica.sync(schemaCtx); syncErr != nil {
+			slog.Warn("database cache initial sync failed; remote database remains authoritative", "error", syncErr)
+		}
+		store.replica.start()
 	}
 
 	return store, nil

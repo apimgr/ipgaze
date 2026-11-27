@@ -2,8 +2,7 @@ name: Docker Build
 
 on:
   push:
-    # ALL branches
-    branches: ['**']
+    branches: [main]
     tags:
       - 'v*'
       - '*.*.*'
@@ -13,7 +12,7 @@ on:
 
 concurrency:
   group: docker-${{ forgejo.ref }}
-  cancel-in-progress: ${{ forgejo.ref == 'refs/heads/main' || forgejo.ref == 'refs/heads/master' || forgejo.ref == 'refs/heads/devel' || forgejo.ref == 'refs/heads/dev' || forgejo.ref == 'refs/heads/beta' }}
+  cancel-in-progress: ${{ forgejo.ref == 'refs/heads/main' || forgejo.ref == 'refs/heads/devel' || forgejo.ref == 'refs/heads/dev' || forgejo.ref == 'refs/heads/beta' }}
 
 env:
   PROJECT_NAME: ipgaze
@@ -125,7 +124,7 @@ jobs:
 
   build-devel:
     runs-on: ubuntu-latest
-    if: forgejo.event_name == 'schedule' || (forgejo.event_name == 'push' && (forgejo.ref == 'refs/heads/main' || forgejo.ref == 'refs/heads/master')) || (forgejo.event_name == 'workflow_dispatch' && (forgejo.ref == 'refs/heads/main' || forgejo.ref == 'refs/heads/master'))
+    if: forgejo.event_name == 'schedule' || (forgejo.event_name == 'push' && (forgejo.ref == 'refs/heads/main')) || (forgejo.event_name == 'workflow_dispatch' && (forgejo.ref == 'refs/heads/main'))
     permissions:
       contents: read
       packages: write

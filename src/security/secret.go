@@ -65,9 +65,9 @@ func GetOrCreateSecret(db *dbstore.Store, name SecretName) ([]byte, error) {
 	defer cancelWrite()
 
 	_, err = db.ExecContext(writeCtx,
-		`INSERT INTO app_secrets (name, value, rotated_at) VALUES (?, ?, strftime('%s', 'now'))
+		`INSERT INTO app_secrets (name, value, updated_at) VALUES (?, ?, ?)
 		 ON CONFLICT(name) DO NOTHING`,
-		string(name), encoded,
+		string(name), encoded, time.Now().UTC().Format(time.RFC3339Nano),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("security: persist %s: %w", name, err)
@@ -84,24 +84,19 @@ func GetOrCreateSecret(db *dbstore.Store, name SecretName) ([]byte, error) {
 	return base64.StdEncoding.DecodeString(encoded)
 }
 
-// RotateSecretIfDue rotates a secret after its configured lifetime. A legacy
-// row without rotated_at is initialized without changing its value.
+// RotateSecretIfDue rotates a secret after its configured lifetime.
 func RotateSecretIfDue(db *dbstore.Store, name SecretName, lifetime time.Duration, now time.Time) (bool, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), secretReadTimeout)
 	defer cancel()
-	var rotatedAt sql.NullInt64
-	if err := db.QueryRowContext(ctx, `SELECT rotated_at FROM app_secrets WHERE name = ?`, string(name)).Scan(&rotatedAt); err != nil {
+	var updatedAt string
+	if err := db.QueryRowContext(ctx, `SELECT updated_at FROM app_secrets WHERE name = ?`, string(name)).Scan(&updatedAt); err != nil {
 		return false, fmt.Errorf("security: read rotation time for %s: %w", name, err)
 	}
-	if !rotatedAt.Valid {
-		writeCtx, cancelWrite := context.WithTimeout(context.Background(), secretWriteTimeout)
-		defer cancelWrite()
-		if _, err := db.ExecContext(writeCtx, `UPDATE app_secrets SET rotated_at = ? WHERE name = ? AND rotated_at IS NULL`, now.Unix(), string(name)); err != nil {
-			return false, fmt.Errorf("security: initialize rotation time for %s: %w", name, err)
-		}
-		return false, nil
+	rotatedAt, err := time.Parse(time.RFC3339Nano, updatedAt)
+	if err != nil {
+		return false, fmt.Errorf("security: parse rotation time for %s: %w", name, err)
 	}
-	if now.Sub(time.Unix(rotatedAt.Int64, 0)) < lifetime {
+	if now.Sub(rotatedAt) < lifetime {
 		return false, nil
 	}
 	if err := RotateSecret(db, name); err != nil {
@@ -128,15 +123,19 @@ func RotateSecret(db *dbstore.Store, name SecretName) error {
 	defer cancel()
 
 	previousUntil := time.Now().Add(secretGraceWindow).Unix()
-	_, err = db.ExecContext(ctx,
-		`UPDATE app_secrets
-		 SET value = ?, previous_value = ?, previous_until = ?, rotated_at = strftime('%s', 'now')
-		 WHERE name = ?`,
-		base64.StdEncoding.EncodeToString(next),
-		base64.StdEncoding.EncodeToString(current),
-		previousUntil,
-		string(name),
-	)
+	updatedAt := time.Now().UTC().Format(time.RFC3339Nano)
+	err = db.Write(ctx, func(tx *sql.Tx) error {
+		for key, value := range map[string]string{
+			string(name) + "_previous":       base64.StdEncoding.EncodeToString(current),
+			string(name) + "_previous_until": time.Unix(previousUntil, 0).UTC().Format(time.RFC3339Nano),
+		} {
+			if _, err := tx.ExecContext(ctx, `INSERT INTO app_secrets(name, value, updated_at) VALUES(?, ?, ?) ON CONFLICT(name) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`, key, value, updatedAt); err != nil {
+				return err
+			}
+		}
+		_, err := tx.ExecContext(ctx, `UPDATE app_secrets SET value = ?, updated_at = ? WHERE name = ?`, base64.StdEncoding.EncodeToString(next), updatedAt, string(name))
+		return err
+	})
 	if err != nil {
 		return fmt.Errorf("security: rotate %s: %w", name, err)
 	}
@@ -150,25 +149,34 @@ func PreviousSecret(db *dbstore.Store, name SecretName) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), secretReadTimeout)
 	defer cancel()
 
-	var previous sql.NullString
-	var previousUntil sql.NullInt64
+	var previous string
+	var previousUntil string
 	err := db.QueryRowContext(ctx,
-		`SELECT previous_value, previous_until FROM app_secrets WHERE name = ?`,
-		string(name),
-	).Scan(&previous, &previousUntil)
+		`SELECT value FROM app_secrets WHERE name = ?`, string(name)+"_previous",
+	).Scan(&previous)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("security: query previous %s: %w", name, err)
 	}
-	if !previous.Valid || !previousUntil.Valid {
+	if err := db.QueryRowContext(ctx, `SELECT value FROM app_secrets WHERE name = ?`, string(name)+"_previous_until").Scan(&previousUntil); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("security: query previous expiry for %s: %w", name, err)
+	}
+	until, err := time.Parse(time.RFC3339Nano, previousUntil)
+	if err != nil {
+		return nil, fmt.Errorf("security: parse previous expiry for %s: %w", name, err)
+	}
+	if previous == "" {
 		return nil, nil
 	}
-	if time.Now().Unix() > previousUntil.Int64 {
+	if time.Now().After(until) {
 		return nil, nil
 	}
-	return base64.StdEncoding.DecodeString(previous.String)
+	return base64.StdEncoding.DecodeString(previous)
 }
 
 // EncryptWithSecret encrypts plaintext with AES-256-GCM using a key derived

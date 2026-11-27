@@ -48,6 +48,26 @@ jobs:
 
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+
+      - name: Verify release tag
+        env:
+          RELEASE_REF: ${{ github.ref }}
+        run: |
+          if [[ "$RELEASE_REF" != refs/tags/* ]]; then
+            echo "::error::release.yml requires an existing tag ref."
+            exit 1
+          fi
+          tag="${RELEASE_REF#refs/tags/}"
+          if printf '%s' "$tag" | grep -qP '[[:space:][:cntrl:]]'; then
+            echo "::error::Tag '$tag' contains whitespace or control characters."
+            exit 1
+          fi
+          if [ "$(git rev-parse "refs/tags/$tag^{commit}")" != "$(git rev-parse HEAD)" ]; then
+            echo "::error::Tag '$tag' does not point at the checked-out commit."
+            exit 1
+          fi
 
       - name: Set build info
         run: |

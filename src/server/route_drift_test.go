@@ -3,12 +3,15 @@ package server
 import (
 	"bufio"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"regexp"
 	"sort"
 	"strings"
 	"testing"
 
+	"github.com/apimgr/ipgaze/src/config"
+	"github.com/apimgr/ipgaze/src/graphql"
 	"github.com/apimgr/ipgaze/src/swagger"
 	"github.com/go-chi/chi/v5"
 )
@@ -61,6 +64,28 @@ func TestRouteInventoryMatchesRuntimeRouterAndOpenAPI(t *testing.T) {
 		routes map[string]bool
 	}{{"AI.md template", template}, {"IDEA.md project", project}} {
 		for key := range inventory.routes {
+			if method, path, ok := strings.Cut(key, " "); ok && method == "ALL" {
+				if !strings.HasSuffix(path, "/*") {
+					t.Errorf("%s inventory uses ALL on non-prefix path %s", inventory.name, path)
+					continue
+				}
+				prefix := strings.TrimSuffix(path, "*")
+				matched := 0
+				for registeredKey, route := range byKey {
+					runtimePath := normalizeInventoryPath(route.Path)
+					if !strings.HasPrefix(runtimePath, prefix) {
+						continue
+					}
+					matched++
+					if !inventory.routes[registeredKey] && !(inventory.name == "AI.md template" && project[registeredKey]) {
+						t.Errorf("%s ALL prefix %s has unlisted runtime route %s", inventory.name, path, registeredKey)
+					}
+				}
+				if matched == 0 {
+					t.Errorf("%s ALL prefix %s has no registered routes", inventory.name, path)
+				}
+				continue
+			}
 			route, mounted := byKey[key]
 			if !mounted && optionalTemplateRoute(key) {
 				continue
@@ -108,6 +133,47 @@ func TestRouteInventoryMatchesRuntimeRouterAndOpenAPI(t *testing.T) {
 	sort.Strings(undocumented)
 	for _, key := range undocumented {
 		t.Errorf("runtime route %s is missing from the AI.md/IDEA.md route inventory", key)
+	}
+}
+
+func TestInternalRoutesStayOutOfPublicDiscoveryAndProtocols(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Server.Metrics.Enabled = true
+	srv := testServer()
+	srv.SetConfig(cfg)
+	srv.GraphQLHandler = graphql.Handler(graphql.GraphQLHandlerConfig{RegisteredRoutes: srv.RegisteredAPIRoutes})
+	srv.Handler()
+	routes := srv.RegisteredAPIRoutes()
+	spec := swagger.GenerateSpec(swagger.SwaggerHandlerConfig{RegisteredRoutes: srv.RegisteredAPIRoutes}, "http://localhost", "en")
+	llmRoutes := swagger.LLMRouteDefinitions()
+	mcpOperations := srv.registeredMCPOperations(httptest.NewRequest(http.MethodPost, "/api/v1/server/mcp", nil))
+	for _, route := range routes {
+		if !route.Internal {
+			continue
+		}
+		if item, ok := spec.Paths[route.Path]; ok && routeOperation(item, route.Method) != nil {
+			t.Errorf("INTERNAL route %s %s is in OpenAPI", route.Method, route.Path)
+		}
+		for _, discovered := range llmRoutes {
+			if discovered.Path == route.Path {
+				t.Errorf("INTERNAL route %s is in llms.txt definitions", route.Path)
+			}
+		}
+		for _, operation := range mcpOperations {
+			if operation.path == route.Path {
+				t.Errorf("INTERNAL route %s is in MCP tools", route.Path)
+			}
+		}
+	}
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/server/graphql", strings.NewReader(`{"query":"{ __schema { queryType { fields { name } } } }"}`))
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	srv.activeHandler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("GraphQL introspection status = %d: %s", response.Code, response.Body.String())
+	}
+	if strings.Contains(response.Body.String(), "metrics") {
+		t.Errorf("INTERNAL metrics route leaked into GraphQL schema: %s", response.Body.String())
 	}
 }
 
@@ -271,7 +337,18 @@ func addInventoryRow(routes map[string]bool, cells []string, pathColumn, methodC
 		return
 	}
 	paths := markdownCellPath.FindAllStringSubmatch(cells[pathColumn], -1)
-	methods := parseMethodList(cells[methodColumn])
+	methodCell := strings.Trim(strings.TrimSpace(cells[methodColumn]), "`")
+	if strings.EqualFold(methodCell, "ALL") {
+		if len(paths) == 0 {
+			routes[routeKey("ALL", "")] = true
+			return
+		}
+		for _, match := range paths {
+			routes[routeKey("ALL", normalizeInventoryPath(match[1]))] = true
+		}
+		return
+	}
+	methods := parseMethodList(methodCell)
 	for _, match := range paths {
 		for _, method := range methods {
 			for _, path := range expandOptionalRoute(match[1]) {

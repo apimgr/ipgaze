@@ -39,6 +39,21 @@ func openTestDB(t *testing.T) *db.Store {
 	return conn
 }
 
+func TestRemoteDatabaseHasDataDistinguishesSchemaDefaultsFromUserState(t *testing.T) {
+	conn := openTestDB(t)
+	hasData, err := remoteDatabaseHasData(conn)
+	if err != nil || hasData {
+		t.Fatalf("empty database hasData = %v, err=%v; want false, nil", hasData, err)
+	}
+	if _, err := conn.Exec(`INSERT INTO owners(id) VALUES('restored-owner')`); err != nil {
+		t.Fatal(err)
+	}
+	hasData, err = remoteDatabaseHasData(conn)
+	if err != nil || !hasData {
+		t.Fatalf("database with an owner hasData = %v, err=%v; want true, nil", hasData, err)
+	}
+}
+
 func ensureTestOwner(t *testing.T, conn *db.Store, owner string) {
 	t.Helper()
 	if _, err := conn.Exec(`INSERT INTO owners(id) VALUES(?) ON CONFLICT(id) DO NOTHING`, owner); err != nil {

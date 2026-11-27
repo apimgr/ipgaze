@@ -12,6 +12,7 @@ import (
 	"crypto/tls"
 	"database/sql"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -857,11 +858,8 @@ func runMain(ctx context.Context, runtimeCfg *Config) error {
 	} else {
 		serverDB = dbConn
 		activeServerDB.Store(dbConn)
-		if err := db.RequireCanonicalAPITokenIDs(serverDB); err != nil {
-			markStartupDatabaseFailure(fmt.Errorf("database requires one-time API token ID adoption: %w", err))
-		}
 	}
-	if serverDB != nil {
+	if serverDB != nil && !serverDB.OfflineReadOnly() {
 		if err := config.ImportLegacyDatabaseSecrets(serverDB, configPath); err != nil {
 			markStartupDatabaseFailure(fmt.Errorf("import legacy database secrets: %w", err))
 		} else {
@@ -896,7 +894,7 @@ func runMain(ctx context.Context, runtimeCfg *Config) error {
 		}
 	}
 
-	if serverDB != nil {
+	if serverDB != nil && !serverDB.OfflineReadOnly() {
 		if err := syncDNSCredentialState(serverDB, cfg); err != nil {
 			log.Printf("Warning: could not synchronize DNS credential state: %v", err)
 		}
@@ -938,7 +936,7 @@ func runMain(ctx context.Context, runtimeCfg *Config) error {
 				log.Printf("Warning: cannot store DNS certificate issuance timestamp because server.db is unavailable")
 				return
 			}
-			if _, err := dbConn.Exec(`INSERT INTO app_secrets (name, value) VALUES ('dns_validated_at', ?) ON CONFLICT(name) DO UPDATE SET value = excluded.value`, issuedAt); err != nil {
+			if _, err := dbConn.Exec(`INSERT INTO app_secrets (name, value, updated_at) VALUES ('dns_validated_at', ?, ?) ON CONFLICT(name) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`, issuedAt, time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
 				log.Printf("Warning: failed to store DNS certificate issuance timestamp: %v", err)
 			}
 		},
@@ -992,15 +990,20 @@ func runMain(ctx context.Context, runtimeCfg *Config) error {
 
 	var updateRestartRequested atomic.Bool
 	restartRequests := make(chan struct{}, 1)
-
 	// Initialize the built-in scheduler (AI.md PART 18: always-running, persistent state, catch-up).
 	// Backed by go-co-op/gocron/v2 per AI.md PART 3 and PART 18.
 	var blLookup *blocklist.Lookup
 	var srv *server.Server
-	sched, err := scheduler.NewScheduler(serverDB, scheduler.DefaultConfig())
-	if err != nil {
-		log.Printf("Warning: Failed to initialize scheduler: %v", err)
+	var sched *scheduler.Scheduler
+	var schedulerErr error
+	if serverDB != nil && serverDB.OfflineReadOnly() {
+		log.Printf("Scheduler paused while the remote database is unavailable; serving fresh cached reads only")
 	} else {
+		sched, schedulerErr = scheduler.NewScheduler(serverDB, scheduler.DefaultConfig())
+	}
+	if schedulerErr != nil {
+		log.Printf("Warning: Failed to initialize scheduler: %v", schedulerErr)
+	} else if sched != nil {
 		// AI.md PART 17/18: notify on any scheduled task failure.
 		sched.OnFailure = func(task *scheduler.Task, taskErr error) {
 			// AI.md PART 17: scheduler_error is suppressed when backup_failed
@@ -1354,7 +1357,7 @@ func runMain(ctx context.Context, runtimeCfg *Config) error {
 				if previousDailyErr != nil && !os.IsNotExist(previousDailyErr) {
 					return fmt.Errorf("backup_daily: read existing incremental: %w", previousDailyErr)
 				}
-				dailyLayout := backupArchiveLayout{configDir: configDir, dataDir: *dataDir, dbDir: dirs.DB}
+				dailyLayout := backupArchiveLayout{configDir: configDir, dataDir: *dataDir, dbDir: dirs.DB, cacheDBPath: configuredCacheDBPath(cfg, dirs.DB)}
 				if len(fulls) > 0 && backupBaseSupportsIncremental(fulls[0].path, cfg, dailyLayout) {
 					if err := maintenanceBackupAtWithSnapshot(cfg, configDir, *dataDir, dirs.DB, dailyFile, false, false, false, t0, fulls[0].path, snapshotFiles, logMgr); err != nil {
 						if notifyBackupFailed(cfg, emailMgr, projectName, err) {
@@ -1423,7 +1426,7 @@ func runMain(ctx context.Context, runtimeCfg *Config) error {
 				if listErr != nil {
 					return fmt.Errorf("backup_hourly: list full backups: %w", listErr)
 				}
-				hourlyLayout := backupArchiveLayout{configDir: configDir, dataDir: *dataDir, dbDir: dirs.DB}
+				hourlyLayout := backupArchiveLayout{configDir: configDir, dataDir: *dataDir, dbDir: dirs.DB, cacheDBPath: configuredCacheDBPath(cfg, dirs.DB)}
 				if len(fulls) == 0 || !backupBaseSupportsIncremental(fulls[0].path, cfg, hourlyLayout) {
 					log.Println("scheduler: backup_hourly skipped: no compatible full backup exists yet")
 					return nil
@@ -2009,7 +2012,6 @@ func runMain(ctx context.Context, runtimeCfg *Config) error {
 	if serverDB != nil {
 		srv.SetDB(serverDB)
 	}
-
 	// Wire the app cache backend and disk-space helper for /server/healthz
 	// checks.cache and checks.disk probes (AI.md PART 13).
 	if appCache != nil {
@@ -2033,9 +2035,6 @@ func runMain(ctx context.Context, runtimeCfg *Config) error {
 				_ = recovered.Close()
 			}
 		}()
-		if err := db.RequireCanonicalAPITokenIDs(recovered); err != nil {
-			return nil, fmt.Errorf("adopt canonical API token IDs: %w", err)
-		}
 		if err := config.ImportLegacyDatabaseSecrets(recovered, configPath); err != nil {
 			return nil, fmt.Errorf("import legacy database secrets: %w", err)
 		}
@@ -2696,7 +2695,7 @@ func syncDNSCredentialState(conn *db.Store, cfg *config.AppConfig) error {
 			return fmt.Errorf("clear DNS validation timestamp: %w", err)
 		}
 	}
-	if _, err := conn.Exec(`INSERT INTO app_secrets (name, value) VALUES ('dns_credentials_fingerprint', ?) ON CONFLICT(name) DO UPDATE SET value = excluded.value`, fingerprint); err != nil {
+	if _, err := conn.Exec(`INSERT INTO app_secrets (name, value, updated_at) VALUES ('dns_credentials_fingerprint', ?, ?) ON CONFLICT(name) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`, fingerprint, time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
 		return fmt.Errorf("store DNS credential fingerprint: %w", err)
 	}
 	return nil
@@ -4604,7 +4603,7 @@ func isDatabaseEmpty(conn *db.Store) bool {
 	return auditCount == 0 && tokenCount == 0
 }
 
-// maintenanceMode implements `--maintenance mode [production|development]` per
+// maintenanceMode implements `--maintenance mode [production|development|debug]` per
 // AI.md PART 5 "Mode change authorization flow": read-only when no argument is
 // given; changing the mode requires `server.token` OR root (requireOperatorAuth).
 func maintenanceMode(args []string, cfg *config.AppConfig) {
@@ -4623,9 +4622,9 @@ func maintenanceMode(args []string, cfg *config.AppConfig) {
 	}
 
 	newMode := args[0]
-	if newMode != "production" && newMode != "development" {
+	if newMode != "production" && newMode != "development" && newMode != "debug" {
 		fmt.Printf("Invalid mode: %s\n", newMode)
-		fmt.Println("Valid modes: production, development")
+		fmt.Println("Valid modes: production, development, debug")
 		os.Exit(exUsage)
 	}
 	cfg.Server.Mode = newMode
@@ -4682,39 +4681,12 @@ func maintenanceSetup(configPath string, cfg *config.AppConfig, dirs paths.Direc
 // PART 11 "Operator revocation" — operator-only via CLI (server.token OR root).
 func maintenanceToken(args []string, cfg *config.AppConfig, configDir, logsDir string, dirs paths.Directories) {
 	if len(args) == 0 {
-		fmt.Println("Usage: ipgaze --maintenance token <list|revoke|adopt-ids> [prefix]")
+		fmt.Println("Usage: ipgaze --maintenance token <list|revoke> [prefix]")
 		os.Exit(exUsage)
 	}
 	if !requireOperatorAuth(cfg, "Token management requires authorization. Enter operator token to confirm: ") {
 		fmt.Println("Authorization required: run as root/administrator, or provide a valid operator token.")
 		os.Exit(exNoPerm)
-	}
-	if args[0] == "adopt-ids" {
-		if err := os.MkdirAll(dirs.Backup, 0o700); err != nil {
-			log.Printf("token adoption: create backup directory: %v", err)
-			os.Exit(exIoErr)
-		}
-		backup := filepath.Join(dirs.Backup, "ipgaze_pre_token_uuid7_"+time.Now().UTC().Format("20060102T150405Z")+".tar.gz")
-		if err := maintenanceBackup(cfg, configDir, dirs.Data, dirs.DB, backup, false, true, true, nil); err != nil {
-			log.Printf("token adoption: backup failed: %v", err)
-			os.Exit(exIoErr)
-		}
-		conn, err := openMaintenanceDB(cfg, dirs)
-		if err != nil {
-			log.Printf("token adoption: open database: %v", err)
-			os.Exit(exIoErr)
-		}
-		if err := db.AdoptLegacyAPITokenIDs(conn); err != nil {
-			_ = conn.Close()
-			log.Printf("token adoption failed (backup at %s): %v", backup, err)
-			os.Exit(exIoErr)
-		}
-		if err := conn.Close(); err != nil {
-			log.Printf("token adoption: close database: %v", err)
-			os.Exit(exIoErr)
-		}
-		fmt.Printf("API token IDs adopted as UUIDv7. Backup: %s\n", backup)
-		return
 	}
 
 	conn, err := openMaintenanceDB(cfg, dirs)
@@ -4779,7 +4751,7 @@ func maintenanceTokenList(conn *db.Store) {
 func maintenanceTokenRevoke(conn *db.Store, prefix, logsDir string, cfg *config.AppConfig) {
 	ctx, cancel := context.WithTimeout(context.Background(), writeQueryTimeout)
 	defer cancel()
-	rows, err := conn.QueryContext(ctx, `SELECT id, owner_id, kind FROM api_tokens WHERE token_prefix LIKE ? AND revoked_at IS NULL`, prefix+"%")
+	rows, err := conn.QueryContext(ctx, `SELECT `+conn.APITokenIDColumn()+`, owner_id, kind FROM api_tokens WHERE token_prefix LIKE ? AND revoked_at IS NULL`, prefix+"%")
 	if err != nil {
 		log.Printf("token revoke: lookup failed: %v", err)
 		os.Exit(exIoErr)
@@ -4809,7 +4781,7 @@ func maintenanceTokenRevoke(conn *db.Store, prefix, logsDir string, cfg *config.
 	if match.kind == "primary" {
 		_, err = conn.ExecContext(ctx, `UPDATE api_tokens SET revoked_at = ?, revoked_reason = ? WHERE owner_id = ? AND revoked_at IS NULL`, now, "owner revoked via --maintenance token revoke", match.ownerID)
 	} else {
-		_, err = conn.ExecContext(ctx, `UPDATE api_tokens SET revoked_at = ?, revoked_reason = ? WHERE id = ? AND revoked_at IS NULL`, now, "revoked via --maintenance token revoke", match.id)
+		_, err = conn.ExecContext(ctx, `UPDATE api_tokens SET revoked_at = ?, revoked_reason = ? WHERE `+conn.APITokenIDColumn()+` = ? AND revoked_at IS NULL`, now, "revoked via --maintenance token revoke", match.id)
 	}
 	if err != nil {
 		log.Printf("token revoke: update failed: %v", err)
@@ -4931,7 +4903,7 @@ func maintenanceDataExport(conn *db.Store, ownerID, outputPath, logsDir string, 
 	if err := conn.QueryRowContext(ctx, `SELECT created_at, last_seen_at FROM owners WHERE id = ?`, ownerID).Scan(&createdAt, &lastSeenAt); err != nil {
 		return err
 	}
-	rows, err := conn.QueryContext(ctx, `SELECT token_prefix, kind, COALESCE(name,''), created_at, last_used_at, expires_at, revoked_at FROM api_tokens WHERE owner_id = ? ORDER BY created_at, id`, ownerID)
+	rows, err := conn.QueryContext(ctx, `SELECT token_prefix, kind, COALESCE(name,''), created_at, last_used_at, expires_at, revoked_at FROM api_tokens WHERE owner_id = ? ORDER BY created_at, `+conn.APITokenIDColumn()+``, ownerID)
 	if err != nil {
 		return err
 	}
@@ -5361,6 +5333,7 @@ func maintenanceBackupAtWithSnapshot(cfg *config.AppConfig, configDir, dataDir, 
 		configDir:   configDir,
 		dataDir:     dataDir,
 		dbDir:       dbDir,
+		cacheDBPath: configuredCacheDBPath(cfg, dbDir),
 		includeSSL:  includeSSL,
 		includeData: includeData,
 	}
@@ -5555,10 +5528,15 @@ func prepareScheduledBackupSnapshot(cfg *config.AppConfig, configDir, dataDir, d
 		_ = conn.Close()
 		return nil, fmt.Errorf("initialize backup secrets: %w", err)
 	}
+	appSecrets, err := exportAppSecrets(conn)
+	if err != nil {
+		_ = conn.Close()
+		return nil, fmt.Errorf("export app secrets: %w", err)
+	}
 	if err := conn.Close(); err != nil {
 		return nil, fmt.Errorf("close database after secret initialization: %w", err)
 	}
-	layout := backupArchiveLayout{configDir: configDir, dataDir: dataDir, dbDir: dbDir, includeSSL: includeSSL, includeData: includeData}
+	layout := backupArchiveLayout{configDir: configDir, dataDir: dataDir, dbDir: dbDir, cacheDBPath: configuredCacheDBPath(cfg, dbDir), includeSSL: includeSSL, includeData: includeData}
 	if cfg.Server.Database.NormalizedDriver() == "sqlite" {
 		dbSnapshotDir := filepath.Join(tmpDir, "db")
 		if err := os.MkdirAll(dbSnapshotDir, 0o700); err != nil {
@@ -5588,19 +5566,137 @@ func prepareScheduledBackupSnapshot(cfg *config.AppConfig, configDir, dataDir, d
 		if err := conn.Close(); err != nil {
 			return nil, fmt.Errorf("close SQLite snapshot source: %w", err)
 		}
+		snapshotStore, err := db.OpenSQLite(snapshotDB)
+		if err != nil {
+			return nil, fmt.Errorf("open SQLite snapshot for app secrets: %w", err)
+		}
+		appSecrets, err = exportAppSecrets(snapshotStore)
+		closeErr := snapshotStore.Close()
+		if err != nil {
+			return nil, fmt.Errorf("export snapshot app secrets: %w", err)
+		}
+		if closeErr != nil {
+			return nil, fmt.Errorf("close SQLite snapshot after app secrets export: %w", closeErr)
+		}
 		layout.dbDir = dbSnapshotDir
+	} else if cfg.Server.Database.NormalizedDriver() == "libsql" {
+		layout.dbDir = filepath.Join(tmpDir, "no-local-database")
+		if cfg.Server.Database.Cache.Enabled {
+			cachePath := strings.TrimSpace(cfg.Server.Database.Cache.Path)
+			if cachePath == "" {
+				cachePath = filepath.Join(dbDir, "cache.db")
+			} else if !filepath.IsAbs(cachePath) {
+				cachePath = filepath.Join(dbDir, cachePath)
+			}
+			if _, statErr := os.Stat(cachePath); statErr == nil {
+				dbSnapshotDir := filepath.Join(tmpDir, "db")
+				if err := os.MkdirAll(dbSnapshotDir, 0o700); err != nil {
+					return nil, fmt.Errorf("create cache snapshot directory: %w", err)
+				}
+				cacheStore, err := db.OpenSQLite(cachePath)
+				if err != nil {
+					return nil, fmt.Errorf("open local SQLite cache for snapshot: %w", err)
+				}
+				snapshotDB := filepath.Join(dbSnapshotDir, "server.db")
+				snapshotCtx, cancelSnapshot := context.WithTimeout(context.Background(), 60*time.Second)
+				err = cacheStore.VacuumInto(snapshotCtx, snapshotDB)
+				cancelSnapshot()
+				closeErr := cacheStore.Close()
+				if err != nil {
+					return nil, fmt.Errorf("create local cache snapshot: %w", err)
+				}
+				if closeErr != nil {
+					return nil, fmt.Errorf("close local cache after snapshot: %w", closeErr)
+				}
+				if err := os.Chmod(snapshotDB, 0o600); err != nil {
+					return nil, fmt.Errorf("secure local cache snapshot: %w", err)
+				}
+				snapshotStore, err := db.OpenSQLite(snapshotDB)
+				if err != nil {
+					return nil, fmt.Errorf("open local cache snapshot for secrets: %w", err)
+				}
+				var secretRows []backupSecretRecord
+				if err := json.Unmarshal(appSecrets, &secretRows); err != nil {
+					_ = snapshotStore.Close()
+					return nil, fmt.Errorf("parse app secrets for local cache snapshot: %w", err)
+				}
+				if err := importBackupAppSecrets(snapshotStore, secretRows); err != nil {
+					_ = snapshotStore.Close()
+					return nil, fmt.Errorf("include app secrets in local cache snapshot: %w", err)
+				}
+				if err := snapshotStore.Close(); err != nil {
+					return nil, fmt.Errorf("close local cache snapshot: %w", err)
+				}
+				layout.dbDir = dbSnapshotDir
+			} else if !os.IsNotExist(statErr) {
+				return nil, fmt.Errorf("inspect local SQLite cache: %w", statErr)
+			}
+		}
 	}
 	files, err := collectBackupFiles(layout)
 	if err != nil {
 		return nil, fmt.Errorf("capture backup snapshot: %w", err)
 	}
+	files = append(files, backupRecord("app_secrets.json", appSecrets))
+	sort.Slice(files, func(i, j int) bool { return files[i].Path < files[j].Path })
 	return files, nil
+}
+
+func configuredCacheDBPath(cfg *config.AppConfig, dbDir string) string {
+	if cfg == nil || cfg.Server.Database.NormalizedDriver() != "libsql" || !cfg.Server.Database.Cache.Enabled {
+		return ""
+	}
+	path := strings.TrimSpace(cfg.Server.Database.Cache.Path)
+	if path == "" {
+		return filepath.Join(dbDir, "cache.db")
+	}
+	if filepath.IsAbs(path) {
+		return filepath.Clean(path)
+	}
+	return filepath.Join(dbDir, path)
+}
+
+type backupSecretRecord struct {
+	Name      string `json:"name"`
+	Value     string `json:"value"`
+	UpdatedAt string `json:"updated_at"`
+}
+
+func exportAppSecrets(store *db.Store) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	rows, err := store.QueryContext(ctx, `SELECT name, value, updated_at FROM app_secrets ORDER BY name`)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	secrets := make([]backupSecretRecord, 0)
+	for rows.Next() {
+		var secret backupSecretRecord
+		if err := rows.Scan(&secret.Name, &secret.Value, &secret.UpdatedAt); err != nil {
+			return nil, err
+		}
+		secrets = append(secrets, secret)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return json.Marshal(secrets)
+}
+
+func backupRecord(path string, data []byte) backupFileRecord {
+	digest := sha256.Sum256(data)
+	return backupFileRecord{Path: path, Size: int64(len(data)), ModTime: time.Now().UTC().Truncate(time.Second).Format(time.RFC3339Nano), SHA256: hex.EncodeToString(digest[:]), data: data}
 }
 
 // verifyBackup runs all 7 required backup verification checks per AI.md PART 21.
 // password is required when backupFile ends in .enc; ignored otherwise.
 // Returns the first failing check as an error.
 func verifyBackup(backupFile, password string, layout backupArchiveLayout) error {
+	return verifyBackupWithLimits(backupFile, password, layout, defaultBackupRestoreLimits())
+}
+
+func verifyBackupWithLimits(backupFile, password string, layout backupArchiveLayout, limits BackupRestoreLimits) error {
 	// Check 1: file exists
 	info, err := os.Stat(backupFile)
 	if err != nil {
@@ -5689,16 +5785,16 @@ func verifyBackup(backupFile, password string, layout backupArchiveLayout) error
 		if kind, _ := baseManifest["type"].(string); kind != "full" {
 			return fmt.Errorf("check 6 (base): %q is not a full backup", baseName)
 		}
-		if err := verifyBackup(basePath, password, layout); err != nil {
+		if err := verifyBackupWithLimits(basePath, password, layout, limits); err != nil {
 			return fmt.Errorf("check 6 (base verification): %w", err)
 		}
 		archivesToExtract = [][]byte{baseArchive, archiveBytes}
 	}
-	if err := validateCombinedBackupLimits(archivesToExtract, defaultBackupRestoreLimits()); err != nil {
+	if err := validateCombinedBackupLimits(archivesToExtract, limits); err != nil {
 		return fmt.Errorf("check 6 (restore limits): %w", err)
 	}
 	for _, archive := range archivesToExtract {
-		if extractErr := extractBackupArchiveWithLimits(archive, tmpDir, defaultBackupRestoreLimits()); extractErr != nil {
+		if extractErr := extractBackupArchiveWithLimits(archive, tmpDir, limits); extractErr != nil {
 			return fmt.Errorf("check 6 (extraction): %w", extractErr)
 		}
 	}
@@ -5911,11 +6007,34 @@ func validateRestoredBackupSecrets(configDir, dbDir string, cfg *config.AppConfi
 	if err != nil || len(encryptionKey) != 32 {
 		return errors.New("restored server.security.encryption_key is missing or invalid")
 	}
+	secretFile := filepath.Join(filepath.Dir(configDir), "app_secrets.json")
+	secrets, err := readBackupAppSecrets(secretFile)
+	if err != nil {
+		return err
+	}
+	secretNames := make(map[string]bool, len(secrets))
+	for _, secret := range secrets {
+		secretNames[secret.Name] = true
+	}
+	for _, required := range []string{string(security.SecretInstallationSecret), string(security.SecretCookieSigningKey), string(security.SecretCSRFTokenSecret)} {
+		if !secretNames[required] {
+			return fmt.Errorf("app_secrets.json is missing %s", required)
+		}
+	}
+	dbPath := filepath.Join(dbDir, "server.db")
+	if _, statErr := os.Stat(dbPath); os.IsNotExist(statErr) {
+		return nil
+	} else if statErr != nil {
+		return fmt.Errorf("inspect restored server.db: %w", statErr)
+	}
 	conn, err := db.OpenSQLite(filepath.Join(dbDir, "server.db"))
 	if err != nil {
 		return fmt.Errorf("open restored server.db: %w", err)
 	}
 	defer func() { _ = conn.Close() }()
+	if err := importBackupAppSecrets(conn, secrets); err != nil {
+		return fmt.Errorf("restore app_secrets.json into server.db: %w", err)
+	}
 	for _, name := range []security.SecretName{security.SecretInstallationSecret, security.SecretCookieSigningKey, security.SecretCSRFTokenSecret} {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		var encoded string
@@ -5930,6 +6049,41 @@ func validateRestoredBackupSecrets(configDir, dbDir string, cfg *config.AppConfi
 		}
 	}
 	return nil
+}
+
+func readBackupAppSecrets(path string) ([]backupSecretRecord, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read app_secrets.json: %w", err)
+	}
+	var secrets []backupSecretRecord
+	if err := json.Unmarshal(data, &secrets); err != nil {
+		return nil, fmt.Errorf("parse app_secrets.json: %w", err)
+	}
+	if len(secrets) == 0 {
+		return nil, errors.New("app_secrets.json is empty")
+	}
+	seen := make(map[string]bool, len(secrets))
+	for _, secret := range secrets {
+		if secret.Name == "" || secret.Value == "" || secret.UpdatedAt == "" || seen[secret.Name] {
+			return nil, errors.New("app_secrets.json contains an invalid or duplicate row")
+		}
+		seen[secret.Name] = true
+	}
+	return secrets, nil
+}
+
+func importBackupAppSecrets(store *db.Store, secrets []backupSecretRecord) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	return store.Write(ctx, func(tx *sql.Tx) error {
+		for _, secret := range secrets {
+			if _, err := tx.ExecContext(ctx, `INSERT INTO app_secrets(name, value, updated_at) VALUES(?, ?, ?) ON CONFLICT(name) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`, secret.Name, secret.Value, secret.UpdatedAt); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }
 
 // maintenanceRestore unpacks a backup archive and replaces configDir, dbDir,
@@ -6059,15 +6213,15 @@ func maintenanceRestore(backupFile, configDir, dataDir, dbDir string, cfg *confi
 			log.Printf("Restore: incremental base file manifest invalid: %v", fileErr)
 			os.Exit(exIoErr)
 		}
-		baseLayout := backupArchiveLayout{configDir: configDir, dataDir: dataDir, dbDir: dbDir, includeSSL: true, includeData: true}
-		if verifyErr := verifyBackup(basePath, backupPassword, baseLayout); verifyErr != nil {
+		baseLayout := backupArchiveLayout{configDir: configDir, dataDir: dataDir, dbDir: dbDir, cacheDBPath: configuredCacheDBPath(cfg, dbDir), includeSSL: true, includeData: true}
+		if verifyErr := verifyBackupWithLimits(basePath, backupPassword, baseLayout, restoreLimits); verifyErr != nil {
 			log.Printf("Restore: incremental base verification failed: %v", verifyErr)
 			os.Exit(exIoErr)
 		}
 	}
 	if backupType == "incremental" || manifest["type"] == "full" {
-		layout := backupArchiveLayout{configDir: configDir, dataDir: dataDir, dbDir: dbDir, includeSSL: true, includeData: true}
-		if verifyErr := verifyBackup(backupFile, backupPassword, layout); verifyErr != nil {
+		layout := backupArchiveLayout{configDir: configDir, dataDir: dataDir, dbDir: dbDir, cacheDBPath: configuredCacheDBPath(cfg, dbDir), includeSSL: true, includeData: true}
+		if verifyErr := verifyBackupWithLimits(backupFile, backupPassword, layout, restoreLimits); verifyErr != nil {
 			log.Printf("Restore: backup verification failed: %v", verifyErr)
 			os.Exit(exIoErr)
 		}
@@ -6076,8 +6230,8 @@ func maintenanceRestore(backupFile, configDir, dataDir, dbDir string, cfg *confi
 	fmt.Printf("WARNING: Restoring from %s will overwrite current data in:\n", backupFile)
 	fmt.Printf("  Config: %s\n", configDir)
 	fmt.Printf("  Data:   %s\n", dataDir)
-	fmt.Print("This operation cannot be undone. Continue? [y/N]: ")
 	var answer string
+	fmt.Print("This operation cannot be undone. Continue? [y/N]: ")
 	if _, err := fmt.Scanln(&answer); err != nil || strings.ToLower(strings.TrimSpace(answer)) != "y" {
 		fmt.Println("Restore cancelled.")
 		return
@@ -6225,6 +6379,37 @@ func maintenanceRestore(backupFile, configDir, dataDir, dbDir string, cfg *confi
 		log.Printf("Restore: load restored server.yml: %v", loadErr)
 	}
 	if conn, openErr := openMaintenanceDB(restoredConfig, dirs); openErr == nil {
+		if restoredConfig.Server.Database.NormalizedDriver() == "libsql" {
+			snapshotDB := filepath.Join(dirs.DB, "server.db")
+			if fileExists(snapshotDB) {
+				hasData, dataErr := remoteDatabaseHasData(conn)
+				if dataErr != nil {
+					log.Printf("Restore: inspect remote database before seeding: %v", dataErr)
+					_ = conn.Close()
+					os.Exit(exIoErr)
+				}
+				if !hasData {
+					seedCtx, cancelSeed := context.WithTimeout(context.Background(), 30*time.Minute)
+					seedErr := conn.SeedFromSQLite(seedCtx, snapshotDB)
+					cancelSeed()
+					if seedErr != nil {
+						log.Printf("Restore: seed empty remote database from server.db: %v", seedErr)
+						_ = conn.Close()
+						os.Exit(exIoErr)
+					}
+					log.Printf("Restore: seeded empty remote database from server.db")
+				}
+			}
+		}
+		if secrets, secretErr := readBackupAppSecrets(filepath.Join(tmpDir, "app_secrets.json")); secretErr != nil {
+			log.Printf("Restore: read app_secrets.json: %v", secretErr)
+			_ = conn.Close()
+			os.Exit(exIoErr)
+		} else if secretErr = importBackupAppSecrets(conn, secrets); secretErr != nil {
+			log.Printf("Restore: import app_secrets.json: %v", secretErr)
+			_ = conn.Close()
+			os.Exit(exIoErr)
+		}
 		if rec, recErr := pgp.ActiveRecord(conn); recErr == nil && rec != nil {
 			if published, stateErr := pgp.ReadKeyserversState(configDir, rec.Fingerprint); stateErr != nil {
 				log.Printf("Restore: read keyserver publish state: %v", stateErr)
@@ -6259,6 +6444,28 @@ func maintenanceRestore(backupFile, configDir, dataDir, dbDir string, cfg *confi
 	}
 
 	fmt.Println("Restore completed successfully")
+}
+
+func remoteDatabaseHasData(store *db.Store) (bool, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	var ownerCount int
+	if err := store.QueryRowContext(ctx, `SELECT COUNT(*) FROM owners WHERE id <> 'system'`).Scan(&ownerCount); err != nil {
+		return false, err
+	}
+	if ownerCount > 0 {
+		return true, nil
+	}
+	for _, table := range []string{"rate_limits", "audit_log", "scheduler_history", "backups", "api_tokens", "pgp_keypairs", "ip_blocks", "security_reports", "captcha_challenges"} {
+		var count int
+		if err := store.QueryRowContext(ctx, `SELECT COUNT(*) FROM `+table).Scan(&count); err != nil {
+			return false, fmt.Errorf("count %s: %w", table, err)
+		}
+		if count > 0 {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func backupRestoreLimits(cfg *config.AppConfig) BackupRestoreLimits {
@@ -6323,7 +6530,7 @@ func maintenanceBackupTest(configDir string, cfg *config.AppConfig, dirs paths.D
 			return err
 		}
 	}
-	liveLayout := backupArchiveLayout{configDir: configDir, dataDir: dirs.Data, dbDir: dirs.DB, includeSSL: true, includeData: true}
+	liveLayout := backupArchiveLayout{configDir: configDir, dataDir: dirs.Data, dbDir: dirs.DB, cacheDBPath: configuredCacheDBPath(cfg, dirs.DB), includeSSL: true, includeData: true}
 	failures := make([]error, 0, 4)
 	if verifyErr := verifyBackup(archivePath, password, liveLayout); verifyErr != nil {
 		fmt.Printf("Archive integrity, manifest, checksum, and extraction: FAIL (%v)\n", verifyErr)
@@ -6394,6 +6601,18 @@ func maintenanceBackupTest(configDir string, cfg *config.AppConfig, dirs paths.D
 		return fmt.Errorf("open restored database: %w", err)
 	}
 	defer func() { _ = restoredDB.Close() }()
+	backupSecrets, err := readBackupAppSecrets(filepath.Join(tmpDir, "app_secrets.json"))
+	if err != nil {
+		fmt.Printf("Installation secret: FAIL (%v)\n", err)
+		failures = append(failures, err)
+		return errors.Join(failures...)
+	}
+	if err := importBackupAppSecrets(restoredDB, backupSecrets); err != nil {
+		wrapped := fmt.Errorf("restore app_secrets.json into verification database: %w", err)
+		fmt.Printf("Installation secret: FAIL (%v)\n", wrapped)
+		failures = append(failures, wrapped)
+		return errors.Join(failures...)
+	}
 	restoredConfigDir := filepath.Join(tmpDir, filepath.Base(configDir))
 	publicArmor, publicErr := pgp.LoadPublic(restoredConfigDir)
 	if publicErr != nil {

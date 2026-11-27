@@ -196,34 +196,44 @@ func TestColorEnabled(t *testing.T) {
 	}
 }
 
-// TestEmojiEnabled ensures emoji gates on ColorEnabled and TERM=dumb.
+// TestEmojiEnabled verifies the TERM=dumb, config and NO_COLOR precedence.
 func TestEmojiEnabled(t *testing.T) {
-	// With flag=no color is disabled, emoji must be false.
+	SetOutputPreferences(nil, nil)
+	t.Cleanup(func() { SetOutputPreferences(nil, nil) })
 	t.Setenv("NO_COLOR", "")
 	t.Setenv("TERM", "xterm-256color")
-	if EmojiEnabled("no") {
-		t.Error("EmojiEnabled(no) = true, want false")
-	}
-	if EmojiEnabled("never") {
-		t.Error("EmojiEnabled(never) = true, want false")
-	}
-
 	// With TERM=dumb, emoji must be false even when color flag is "yes".
 	t.Setenv("TERM", "dumb")
-	if EmojiEnabled("yes") {
-		t.Error("EmojiEnabled(yes) with TERM=dumb = true, want false")
+	if EmojiEnabled() {
+		t.Error("EmojiEnabled with TERM=dumb = true, want false")
 	}
 
-	// With flag=yes and a good TERM, emoji should be enabled.
+	// With a usable terminal, emoji is enabled by default regardless of color flags.
 	t.Setenv("TERM", "xterm-256color")
-	if !EmojiEnabled("yes") {
-		t.Error("EmojiEnabled(yes) with xterm-256color = false, want true")
+	if !EmojiEnabled() {
+		t.Error("EmojiEnabled with xterm-256color = false, want true")
 	}
 
 	// NO_COLOR disables emoji.
 	t.Setenv("NO_COLOR", "1")
-	if EmojiEnabled("yes") {
-		t.Error("EmojiEnabled(yes) with NO_COLOR=1 = true, want false")
+	if EmojiEnabled() {
+		t.Error("EmojiEnabled with NO_COLOR=1 = true, want false")
+	}
+	forceEmoji := true
+	SetOutputPreferences(nil, &forceEmoji)
+	if !EmojiEnabled() {
+		t.Error("configured emoji=true with NO_COLOR = false, want true")
+	}
+	t.Setenv("TERM", "dumb")
+	if EmojiEnabled() {
+		t.Error("configured emoji=true with TERM=dumb = true, want false")
+	}
+	forceEmoji = false
+	SetOutputPreferences(nil, &forceEmoji)
+	t.Setenv("TERM", "xterm-256color")
+	t.Setenv("NO_COLOR", "")
+	if EmojiEnabled() {
+		t.Error("configured emoji=false = true, want false")
 	}
 }
 

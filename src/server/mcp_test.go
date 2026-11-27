@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	applog "github.com/apimgr/ipgaze/src/log"
+	"github.com/apimgr/ipgaze/src/server/handler"
 	"github.com/apimgr/ipgaze/src/swagger"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -245,6 +246,7 @@ func TestMCPOperationVisibilityFollowsBearerSecurityAndExcludesTokenManagement(t
 	protected, _ := swagger.RouteForOperationID("v1_auth_check")
 	internal := swagger.Route{Auth: "none", Listed: true, Internal: true}
 	request := httptest.NewRequest(http.MethodPost, "/mcp", nil)
+	request.Header.Set("Authorization", "Bearer adm_test_operator_token")
 
 	if !server.mcpOperationVisible(request, "/api/v1/ip", public) {
 		t.Fatal("public operation should be visible without a token")
@@ -252,6 +254,7 @@ func TestMCPOperationVisibilityFollowsBearerSecurityAndExcludesTokenManagement(t
 	if server.mcpOperationVisible(request, "/api/v1/internal", internal) {
 		t.Fatal("internal operation must never be visible in MCP")
 	}
+	request.Header.Del("Authorization")
 	if server.mcpOperationVisible(request, "/api/v1/server/auth/check", protected) {
 		t.Fatal("operator-only operation should be hidden from anonymous callers")
 	}
@@ -430,5 +433,40 @@ func TestAuditMCPToolCallLabelsSource(t *testing.T) {
 	}
 	if event.Details["tool"] != "lookup_ip" || event.Details["route"] != "/api/v1/ip/{ip}" {
 		t.Errorf("audit event details = %#v", event.Details)
+	}
+}
+
+func TestMCPOperationRequiredScope(t *testing.T) {
+	tests := []struct {
+		name   string
+		path   string
+		method string
+		auth   string
+		want   string
+	}{
+		{name: "read lookup", path: "/api/v1/ip", method: http.MethodGet, auth: "token", want: handler.OwnerTokenScopeRead},
+		{name: "write operation", path: "/api/v1/resources", method: http.MethodPost, auth: "owner", want: handler.OwnerTokenScopeReadWrite},
+		{name: "token management", path: "/api/v1/server/preferences/tokens", method: http.MethodGet, auth: "token", want: handler.OwnerTokenScopeGlobal},
+		{name: "operator", path: "/api/v1/server/auth/check", method: http.MethodGet, auth: "operator", want: handler.OwnerTokenScopeGlobal},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := mcpOperationRequiredScope(test.path, test.method, test.auth); got != test.want {
+				t.Fatalf("required scope = %q, want %q", got, test.want)
+			}
+		})
+	}
+}
+
+func TestMCPInsufficientScopeUsesForbiddenChallenge(t *testing.T) {
+	server := &Server{}
+	response := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/mcp", nil)
+	server.writeMCPInsufficientScope(response, request)
+	if response.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want %d", response.Code, http.StatusForbidden)
+	}
+	if got := response.Header().Get("WWW-Authenticate"); got != `Bearer error="insufficient_scope"` {
+		t.Fatalf("WWW-Authenticate = %q, want insufficient_scope", got)
 	}
 }

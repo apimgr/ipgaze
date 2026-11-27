@@ -92,6 +92,7 @@
       {{end}}
       {{if and (eq $.ActionTokenID .ID) (or (eq $.TokenAction "updated") (eq $.TokenAction "revoked"))}}<p class="alert alert-success" role="status">{{t $.Lang "common.success"}}</p>{{end}}
       <dl>
+        <dt>{{t $.Lang "preferences.tokens_scope"}}</dt><dd>{{if eq .Scope "read"}}{{t $.Lang "preferences.tokens_scope_read"}}{{else}}{{t $.Lang "preferences.tokens_scope_read_write"}}{{end}}</dd>
         <dt>{{t $.Lang "preferences.tokens_created_at"}}</dt><dd>{{.Created}}</dd>
         <dt>{{t $.Lang "preferences.tokens_last_used"}}</dt><dd>{{if .LastUsed}}{{.LastUsed}}{{else}}{{t $.Lang "preferences.tokens_never"}}{{end}}</dd>
         <dt>{{t $.Lang "preferences.tokens_expires"}}</dt><dd>{{if .Expires}}{{.Expires}}{{else}}{{t $.Lang "preferences.tokens_never"}}{{end}}</dd>
@@ -165,6 +166,13 @@
         <label for="linked-token-name">{{t .Lang "preferences.tokens_name"}}</label>
         <input class="form-input" id="linked-token-name" name="name" required>
         <p class="form-hint">{{t .Lang "preferences.tokens_name_example"}}</p>
+      </div>
+      <div class="form-group">
+        <label for="linked-token-scope">{{t .Lang "preferences.tokens_scope"}}</label>
+        <select class="form-input" id="linked-token-scope" name="scope">
+          <option value="read-write" selected>{{t .Lang "preferences.tokens_scope_read_write"}}</option>
+          <option value="read">{{t .Lang "preferences.tokens_scope_read"}}</option>
+        </select>
       </div>
       <div class="form-group">
         <label for="linked-token-expiry">{{t .Lang "preferences.tokens_expiry"}}</label>

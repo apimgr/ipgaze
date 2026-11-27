@@ -1,7 +1,7 @@
 {{define "base"}}<!DOCTYPE html>
 <html lang="{{.Lang}}" dir="{{.Dir}}" class="theme-{{.Theme}}" data-offline-title="{{t .Lang "pwa.offline_title"}}" data-offline-message="{{t .Lang "pwa.offline_description"}}" data-offline-try-again="{{t .Lang "pwa.offline_try_again"}}">
 {{template "head" .}}
-<body{{block "body_attrs" .}}{{end}}>
+<body data-toast-position="{{.ToastPosition}}" data-toast-duration="{{.ToastDuration}}" data-toast-warning-duration="{{.ToastWarningDuration}}"{{block "body_attrs" .}}{{end}}>
   <a href="#main-content" class="skip-link">{{t .Lang "accessibility.skip_to_content"}}</a>
   <a href="#navigation" class="skip-link">{{t .Lang "nav.skip_to_navigation"}}</a>
   {{if .AnalyticsNoScript}}<noscript><img src="https://queue.simpleanalyticscdn.com/noscript.gif" alt="" referrerpolicy="no-referrer-when-downgrade"></noscript>{{end}}

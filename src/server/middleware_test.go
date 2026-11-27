@@ -35,6 +35,53 @@ func TestContactCaptchaCSPAddsOnlySelectedProviderHosts(t *testing.T) {
 	}
 }
 
+func TestResolveOnionAddressRequiresExposure(t *testing.T) {
+	status := &stubTorController{}
+	s := &Server{
+		TorStatus: status,
+		config: &config.AppConfig{
+			Tor:    config.TorIdentityConfig{OnionAddress: "configured.onion"},
+			Server: config.ServerConfig{Tor: config.TorConfig{Expose: false}},
+		},
+	}
+	if got := s.resolveOnionAddress(); got != "" {
+		t.Fatalf("resolveOnionAddress with exposure disabled = %q, want empty", got)
+	}
+	s.config.Server.Tor.Expose = true
+	if got := s.resolveOnionAddress(); got != "configured.onion" {
+		t.Fatalf("resolveOnionAddress with exposure enabled = %q, want configured address", got)
+	}
+	s.config.Tor.OnionAddress = ""
+	if got := s.resolveOnionAddress(); got != "" {
+		t.Fatalf("resolveOnionAddress without configured address = %q, want empty", got)
+	}
+}
+
+func TestOnionLocationMiddlewareUsesOnionURLOnlyForHTMLDocuments(t *testing.T) {
+	next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = w.Write([]byte("<html></html>"))
+	})
+	middleware := OnionLocationMiddleware(func() string { return "exampleonion.onion" })(next)
+	request := httptest.NewRequest(http.MethodGet, "/docs?q=one", nil)
+	request.Host = "example.com"
+	request.Header.Set("Sec-Fetch-Dest", "document")
+	response := httptest.NewRecorder()
+	middleware.ServeHTTP(response, request)
+	if got, want := response.Header().Get("Onion-Location"), "http://exampleonion.onion/docs?q=one"; got != want {
+		t.Fatalf("Onion-Location = %q, want %q", got, want)
+	}
+
+	apiRequest := httptest.NewRequest(http.MethodGet, "/api/v1/info", nil)
+	apiRequest.Host = "example.com"
+	apiRequest.Header.Set("Sec-Fetch-Dest", "document")
+	apiResponse := httptest.NewRecorder()
+	middleware.ServeHTTP(apiResponse, apiRequest)
+	if got := apiResponse.Header().Get("Onion-Location"); got != "" {
+		t.Fatalf("API response Onion-Location = %q, want empty", got)
+	}
+}
+
 func TestPermissionsPolicyIsFixed(t *testing.T) {
 	policy := permissionsPolicyValue(DefaultSecurityHeaderConfig().PermissionsPolicy)
 	for _, required := range []string{

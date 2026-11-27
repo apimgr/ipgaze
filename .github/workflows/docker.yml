@@ -2,8 +2,7 @@ name: Docker Build
 
 on:
   push:
-    # ALL branches
-    branches: ['**']
+    branches: [main]
     tags:
       - 'v*'
       - '*.*.*'
@@ -13,7 +12,7 @@ on:
 
 concurrency:
   group: docker-${{ github.ref }}
-  cancel-in-progress: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || github.ref == 'refs/heads/devel' || github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/beta' }}
+  cancel-in-progress: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/devel' || github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/beta' }}
 
 env:
   PROJECT_NAME: ipgaze
@@ -123,7 +122,7 @@ jobs:
 
   build-devel:
     runs-on: ubuntu-latest
-    if: github.event_name == 'schedule' || (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')) || (github.event_name == 'workflow_dispatch' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'))
+    if: github.event_name == 'schedule' || (github.event_name == 'push' && (github.ref == 'refs/heads/main')) || (github.event_name == 'workflow_dispatch' && (github.ref == 'refs/heads/main'))
     permissions:
       contents: read
       packages: write

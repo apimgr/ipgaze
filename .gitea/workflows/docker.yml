@@ -2,8 +2,7 @@ name: Docker Build
 
 on:
   push:
-    # ALL branches
-    branches: ['**']
+    branches: [main]
     tags:
       - 'v*'
       - '*.*.*'
@@ -13,7 +12,7 @@ on:
 
 concurrency:
   group: docker-${{ gitea.ref }}
-  cancel-in-progress: ${{ gitea.ref == 'refs/heads/main' || gitea.ref == 'refs/heads/master' || gitea.ref == 'refs/heads/devel' || gitea.ref == 'refs/heads/dev' || gitea.ref == 'refs/heads/beta' }}
+  cancel-in-progress: ${{ gitea.ref == 'refs/heads/main' || gitea.ref == 'refs/heads/devel' || gitea.ref == 'refs/heads/dev' || gitea.ref == 'refs/heads/beta' }}
 
 env:
   PROJECT_NAME: ipgaze
@@ -125,7 +124,7 @@ jobs:
 
   build-devel:
     runs-on: ubuntu-latest
-    if: gitea.event_name == 'schedule' || (gitea.event_name == 'push' && (gitea.ref == 'refs/heads/main' || gitea.ref == 'refs/heads/master')) || (gitea.event_name == 'workflow_dispatch' && (gitea.ref == 'refs/heads/main' || gitea.ref == 'refs/heads/master'))
+    if: gitea.event_name == 'schedule' || (gitea.event_name == 'push' && (gitea.ref == 'refs/heads/main')) || (gitea.event_name == 'workflow_dispatch' && (gitea.ref == 'refs/heads/main'))
     permissions:
       contents: read
       packages: write

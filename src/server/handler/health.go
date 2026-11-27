@@ -579,12 +579,10 @@ func (h *HealthHandler) buildHealthResponse() model.HealthResponse {
 		Stats:  model.StatsInfo{},
 	}
 	for _, dataset := range checks.Datasets {
-		if dataset.Status == "error" || dataset.Status == "degraded" {
-			if dataset.Critical {
-				resp.Status = statusUnhealthy
-			} else if resp.Status == statusHealthy {
-				resp.Status = statusDegraded
-			}
+		if dataset.Status == "error" && dataset.Critical {
+			resp.Status = statusUnhealthy
+		} else if (dataset.Status == "error" || dataset.Status == "degraded") && resp.Status == statusHealthy {
+			resp.Status = statusDegraded
 		}
 	}
 

@@ -266,6 +266,7 @@ type backupArchiveLayout struct {
 	configDir   string
 	dataDir     string
 	dbDir       string
+	cacheDBPath string
 	includeSSL  bool
 	includeData bool
 }
@@ -448,7 +449,7 @@ func dirExists(p string) bool {
 // Contents table) — dynamic per the layout's flags and what exists on disk,
 // never a hardcoded list.
 func backupArchiveContents(layout backupArchiveLayout) []string {
-	var contents []string
+	contents := []string{"app_secrets.json"}
 	if fileExists(filepath.Join(layout.configDir, "server.yml")) {
 		contents = append(contents, "server.yml")
 	}
@@ -458,7 +459,7 @@ func backupArchiveContents(layout backupArchiveLayout) []string {
 	if dirExists(filepath.Join(layout.configDir, "yaml.d")) {
 		contents = append(contents, "yaml.d/")
 	}
-	if dirExists(layout.dbDir) {
+	if fileExists(filepath.Join(layout.dbDir, "server.db")) || (layout.cacheDBPath != "" && fileExists(layout.cacheDBPath)) {
 		contents = append(contents, "server.db")
 	}
 	if dirExists(filepath.Join(layout.configDir, "template")) {

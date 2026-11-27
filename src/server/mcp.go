@@ -55,8 +55,18 @@ func (s *Server) MCPHandler() http.Handler {
 		if !s.validMCPRequestHeaders(w, r) {
 			return
 		}
+		if requiredScope := s.mcpToolRequiredScope(r); requiredScope != "" && !s.ValidateAPITokenScope(token, requiredScope) {
+			s.writeMCPInsufficientScope(w, r)
+			return
+		}
 		transport.ServeHTTP(w, r)
 	})
+}
+
+func (s *Server) writeMCPInsufficientScope(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("WWW-Authenticate", `Bearer error="insufficient_scope"`)
+	ctx := i18n.WithLang(r.Context(), i18n.DetectLocale(r))
+	handler.WriteAPIError(w, http.StatusForbidden, "FORBIDDEN", i18n.T(ctx, "errors.forbidden"))
 }
 
 func (s *Server) writeMCPUnauthorized(w http.ResponseWriter, r *http.Request, invalid bool) {
@@ -283,17 +293,63 @@ func (s *Server) mcpOperationVisible(r *http.Request, path string, route swagger
 	}
 	switch route.Auth {
 	case "none":
-		return true
+		return r != nil && s.mcpTokenAuthorized(mcpBearerToken(r), mcpOperationRequiredScope(path, route.Method, route.Auth))
 	case "operator":
 		return r != nil && s.ValidateOperatorToken(mcpBearerToken(r))
 	case "token", "owner":
-		return r != nil && s.mcpTokenAuthorized(mcpBearerToken(r))
+		return r != nil && s.mcpTokenAuthorized(mcpBearerToken(r), mcpOperationRequiredScope(path, route.Method, route.Auth))
 	}
 	return false
 }
 
-func (s *Server) mcpTokenAuthorized(token string) bool {
-	return s.ValidateAPIToken(token) || s.ValidateOperatorToken(token)
+func (s *Server) mcpTokenAuthorized(token, requiredScope string) bool {
+	return s.ValidateAPITokenScope(token, requiredScope) || s.ValidateOperatorToken(token)
+}
+
+func mcpOperationRequiredScope(path, method, auth string) string {
+	if strings.HasPrefix(path, "/api/v1/server/preferences/tokens") {
+		return handler.OwnerTokenScopeGlobal
+	}
+	if auth == "operator" {
+		return handler.OwnerTokenScopeGlobal
+	}
+	switch strings.ToUpper(method) {
+	case http.MethodGet, http.MethodHead, http.MethodOptions:
+		return handler.OwnerTokenScopeRead
+	default:
+		return handler.OwnerTokenScopeReadWrite
+	}
+}
+
+func (s *Server) mcpToolRequiredScope(r *http.Request) string {
+	if r == nil || s.router == nil {
+		return ""
+	}
+	var request struct {
+		Method string `json:"method"`
+		Params struct {
+			Name string `json:"name"`
+		} `json:"params"`
+	}
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		return ""
+	}
+	r.Body = io.NopCloser(bytes.NewReader(body))
+	if json.Unmarshal(body, &request) != nil || request.Method != "tools/call" || request.Params.Name == "" {
+		return ""
+	}
+	for _, route := range s.RegisteredAPIRoutes() {
+		if route.Handler == nil || !isVersionedAPIOperation(route.Path) || route.OperationID == "v1Mcp" {
+			continue
+		}
+		operation := swagger.OperationForRoute(route, "en")
+		if operation == nil || mcpToolSpec(route.Path, route.Method, operation).Name != request.Params.Name {
+			continue
+		}
+		return mcpOperationRequiredScope(route.Path, route.Method, route.Auth)
+	}
+	return ""
 }
 
 func mcpBearerToken(r *http.Request) string {

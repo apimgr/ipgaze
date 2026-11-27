@@ -63,6 +63,27 @@ func TestScheduledBackupCreatesVerifiedFullAndIncremental(t *testing.T) {
 	if err != nil || fullManifest["type"] != "full" {
 		t.Fatalf("full manifest type = %v, err=%v", fullManifest["type"], err)
 	}
+	manifestFiles, err := parseBackupFileManifest(fullManifest["files"])
+	if err != nil {
+		t.Fatalf("parse full manifest file list: %v", err)
+	}
+	foundSecrets := false
+	for _, file := range manifestFiles {
+		if file.Path == "app_secrets.json" {
+			foundSecrets = true
+			break
+		}
+	}
+	if !foundSecrets {
+		t.Fatal("full backup manifest omits app_secrets.json")
+	}
+	restoredFiles := t.TempDir()
+	if err := extractBackupArchive(fullRaw, restoredFiles); err != nil {
+		t.Fatalf("extract full backup: %v", err)
+	}
+	if _, err := readBackupAppSecrets(filepath.Join(restoredFiles, "app_secrets.json")); err != nil {
+		t.Fatalf("read backed-up app secrets: %v", err)
+	}
 
 	cfg.Server.FQDN = "backup.example"
 	writeConfig()

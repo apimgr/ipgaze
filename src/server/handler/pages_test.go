@@ -636,7 +636,7 @@ func TestAPIV1ServerContactHandler_POST(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = db.Close() }()
-	if _, err := db.Exec(`CREATE TABLE app_secrets (name TEXT PRIMARY KEY, value TEXT NOT NULL, previous_value TEXT, previous_until INTEGER, created_at INTEGER, rotated_at INTEGER)`); err != nil {
+	if _, err := db.Exec(`CREATE TABLE app_secrets (name TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')))`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(`CREATE TABLE captcha_challenges (id VARCHAR(32) PRIMARY KEY, answer_hash VARCHAR(64) NOT NULL, expires_at INTEGER NOT NULL)`); err != nil {
@@ -711,7 +711,7 @@ func TestSimpleCaptcha_ValidWrongExpiredAndTampered(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = db.Close() }()
-	if _, err := db.Exec(`CREATE TABLE app_secrets (name TEXT PRIMARY KEY, value TEXT NOT NULL, previous_value TEXT, previous_until INTEGER, created_at INTEGER, rotated_at INTEGER)`); err != nil {
+	if _, err := db.Exec(`CREATE TABLE app_secrets (name TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')))`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(`CREATE TABLE captcha_challenges (id VARCHAR(32) PRIMARY KEY, answer_hash VARCHAR(64) NOT NULL, expires_at INTEGER NOT NULL)`); err != nil {
@@ -1522,8 +1522,22 @@ func TestNewPageData_HTTP(t *testing.T) {
 	if data.Theme != "dark" {
 		t.Errorf("Theme = %q, want %q", data.Theme, "dark")
 	}
+	if data.ToastPosition != "top-right" || data.ToastDuration != 3 || data.ToastWarningDuration != 5 {
+		t.Errorf("toast settings = %s/%d/%d, want top-right/3/5", data.ToastPosition, data.ToastDuration, data.ToastWarningDuration)
+	}
 	if !strings.HasPrefix(data.CanonicalURL, "http://") {
 		t.Errorf("CanonicalURL = %q, want http:// prefix", data.CanonicalURL)
+	}
+}
+
+func TestNewPageData_UsesConfiguredToastSettings(t *testing.T) {
+	h := newTestPagesHandler()
+	cfg := config.DefaultConfig()
+	cfg.Server.Notifications.WebUI = config.WebUINotificationsConfig{Position: "bottom-left", Duration: 0, WarningDuration: 8}
+	h.Config = cfg
+	data := h.NewPageData(httptest.NewRequest(http.MethodGet, "/server/about", nil))
+	if data.ToastPosition != "bottom-left" || data.ToastDuration != 0 || data.ToastWarningDuration != 8 {
+		t.Fatalf("toast settings = %s/%d/%d, want bottom-left/0/8", data.ToastPosition, data.ToastDuration, data.ToastWarningDuration)
 	}
 }
 

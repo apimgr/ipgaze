@@ -19,59 +19,6 @@ import (
 // Each statement is safe to run on an existing database.
 var createStatements = []string{
 	// ----------------------------------------------------------------------------
-	// Config key-value storage (mirrors YAML structure as flat keys)
-	// ----------------------------------------------------------------------------
-	`CREATE TABLE IF NOT EXISTS config (
-    key        TEXT PRIMARY KEY,
-    value      TEXT NOT NULL,
-    type       TEXT NOT NULL DEFAULT 'string',
-    updated_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
-)`,
-
-	// Config metadata for change detection (single row, id=1 always)
-	`CREATE TABLE IF NOT EXISTS config_meta (
-    id         INTEGER PRIMARY KEY CHECK (id = 1),
-    version    INTEGER NOT NULL DEFAULT 1,
-    updated_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
-)`,
-
-	// Seed the single metadata row if not present
-	`INSERT OR IGNORE INTO config_meta (id, version) VALUES (1, 1)`,
-
-	// Auto-increment config version on INSERT
-	`CREATE TRIGGER IF NOT EXISTS config_version_bump_insert
-AFTER INSERT ON config
-BEGIN
-    UPDATE config_meta SET
-        version    = version + 1,
-        updated_at = strftime('%s', 'now')
-    WHERE id = 1;
-END`,
-
-	// Auto-increment config version on UPDATE
-	`CREATE TRIGGER IF NOT EXISTS config_version_bump_update
-AFTER UPDATE ON config
-BEGIN
-    UPDATE config_meta SET
-        version    = version + 1,
-        updated_at = strftime('%s', 'now')
-    WHERE id = 1;
-END`,
-
-	// Auto-increment config version on DELETE
-	`CREATE TRIGGER IF NOT EXISTS config_version_bump_delete
-AFTER DELETE ON config
-BEGIN
-    UPDATE config_meta SET
-        version    = version + 1,
-        updated_at = strftime('%s', 'now')
-    WHERE id = 1;
-END`,
-
-	// Fast prefix scan (e.g. all "ssl.*" keys)
-	`CREATE INDEX IF NOT EXISTS idx_config_key_prefix ON config(key)`,
-
-	// ----------------------------------------------------------------------------
 	// Rate limiting (sliding window counters)
 	// ----------------------------------------------------------------------------
 	`CREATE TABLE IF NOT EXISTS rate_limits (
@@ -174,6 +121,7 @@ END`,
     owner_id      TEXT NOT NULL REFERENCES owners(id) ON DELETE CASCADE,
     kind          TEXT NOT NULL CHECK (kind IN ('primary', 'linked')),
     name          TEXT,
+    scope         TEXT NOT NULL DEFAULT 'read-write' CHECK (scope IN ('read', 'read-write', 'global')),
     token_hash    TEXT NOT NULL UNIQUE,
     token_prefix  TEXT NOT NULL,
     token_last4   TEXT NOT NULL,
@@ -194,18 +142,12 @@ END`,
 	`CREATE INDEX IF NOT EXISTS idx_api_tokens_active   ON api_tokens(revoked_at) WHERE revoked_at IS NULL`,
 
 	// ----------------------------------------------------------------------------
-	// app_secrets — server-generated root secrets with independent rotation
-	// lifecycles (AI.md PART 11). Rows: installation_secret, cookie_signing_key,
-	// csrf_token_secret. Values are base64-encoded. previous_value/previous_until
-	// support the 7-day grace-overlap window during rotation.
+	// app_secrets — key/value secrets and rotation bookkeeping (AI.md PART 10/11).
 	// ----------------------------------------------------------------------------
 	`CREATE TABLE IF NOT EXISTS app_secrets (
-    name            TEXT PRIMARY KEY,
-    value           TEXT NOT NULL,
-    previous_value  TEXT,
-    previous_until  INTEGER,
-    created_at      INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
-    rotated_at      INTEGER
+    name       TEXT PRIMARY KEY,
+    value      TEXT NOT NULL,
+    updated_at TEXT NOT NULL
 )`,
 
 	// ----------------------------------------------------------------------------
@@ -309,7 +251,15 @@ func EnsureSchema(store *Store) error {
 // EnsureSchemaContext is EnsureSchema bound to a caller-supplied context, so a
 // shutdown signal or an outer deadline can abort a migration in progress.
 func EnsureSchemaContext(ctx context.Context, store *Store) error {
-	return store.Write(ctx, func(tx *sql.Tx) error {
+	if err := store.Write(ctx, func(tx *sql.Tx) error {
+		if store.remoteDB {
+			if err := adoptLegacyRemoteNames(ctx, tx); err != nil {
+				return fmt.Errorf("db: remote naming migration: %w", err)
+			}
+		}
+		if err := upgradeAppSecretsSchema(ctx, tx); err != nil {
+			return fmt.Errorf("db: app_secrets migration: %w", err)
+		}
 		if err := renameCanonicalSchedulerColumns(ctx, tx); err != nil {
 			return fmt.Errorf("db: scheduler_tasks/scheduler_history migration: %w", err)
 		}
@@ -336,7 +286,149 @@ func EnsureSchemaContext(ctx context.Context, store *Store) error {
 			return fmt.Errorf("db: ensure system owner: %w", err)
 		}
 		return nil
-	})
+	}); err != nil {
+		return err
+	}
+	rows, err := store.QueryContext(ctx, `PRAGMA table_info(api_tokens)`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var cid, notNull, primary int
+		var name, columnType string
+		var defaultValue sql.NullString
+		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &primary); err != nil {
+			return err
+		}
+		if name == "id" && strings.Contains(strings.ToUpper(columnType), "INT") {
+			store.tokenIDColumn = "public_id"
+			return rows.Err()
+		}
+	}
+	return rows.Err()
+}
+
+// adoptLegacyRemoteNames preserves data created before the required srv_ prefix
+// was introduced. Existing tables are renamed in place, and legacy indexes are
+// recreated by the normal idempotent schema statements under their new names.
+func adoptLegacyRemoteNames(ctx context.Context, tx *sql.Tx) error {
+	rows, err := tx.QueryContext(ctx, `SELECT name FROM sqlite_master WHERE type IN ('table','index') AND name NOT LIKE 'sqlite_%'`)
+	if err != nil {
+		return err
+	}
+	existing := make(map[string]struct{})
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		existing[strings.ToLower(name)] = struct{}{}
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return err
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	for name := range databaseObjectNames {
+		if strings.HasPrefix(name, "idx_") {
+			continue
+		}
+		if _, legacyExists := existing[name]; !legacyExists {
+			continue
+		}
+		remoteName := strings.ToLower(DatabaseObjectName("libsql", name))
+		if _, remoteExists := existing[remoteName]; remoteExists {
+			return fmt.Errorf("both legacy %q and prefixed %q exist; refusing to choose or discard data", name, remoteName)
+		}
+		if _, err := tx.ExecContext(ctx, `ALTER TABLE `+name+` RENAME TO `+remoteName); err != nil {
+			return fmt.Errorf("rename legacy table %q: %w", name, err)
+		}
+	}
+	for name := range databaseObjectNames {
+		if !strings.HasPrefix(name, "idx_") {
+			continue
+		}
+		if _, legacyExists := existing[name]; !legacyExists {
+			continue
+		}
+		if _, err := tx.ExecContext(ctx, `DROP INDEX `+name); err != nil {
+			return fmt.Errorf("drop legacy index %q: %w", name, err)
+		}
+	}
+	return nil
+}
+
+// upgradeAppSecretsSchema moves legacy inline rotation fields into the
+// canonical app_secrets key/value rows without discarding any stored secret.
+func upgradeAppSecretsSchema(ctx context.Context, tx *sql.Tx) error {
+	columns, exists, err := schemaTableColumns(ctx, tx, "app_secrets")
+	if err != nil || !exists || columns["updated_at"] {
+		return err
+	}
+	if !columns["previous_value"] || !columns["previous_until"] || !columns["rotated_at"] {
+		if _, err := tx.ExecContext(ctx, `ALTER TABLE app_secrets ADD COLUMN updated_at TEXT NOT NULL DEFAULT ''`); err != nil {
+			return err
+		}
+		_, err = tx.ExecContext(ctx, `UPDATE app_secrets SET updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE updated_at = ''`)
+		return err
+	}
+	rows, err := tx.QueryContext(ctx, `SELECT name, value, previous_value, previous_until, rotated_at FROM app_secrets`)
+	if err != nil {
+		return err
+	}
+	type secretRow struct {
+		name, value              string
+		previous                 sql.NullString
+		previousUntil, rotatedAt sql.NullInt64
+	}
+	var secrets []secretRow
+	for rows.Next() {
+		var row secretRow
+		if err := rows.Scan(&row.name, &row.value, &row.previous, &row.previousUntil, &row.rotatedAt); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		secrets = append(secrets, row)
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return err
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `ALTER TABLE app_secrets RENAME TO app_secrets_legacy`); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `CREATE TABLE app_secrets (name TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL)`); err != nil {
+		return err
+	}
+	insert := `INSERT INTO app_secrets(name, value, updated_at) VALUES(?, ?, ?)`
+	for _, row := range secrets {
+		updated := time.Now().UTC().Format(time.RFC3339Nano)
+		if row.rotatedAt.Valid {
+			updated = time.Unix(row.rotatedAt.Int64, 0).UTC().Format(time.RFC3339Nano)
+		}
+		if _, err := tx.ExecContext(ctx, insert, row.name, row.value, updated); err != nil {
+			return err
+		}
+		if row.previous.Valid {
+			if _, err := tx.ExecContext(ctx, insert, row.name+"_previous", row.previous.String, updated); err != nil {
+				return err
+			}
+		}
+		if row.previousUntil.Valid {
+			until := time.Unix(row.previousUntil.Int64, 0).UTC().Format(time.RFC3339Nano)
+			if _, err := tx.ExecContext(ctx, insert, row.name+"_previous_until", until, updated); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func renameCanonicalSchedulerColumns(ctx context.Context, tx *sql.Tx) error {
@@ -435,6 +527,7 @@ func upgradeAPITokensSchema(ctx context.Context, db *sql.Tx) error {
 		return err
 	}
 	columns := map[string]bool{}
+	idType := ""
 	for rows.Next() {
 		var cid, notNull, primaryKey int
 		var name, columnType string
@@ -443,6 +536,9 @@ func upgradeAPITokensSchema(ctx context.Context, db *sql.Tx) error {
 			return errors.Join(err, rows.Close())
 		}
 		columns[name] = true
+		if name == "id" {
+			idType = strings.ToUpper(columnType)
+		}
 	}
 	if err := rows.Err(); err != nil {
 		return errors.Join(err, rows.Close())
@@ -453,10 +549,12 @@ func upgradeAPITokensSchema(ctx context.Context, db *sql.Tx) error {
 	if len(columns) == 0 {
 		return nil
 	}
+	legacyID := strings.Contains(idType, "INT")
 	additions := []struct{ name, definition string }{
 		{"owner_id", `TEXT`},
 		{"kind", `TEXT NOT NULL DEFAULT 'linked'`},
 		{"name", `TEXT`},
+		{"scope", `TEXT NOT NULL DEFAULT 'read-write' CHECK (scope IN ('read', 'read-write', 'global'))`},
 		{"token_enc", `TEXT NOT NULL DEFAULT ''`},
 		{"token_last4", `TEXT NOT NULL DEFAULT ''`},
 		{"rotated_at", `INTEGER`},
@@ -473,6 +571,49 @@ func upgradeAPITokensSchema(ctx context.Context, db *sql.Tx) error {
 		if _, err := db.ExecContext(ctx, statement); err != nil && !isAlreadyExistsError(err) {
 			return fmt.Errorf("db: migration statement %q failed: %w", statement, err)
 		}
+	}
+	if legacyID {
+		if !columns["public_id"] {
+			if _, err := db.ExecContext(ctx, `ALTER TABLE api_tokens ADD COLUMN public_id TEXT`); err != nil && !isAlreadyExistsError(err) {
+				return err
+			}
+		}
+		rows, err := db.QueryContext(ctx, `SELECT id FROM api_tokens WHERE public_id IS NULL OR public_id = ''`)
+		if err != nil {
+			return err
+		}
+		var ids []int64
+		for rows.Next() {
+			var id int64
+			if err := rows.Scan(&id); err != nil {
+				_ = rows.Close()
+				return err
+			}
+			ids = append(ids, id)
+		}
+		if err := rows.Err(); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		if err := rows.Close(); err != nil {
+			return err
+		}
+		for _, id := range ids {
+			publicID, err := uuid.NewV7()
+			if err != nil {
+				return fmt.Errorf("generate public token UUID: %w", err)
+			}
+			if _, err := db.ExecContext(ctx, `UPDATE api_tokens SET public_id = ? WHERE id = ? AND (public_id IS NULL OR public_id = '')`, publicID.String(), id); err != nil {
+				return err
+			}
+		}
+		if _, err := db.ExecContext(ctx, `CREATE UNIQUE INDEX IF NOT EXISTS idx_api_tokens_public_id ON api_tokens(public_id)`); err != nil {
+			return err
+		}
+	}
+	statement := `UPDATE api_tokens SET scope = 'global' WHERE kind = 'primary' AND scope <> 'global'`
+	if _, err := db.ExecContext(ctx, statement); err != nil {
+		return fmt.Errorf("db: migration statement %q failed: %w", statement, err)
 	}
 	return nil
 }
@@ -549,131 +690,4 @@ func isAlreadyExistsError(err error) bool {
 	msg := strings.ToLower(err.Error())
 	return strings.Contains(msg, "already exists") ||
 		strings.Contains(msg, "duplicate column")
-}
-
-// AdoptLegacyAPITokenIDs performs the documented one-time, operator-invoked
-// migration from integer token row IDs to UUIDv7 text IDs. Call only after a
-// verified offline backup; startup schema application never invokes it.
-func AdoptLegacyAPITokenIDs(store *Store) error {
-	return store.Write(context.Background(), func(tx *sql.Tx) error {
-		rows, err := tx.Query(`PRAGMA table_info(api_tokens)`)
-		if err != nil {
-			return err
-		}
-		idType := ""
-		columns := map[string]bool{}
-		for rows.Next() {
-			var cid, notNull, primary int
-			var name, kind string
-			var defaultValue sql.NullString
-			if err := rows.Scan(&cid, &name, &kind, &notNull, &defaultValue, &primary); err != nil {
-				_ = rows.Close()
-				return err
-			}
-			columns[name] = true
-			if name == "id" {
-				idType = strings.ToUpper(kind)
-			}
-		}
-		if err := rows.Err(); err != nil {
-			_ = rows.Close()
-			return err
-		}
-		if err := rows.Close(); err != nil {
-			return err
-		}
-		if strings.Contains(idType, "TEXT") {
-			return nil
-		}
-		if !strings.Contains(idType, "INT") {
-			return fmt.Errorf("api_tokens.id has unsupported type %q", idType)
-		}
-		for _, required := range []string{"owner_id", "kind", "name", "token_hash", "token_prefix", "token_last4", "token_enc", "created_at", "rotated_at", "expires_at", "last_used_at", "revoked_at", "revoked_reason"} {
-			if !columns[required] {
-				return fmt.Errorf("legacy api_tokens is missing %s; adoption refused", required)
-			}
-		}
-		type tokenRow struct {
-			owner, kind, name, hash, prefix, last4, enc, reason sql.NullString
-			created, rotated, expires, used, revoked            sql.NullInt64
-		}
-		rows, err = tx.Query(`SELECT owner_id,kind,name,token_hash,token_prefix,token_last4,token_enc,created_at,rotated_at,expires_at,last_used_at,revoked_at,revoked_reason FROM api_tokens`)
-		if err != nil {
-			return err
-		}
-		var records []tokenRow
-		for rows.Next() {
-			var record tokenRow
-			if err := rows.Scan(&record.owner, &record.kind, &record.name, &record.hash, &record.prefix, &record.last4, &record.enc, &record.created, &record.rotated, &record.expires, &record.used, &record.revoked, &record.reason); err != nil {
-				_ = rows.Close()
-				return err
-			}
-			records = append(records, record)
-		}
-		if err := rows.Err(); err != nil {
-			_ = rows.Close()
-			return err
-		}
-		if err := rows.Close(); err != nil {
-			return err
-		}
-		if _, err := tx.Exec(`CREATE TABLE api_tokens_v7 (id TEXT PRIMARY KEY, owner_id TEXT NOT NULL REFERENCES owners(id) ON DELETE CASCADE, kind TEXT NOT NULL CHECK(kind IN ('primary','linked')), name TEXT, token_hash TEXT NOT NULL UNIQUE, token_prefix TEXT NOT NULL, token_last4 TEXT NOT NULL, token_enc TEXT NOT NULL, created_at INTEGER NOT NULL, rotated_at INTEGER, expires_at INTEGER, last_used_at INTEGER, revoked_at INTEGER, revoked_reason TEXT)`); err != nil {
-			return err
-		}
-		for _, record := range records {
-			id, err := uuid.NewV7()
-			if err != nil {
-				return fmt.Errorf("generate canonical token UUID: %w", err)
-			}
-			if _, err := tx.Exec(`INSERT INTO api_tokens_v7(id,owner_id,kind,name,token_hash,token_prefix,token_last4,token_enc,created_at,rotated_at,expires_at,last_used_at,revoked_at,revoked_reason) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, id.String(), record.owner, record.kind, record.name, record.hash, record.prefix, record.last4, record.enc, record.created, record.rotated, record.expires, record.used, record.revoked, record.reason); err != nil {
-				return err
-			}
-		}
-		if _, err := tx.Exec(`DROP TABLE api_tokens`); err != nil {
-			return err
-		}
-		if _, err := tx.Exec(`ALTER TABLE api_tokens_v7 RENAME TO api_tokens`); err != nil {
-			return err
-		}
-		for _, statement := range []string{
-			`CREATE UNIQUE INDEX idx_api_tokens_primary ON api_tokens(owner_id) WHERE kind='primary' AND revoked_at IS NULL`,
-			`CREATE UNIQUE INDEX idx_api_tokens_linked_name ON api_tokens(owner_id,name) WHERE kind='linked'`,
-			`CREATE INDEX idx_api_tokens_hash ON api_tokens(token_hash)`, `CREATE INDEX idx_api_tokens_prefix ON api_tokens(token_prefix)`, `CREATE INDEX idx_api_tokens_owner ON api_tokens(owner_id)`, `CREATE INDEX idx_api_tokens_active ON api_tokens(revoked_at) WHERE revoked_at IS NULL`,
-		} {
-			if _, err := tx.Exec(statement); err != nil {
-				return err
-			}
-		}
-		check, err := tx.Query(`PRAGMA foreign_key_check`)
-		if err != nil {
-			return err
-		}
-		defer check.Close()
-		if check.Next() {
-			return errors.New("foreign_key_check failed after API token adoption")
-		}
-		return check.Err()
-	})
-}
-
-// RequireCanonicalAPITokenIDs rejects startup on a legacy integer-key table;
-// the operator must run the offline token adopt-ids maintenance command first.
-func RequireCanonicalAPITokenIDs(store *Store) error {
-	rows, err := store.QueryContext(context.Background(), `PRAGMA table_info(api_tokens)`)
-	if err != nil {
-		return err
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var cid, notNull, primary int
-		var name, kind string
-		var defaultValue sql.NullString
-		if err := rows.Scan(&cid, &name, &kind, &notNull, &defaultValue, &primary); err != nil {
-			return err
-		}
-		if name == "id" && !strings.Contains(strings.ToUpper(kind), "TEXT") {
-			return errors.New("api_tokens.id is legacy; run `ipgaze --maintenance token adopt-ids` before starting this version")
-		}
-	}
-	return rows.Err()
 }

@@ -33,7 +33,7 @@ devel-version:
       dotenv: release.env
   rules:
     - if: '$CI_PIPELINE_SOURCE == "schedule"'
-    - if: '$CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "master"'
+    - if: '$CI_COMMIT_BRANCH == "main"'
 
 build:
   stage: build
@@ -63,12 +63,6 @@ license-check:
   stage: test
   script:
     - docker run --rm --name "ipgaze-licenses-${CI_PIPELINE_ID}" -v "$CI_PROJECT_DIR:/app" -w /app -e CGO_ENABLED=0 -e GOFLAGS=-buildvcs=false casjaysdev/go:latest ./scripts/verify-licenses.sh
-  artifacts:
-    when: always
-    paths:
-      - licenses.csv
-      - third_party_licenses/
-    expire_in: 30 days
 secret-scan:
   stage: security
   script:
@@ -144,10 +138,12 @@ docker:build:
       TAGS=(--tag "${CI_REGISTRY_IMAGE}:${SHORT_SHA}")
       if [ -n "${CI_COMMIT_TAG:-}" ]; then
         VERSION="${CI_COMMIT_TAG#v}"
-        TAGS+=(--tag "${CI_REGISTRY_IMAGE}:${VERSION}" --tag "${CI_REGISTRY_IMAGE}:latest" --tag "${CI_REGISTRY_IMAGE}:$(date -u +%y%m)")
-      elif [ "${CI_COMMIT_BRANCH:-}" = beta ]; then
-        TAGS+=(--tag "${CI_REGISTRY_IMAGE}:beta")
-      elif [ "${CI_COMMIT_BRANCH:-}" = main ] || [ "${CI_COMMIT_BRANCH:-}" = master ]; then
+        if [[ "$CI_COMMIT_TAG" =~ ^[0-9]{14}-beta$ ]]; then
+          TAGS+=(--tag "${CI_REGISTRY_IMAGE}:beta")
+        else
+          TAGS+=(--tag "${CI_REGISTRY_IMAGE}:${VERSION}" --tag "${CI_REGISTRY_IMAGE}:latest" --tag "${CI_REGISTRY_IMAGE}:$(date -u +%y%m)")
+        fi
+      elif [ "${CI_COMMIT_BRANCH:-}" = main ]; then
         TAGS+=(--tag "${CI_REGISTRY_IMAGE}:latest")
       fi
       docker buildx build --file docker/Dockerfile --platform linux/amd64,linux/arm64 \
@@ -177,9 +173,8 @@ docker:build:
       docker logout "$CI_REGISTRY"
   rules:
     - if: '$CI_COMMIT_TAG =~ /^v?\d+\.\d+\.\d+/'
-    - if: '$CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "master"'
-    - if: '$CI_COMMIT_BRANCH == "beta"'
-    - if: '$CI_COMMIT_BRANCH'
+    - if: '$CI_COMMIT_TAG =~ /^\d{14}-beta$/'
+    - if: '$CI_COMMIT_BRANCH == "main"'
 
 docker:devel:
   stage: docker
@@ -210,7 +205,7 @@ docker:devel:
       docker logout "$CI_REGISTRY"
   rules:
     - if: '$CI_PIPELINE_SOURCE == "schedule"'
-    - if: '$CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "master"'
+    - if: '$CI_COMMIT_BRANCH == "main"'
       when: on_success
     - when: never
 
@@ -226,12 +221,24 @@ docker:devel:
       trap 'rm -rf -- "$RELDIR"' EXIT
       RELEASE_CHANNEL="${RELEASE_CHANNEL:-stable}"
       if [ "$RELEASE_CHANNEL" = stable ]; then
+        if [ "$(git rev-parse "refs/tags/${CI_COMMIT_TAG}^{commit}")" != "$(git rev-parse HEAD)" ]; then
+          echo "ERROR: release tag does not point at the checked-out commit" >&2
+          exit 1
+        fi
         VERSION="${CI_COMMIT_TAG#v}"
         RELEASE_TAG="$CI_COMMIT_TAG"
         PACKAGE_VERSION="$VERSION"
       elif [ "$RELEASE_CHANNEL" = devel ]; then
         VERSION="$RELEASE_VERSION"
         RELEASE_TAG=devel
+        PACKAGE_VERSION="$VERSION"
+      elif [ "$RELEASE_CHANNEL" = beta ]; then
+        if [[ ! "${CI_COMMIT_TAG:-}" =~ ^[0-9]{14}-beta$ ]] || [ "$(git rev-parse "refs/tags/${CI_COMMIT_TAG}^{commit}")" != "$(git rev-parse HEAD)" ]; then
+          echo "ERROR: beta release requires an existing timestamp tag at the checked-out commit" >&2
+          exit 1
+        fi
+        VERSION="$CI_COMMIT_TAG"
+        RELEASE_TAG="$CI_COMMIT_TAG"
         PACKAGE_VERSION="$VERSION"
       else
         VERSION="${RELEASE_CHANNEL}-${CI_COMMIT_SHA:0:7}"
@@ -388,7 +395,7 @@ release:beta:
   variables:
     RELEASE_CHANNEL: beta
   rules:
-    - if: '$CI_COMMIT_BRANCH == "beta"'
+    - if: '$CI_COMMIT_TAG =~ /^\d{14}-beta$/'
       when: on_success
     - when: never
 
@@ -401,7 +408,7 @@ release:devel:
   rules:
     - if: '$CI_PIPELINE_SOURCE == "schedule"'
       when: on_success
-    - if: '$CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "master"'
+    - if: '$CI_COMMIT_BRANCH == "main"'
       when: manual
       allow_failure: true
     - when: never

@@ -42,6 +42,28 @@ func TestTemplateFuncMap_Humanize(t *testing.T) {
 	}
 }
 
+func TestToastScriptHonorsConfiguredZeroDurations(t *testing.T) {
+	content, err := staticFS.ReadFile("static/js/app.js")
+	if err != nil {
+		t.Fatalf("read embedded app.js: %v", err)
+	}
+	script := string(content)
+	for _, required := range []string{
+		"document.body.dataset.toastDuration === undefined ? 3 : document.body.dataset.toastDuration",
+		"document.body.dataset.toastWarningDuration === undefined ? 5 : document.body.dataset.toastWarningDuration",
+		"configuredSeconds <= 0",
+	} {
+		if !strings.Contains(script, required) {
+			t.Errorf("toast script does not preserve zero-valued configuration; missing %q", required)
+		}
+	}
+	for _, forbidden := range []string{"dataset.toastDuration || 3", "dataset.toastWarningDuration || 5"} {
+		if strings.Contains(script, forbidden) {
+			t.Errorf("toast script treats configured zero as absent: %q", forbidden)
+		}
+	}
+}
+
 // TestInitTemplates_Parses guards the embedded template set against a parse
 // error (an unregistered func, a malformed action) that would otherwise only
 // surface at first render in production.

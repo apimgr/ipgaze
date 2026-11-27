@@ -37,8 +37,8 @@ services:
       # CRITICAL: ./volumes/ must resolve to $TEMP_DIR/volumes/, NOT project directory
       # This file MUST be copied to a temp directory before running
       # AI: NEVER run this from the project directory
-      - './volumes/config:/config:z'
-      - './volumes/data:/data:z'
+      - './volumes/config:/config'
+      - './volumes/data:/data'
     ports:
       - '172.17.0.1:64581:80'
     healthcheck:

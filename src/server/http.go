@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"crypto/subtle"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -176,6 +177,8 @@ type Server struct {
 	reqStats *requestStats
 	// cacheBackend is the configured cache.Cache used for the checks.cache probe (PART 9/13).
 	cacheBackend cacheBackendPinger
+	// ownerTokenCache stores short-lived token-hash lookup results (AI.md PART 9).
+	ownerTokenCache ownerTokenLookupCache
 	// diskUsageFunc reports free bytes and used-percent for DataDir, used for checks.disk (PART 13).
 	diskUsageFunc func(path string) (uint64, int, error)
 	// brandingCache holds the locally-fetched/cached branding logo served at
@@ -190,6 +193,21 @@ type cacheBackendPinger interface {
 	Ping(ctx context.Context) error
 }
 
+type ownerTokenLookupCache interface {
+	Get(ctx context.Context, key string) ([]byte, error)
+	Set(ctx context.Context, key string, value []byte, ttl time.Duration) error
+}
+
+type ownerTokenLookup struct {
+	TokenID   string `json:"token_id"`
+	OwnerID   string `json:"owner_id"`
+	Scope     string `json:"scope"`
+	ExpiresAt *int64 `json:"expires_at,omitempty"`
+}
+
+const ownerTokenLookupTTL = 30 * time.Second
+const ownerTokenLookupTimeout = 250 * time.Millisecond
+
 // AssetStamp returns the {project_version}-{short_commit} cache-busting
 // stamp appended to every static asset URL as "?v=" (AI.md PART 9 "Asset
 // Version-Busting (REQUIRED)"). CommitID is already the short hash
@@ -199,16 +217,18 @@ func (s *Server) AssetStamp() string {
 }
 
 func (s *Server) themeCSSHandler() http.HandlerFunc {
-	css := theme.CSSVariables()
-	stamp := s.AssetStamp()
-	etag := `"` + stamp + `"`
 	return func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "text/css; charset=utf-8")
-		if r.URL.Query().Get("v") == stamp {
-			w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
-		} else {
-			w.Header().Set("Cache-Control", "no-cache")
+		css := theme.CSSVariables()
+		if s.config != nil {
+			webui := s.config.Server.Notifications.WebUI
+			css += fmt.Sprintf(":root { --toast-duration: %ds; --toast-duration-warning: %ds; }\n", webui.Duration, webui.WarningDuration)
 		}
+		digest := sha256.Sum256([]byte(css))
+		etag := fmt.Sprintf(`"%x"`, digest)
+		w.Header().Set("Content-Type", "text/css; charset=utf-8")
+		// Configurable toast durations are part of this stylesheet and can
+		// change without a binary rebuild, so clients must revalidate it.
+		w.Header().Set("Cache-Control", "no-cache")
 		w.Header().Set("ETag", etag)
 		if r.Header.Get("If-None-Match") == etag || r.Header.Get("If-None-Match") == "*" {
 			w.WriteHeader(http.StatusNotModified)
@@ -378,6 +398,12 @@ func (s *Server) ValidateOperatorToken(rawToken string) bool {
 
 // ValidateAPIToken accepts the configured operator token or an active owner token.
 func (s *Server) ValidateAPIToken(rawToken string) bool {
+	return s.ValidateAPITokenScope(rawToken, handler.OwnerTokenScopeRead)
+}
+
+// ValidateAPITokenScope accepts a token that grants the requested owner-token scope.
+// The operator token is always global and remains valid without a database.
+func (s *Server) ValidateAPITokenScope(rawToken, requiredScope string) bool {
 	if s.ValidateOperatorToken(rawToken) {
 		return true
 	}
@@ -393,8 +419,8 @@ func (s *Server) ValidateAPIToken(rawToken string) bool {
 			return false
 		}
 	}
-	tokenID, ownerID, ok := s.findOwnerToken(rawToken)
-	if !ok {
+	tokenID, ownerID, scope, ok := s.findOwnerToken(rawToken)
+	if !ok || !ownerTokenScopeAllows(scope, requiredScope) {
 		return false
 	}
 	db.MarkOwnerUsage(tokenID, ownerID, time.Now())
@@ -403,33 +429,82 @@ func (s *Server) ValidateAPIToken(rawToken string) bool {
 
 // findOwnerToken resolves an active owner token by its non-secret prefix, then
 // compares the stored SHA-256 digest to the inbound digest in constant time.
-func (s *Server) findOwnerToken(rawToken string) (tokenID string, ownerID string, ok bool) {
+func ownerTokenScopeAllows(scope, required string) bool {
+	switch required {
+	case handler.OwnerTokenScopeRead:
+		return scope == handler.OwnerTokenScopeRead || scope == handler.OwnerTokenScopeReadWrite || scope == handler.OwnerTokenScopeGlobal
+	case handler.OwnerTokenScopeReadWrite:
+		return scope == handler.OwnerTokenScopeReadWrite || scope == handler.OwnerTokenScopeGlobal
+	case handler.OwnerTokenScopeGlobal:
+		return scope == handler.OwnerTokenScopeGlobal
+	default:
+		return false
+	}
+}
+
+func (s *Server) findOwnerToken(rawToken string) (tokenID string, ownerID string, scope string, ok bool) {
 	db := s.database()
 	if db == nil || len(rawToken) != len("own_")+32 || !strings.HasPrefix(rawToken, "own_") {
-		return "", "", false
+		return "", "", "", false
 	}
-	rows, err := db.Query(`SELECT id, owner_id, token_hash FROM api_tokens WHERE token_prefix = ? AND owner_id <> 'system' AND revoked_at IS NULL
+	inboundHash := sha256.Sum256([]byte(rawToken))
+	if s.ownerTokenCache != nil {
+		cacheKey := "owner-token:" + hex.EncodeToString(inboundHash[:])
+		cacheCtx, cancel := context.WithTimeout(context.Background(), ownerTokenLookupTimeout)
+		encoded, cacheErr := s.ownerTokenCache.Get(cacheCtx, cacheKey)
+		cancel()
+		if cacheErr == nil {
+			var cached ownerTokenLookup
+			if json.Unmarshal(encoded, &cached) == nil && cached.TokenID != "" && cached.OwnerID != "" && ownerTokenScopeAllows(cached.Scope, handler.OwnerTokenScopeRead) && (cached.ExpiresAt == nil || *cached.ExpiresAt > time.Now().Unix()) {
+				var storedHash string
+				var expiresAt sql.NullInt64
+				query := `SELECT token_hash, expires_at FROM api_tokens WHERE ` + db.APITokenIDColumn() + ` = ? AND owner_id = ? AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > strftime('%s', 'now'))`
+				if db.QueryRowContext(context.Background(), query, cached.TokenID, cached.OwnerID).Scan(&storedHash, &expiresAt) == nil {
+					expectedHash, decodeErr := hex.DecodeString(storedHash)
+					if decodeErr == nil && len(expectedHash) == len(inboundHash) && subtle.ConstantTimeCompare(expectedHash, inboundHash[:]) == 1 {
+						return cached.TokenID, cached.OwnerID, cached.Scope, true
+					}
+				}
+			}
+		}
+	}
+	rows, err := db.Query(`SELECT `+db.APITokenIDColumn()+`, owner_id, scope, token_hash, expires_at FROM api_tokens WHERE token_prefix = ? AND owner_id <> 'system' AND revoked_at IS NULL
 		AND (expires_at IS NULL OR expires_at > strftime('%s', 'now'))`, rawToken[:12])
 	if err != nil {
-		return "", "", false
+		return "", "", "", false
 	}
 	defer func() {
 		if closeErr := rows.Close(); closeErr != nil {
-			tokenID, ownerID, ok = "", "", false
+			tokenID, ownerID, scope, ok = "", "", "", false
 		}
 	}()
-	inboundHash := sha256.Sum256([]byte(rawToken))
 	for rows.Next() {
 		var storedHash string
-		if rows.Scan(&tokenID, &ownerID, &storedHash) != nil {
-			return "", "", false
+		var expiresAt sql.NullInt64
+		if rows.Scan(&tokenID, &ownerID, &scope, &storedHash, &expiresAt) != nil {
+			return "", "", "", false
 		}
 		expectedHash, decodeErr := hex.DecodeString(storedHash)
 		if decodeErr == nil && len(expectedHash) == len(inboundHash) && subtle.ConstantTimeCompare(expectedHash, inboundHash[:]) == 1 {
-			return tokenID, ownerID, true
+			if s.ownerTokenCache != nil {
+				lookup := ownerTokenLookup{TokenID: tokenID, OwnerID: ownerID, Scope: scope}
+				ttl := ownerTokenLookupTTL
+				if expiresAt.Valid {
+					lookup.ExpiresAt = &expiresAt.Int64
+					if remaining := time.Until(time.Unix(expiresAt.Int64, 0)); remaining < ttl {
+						ttl = remaining
+					}
+				}
+				if encoded, marshalErr := json.Marshal(lookup); marshalErr == nil && ttl > 0 {
+					cacheCtx, cancel := context.WithTimeout(context.Background(), ownerTokenLookupTimeout)
+					_ = s.ownerTokenCache.Set(cacheCtx, "owner-token:"+hex.EncodeToString(inboundHash[:]), encoded, ttl)
+					cancel()
+				}
+			}
+			return tokenID, ownerID, scope, true
 		}
 	}
-	return "", "", false
+	return "", "", "", false
 }
 
 func (s *Server) auditRejectedCLIToken(r *http.Request, rawToken string) {
@@ -487,7 +562,7 @@ func (s *Server) SetRateLimiter(rl *RateLimiter) {
 				return "", false
 			}
 			hash := sha256.Sum256([]byte(rawToken))
-			_, ownerID, ok := s.findOwnerToken(rawToken)
+			_, ownerID, _, ok := s.findOwnerToken(rawToken)
 			if !ok {
 				return "", false
 			}
@@ -570,6 +645,7 @@ func (s *Server) SetDatabaseRecovery(recover func() (*dbstore.Store, error)) {
 // supported, the distributed sliding-window rate limiter (AI.md PART 9/12/13).
 func (s *Server) SetCacheBackend(c cacheBackendPinger) {
 	s.cacheBackend = c
+	s.ownerTokenCache, _ = c.(ownerTokenLookupCache)
 	if s.rateLimiter != nil {
 		counter, _ := c.(rateLimitWindowCounter)
 		s.rateLimiter.SetWindowCounter(counter)

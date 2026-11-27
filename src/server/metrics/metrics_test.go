@@ -77,6 +77,13 @@ func TestHTTPRequestSize(t *testing.T) {
 	}).Observe(512)
 }
 
+func TestClassifyDBStatementStripsRemoteTablePrefix(t *testing.T) {
+	operation, table := classifyDBStatement(`SELECT id FROM srv_api_tokens WHERE id = ?`)
+	if operation != "select" || table != "api_tokens" {
+		t.Fatalf("classifyDBStatement() = %q, %q; want select, api_tokens", operation, table)
+	}
+}
+
 // TestHTTPResponseSize verifies observations are accepted without panicking.
 func TestHTTPResponseSize(t *testing.T) {
 	HTTPResponseSize.With(map[string]string{

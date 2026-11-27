@@ -218,7 +218,7 @@ func TestRotateSecretIfDue(t *testing.T) {
 	if err != nil || rotated {
 		t.Fatalf("RotateSecretIfDue on fresh secret = %v, %v; want false, nil", rotated, err)
 	}
-	if _, err := conn.Exec(`UPDATE app_secrets SET rotated_at = ? WHERE name = ?`, now.Add(-91*24*time.Hour).Unix(), string(SecretCookieSigningKey)); err != nil {
+	if _, err := conn.Exec(`UPDATE app_secrets SET updated_at = ? WHERE name = ?`, now.Add(-91*24*time.Hour).UTC().Format(time.RFC3339Nano), string(SecretCookieSigningKey)); err != nil {
 		t.Fatalf("make secret overdue: %v", err)
 	}
 	rotated, err = RotateSecretIfDue(conn, SecretCookieSigningKey, 90*24*time.Hour, now)

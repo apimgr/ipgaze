@@ -186,7 +186,7 @@ docker run -d \
 | `--log DIR` | Log directory |
 | `--backup DIR` | Backup directory |
 | `--pid FILE` | PID file path |
-| `--address ADDR` | Listen address (default: `0.0.0.0`) |
+| `--address ADDR` | Listen address (default: `[::]`, dual-stack IPv4/IPv6; falls back to IPv4-only `0.0.0.0` when the kernel has no IPv6) |
 | `--port PORT` | Listen port (default: random `64xxx`, `80` in a container) |
 | `--baseurl PATH` | URL path prefix (default: `/`) |
 | `--daemon` | Run as a daemon (detach from the terminal) |

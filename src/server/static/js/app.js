@@ -206,7 +206,7 @@ function toggleTheme() {
     light: i18nStr('i18nThemeLight', 'light'),
     auto: i18nStr('i18nThemeAuto', 'system')
   };
-  showToast(i18nStr('i18nThemeTogglePrefix', 'Theme: ') + (labels[next] || next), 'info', 2000);
+  showToast(i18nStr('i18nThemeTogglePrefix', 'Theme: ') + (labels[next] || next), 'info');
 }
 
 // initThemeToggleForms is progressive enhancement only: the toggle is a real
@@ -233,15 +233,17 @@ let toastIdSeq = 0;
 const TOAST_MAX_VISIBLE = 5;
 
 // showToast enqueues a notification and returns its ID for programmatic
-// control (dismissToast). duration 0 = no auto-dismiss. Default durations
-// by type: success/info = 3s, warning = 5s, error = no auto-dismiss.
-function showToast(message, type, duration) {
+// control (dismissToast). Durations come from the page's server-rendered
+// configuration; errors never auto-dismiss.
+function showToast(message, type) {
   type = type || 'info';
-  if (duration === undefined) {
-    if (type === 'error') { duration = 0; }
-    else if (type === 'warning') { duration = 5000; }
-    else { duration = 3000; }
-  }
+  if (!['success', 'error', 'warning', 'info'].includes(type)) { type = 'info'; }
+  const configuredSeconds = Number(type === 'warning'
+    ? (document.body.dataset.toastWarningDuration === undefined ? 5 : document.body.dataset.toastWarningDuration)
+    : (document.body.dataset.toastDuration === undefined ? 3 : document.body.dataset.toastDuration));
+  const duration = type === 'error' || !Number.isFinite(configuredSeconds) || configuredSeconds <= 0
+    ? 0
+    : configuredSeconds * 1000;
   const id = 'toast-' + (++toastIdSeq);
   toastQueue.push({ id: id, message: message, type: type, duration: duration });
   processToastQueue();
@@ -286,17 +288,19 @@ function renderToast(container, item) {
   closeBtn.className = 'toast-close';
   closeBtn.setAttribute('aria-label', i18nStr('i18nToastClose', 'Close notification'));
   closeBtn.textContent = '×';
-  closeBtn.addEventListener('click', function() { removeToast(toast); });
-  const progress = document.createElement('div');
-  progress.className = 'toast-progress';
+  closeBtn.addEventListener('click', function(event) {
+    event.stopPropagation();
+    removeToast(toast);
+  });
+  toast.addEventListener('click', function() { removeToast(toast); });
   toast.appendChild(icon);
   toast.appendChild(msg);
   toast.appendChild(closeBtn);
-  toast.appendChild(progress);
   container.appendChild(toast);
   if (item.duration > 0) {
-    progress.style.animationDuration = item.duration + 'ms';
-    progress.classList.add('toast-progress-active');
+    const progress = document.createElement('div');
+    progress.className = 'toast-progress toast-progress-active';
+    toast.appendChild(progress);
     let remaining = item.duration;
     let startedAt = Date.now();
     let timer = setTimeout(function() { removeToast(toast); }, remaining);
@@ -305,13 +309,11 @@ function renderToast(container, item) {
     toast.addEventListener('mouseenter', function() {
       clearTimeout(timer);
       remaining -= Date.now() - startedAt;
-      progress.style.animationPlayState = 'paused';
     });
     toast.addEventListener('mouseleave', function() {
       if (remaining <= 0) { removeToast(toast); return; }
       startedAt = Date.now();
       timer = setTimeout(function() { removeToast(toast); }, remaining);
-      progress.style.animationPlayState = 'running';
     });
   }
 }
@@ -320,7 +322,7 @@ function renderToast(container, item) {
 // queued toast (if any) into the now-free visible slot.
 function removeToast(toast) {
   if (!toast || !toast.isConnected) { return; }
-  toast.style.animation = 'slideOut 0.3s ease';
+  toast.classList.add('toast-removing');
   setTimeout(function() {
     toast.remove();
     processToastQueue();

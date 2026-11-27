@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -45,7 +46,7 @@ func ImportLegacyDatabaseSecrets(db legacySecretStore, path string) error {
 	}
 	if err := db.Write(context.Background(), func(tx *sql.Tx) error {
 		for name, value := range values {
-			if _, err := tx.Exec(`INSERT OR IGNORE INTO app_secrets (name, value) VALUES (?, ?)`, name, value); err != nil {
+			if _, err := tx.Exec(`INSERT OR IGNORE INTO app_secrets (name, value, updated_at) VALUES (?, ?, ?)`, name, value, time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
 				return fmt.Errorf("import legacy secret %s: %w", name, err)
 			}
 		}

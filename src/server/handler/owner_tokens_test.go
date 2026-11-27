@@ -34,6 +34,7 @@ func TestLinkedTokenRevealRendersOnlyItsLinkedCard(t *testing.T) {
 			id TEXT PRIMARY KEY,
 			owner_id TEXT NOT NULL,
 			kind TEXT NOT NULL,
+			scope TEXT NOT NULL DEFAULT 'read-write',
 			name TEXT,
 			token_hash TEXT NOT NULL,
 			token_prefix TEXT NOT NULL,
@@ -58,8 +59,8 @@ func TestLinkedTokenRevealRendersOnlyItsLinkedCard(t *testing.T) {
 	}
 	const linkedToken = "own_0123456789ABCDEFGHIJKLMNOPQRSTUV"
 	linkedID := uuid.Must(uuid.NewV7())
-	_, err = database.Exec(`INSERT INTO api_tokens(id, owner_id, kind, name, token_hash, token_prefix, token_last4, token_enc)
-		VALUES(?, ?, 'linked', 'automation', 'linked-hash', 'own_01234567', 'RSTV', 'encrypted')`, linkedID, primary.OwnerID)
+	_, err = database.Exec(`INSERT INTO api_tokens(id, owner_id, kind, name, scope, token_hash, token_prefix, token_last4, token_enc)
+		VALUES(?, ?, 'linked', 'automation', 'read', 'linked-hash', 'own_01234567', 'RSTV', 'encrypted')`, linkedID, primary.OwnerID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,7 +81,7 @@ func TestLinkedTokenRevealRendersOnlyItsLinkedCard(t *testing.T) {
 	if rendered.PrimaryMasked != maskOwnerTokenSuffix(primary.Last4) {
 		t.Fatalf("primary token = %q; want masked primary %q", rendered.PrimaryMasked, maskOwnerTokenSuffix(primary.Last4))
 	}
-	if len(rendered.LinkedTokens) != 1 || rendered.LinkedTokens[0].Status != "active" {
+	if len(rendered.LinkedTokens) != 1 || rendered.LinkedTokens[0].Status != "active" || rendered.LinkedTokens[0].Scope != OwnerTokenScopeRead {
 		t.Fatalf("linked token list = %#v; want one active token", rendered.LinkedTokens)
 	}
 	if _, err := uuid.Parse(rendered.LinkedTokens[0].ID); err != nil {
@@ -137,6 +138,7 @@ func TestPrimaryTokenBearerDistinguishesLinkedFromInvalidTokens(t *testing.T) {
 			id TEXT PRIMARY KEY,
 			owner_id TEXT NOT NULL,
 			kind TEXT NOT NULL,
+			scope TEXT NOT NULL DEFAULT 'read-write',
 			name TEXT,
 			token_hash TEXT NOT NULL,
 			token_prefix TEXT NOT NULL,
@@ -161,8 +163,8 @@ func TestPrimaryTokenBearerDistinguishesLinkedFromInvalidTokens(t *testing.T) {
 	}
 	const linkedToken = "own_0123456789ABCDEFGHIJKLMNOPQRSTUV"
 	linkedHash := sha256.Sum256([]byte(linkedToken))
-	_, err = database.Exec(`INSERT INTO api_tokens(id, owner_id, kind, name, token_hash, token_prefix, token_last4, token_enc)
-		VALUES(?, ?, 'linked', 'automation', ?, ?, ?, 'encrypted')`, uuid.Must(uuid.NewV7()), primary.OwnerID,
+	_, err = database.Exec(`INSERT INTO api_tokens(id, owner_id, kind, name, scope, token_hash, token_prefix, token_last4, token_enc)
+		VALUES(?, ?, 'linked', 'automation', 'read', ?, ?, ?, 'encrypted')`, uuid.Must(uuid.NewV7()), primary.OwnerID,
 		hex.EncodeToString(linkedHash[:]), ownerTokenPrefix(linkedToken), ownerTokenSuffix(linkedToken))
 	if err != nil {
 		t.Fatal(err)
@@ -175,7 +177,7 @@ func TestPrimaryTokenBearerDistinguishesLinkedFromInvalidTokens(t *testing.T) {
 		wantErr    error
 	}{
 		{name: "primary", token: primaryToken, wantStatus: http.StatusOK},
-		{name: "linked", token: linkedToken, wantStatus: http.StatusForbidden, wantErr: errPrimaryOwnerTokenRequired},
+		{name: "linked", token: linkedToken, wantStatus: http.StatusForbidden, wantErr: errInsufficientTokenScope},
 		{name: "missing", wantStatus: http.StatusUnauthorized, wantErr: sql.ErrNoRows},
 		{name: "invalid", token: "own_00000000000000000000000000000000", wantStatus: http.StatusUnauthorized, wantErr: sql.ErrNoRows},
 	}
@@ -190,6 +192,9 @@ func TestPrimaryTokenBearerDistinguishesLinkedFromInvalidTokens(t *testing.T) {
 			if response.Code != test.wantStatus {
 				t.Fatalf("status = %d, want %d: %s", response.Code, test.wantStatus, response.Body.String())
 			}
+			if test.name == "linked" && response.Header().Get("WWW-Authenticate") != `Bearer error="insufficient_scope"` {
+				t.Fatalf("linked token challenge = %q, want insufficient_scope", response.Header().Get("WWW-Authenticate"))
+			}
 			if test.name == "primary" {
 				var envelope struct {
 					Data struct {
@@ -201,11 +206,14 @@ func TestPrimaryTokenBearerDistinguishesLinkedFromInvalidTokens(t *testing.T) {
 				if err := json.Unmarshal(response.Body.Bytes(), &envelope); err != nil {
 					t.Fatalf("decode token list response: %v", err)
 				}
-				if envelope.Data.Primary["kind"] != "primary" || len(envelope.Data.Linked) != 1 || envelope.Data.MaxLinked != 25 {
+				if envelope.Data.Primary["kind"] != "primary" || envelope.Data.Primary["scope"] != OwnerTokenScopeGlobal || len(envelope.Data.Linked) != 1 || envelope.Data.MaxLinked != 25 {
 					t.Fatalf("token list data = %#v, want primary, one linked token, and max_linked 25", envelope.Data)
 				}
 				if _, ok := envelope.Data.Linked[0]["token_masked"]; !ok {
 					t.Fatalf("linked token object lacks token_masked: %#v", envelope.Data.Linked[0])
+				}
+				if envelope.Data.Linked[0]["scope"] != OwnerTokenScopeRead {
+					t.Fatalf("linked token scope = %#v, want read", envelope.Data.Linked[0]["scope"])
 				}
 			}
 			if test.wantErr != nil && !errors.Is(func() error {
@@ -233,6 +241,7 @@ func TestPrimaryTokenRevokeRequiresConfirmationAndDeletesOwner(t *testing.T) {
 			id TEXT PRIMARY KEY,
 			owner_id TEXT NOT NULL REFERENCES owners(id) ON DELETE CASCADE,
 			kind TEXT NOT NULL,
+			scope TEXT NOT NULL DEFAULT 'read-write',
 			name TEXT,
 			token_hash TEXT NOT NULL,
 			token_prefix TEXT NOT NULL,
@@ -265,8 +274,8 @@ func TestPrimaryTokenRevokeRequiresConfirmationAndDeletesOwner(t *testing.T) {
 	}
 	const linkedToken = "own_0123456789ABCDEFGHIJKLMNOPQRSTUV"
 	linkedHash := sha256.Sum256([]byte(linkedToken))
-	_, err = database.Exec(`INSERT INTO api_tokens(id, owner_id, kind, name, token_hash, token_prefix, token_last4, token_enc)
-		VALUES(?, ?, 'linked', 'automation', ?, ?, ?, 'encrypted')`, uuid.Must(uuid.NewV7()), identity.OwnerID,
+	_, err = database.Exec(`INSERT INTO api_tokens(id, owner_id, kind, name, scope, token_hash, token_prefix, token_last4, token_enc)
+		VALUES(?, ?, 'linked', 'automation', 'read-write', ?, ?, ?, 'encrypted')`, uuid.Must(uuid.NewV7()), identity.OwnerID,
 		hex.EncodeToString(linkedHash[:]), ownerTokenPrefix(linkedToken), ownerTokenSuffix(linkedToken))
 	if err != nil {
 		t.Fatal(err)
