@@ -23,29 +23,23 @@ cd ipgaze
 ### Build
 
 ```bash
-# Quick development build to a project-scoped OS temp directory
-make dev
-
-# Build local-platform binaries with version metadata
-make local
-
-# Build for all platforms
+# Build debug binaries for the host and all supported platforms
 make build
 ```
 
-### Quick Development Build
+### Debug Build
 
 ```bash
-make dev
+make build
 ```
 
-This creates development binaries in a unique directory under the OS temp
-directory. Run the service in Docker; do not execute the Go binary on the host.
+This creates debug binaries for the host and all supported platforms in
+`binaries/`. Run the service in Docker; do not execute the Go binary on the host.
 
 ### Run Tests
 
 ```bash
-# Scanner-policy unit tests and Go unit tests with coverage enforcement
+# Run the full lint, vulnerability, unit-test, coverage, and binary-check gate
 make test
 ```
 
@@ -117,19 +111,11 @@ if err != nil {
 ### Build
 
 ```bash
-make local
-```
-
-`make local` builds the current platform with version metadata in `binaries/`.
-`make build` builds the current host binary and distributions for all eight
-supported platforms in `binaries/`. `make dev` writes quick development
-binaries under the OS temporary directory.
-
-### All Platforms
-
-```bash
 make build
 ```
+
+`make build` creates the host binary and binaries for all eight supported
+platforms in `binaries/`, with debug symbols and version metadata.
 
 Builds for eight platforms:
 
@@ -278,13 +264,12 @@ release and tag. Go commands run in `casjaysdev/go:latest` containers.
 
 | Target | Description |
 |--------|-------------|
-| `make build` | Build host and all eight supported platform binaries |
-| `make local` | Build binaries for the current platform with version metadata |
-| `make release` | Build all platforms and prepare release archives |
-| `make test` | Run scanner-policy unit tests and Go unit tests with coverage enforcement |
-| `make dev` | Build quick development binaries in the OS temp directory |
-| `make docker` | Build Docker image |
+| `make build` | Build debug binaries for the host and all eight supported platforms |
+| `make test` | Run lint, vulnerability, unit, coverage, and basic binary checks |
+| `make release` | Build stripped production binaries and local release archives |
+| `make docker` | Build the host-platform Docker image |
 | `make clean` | Remove `binaries/` and `releases/` |
+| `make help` | List the supported targets; this is the default goal |
 
 ## Dependencies
 

@@ -158,10 +158,10 @@ prints its path for manual removal.
 ```bash
 git clone https://github.com/apimgr/ipgaze.git
 cd ipgaze
-make local
+make build
 ```
 
-Binaries for the current platform are output to `binaries/`.
+Debug binaries for the host and all eight supported platforms are output to `binaries/`.
 
 ### Build All Platforms
 

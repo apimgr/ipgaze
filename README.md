@@ -521,17 +521,14 @@ On the public instance at https://ifcfg.us, please keep automated use to
 make build
 # Outputs to: binaries/
 
-# Build for the local platform only
-make local
-
 # Run tests
 make test
 
 # Build Docker images
 make docker
 
-# Quick development build in a unique OS temp directory
-make dev
+# List supported Makefile targets (also the default goal)
+make help
 
 # Build release artifacts
 make release
@@ -556,8 +553,8 @@ Version managed in `release.txt`:
 cat release.txt
 # Output: 0.0.9
 
-# Build the server and client in the approved Go container
-make local
+# Build server and CLI debug binaries for all supported platforms
+make build
 ```
 
 ### Development Mode
@@ -569,11 +566,8 @@ make local
 git clone https://github.com/apimgr/ipgaze.git
 cd ipgaze
 
-# Quick build for local testing (output to a project-scoped temp directory)
-make dev
-
-# Build local-platform binaries with version metadata
-make local
+# Build server and CLI debug binaries for development
+make build
 ```
 
 #### Development Flags
@@ -636,7 +630,7 @@ pipelines can replace the rolling `devel` release and tag. Go builds run in
 ### Testing
 
 ```bash
-# Run scanner-policy unit tests and Go unit tests in Docker with coverage enforcement
+# Run the full lint, vulnerability, unit-test, coverage, and binary-check gate
 make test
 
 # Run the Docker integration tests
