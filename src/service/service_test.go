@@ -133,6 +133,22 @@ func TestLaunchdPlistPath_Consistency(t *testing.T) {
 	}
 }
 
+func TestLaunchdSystemPlistUsesCanonicalLogDirectory(t *testing.T) {
+	logDir := filepath.Join("/Library/Logs", orgName, appName)
+	plist := launchdSystemPlist(launchdLabel(), "/usr/local/bin/"+appName, logDir)
+	for _, required := range []string{
+		"/Library/Logs/apimgr/ipgaze/stdout.log",
+		"/Library/Logs/apimgr/ipgaze/stderr.log",
+	} {
+		if !strings.Contains(plist, required) {
+			t.Errorf("launchd plist missing %q: %s", required, plist)
+		}
+	}
+	if strings.Contains(plist, "/var/log/") {
+		t.Errorf("launchd plist uses stale log path: %s", plist)
+	}
+}
+
 func TestSystemdUserUnitPathUsesXDGConfigHome(t *testing.T) {
 	configHome := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", configHome)

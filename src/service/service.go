@@ -1304,32 +1304,15 @@ func installLaunchd() error {
 	binaryPath := GetBinaryPath()
 	plistPath := launchdPlistPath()
 	label := launchdLabel()
+	supportDir := filepath.Join("/Library/Application Support", orgName, appName)
+	logDir := filepath.Join("/Library/Logs", orgName, appName)
 
-	plistContent := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>Label</key>
-    <string>%s</string>
-    <key>ProgramArguments</key>
-    <array>
-        <string>%s</string>
-    </array>
-    <key>RunAtLoad</key>
-    <true/>
-    <key>KeepAlive</key>
-    <true/>
-    <key>StandardOutPath</key>
-    <string>/var/log/%s/%s/stdout.log</string>
-    <key>StandardErrorPath</key>
-    <string>/var/log/%s/%s/stderr.log</string>
-</dict>
-</plist>
-`, label, binaryPath, orgName, appName, orgName, appName)
+	plistContent := launchdSystemPlist(label, binaryPath, logDir)
 
 	dirs := []string{
-		fmt.Sprintf("/Library/Application Support/%s/%s", orgName, appName),
-		fmt.Sprintf("/var/log/%s/%s", orgName, appName),
+		supportDir,
+		filepath.Join(supportDir, "data"),
+		logDir,
 	}
 	for _, dir := range dirs {
 		if err := os.MkdirAll(dir, 0755); err != nil {
@@ -1354,6 +1337,30 @@ func installLaunchd() error {
 
 	fmt.Printf("LaunchDaemon installed and started: %s\n", plistPath)
 	return nil
+}
+
+func launchdSystemPlist(label, binaryPath, logDir string) string {
+	return fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>%s</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>%s</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>%s</string>
+    <key>StandardErrorPath</key>
+    <string>%s</string>
+</dict>
+</plist>
+`, label, binaryPath, filepath.Join(logDir, "stdout.log"), filepath.Join(logDir, "stderr.log"))
 }
 
 // uninstallLaunchd removes a macOS launchd service and all its data.

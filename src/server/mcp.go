@@ -14,6 +14,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/apimgr/ipgaze/src/common/i18n"
 	"github.com/apimgr/ipgaze/src/config"
 	applog "github.com/apimgr/ipgaze/src/log"
 	"github.com/apimgr/ipgaze/src/netutil"
@@ -34,20 +35,21 @@ func (s *Server) MCPHandler() http.Handler {
 	}, &mcp.StreamableHTTPOptions{Stateless: true, JSONResponse: true})
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !s.validMCPOrigin(r) {
-			handler.WriteAPIError(w, http.StatusForbidden, "FORBIDDEN", "Invalid origin")
+			handler.WriteAPIError(w, http.StatusForbidden, "FORBIDDEN", handler.ErrorMessageForStatus(r, http.StatusForbidden))
 			return
 		}
 		token := mcpBearerToken(r)
 		if token == "" || !s.ValidateAPIToken(token) {
+			s.auditRejectedCLIToken(r, token)
 			if token != "" && s.rateLimiter != nil {
 				s.rateLimiter.RecordAuthFailure(s.authClientIP(r))
 			}
-			s.writeMCPUnauthorized(w, token != "")
+			s.writeMCPUnauthorized(w, r, token != "")
 			return
 		}
 		if r.Method != http.MethodPost {
 			w.Header().Set("Allow", http.MethodPost)
-			handler.WriteAPIError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "Method not allowed")
+			handler.WriteAPIError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", handler.ErrorMessageForStatus(r, http.StatusMethodNotAllowed))
 			return
 		}
 		if !s.validMCPRequestHeaders(w, r) {
@@ -57,12 +59,13 @@ func (s *Server) MCPHandler() http.Handler {
 	})
 }
 
-func (s *Server) writeMCPUnauthorized(w http.ResponseWriter, invalid bool) {
+func (s *Server) writeMCPUnauthorized(w http.ResponseWriter, r *http.Request, invalid bool) {
 	challenge := `Bearer realm="ipgaze"`
-	message := "authorization required"
+	ctx := i18n.WithLang(r.Context(), i18n.DetectLocale(r))
+	message := i18n.T(ctx, "errors.unauthorized")
 	if invalid {
 		challenge += `, error="invalid_token"`
-		message = "invalid bearer token"
+		message = i18n.T(ctx, "errors.token_invalid")
 	}
 	w.Header().Set("WWW-Authenticate", challenge)
 	w.Header().Set("Content-Type", "application/json")
@@ -240,71 +243,57 @@ type registeredMCPOperation struct {
 	path   string
 	method string
 	spec   *swagger.Operation
+	route  swagger.Route
 }
 
 func (s *Server) registeredMCPOperations(r *http.Request) []registeredMCPOperation {
 	if s.router == nil {
 		return nil
 	}
-	baseURL := s.BaseURL
-	if r != nil {
-		baseURL = netutil.BuildURL(r, s.getTrust(), "")
-	}
-	spec := swagger.GenerateSpec(swagger.SwaggerHandlerConfig{Version: s.Version, CommitID: s.CommitID, Trust: s.getTrust()}, baseURL, "en")
-	paths := make([]string, 0, len(spec.Paths))
-	for path := range spec.Paths {
-		paths = append(paths, path)
-	}
-	sort.Strings(paths)
-	var registered []registeredMCPOperation
-	for _, path := range paths {
-		operations := itemOperations(spec.Paths[path])
-		methods := make([]string, 0, len(operations))
-		for method := range operations {
-			methods = append(methods, method)
+	routes := s.RegisteredAPIRoutes()
+	sort.Slice(routes, func(i, j int) bool {
+		if routes[i].Path == routes[j].Path {
+			return routes[i].Method < routes[j].Method
 		}
-		sort.Strings(methods)
-		for _, method := range methods {
-			operation := operations[method]
-			if isVersionedAPIOperation(path) && operation != nil && operation.OperationID != "" &&
-				s.isAPIOperationRegistered(operation.OperationID, path, method) && s.mcpOperationVisible(r, path, operation) {
-				registered = append(registered, registeredMCPOperation{path: path, method: method, spec: operation})
-			}
+		return routes[i].Path < routes[j].Path
+	})
+	var registered []registeredMCPOperation
+	for _, route := range routes {
+		path, method := route.Path, route.Method
+		if !isVersionedAPIOperation(path) || route.Handler == nil || route.Internal || route.OperationID == "v1Mcp" {
+			continue
+		}
+		if !s.isAPIOperationRegistered(route.OperationID, path, method) || !s.mcpOperationVisible(r, path, route) {
+			continue
+		}
+		operation := swagger.OperationForRoute(route, "en")
+		if operation != nil {
+			registered = append(registered, registeredMCPOperation{path: path, method: method, spec: operation, route: route})
 		}
 	}
 	return registered
 }
 
-func (s *Server) mcpOperationVisible(r *http.Request, path string, operation *swagger.Operation) bool {
+func (s *Server) mcpOperationVisible(r *http.Request, path string, route swagger.Route) bool {
+	if route.Internal || route.Auth == "service" {
+		return false
+	}
 	if strings.HasPrefix(path, "/api/v1/server/preferences/tokens") {
 		return false
 	}
-	if len(operation.Security) == 0 {
+	switch route.Auth {
+	case "none":
 		return true
-	}
-	for _, requirement := range operation.Security {
-		if len(requirement) == 0 {
-			return true
-		}
-		bearerRequired := false
-		for scheme := range requirement {
-			if scheme == "BearerAuth" {
-				bearerRequired = true
-			}
-		}
-		if bearerRequired && r != nil && s.mcpOperationAuthorized(r, operation) {
-			return true
-		}
+	case "operator":
+		return r != nil && s.ValidateOperatorToken(mcpBearerToken(r))
+	case "token", "owner":
+		return r != nil && s.mcpTokenAuthorized(mcpBearerToken(r))
 	}
 	return false
 }
 
-func (s *Server) mcpOperationAuthorized(r *http.Request, operation *swagger.Operation) bool {
-	token := mcpBearerToken(r)
-	if operation.OperationID == "v1_auth_check" {
-		return s.ValidateOperatorToken(token)
-	}
-	return s.ValidateAPIToken(token)
+func (s *Server) mcpTokenAuthorized(token string) bool {
+	return s.ValidateAPIToken(token) || s.ValidateOperatorToken(token)
 }
 
 func mcpBearerToken(r *http.Request) string {
@@ -366,18 +355,14 @@ func (s *Server) hasRegisteredAPIOperation(documentedPath, documentedMethod stri
 }
 
 func (s *Server) isAPIOperationRegistered(operationID, documentedPath, documentedMethod string) bool {
+	if route, ok := swagger.RouteForOperationID(operationID); ok {
+		operationID = route.OperationID
+	}
 	if s.apiOperationIDs != nil {
 		_, registered := s.apiOperationIDs[operationID]
 		return registered
 	}
 	return s.hasRegisteredAPIOperation(documentedPath, documentedMethod)
-}
-
-func itemOperations(item swagger.PathItem) map[string]*swagger.Operation {
-	return map[string]*swagger.Operation{
-		"get": item.Get, "post": item.Post, "put": item.Put,
-		"patch": item.Patch, "delete": item.Delete,
-	}
 }
 
 func isVersionedAPIOperation(path string) bool {
@@ -510,7 +495,7 @@ func (s *Server) dispatchMCPTool(ctx context.Context, origin *http.Request, req 
 	status = responseStatus
 	response := recorder.body.String()
 	if response == "" && responseStatus >= http.StatusBadRequest {
-		response = fmt.Sprintf(`{"ok":false,"error":"http_error","message":%q}`, http.StatusText(responseStatus))
+		response = fmt.Sprintf(`{"ok":false,"error":"http_error","message":%q}`, handler.ErrorMessageForStatus(origin, responseStatus))
 	}
 	return &mcp.CallToolResult{
 		Content: []mcp.Content{&mcp.TextContent{Text: response}},

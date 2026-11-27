@@ -92,7 +92,9 @@ type MediaType struct {
 // Schema holds a JSON schema definition
 type Schema struct {
 	Type                 string            `json:"type,omitempty"`
+	Format               string            `json:"format,omitempty"`
 	Properties           map[string]Schema `json:"properties,omitempty"`
+	Required             []string          `json:"required,omitempty"`
 	AdditionalProperties *Schema           `json:"additionalProperties,omitempty"`
 	Items                *Schema           `json:"items,omitempty"`
 	Example              interface{}       `json:"example,omitempty"`
@@ -116,7 +118,10 @@ type SwaggerHandlerConfig struct {
 	Version  string
 	CommitID string
 	Trust    *netutil.TrustResolver
-	RenderUI func(http.ResponseWriter, *http.Request, string) error
+	// RegisteredRoutes supplies the exact handler-bearing route values mounted
+	// by the server so OpenAPI uses the active runtime registry.
+	RegisteredRoutes func() []Route
+	RenderUI         func(http.ResponseWriter, *http.Request, string) error
 }
 
 // GenerateSpec generates the OpenAPI specification for the IPGaze API,
@@ -140,7 +145,7 @@ func GenerateSpec(cfg SwaggerHandlerConfig, baseURL, lang string) *OpenAPISpec {
 				Description: tr(lang, "swagger.info.server"),
 			},
 		},
-		Paths:      generatePaths(lang),
+		Paths:      generatePathsForRegistry(lang, cfg.RegisteredRoutes),
 		Components: generateComponents(),
 	}
 
@@ -175,7 +180,8 @@ func Handler(cfg SwaggerHandlerConfig) http.HandlerFunc {
 		if cfg.RenderUI != nil {
 			if err := cfg.RenderUI(w, r, "swagger.tmpl"); err != nil {
 				log.Printf("Swagger UI render failed: %v", err)
-				http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+				lang := i18n.DetectLocale(r)
+				http.Error(w, i18n.T(i18n.WithLang(r.Context(), lang), "errors.server_error"), http.StatusInternalServerError)
 				return
 			}
 			return

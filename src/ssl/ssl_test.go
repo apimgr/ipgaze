@@ -1,6 +1,7 @@
 package ssl
 
 import (
+	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -114,6 +115,26 @@ func TestNewSSLManager(t *testing.T) {
 	m := NewSSLManager(cfg)
 	if m == nil {
 		t.Fatal("NewManager returned nil")
+	}
+}
+
+func TestUpdateLetsEncryptConfigHotReloadsACMESettings(t *testing.T) {
+	m := NewSSLManager(SSLManagerConfig{Enabled: true, MinVersion: "TLS1.3"})
+	credentials := map[string]string{"DNSUPDATE_NAMESERVER": "ns.example.test"}
+	m.UpdateLetsEncryptConfig(LetsEncryptConfig{
+		Enabled: true, Email: "ops@example.test", Challenge: "dns-01",
+		DNSProvider: "rfc2136", DNSCredentials: credentials,
+	}, "replacement-encryption-key")
+
+	if !m.config.Enabled || m.config.MinVersion != "TLS1.3" {
+		t.Fatalf("hot reload changed TLS listener settings: enabled=%v min_version=%q", m.config.Enabled, m.config.MinVersion)
+	}
+	if !m.config.LetsEncrypt.Enabled || m.config.LetsEncrypt.Email != "ops@example.test" || m.config.LetsEncrypt.DNSProvider != "rfc2136" || m.config.EncryptionKey != "replacement-encryption-key" {
+		t.Fatalf("ACME settings were not updated: %+v", m.config)
+	}
+	credentials["DNSUPDATE_NAMESERVER"] = "changed.example.test"
+	if got := m.config.LetsEncrypt.DNSCredentials["DNSUPDATE_NAMESERVER"]; got != "ns.example.test" {
+		t.Errorf("manager retained caller's credential map: %q", got)
 	}
 }
 
@@ -1336,10 +1357,10 @@ func TestRFC2136SignedUpdateInsertsThenRemovesChallengeTXT(t *testing.T) {
 		updates <- request.Copy()
 	})
 	provider := newRFC2136TestProvider(t, address, "acme.example.test.", secret)
-	if err := provider.Present("example.test", "token", "authorization-value"); err != nil {
+	if err := provider.Present(context.Background(), "example.test", "token", "authorization-value"); err != nil {
 		t.Fatalf("Present: %v", err)
 	}
-	if err := provider.CleanUp("example.test", "token", "authorization-value"); err != nil {
+	if err := provider.CleanUp(context.Background(), "example.test", "token", "authorization-value"); err != nil {
 		t.Fatalf("CleanUp: %v", err)
 	}
 	insert, remove := <-updates, <-updates
@@ -1374,7 +1395,7 @@ func TestRFC2136WrongTSIGKeyReturnsBADSIG(t *testing.T) {
 	address := startRFC2136TestServer(t, map[string]string{"acme.example.test.": secret}, nil)
 	wrongSecret := base64.StdEncoding.EncodeToString([]byte("wrong-rfc2136-secret"))
 	provider := newRFC2136TestProvider(t, address, "acme.example.test.", wrongSecret)
-	err := provider.Present("example.test", "token", "authorization-value")
+	err := provider.Present(context.Background(), "example.test", "token", "authorization-value")
 	if err == nil || !strings.Contains(err.Error(), "BADSIG") {
 		t.Fatalf("Present error = %v, want sanitized BADSIG", err)
 	}
@@ -1389,7 +1410,7 @@ func TestRFC2136UnsignedUpdate(t *testing.T) {
 		updates <- request.Copy()
 	})
 	provider := newRFC2136TestProvider(t, address, "", "")
-	if err := provider.Present("example.test", "token", "authorization-value"); err != nil {
+	if err := provider.Present(context.Background(), "example.test", "token", "authorization-value"); err != nil {
 		t.Fatalf("unsigned Present: %v", err)
 	}
 	request := <-updates
@@ -1446,8 +1467,8 @@ func startRFC2136TestServer(t *testing.T, tsigSecrets map[string]string, onUpdat
 }
 
 type rfc2136TestProvider interface {
-	Present(domain, token, keyAuth string) error
-	CleanUp(domain, token, keyAuth string) error
+	Present(context.Context, string, string, string) error
+	CleanUp(context.Context, string, string, string) error
 }
 
 func newRFC2136TestProvider(t *testing.T, address, key, secret string) rfc2136TestProvider {
@@ -1511,6 +1532,29 @@ func TestWriteFileAtomic_CreatesFileWithContentAndPerms(t *testing.T) {
 	}
 	if len(entries) != 1 {
 		t.Errorf("expected exactly 1 file in dir, got %d", len(entries))
+	}
+}
+
+func TestLoadRegistrationMigratesLegacyLegoAccount(t *testing.T) {
+	dir := t.TempDir()
+	manager := NewSSLManager(SSLManagerConfig{CertPath: dir})
+	accountDir := manager.acmeDir()
+	if err := os.MkdirAll(accountDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	legacy := `{"body":{"status":"valid","contact":["mailto:admin@example.test"]},"uri":"https://acme.example.test/acct/123"}`
+	if err := os.WriteFile(filepath.Join(accountDir, "registration.json"), []byte(legacy), 0600); err != nil {
+		t.Fatal(err)
+	}
+	registration := manager.loadRegistration()
+	if registration == nil {
+		t.Fatal("loadRegistration() returned nil for a valid legacy account")
+	}
+	if registration.Location != "https://acme.example.test/acct/123" {
+		t.Errorf("Location = %q, want legacy account URI", registration.Location)
+	}
+	if registration.Status != "valid" || len(registration.Contact) != 1 || registration.Contact[0] != "mailto:admin@example.test" {
+		t.Errorf("Account = %+v, want legacy account fields", registration.Account)
 	}
 }
 

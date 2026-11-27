@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"database/sql"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -13,13 +12,12 @@ import (
 	"github.com/apimgr/ipgaze/src/netutil"
 )
 
-func newAbuseTestDB(t *testing.T) *sql.DB {
+func newAbuseTestDB(t *testing.T) *db.Store {
 	t.Helper()
 	conn, err := db.OpenSQLite(":memory:")
 	if err != nil {
 		t.Fatalf("open test database: %v", err)
 	}
-	conn.SetMaxOpenConns(1)
 	if err := db.EnsureSchema(conn); err != nil {
 		_ = conn.Close()
 		t.Fatalf("ensure test schema: %v", err)

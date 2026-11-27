@@ -220,7 +220,7 @@ func rootDirs(goos, projectName string) (configDir, dataDir, logsDir, cacheDir, 
 		cacheDir = filepath.Join("/Library/Caches", OrgName, projectName)
 		pidFile = filepath.Join("/var/run", OrgName, projectName, projectName+".pid")
 		sslDir = filepath.Join(libSupport, "ssl")
-		securityDir = filepath.Join(libSupport, "data", "security")
+		securityDir = filepath.Join(libSupport, "security")
 		dbDir = filepath.Join(libSupport, "db")
 	case "freebsd", "openbsd", "netbsd", "dragonfly":
 		// BSD root per PART 4: /usr/local/etc/{org}/{project}/
@@ -341,7 +341,7 @@ func userDirs(goos, projectName, homeDir string) (configDir, dataDir, logsDir, c
 		cacheDir = filepath.Join(homeDir, "Library", "Caches", OrgName, projectName)
 		pidFile = filepath.Join(libSupport, projectName+".pid")
 		sslDir = filepath.Join(libSupport, "ssl")
-		securityDir = filepath.Join(libSupport, "data", "security")
+		securityDir = filepath.Join(libSupport, "security")
 		dbDir = filepath.Join(libSupport, "db")
 		// Per PART 4: ~/Library/Backups/{org}/{project}/
 		userBackup = filepath.Join(homeDir, "Library", "Backups", OrgName, projectName)

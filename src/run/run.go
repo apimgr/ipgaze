@@ -1,0 +1,7339 @@
+package run
+
+import (
+	"archive/tar"
+	"bufio"
+	"bytes"
+	"compress/gzip"
+	"context"
+	cryptorand "crypto/rand"
+	"crypto/sha256"
+	"crypto/subtle"
+	"crypto/tls"
+	"database/sql"
+	"encoding/base64"
+	"encoding/json"
+	"errors"
+	"flag"
+	"fmt"
+	"io"
+	"log"
+	"net"
+	"net/http"
+	"net/mail"
+	"os"
+	"os/user"
+	"path/filepath"
+	"runtime"
+	"sort"
+	"strconv"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"time"
+
+	"github.com/ProtonMail/go-crypto/openpgp"
+	"github.com/apimgr/ipgaze/src/blocklist"
+	"github.com/apimgr/ipgaze/src/cache"
+	"github.com/apimgr/ipgaze/src/common/banner"
+	"github.com/apimgr/ipgaze/src/common/display"
+	"github.com/apimgr/ipgaze/src/common/i18n"
+	"github.com/apimgr/ipgaze/src/common/updatechannel"
+	"github.com/apimgr/ipgaze/src/config"
+	"github.com/apimgr/ipgaze/src/cve"
+	"github.com/apimgr/ipgaze/src/db"
+	"github.com/apimgr/ipgaze/src/email"
+	"github.com/apimgr/ipgaze/src/geoip"
+	gql "github.com/apimgr/ipgaze/src/graphql"
+	"github.com/apimgr/ipgaze/src/i2p"
+	"github.com/apimgr/ipgaze/src/iputil"
+	applog "github.com/apimgr/ipgaze/src/log"
+	appmode "github.com/apimgr/ipgaze/src/mode"
+	"github.com/apimgr/ipgaze/src/netutil"
+	"github.com/apimgr/ipgaze/src/paths"
+	"github.com/apimgr/ipgaze/src/pgp"
+	"github.com/apimgr/ipgaze/src/scheduler"
+	"github.com/apimgr/ipgaze/src/security"
+	"github.com/apimgr/ipgaze/src/server"
+	serverhandler "github.com/apimgr/ipgaze/src/server/handler"
+	smetrics "github.com/apimgr/ipgaze/src/server/metrics"
+	"github.com/apimgr/ipgaze/src/server/model"
+	svc "github.com/apimgr/ipgaze/src/service"
+	"github.com/apimgr/ipgaze/src/ssl"
+	"github.com/apimgr/ipgaze/src/swagger"
+	"github.com/apimgr/ipgaze/src/threat"
+	"github.com/apimgr/ipgaze/src/tor"
+	"github.com/apimgr/ipgaze/src/updater"
+	_ "modernc.org/sqlite"
+)
+
+func configuredBlocklistSources(cfg *config.AppConfig) []blocklist.Source {
+	sources := append([]blocklist.Source(nil), blocklist.DefaultSources...)
+	if cfg == nil || !cfg.Server.Security.Blocklists.Enabled {
+		if cfg != nil {
+			return nil
+		}
+		return sources
+	}
+	for _, source := range cfg.Server.Security.Blocklists.ExtraSources {
+		if source.Enabled != nil && !*source.Enabled {
+			continue
+		}
+		sources = append(sources, blocklist.Source{Name: source.ID, Type: source.Type, URL: source.URL, File: source.ID + ".txt"})
+	}
+	return sources
+}
+
+func configuredBlocklistTypes(cfg *config.AppConfig) map[string]string {
+	types := make(map[string]string)
+	if cfg == nil || !cfg.Server.Security.Blocklists.Enabled {
+		return types
+	}
+	types["firehol_level1"] = "ip"
+	for _, source := range cfg.Server.Security.Blocklists.ExtraSources {
+		if source.Enabled == nil || *source.Enabled {
+			types[source.ID] = source.Type
+		}
+	}
+	return types
+}
+
+func configuredBlocklistIDs(cfg *config.AppConfig) []string {
+	if cfg == nil || !cfg.Server.Security.Blocklists.Enabled {
+		return nil
+	}
+	ids := make([]string, 0, len(cfg.Server.Security.Blocklists.ExtraSources)+1)
+	ids = append(ids, "firehol_level1")
+	for _, source := range cfg.Server.Security.Blocklists.ExtraSources {
+		if source.Enabled == nil || *source.Enabled {
+			ids = append(ids, source.ID)
+		}
+	}
+	return ids
+}
+
+func cleanupSecurityData(ctx context.Context, conn *db.Store, configDir string, retentionDays int, now time.Time) error {
+	if retentionDays <= 0 {
+		retentionDays = 365
+	}
+	var cleanupErr error
+	if conn != nil {
+		cutoff := now.Add(-time.Duration(retentionDays) * 24 * time.Hour).Unix()
+		if err := deleteInBatches(ctx, conn, `DELETE FROM security_reports WHERE tracking_id IN (SELECT tracking_id FROM security_reports WHERE closed_at IS NOT NULL AND closed_at <= ? LIMIT 500)`, cutoff); err != nil {
+			cleanupErr = errors.Join(cleanupErr, fmt.Errorf("delete expired security reports: %w", err))
+		}
+	}
+	if err := pgp.PruneArchivedKeypairs(configDir, now); err != nil {
+		cleanupErr = errors.Join(cleanupErr, fmt.Errorf("prune retired PGP keys: %w", err))
+	}
+	oldKeyPath := filepath.Join(configDir, "security", "pgp.priv.old.asc.enc")
+	if info, err := os.Lstat(oldKeyPath); err == nil {
+		if info.Mode().IsRegular() && now.Sub(info.ModTime()) >= pgp.RotationGrace {
+			if err := os.Remove(oldKeyPath); err != nil {
+				cleanupErr = errors.Join(cleanupErr, fmt.Errorf("remove retired PGP key: %w", err))
+			}
+		}
+	} else if !os.IsNotExist(err) {
+		cleanupErr = errors.Join(cleanupErr, fmt.Errorf("inspect retired PGP key: %w", err))
+	}
+	return cleanupErr
+}
+
+func deleteInBatches(ctx context.Context, store *db.Store, statement string, args ...any) error {
+	for {
+		result, err := store.ExecContext(ctx, statement, args...)
+		if err != nil {
+			return err
+		}
+		deleted, err := result.RowsAffected()
+		if err != nil {
+			return err
+		}
+		if deleted < 500 {
+			return nil
+		}
+		timer := time.NewTimer(10 * time.Millisecond)
+		select {
+		case <-timer.C:
+		case <-ctx.Done():
+			timer.Stop()
+			return ctx.Err()
+		}
+	}
+}
+
+// buildEpoch parses the embedded BuildEpoch ldflag; 0 when unset or invalid.
+// Passed to updater.CheckForUpdate so the devel channel's rolling "devel" tag
+// can be compared against this binary's own build time.
+const projectName = "ipgaze"
+
+// Query timeout budgets from AI.md PART 10 "Query Timeouts".
+const (
+	// simpleSelectTimeout bounds a single-table SELECT.
+	simpleSelectTimeout = 5 * time.Second
+	// writeQueryTimeout bounds an INSERT/UPDATE/DELETE.
+	writeQueryTimeout = 10 * time.Second
+	// transactionTimeout bounds a multi-statement transaction from BeginTx through Commit or Rollback.
+	transactionTimeout = 30 * time.Second
+)
+
+// sysexits — standard POSIX exit codes (from /usr/include/sysexits.h).
+// stdlib does not export these; define them locally per go_conventions.md.
+const (
+	// command line usage error
+	exUsage = 64
+	// internal software error
+	exSoftware = 70
+	// system error (e.g., can't fork, mkdir failed)
+	exOsErr = 71
+	// can't create output file/directory
+	exCantCreat = 73
+	// input/output error
+	exIoErr = 74
+	// configuration error
+	exConfig = 78
+	// permission denied (sysexits.h EX_NOPERM convention)
+	exNoPerm = 77
+	// supervisor restart request after staged self-update
+	exTempFail = 75
+	// generic failure for immediate-exit commands (AI.md PART 30: --update and
+	// --status report failure as 1, not a sysexits code)
+	exGeneral = 1
+)
+
+func init() {
+	log.SetPrefix("ipgaze: ")
+	log.SetFlags(log.Lshortfile)
+}
+
+// resolvePIDFilePath applies the PID file precedence of AI.md PART 7:
+// the --pid flag, then the PID_FILE environment variable, then the
+// OS default. Both the server startup path and `ipgaze tor ...` use it so
+// the CLI locates exactly the PID file the running server wrote.
+func resolvePIDFilePath(flagValue, osDefault string) string {
+	if flagValue != "" {
+		return flagValue
+	}
+	if env := os.Getenv("PID_FILE"); env != "" {
+		return env
+	}
+	return osDefault
+}
+
+// writePIDFile writes the current process PID to pidPath.
+// Per AI.md PART 26 ("Drop the binary anywhere, run it, everything works" —
+// no manual directory creation, no permission fixing): a PID directory that
+// isn't writable (e.g. an unwritable bind-mounted /data in Docker) must
+// degrade gracefully like config/log/token generation already do elsewhere
+// in startup, not crash the whole process. --status/service stop lose PID
+// tracking, but the server keeps running.
+func writePIDFile(pidPath string) {
+	// Containers get no PID file — process management is the orchestrator's job
+	// (AI.md PART 8 "PID File Handling"). Skip creation entirely.
+	if paths.IsRunningInContainer() {
+		return
+	}
+	if err := paths.WritePIDFile(pidPath); err != nil {
+		log.Printf("Warning: Failed to write PID file %s: %v (continuing without PID tracking)", pidPath, err)
+	}
+}
+
+// removePIDFile removes the PID file if it belongs to the current process.
+func removePIDFile(pidPath string) {
+	if paths.IsRunningInContainer() {
+		return
+	}
+	_ = paths.RemovePIDFile(pidPath)
+}
+
+// checkStalePID checks whether pidPath is stale and removes it if so.
+// A stale file is one whose PID no longer refers to a running ipgaze process.
+func checkStalePID(pidPath string) {
+	// Containers skip PID file checking entirely (AI.md PART 8).
+	if paths.IsRunningInContainer() {
+		return
+	}
+	// CheckPIDFile already removes the stale file as a side effect.
+	_, _, _ = paths.CheckPIDFile(pidPath)
+}
+
+func runMain(ctx context.Context, runtimeCfg *Config) error {
+	// Get default directories
+	dirs := paths.GetDirectories()
+
+	// Get binary name for user-facing output
+	binaryName := filepath.Base(os.Args[0])
+
+	// Handle -h/--help
+	if *showHelp || *showHelpShort {
+		printHelp(binaryName)
+		return nil
+	}
+
+	// Handle -v/--version. AI.md PART 13 "--version Output" fixes the exact
+	// four-line shape: name+version, build date, Go version, OS/arch.
+	if *showVersion || *showVersionShort {
+		fmt.Printf("%s %s\n", binaryName, Version)
+		fmt.Printf("Built: %s\n", BuildDate)
+		fmt.Printf("Go: %s\n", runtime.Version())
+		fmt.Printf("OS/Arch: %s/%s\n", runtime.GOOS, runtime.GOARCH)
+		return nil
+	}
+
+	// Handle --shell command
+	if *shellCmd != "" {
+		handleShellCommand(*shellCmd, binaryName)
+		return nil
+	}
+
+	// Resolve output language per AI.md PART 30 priority chain
+	lang := getLanguage(*langFlag)
+
+	// Handle --daemon flag: daemonize before any further setup so the child
+	// inherits a clean environment. svc.Daemonize returns nil for the child
+	// (which has _DAEMON_CHILD=1 set) and calls os.Exit(0) for the parent.
+	if *daemonMode {
+		if err := svc.Daemonize(lang); err != nil {
+			return &ExitCodeError{Code: exOsErr, Err: fmt.Errorf("daemonize: %w", err)}
+		}
+	}
+
+	// Handle --debug flag: propagate to env so s.config.IsDebug() works everywhere.
+	// An explicitly passed --debug=false must also be recorded (via DEBUG=false)
+	// so later MODE=debug processing (applyModeString) sees DEBUG as already
+	// explicitly set and does not override it with the mode's implied default —
+	// per AI.md PART 6, --debug is the highest-priority signal in the chain.
+	debugFlagSet := false
+	flag.Visit(func(f *flag.Flag) {
+		if f.Name == "debug" {
+			debugFlagSet = true
+		}
+	})
+	if *debugMode {
+		if err := os.Setenv("DEBUG", "true"); err != nil {
+			log.Printf("Warning: cannot set DEBUG environment: %v", err)
+		}
+		log.Println("Debug mode enabled")
+	} else if debugFlagSet {
+		if err := os.Setenv("DEBUG", "false"); err != nil {
+			log.Printf("Warning: cannot set DEBUG environment: %v", err)
+		}
+	}
+
+	// Validate operator-selected filesystem paths before using or creating them.
+	var pathErr error
+	safeDirOverride := func(label, input string) string {
+		safe, err := paths.SafeDirPath(input)
+		if err != nil {
+			pathErr = fmt.Errorf("invalid %s directory: %w", label, err)
+			return ""
+		}
+		return safe
+	}
+
+	// Data directory: --data flag > DATA_DIR env > OS default.
+	dataDirPath := *dataDir
+	if dataDirPath == "" {
+		dataDirPath = os.Getenv("DATA_DIR")
+	}
+	if dataDirPath == "" {
+		dataDirPath = dirs.Data
+	}
+	dataDirPath = safeDirOverride("data", dataDirPath)
+	if pathErr != nil {
+		return &ExitCodeError{Code: exUsage, Err: pathErr}
+	}
+	resolvedDataDir := dataDirPath
+	dataDir := &resolvedDataDir
+
+	// Config directory: --config flag > CONFIG_DIR env > OS default.
+	configDir := dirs.Config
+	if *configDirFlag != "" {
+		configDir = *configDirFlag
+	} else if envConfig := os.Getenv("CONFIG_DIR"); envConfig != "" {
+		configDir = envConfig
+	}
+	configDir = safeDirOverride("config", configDir)
+	if pathErr != nil {
+		return &ExitCodeError{Code: exUsage, Err: pathErr}
+	}
+
+	// Cache directory: --cache flag > CACHE_DIR env > OS default.
+	cacheDir := dirs.Cache
+	if *cacheDirFlag != "" {
+		cacheDir = *cacheDirFlag
+	} else if envCache := os.Getenv("CACHE_DIR"); envCache != "" {
+		cacheDir = envCache
+	}
+	cacheDir = safeDirOverride("cache", cacheDir)
+	if pathErr != nil {
+		return &ExitCodeError{Code: exUsage, Err: pathErr}
+	}
+
+	// Log directory: --log flag > LOG_DIR env > OS default.
+	resolvedLogDir := dirs.Logs
+	if *logDirFlag != "" {
+		resolvedLogDir = *logDirFlag
+	} else if envLog := os.Getenv("LOG_DIR"); envLog != "" {
+		resolvedLogDir = envLog
+	}
+	resolvedLogDir = safeDirOverride("log", resolvedLogDir)
+	if pathErr != nil {
+		return &ExitCodeError{Code: exUsage, Err: pathErr}
+	}
+
+	// Backup directory: --backup flag > BACKUP_DIR env > OS default.
+	resolvedBackupDir := paths.GetBackupDir(*backupDirFlag, dataDirPath)
+	resolvedBackupDir = safeDirOverride("backup", resolvedBackupDir)
+	if pathErr != nil {
+		return &ExitCodeError{Code: exUsage, Err: pathErr}
+	}
+
+	// Fold every resolved override back into dirs so EnsureDirectories creates
+	// the directories the operator actually asked for, not only the OS defaults.
+	dirs.Config = configDir
+	dirs.Data = dataDirPath
+	dirs.Cache = cacheDir
+	dirs.Logs = resolvedLogDir
+	dirs.Backup = resolvedBackupDir
+
+	// Load configuration
+	configPath := filepath.Join(configDir, "server.yml")
+	cfg := runtimeCfg.App
+	if cfg == nil {
+		return fmt.Errorf("missing application configuration")
+	}
+	i2pFlagSet := false
+	flag.Visit(func(f *flag.Flag) {
+		if f.Name == "i2p" {
+			i2pFlagSet = true
+		}
+	})
+	if err := applyI2PEnablement(cfg, *i2pEnabledFlag, i2pFlagSet, os.Getenv("I2P_ENABLED")); err != nil {
+		log.Printf("Warning: invalid I2P_ENABLED value, ignoring: %v", err)
+	}
+
+	// Config-file tier of the NO_COLOR priority table (AI.md PART 8): the
+	// --color flag still wins, but output.color / output.emoji rank above
+	// the NO_COLOR env var and autodetection.
+	display.SetOutputPreferences(cfg.Output.Color, cfg.Output.Emoji)
+
+	// Resolve MODE env var per AI.md PART 5 (Runtime env vars re-checked
+	// every start, MODE listed explicitly) and PART 6 mode priority
+	// (--mode flag > MODE env > default production). MODE must override
+	// any persisted server.yml mode on every start, not just first run;
+	// the --mode flag block below runs after this and still wins.
+	if envMode := os.Getenv("MODE"); envMode != "" {
+		if modeErr := applyModeString(cfg, envMode); modeErr != nil {
+			log.Printf("Warning: invalid MODE env value %q, ignoring: %v", envMode, modeErr)
+		}
+	}
+
+	// Block/mutex profiling rates per AI.md PART 6 server.debug.* — gated by
+	// the debug flag (--debug/DEBUG=true), never by mode alone. Always set
+	// explicitly (including the disabled/0 case) so a prior --debug run in
+	// the same process can never leave profiling enabled after a reload.
+	if cfg.IsDebug() {
+		runtime.SetBlockProfileRate(cfg.Server.Debug.BlockProfileRate)
+		runtime.SetMutexProfileFraction(cfg.Server.Debug.MutexProfileFraction)
+	} else {
+		runtime.SetBlockProfileRate(0)
+		runtime.SetMutexProfileFraction(0)
+	}
+	// SQL query logging per AI.md PART 6 server.debug.log_queries — gated by
+	// the debug flag, never by mode alone. Must be set before any DB opens.
+	db.SetQueryLogging(cfg.IsDebug() && cfg.Server.Debug.LogQueries)
+	// Slow-query warning logging per AI.md PART 10 FINAL CHECKPOINT — runs
+	// unconditionally (not gated by debug mode). Must be set before any DB
+	// opens.
+	db.SetSlowQueryThreshold(cfg.Server.Database.ResolvedSlowQueryThreshold())
+
+	// Handle --mode flag: an ephemeral per-run override, highest priority in
+	// the AI.md PART 6 mode detection chain (flag > MODE env > default). It
+	// does NOT persist to server.yml — for a persistent change, use
+	// `--maintenance mode <mode>` instead, which requires operator auth.
+	if *modeFlag != "" {
+		if modeErr := applyModeString(cfg, *modeFlag); modeErr != nil {
+			return &ExitCodeError{Code: exUsage, Err: fmt.Errorf("invalid mode %q: %w", *modeFlag, modeErr)}
+		}
+	}
+
+	// Immediate-exit commands run before any privileged startup work per AI.md
+	// PART 8: they never serve traffic, so creating directories, provisioning
+	// the system user, generating secrets, or daemonizing on their behalf is
+	// both wasted work and an unnecessary privileged side effect.
+
+	// Handle --status (health check) against the resolved configured port.
+	if *showStatus {
+		checkPort, _ := parsePortSpec(resolveServerPort(*port, cfg))
+		if checkPort == "" {
+			return &ExitCodeError{Code: exGeneral, Err: fmt.Errorf("health check failed: no server port configured")}
+		}
+		if err := checkHealth(checkPort); err != nil {
+			return &ExitCodeError{Code: exGeneral, Err: fmt.Errorf("health check failed: %w", err)}
+		}
+		fmt.Println("OK")
+		return nil
+	}
+
+	// Handle --update flag
+	if *updateCmd != "" {
+		handleUpdateCommand(*updateCmd, cfg)
+		return nil
+	}
+
+	// Handle service commands
+	if *serviceCmd != "" {
+		handleServiceCommand(*serviceCmd, dirs)
+		return nil
+	}
+
+	// Handle maintenance commands
+	if *maintenanceCmd != "" {
+		handleMaintenanceCommand(*maintenanceCmd, configDir, dataDirPath, dirs.Logs, configPath, cfg, *includeSSLFlag, *includeDataFlag, lang, resolvePIDFilePath(*pidFileFlag, dirs.PID))
+		return nil
+	}
+
+	// Handle positional subcommands: `ipgaze tor <subcommand>` (AI.md PART 31.1).
+	if args := flag.Args(); len(args) >= 1 && args[0] == "tor" {
+		handleTorCommand(args[1:], configDir, dataDirPath, dirs.Logs, resolvePIDFilePath(*pidFileFlag, dirs.PID), cfg)
+		return nil
+	}
+
+	// Handle positional subcommands: `ipgaze i2p <subcommand>` (AI.md PART 31.2).
+	if args := flag.Args(); len(args) >= 1 && args[0] == "i2p" {
+		handleI2PCommand(args[1:], configDir, dataDirPath, dirs.Logs, cfg)
+		return nil
+	}
+
+	if len(flag.Args()) != 0 {
+		flag.Usage()
+		return nil
+	}
+
+	// A root-started service applies a staged update before provisioning users,
+	// directories, or any other root-only resources.
+	var startupUpdateErr error
+	if paths.StartedElevated() {
+		stagedVersion := updater.StagedVersion(dataDirPath)
+		applied, applyErr := updater.ApplyStagedUpdate(dataDirPath, Version, buildEpoch())
+		if applyErr != nil {
+			startupUpdateErr = applyErr
+			_ = os.RemoveAll(filepath.Join(dataDirPath, "update"))
+			if stagedVersion != "" {
+				writeUpdateNotifiedVersion(filepath.Join(dataDirPath, "update_failed_version"), stagedVersion)
+			}
+			log.Printf("staged update failed; continuing with current binary: %v", applyErr)
+		}
+		if applied {
+			return nil
+		}
+	}
+
+	// Ensure directories exist. Nothing downstream works without them — config
+	// and database writes would fail one by one — so this is fatal, not a warning.
+	if err := paths.EnsureDirectories(dirs); err != nil {
+		return &ExitCodeError{Code: exCantCreat, Err: fmt.Errorf("create runtime directories: %w", err)}
+	}
+
+	// Phase 8a/8c: while still root, create the dedicated system user (if
+	// missing) and chown all directories to it, per AI.md PART 23 "System
+	// User Requirements" and Server Startup Sequence steps 8a/8c. Must run
+	// before dropPrivileges below, or the dropped-privilege process cannot
+	// write to directories that were just created as root.
+	serviceUID, serviceGID := -1, -1
+	ownershipDirs := []string{dirs.Config, dirs.Data, dirs.Cache, dirs.Logs, dirs.SSL, dirs.Security, dirs.DB, dirs.Backup}
+	if dirs.PID != "" {
+		ownershipDirs = append(ownershipDirs, filepath.Dir(dirs.PID))
+	}
+	if isElevated() {
+		uid, gid, userErr := ensureSystemUser(projectName, dirs.Data)
+		if userErr != nil {
+			log.Printf("Warning: Failed to create system user %s: %v", projectName, userErr)
+		} else {
+			serviceUID, serviceGID = uid, gid
+			if hasLegacyMacOSServiceUser(projectName) {
+				log.Printf("WARN legacy macOS service account _%s remains; application directories are owned by %s; remove the legacy account manually when no longer needed", projectName, projectName)
+			}
+			for _, d := range ownershipDirs {
+				if chownErr := chownRecursive(d, uid, gid); chownErr != nil {
+					log.Printf("Warning: Failed to set ownership on %s: %v", d, chownErr)
+				}
+			}
+		}
+	}
+	if strings.TrimSpace(*port) == "" && strings.TrimSpace(os.Getenv("PORT")) == "" {
+		if earlyPort, peekErr := config.PeekServerPort(configPath); peekErr == nil {
+			if earlyPort != "" {
+				cfg.Server.Port = earlyPort
+			}
+		} else if !os.IsNotExist(peekErr) {
+			log.Printf("Warning: could not read early server.port setting: %v", peekErr)
+		}
+	}
+
+	// Initialize file-based log manager per AI.md PART 11 early, so scheduled
+	// tasks registered below (backups, retention, etc.) can write audit events.
+	logMgr, logMgrErr := applog.NewManager(resolvedLogDir, buildLogConfig(cfg))
+	if logMgrErr != nil {
+		log.Printf("Warning: Failed to open log files in %s: %v", resolvedLogDir, logMgrErr)
+		logMgr = nil
+	} else {
+		defer logMgr.Close()
+	}
+	if startupUpdateErr != nil && logMgr != nil {
+		logMgr.WriteAuditEvent("", "update.failed", "update", "error", "failure", "", map[string]any{"version": Version, "error": startupUpdateErr.Error()})
+	}
+	log.SetOutput(runtimeLogWriter{manager: logMgr, stderr: os.Stderr})
+	log.Printf("File-based logging active in %s", resolvedLogDir)
+	applyBackupRetention(resolvedBackupDir, cfg.Server.Backup.Retention, logMgr, cfg.Server.Backup.Encryption.EncryptionPassword)
+
+	// Auto-generate operator token on first run per AI.md PART 11.
+	// Format: adm_ prefix + 32 URL-safe random base62 chars.
+	// The raw token is shown once (startup log) and never retrievable again.
+	// The config file is saved immediately so the token persists across restarts.
+	if cfg.Server.Token == "" {
+		newToken, tokenErr := generateOperatorToken()
+		if tokenErr != nil {
+			return &ExitCodeError{Code: exSoftware, Err: fmt.Errorf("generate operator token: %w", tokenErr)}
+		}
+		cfg.Server.Token = newToken
+		if saveErr := config.SaveGeneratedOperatorToken(); saveErr != nil {
+			return &ExitCodeError{Code: exSoftware, Err: fmt.Errorf("persist generated operator token: %w", saveErr)}
+		}
+		if auditErr := writeGeneratedSecretAudit(logMgr, "server.token"); auditErr != nil {
+			return &ExitCodeError{Code: exSoftware, Err: fmt.Errorf("audit generated operator token: %w", auditErr)}
+		}
+		if saveErr := config.SaveConfigToFile(); saveErr != nil {
+			log.Printf("Warning: Failed to save generated operator token: %v", saveErr)
+		}
+		log.Printf("Generated operator token: %s (shown once — save it now)", newToken)
+	}
+
+	// Auto-generate the AES-256-GCM at-rest encryption key on first run per AI.md
+	// PART 11/PART 15. 32 raw bytes, base64-encoded, persisted to secrets.yml. Used
+	// to encrypt sensitive at-rest data such as DNS-01 provider credentials.
+	if cfg.Server.Security.EncryptionKey == "" {
+		newKey, keyErr := generateEncryptionKey()
+		if keyErr != nil {
+			return &ExitCodeError{Code: exSoftware, Err: fmt.Errorf("generate encryption key: %w", keyErr)}
+		}
+		cfg.Server.Security.EncryptionKey = newKey
+		if saveErr := config.SaveGeneratedEncryptionKey(); saveErr != nil {
+			return &ExitCodeError{Code: exSoftware, Err: fmt.Errorf("persist generated encryption key: %w", saveErr)}
+		}
+		if auditErr := writeGeneratedSecretAudit(logMgr, "server.security.encryption_key"); auditErr != nil {
+			return &ExitCodeError{Code: exSoftware, Err: fmt.Errorf("audit generated encryption key: %w", auditErr)}
+		}
+		if saveErr := config.SaveConfigToFile(); saveErr != nil {
+			log.Printf("Warning: Failed to save generated encryption key: %v", saveErr)
+		}
+		log.Printf("Generated server encryption key")
+	}
+	if err := generateRuntimeSecrets(cfg, logMgr); err != nil {
+		return &ExitCodeError{Code: exSoftware, Err: fmt.Errorf("generate runtime secrets: %w", err)}
+	}
+
+	// Apply config-based daemonize when --daemon flag was not already provided.
+	// svc.ShouldDaemonize respects priority: flag > config > default.
+	// This is a no-op for the child process (_DAEMON_CHILD=1 makes Daemonize return nil).
+	if !*daemonMode && svc.ShouldDaemonize(false, false, cfg.Server.Daemonize) {
+		if err := svc.Daemonize(lang); err != nil {
+			return &ExitCodeError{Code: exOsErr, Err: fmt.Errorf("daemonize: %w", err)}
+		}
+	}
+
+	// Determine port (flag > persisted config > PORT env, see resolveServerPort).
+	serverPort := resolveServerPort(*port, cfg)
+	portWasConfigured := serverPort != ""
+	if serverPort == "" {
+		// Per AI.md PART 12, first run selects and persists an unused port in
+		// 64000-64999. Container images seed their explicit PORT separately.
+		serverPort = randomAvailablePort()
+	}
+
+	// Determine address (flag > config). LISTEN is an Init-Only env var
+	// (AI.md PART 5): config.LoadConfigFromFile already seeds
+	// cfg.Server.Address from LISTEN on first run only, so it must not be
+	// re-read here on every start — only the persisted config (or an
+	// explicit per-run --address flag) governs this after first run.
+	serverAddress := cfg.Server.Address
+	if *address != "" {
+		serverAddress = *address
+	}
+	if serverAddress == "" {
+		serverAddress = "[::]"
+	}
+
+	// Split the port setting into its HTTP and HTTPS halves per AI.md PART 12
+	// "Dual Port Support": "8090,8443" declares HTTP on 8090 and HTTPS on 8443.
+	httpPort, httpsPort := parsePortSpec(serverPort)
+
+	// AI.md PART 12: once selected, the port persists in server.yml. Only the
+	// first run picks one at random; every later start reuses the saved value.
+	if !portWasConfigured {
+		cfg.Server.Port = serverPort
+		if saveErr := config.SaveConfigToFile(); saveErr != nil {
+			log.Printf("Warning: Failed to persist selected port %s: %v", serverPort, saveErr)
+		} else {
+			log.Printf("Selected port %s and saved it to %s", serverPort, configPath)
+		}
+	}
+
+	// Build listen address
+	// Per AI.md: [::] binds to all interfaces IPv4/IPv6 (dual-stack)
+	listen := listenAddress(serverAddress, httpPort)
+
+	// Log startup information
+	log.Printf("ipgaze %s (commit: %s, built: %s)", Version, CommitID, BuildDate)
+	log.Println("IPv6 support enabled - server will accept both IPv4 and IPv6 connections")
+
+	// SSL is on when explicitly enabled with an FQDN, or whenever a dual-port
+	// spec named a dedicated HTTPS port.
+	sslEnabled := (cfg.Server.SSL.Enabled && cfg.Server.FQDN != "") || httpsPort != ""
+
+	// AI.md PART 23 step 4/5: bind every listener while still root, then drop.
+	// Binding after the drop makes any port below 1024 fail with EACCES, which
+	// is exactly what `--port 80` used to hit.
+	httpListenAddr := listen
+	httpsListenAddr := ""
+	switch {
+	case httpsPort != "":
+		httpsListenAddr = listenAddress(serverAddress, httpsPort)
+	case sslEnabled:
+		// Single-port SSL mode serves HTTPS on 443 and redirects from 80.
+		httpsListenAddr = listenAddress(serverAddress, "443")
+		httpListenAddr = listenAddress(serverAddress, "80")
+	}
+
+	httpListener := runtimeCfg.Listener
+	var listenErr error
+	if httpListener == nil {
+		httpListener, listenErr = net.Listen("tcp", httpListenAddr)
+	}
+	if listenErr != nil {
+		log.Printf("Failed to bind HTTP listener on %s: %v", httpListenAddr, listenErr)
+		return fmt.Errorf("bind HTTP listener on %s: %w", httpListenAddr, listenErr)
+	}
+	var httpsListener net.Listener
+	if httpsListenAddr != "" {
+		httpsListener, listenErr = net.Listen("tcp", httpsListenAddr)
+		if listenErr != nil {
+			httpListener.Close() //nolint:errcheck
+			log.Printf("Failed to bind HTTPS listener on %s: %v", httpsListenAddr, listenErr)
+			return fmt.Errorf("bind HTTPS listener on %s: %w", httpsListenAddr, listenErr)
+		}
+	}
+
+	// Phase 7: PID file — atomically check + write per AI.md PART 7.
+	// Resolve PID file path: --pid flag > PID_FILE env > OS default (dirs.PID).
+	pidFile := ""
+	if !paths.IsRunningInContainer() {
+		pidFile = resolvePIDFilePath(*pidFileFlag, dirs.PID)
+		writePIDFile(pidFile)
+	}
+
+	// Prepare Tor while privileged, but start no child process until after the
+	// privilege drop. The health task is registered once the scheduler exists.
+	torVirtualPort := cfg.Server.Tor.VirtualPort
+	if torVirtualPort == 0 {
+		torVirtualPort = 80
+	}
+	torMgr := tor.NewTorManager(tor.TorServiceConfig{
+		ConfigDir:                 configDir,
+		DataDir:                   dataDirPath,
+		LogDir:                    resolvedLogDir,
+		Binary:                    cfg.Server.Tor.Binary,
+		UseNetwork:                cfg.Server.Tor.UseNetwork,
+		MaxCircuits:               cfg.Server.Tor.MaxCircuits,
+		CircuitTimeout:            cfg.Server.Tor.CircuitTimeout,
+		StartupTimeout:            cfg.Server.Tor.StartupTimeout,
+		BootstrapTimeout:          cfg.Server.Tor.BootstrapTimeout,
+		SafeLogging:               cfg.Server.Tor.SafeLogging,
+		MaxStreamsPerCircuit:      cfg.Server.Tor.MaxStreamsPerCircuit,
+		CloseCircuitOnStreamLimit: cfg.Server.Tor.CloseCircuitOnStreamLimit,
+		BandwidthRate:             cfg.Server.Tor.BandwidthRate,
+		BandwidthBurst:            cfg.Server.Tor.BandwidthBurst,
+		MaxMonthlyBandwidth:       cfg.Server.Tor.MaxMonthlyBandwidth,
+		NumIntroPoints:            cfg.Server.Tor.NumIntroPoints,
+		VirtualPort:               torVirtualPort,
+	})
+	torAvailable := torMgr.IsAvailable()
+	if cfg.Server.Tor.UseNetwork {
+		tor.SetOutboundHTTPClient(torMgr.GetHTTPClient(true))
+	}
+
+	// Configuration and generated secret files may have been written after
+	// the initial directory ownership pass. Reapply the service ownership to
+	// the complete runtime tree before the privilege drop so the service user
+	// can read its private 0600 files and continue writing state.
+	if isElevated() && serviceUID >= 0 && serviceGID >= 0 {
+		for _, d := range ownershipDirs {
+			if err := chownRecursive(d, serviceUID, serviceGID); err != nil {
+				removePIDFile(pidFile)
+				return &ExitCodeError{Code: exNoPerm, Err: fmt.Errorf("set final ownership on %s: %w", d, err)}
+			}
+		}
+	}
+
+	// Phase 8g: Drop privileges (root → ipgaze user) per AI.md PART 23. This is
+	// the final root-phase action: directories, listeners, and managed children
+	// are all in place. A failed drop means the process would keep running as
+	// root, so it fails secure rather than continuing.
+	if isElevated() {
+		if err := dropPrivileges(projectName); err != nil {
+			removePIDFile(pidFile)
+			return &ExitCodeError{Code: exNoPerm, Err: fmt.Errorf("drop privileges to user %s: %w", projectName, err)}
+		}
+		log.Printf("Dropped privileges to user %s", projectName)
+	}
+	if torAvailable {
+		torMgr.StartAsync()
+		log.Println("Tor hidden service starting (bootstrap runs in the background)")
+	} else {
+		log.Println("Tor binary not found, hidden service disabled")
+	}
+
+	// Initialize GeoIP manager
+	geoMgr := geoip.NewGeoIPManager(*dataDir)
+	if err := geoMgr.Initialize(); err != nil {
+		log.Printf("Warning: Failed to initialize GeoIP: %v", err)
+		log.Println("Server will continue without GeoIP support")
+	} else {
+		log.Println("GeoIP databases loaded (4 files, ~103MB)")
+	}
+
+	// Initialize threat intelligence manager (VPN, proxy, Tor exit-node detection).
+	// Files are downloaded on first run; subsequent startups load from disk.
+	threatMgr := threat.NewManager(filepath.Join(*dataDir, "security", "threat"), nil)
+	threatLookup, err := threatMgr.Initialize()
+	if err != nil {
+		log.Printf("Warning: threat intelligence init error (detection will be best-effort): %v", err)
+	} else {
+		log.Println("Threat intelligence lists loaded (VPN/proxy/Tor)")
+	}
+
+	// Open server.db per AI.md PART 10: scheduler state persists across restarts.
+	// Driver is selected from config: sqlite (default) or libsql/turso (remote).
+	var serverDB *db.Store
+	dbDriver := cfg.Server.Database.NormalizedDriver()
+	dbCfg := cfg.Server.Database
+	if dbDriver == "libsql" {
+		// Validate libsql config before attempting connection.
+		if valErr := cfg.Server.Database.ValidateLibSQL(); valErr != nil {
+			log.Printf("Warning: libsql config invalid, falling back to sqlite: %v", valErr)
+			dbDriver = "sqlite"
+			dbCfg.Driver = "sqlite"
+		}
+	}
+	// Delegates driver selection, connection pooling, PRAGMA setup, and schema
+	// application to db.NewDB so this logic has a single implementation.
+	// dirs.DB (not dataDir) is authoritative per PART 4/12: it honors the
+	// independently-relocatable DATABASE_DIR env var.
+	if dbConn, dbErr := db.NewDB(&dbCfg, dirs.DB); dbErr != nil {
+		log.Printf("Warning: Failed to open %s database: %v", dbDriver, dbErr)
+	} else {
+		serverDB = dbConn
+		if err := db.RequireCanonicalAPITokenIDs(serverDB); err != nil {
+			_ = serverDB.Close()
+			return fmt.Errorf("database requires one-time API token ID adoption: %w", err)
+		}
+		defer func() {
+			if err := serverDB.Close(); err != nil {
+				log.Printf("Warning: close server database: %v", err)
+			}
+		}()
+	}
+	if serverDB != nil {
+		if err := config.ImportLegacyDatabaseSecrets(serverDB, configPath); err != nil {
+			log.Printf("Failed to import legacy database secrets: %v", err)
+			return fmt.Errorf("import legacy database secrets: %w", err)
+		}
+		creditKey, keyErr := base64.StdEncoding.DecodeString(cfg.Server.Security.EncryptionKey)
+		if keyErr != nil || len(creditKey) != 32 {
+			log.Printf("Failed to initialize researcher-credit encryption key")
+			return fmt.Errorf("initialize researcher-credit encryption key: invalid configured key")
+		}
+		if err := security.EncryptLegacySecurityCredits(serverDB, creditKey); err != nil {
+			log.Printf("Failed to encrypt stored researcher credits: %v", err)
+			return fmt.Errorf("encrypt stored researcher credits: %w", err)
+		}
+		for _, secretName := range []security.SecretName{security.SecretInstallationSecret, security.SecretCookieSigningKey, security.SecretCSRFTokenSecret} {
+			if _, secretErr := security.GetOrCreateSecret(serverDB, secretName); secretErr != nil {
+				log.Printf("Failed to initialize %s: %v", secretName, secretErr)
+				return fmt.Errorf("initialize %s: %w", secretName, secretErr)
+			}
+		}
+		for _, rotation := range []struct {
+			name     security.SecretName
+			lifetime time.Duration
+		}{{security.SecretCookieSigningKey, 90 * 24 * time.Hour}, {security.SecretCSRFTokenSecret, 180 * 24 * time.Hour}} {
+			rotated, rotationErr := security.RotateSecretIfDue(serverDB, rotation.name, rotation.lifetime, time.Now())
+			if rotationErr != nil {
+				log.Printf("Failed to check automatic secret rotation for %s: %v", rotation.name, rotationErr)
+				return fmt.Errorf("check automatic secret rotation for %s: %w", rotation.name, rotationErr)
+			}
+			if rotated {
+				log.Printf("Automatically rotated %s", rotation.name)
+			}
+		}
+	}
+
+	if serverDB != nil {
+		if err := syncDNSCredentialState(serverDB, cfg); err != nil {
+			log.Printf("Warning: could not synchronize DNS credential state: %v", err)
+		}
+	}
+	if cfg.Server.SSL.LetsEncrypt.DNSProvider != "" && len(cfg.Server.SSL.LetsEncrypt.DNSCredentials.Values) > 0 {
+		startupSSLMgr := ssl.NewSSLManager(ssl.SSLManagerConfig{
+			EncryptionKey: cfg.Server.Security.EncryptionKey,
+			LetsEncrypt: ssl.LetsEncryptConfig{
+				DNSProvider:    cfg.Server.SSL.LetsEncrypt.DNSProvider,
+				DNSCredentials: cfg.Server.SSL.LetsEncrypt.DNSCredentials.Values,
+			},
+		})
+		if err := startupSSLMgr.ValidateDNSCredentials(); err != nil {
+			log.Printf("DNS-01 credential validation failed for provider %q: %v", cfg.Server.SSL.LetsEncrypt.DNSProvider, err)
+		}
+	}
+
+	// Initialize SSL manager per AI.md PART 15.
+	// Shared between scheduler renewal task and HTTPS server startup.
+	// sslEnabled was resolved before the listeners were bound.
+	sslMgr := ssl.NewSSLManager(ssl.SSLManagerConfig{
+		Enabled:       sslEnabled,
+		CertPath:      filepath.Join(configDir, "ssl"),
+		CertFile:      cfg.Server.SSL.Cert,
+		KeyFile:       cfg.Server.SSL.Key,
+		MinVersion:    cfg.Server.SSL.MinVersion,
+		EncryptionKey: cfg.Server.Security.EncryptionKey,
+		LetsEncrypt: ssl.LetsEncryptConfig{
+			Enabled:        sslEnabled && cfg.Server.SSL.LetsEncrypt.Enabled,
+			Email:          cfg.Server.SSL.LetsEncrypt.Email,
+			Staging:        cfg.Server.SSL.LetsEncrypt.Staging,
+			Challenge:      cfg.Server.SSL.LetsEncrypt.Challenge,
+			DNSProvider:    cfg.Server.SSL.LetsEncrypt.DNSProvider,
+			DNSCredentials: cfg.Server.SSL.LetsEncrypt.DNSCredentials.Values,
+		},
+		OnDNSCertificateIssued: func(issuedAt string) {
+			if serverDB == nil {
+				log.Printf("Warning: cannot store DNS certificate issuance timestamp because server.db is unavailable")
+				return
+			}
+			if _, err := serverDB.Exec(`INSERT INTO app_secrets (name, value) VALUES ('dns_validated_at', ?) ON CONFLICT(name) DO UPDATE SET value = excluded.value`, issuedAt); err != nil {
+				log.Printf("Warning: failed to store DNS certificate issuance timestamp: %v", err)
+			}
+		},
+	})
+	sslDomains := []string{}
+	if cfg.Server.FQDN != "" {
+		sslDomains = []string{cfg.Server.FQDN}
+	}
+
+	// Initialize email manager per AI.md PART 17.
+	// Build SMTPConfig from server.notifications.email; apply env var overrides; auto-detect if no host.
+	smtpCfg := email.SMTPConfig{
+		Enabled:  cfg.Server.Notifications.Email.Enabled,
+		Host:     cfg.Server.Notifications.Email.SMTP.Host,
+		Port:     cfg.Server.Notifications.Email.SMTP.Port,
+		Username: cfg.Server.Notifications.Email.SMTP.Username,
+		Password: cfg.Server.Notifications.Email.SMTP.Password,
+		TLS:      cfg.Server.Notifications.Email.SMTP.TLS,
+		From:     cfg.Server.Notifications.Email.From.Email,
+		FromName: cfg.Server.Notifications.Email.From.Name,
+	}
+	email.ApplyEnvOverrides(&smtpCfg)
+	if smtpCfg.Host == "" {
+		globalIPv4, _ := netutil.FetchPublicIP()
+		if probe, probErr := email.AutoDetectSMTP(netutil.DefaultGatewayIP(), cfg.Server.FQDN, globalIPv4); probErr == nil {
+			smtpCfg.Host = probe.Host
+			smtpCfg.Port = probe.Port
+			log.Printf("email: auto-detected SMTP at %s:%d", probe.Host, probe.Port)
+		}
+	}
+	var emailMgr *email.EmailManager
+	if smtpCfg.Host != "" {
+		if connErr := email.TestConnection(smtpCfg); connErr == nil {
+			smtpCfg.Enabled = true
+			emailMgr = email.NewEmailManager(smtpCfg, configDir)
+			emailMgr.Start()
+			defer emailMgr.Stop()
+			log.Printf("email.configured=true smtp=%s:%d", smtpCfg.Host, smtpCfg.Port)
+		} else {
+			log.Printf("email.configured=false smtp_test_failed=%v", connErr)
+		}
+	} else {
+		log.Println("email.configured=false no_smtp")
+	}
+	if startupUpdateErr != nil && emailMgr != nil && emailMgr.IsEnabled() {
+		sendOperatorEmail(cfg, emailMgr, "update_failed", map[string]string{
+			"app_name": projectName, "app_url": cfg.Server.BaseURL,
+			"current_version": Version, "error": startupUpdateErr.Error(),
+		})
+	}
+
+	var updateRestartRequested atomic.Bool
+	restartRequests := make(chan struct{}, 1)
+
+	// Initialize the built-in scheduler (AI.md PART 18: always-running, persistent state, catch-up).
+	// Backed by go-co-op/gocron/v2 per AI.md PART 3 and PART 18.
+	var blLookup *blocklist.Lookup
+	var srv *server.Server
+	sched, err := scheduler.NewScheduler(serverDB, scheduler.DefaultConfig())
+	if err != nil {
+		log.Printf("Warning: Failed to initialize scheduler: %v", err)
+	} else {
+		// AI.md PART 17/18: notify on any scheduled task failure.
+		sched.OnFailure = func(task *scheduler.Task, taskErr error) {
+			// AI.md PART 17: scheduler_error is suppressed when backup_failed
+			// or ssl_renewal_failed already emailed for this same execution.
+			alreadyNotified := consumeCriticalTaskEmail(task.ID)
+			if emailMgr == nil || !emailMgr.IsEnabled() || !cfg.Server.Notifications.Email.Events.SchedulerError {
+				return
+			}
+			if alreadyNotified {
+				log.Printf("scheduler: %s failed — scheduler_error suppressed, a critical event email already went out", task.ID)
+				return
+			}
+			// AI.md PART 17 requires {next_run} in the scheduler_error body so
+			// the operator knows when the task retries without opening the UI.
+			nextRun := "unknown"
+			if state, ok := sched.Status()[task.ID]; ok && state.NextRun != nil {
+				nextRun = state.NextRun.Format(time.RFC3339)
+			}
+			sendOperatorEmail(cfg, emailMgr, "scheduler_error", map[string]string{
+				"app_name":  projectName,
+				"app_url":   cfg.Server.BaseURL,
+				"fqdn":      cfg.Server.FQDN,
+				"task":      task.Name,
+				"task_name": task.Name,
+				"error":     taskErr.Error(),
+				"next_run":  nextRun,
+				"time":      time.Now().Format(time.RFC3339),
+			})
+		}
+
+		// geoip_update: weekly Sunday 03:00 (configurable via server.scheduler.tasks.geoip_update)
+		if err := sched.AddTask(&scheduler.Task{
+			ID:       "geoip_update",
+			Name:     "GeoIP Database Update",
+			Schedule: scheduleFor("0 3 * * 0", cfg.Server.Schedule.Tasks.GeoIPUpdate),
+			Enabled:  enabledFor(true, cfg.Server.Schedule.Tasks.GeoIPUpdate),
+			Fn: func() error {
+				log.Println("DEBUG scheduler: running geoip_update")
+				err := geoMgr.Update()
+				if srv != nil && srv.HealthHandler != nil {
+					srv.HealthHandler.RefreshHealthChecks()
+				}
+				return err
+			},
+		}); err != nil {
+			log.Printf("Warning: Failed to add geoip_update task: %v", err)
+		}
+		if err := sched.AddTask(&scheduler.Task{
+			ID:       "ssl_renewal",
+			Name:     "SSL Certificate Renewal",
+			Schedule: scheduleFor("0 3 * * *", cfg.Server.Schedule.Tasks.SSLRenewal),
+			Enabled:  enabledFor(true, cfg.Server.Schedule.Tasks.SSLRenewal),
+			Fn: func() error {
+				if len(sslDomains) == 0 {
+					return nil
+				}
+				log.Println("DEBUG scheduler: running ssl_renewal")
+				_, preNotAfter, preOK := sslMgr.CertExpiry(sslDomains)
+				wasExpiring := preOK && time.Until(preNotAfter).Hours()/24 <= 30
+				renewErr := sslMgr.RenewIfExpiring(sslDomains, 30)
+				if renewErr != nil && emailMgr != nil && emailMgr.IsEnabled() && cfg.Server.Notifications.Email.Events.SSLRenewalFailed {
+					domain := ""
+					if len(sslDomains) > 0 {
+						domain = sslDomains[0]
+					}
+					sendOperatorEmail(cfg, emailMgr, "ssl_renewal_failed", map[string]string{
+						"app_name":          projectName,
+						"app_url":           cfg.Server.BaseURL,
+						"domain":            domain,
+						"error":             renewErr.Error(),
+						"days_until_expiry": "30",
+						"next_retry":        "24h",
+					})
+					markCriticalTaskEmail("ssl_renewal")
+				}
+				// AI.md PART 17: only report an expiry-state notification when the
+				// cert was actually within the renewal threshold this run —
+				// otherwise RenewIfExpiring was a no-op and there's nothing to
+				// report. ssl_expiring fires when it's still within the threshold
+				// after the attempt (no renewal happened); ssl_renewed fires when
+				// it now expires further out (a renewal actually took place).
+				if wasExpiring && renewErr == nil && emailMgr != nil && emailMgr.IsEnabled() {
+					if fqdn, notAfter, ok := sslMgr.CertExpiry(sslDomains); ok {
+						daysLeft := int(time.Until(notAfter).Hours() / 24)
+						vars := map[string]string{
+							"app_name": projectName,
+							"app_url":  cfg.Server.BaseURL,
+							"fqdn":     fqdn,
+							"expiry":   notAfter.Format("2006-01-02"),
+						}
+						if daysLeft <= 30 && cfg.Server.Notifications.Email.Events.SSLExpiring {
+							vars["days"] = fmt.Sprintf("%d", daysLeft)
+							sendOperatorEmail(cfg, emailMgr, "ssl_expiring", vars)
+						} else if daysLeft > 30 && cfg.Server.Notifications.Email.Events.SSLRenewed {
+							sendOperatorEmail(cfg, emailMgr, "ssl_renewed", vars)
+						}
+					}
+				}
+				return renewErr
+			},
+		}); err != nil {
+			log.Printf("Warning: Failed to add ssl_renewal task: %v", err)
+		}
+
+		// blocklist_update: daily 04:00 (configurable)
+		if err := sched.AddTask(&scheduler.Task{
+			ID:       "blocklist_update",
+			Name:     "IP Blocklist Update",
+			Schedule: scheduleFor("0 4 * * *", cfg.Server.Schedule.Tasks.BlocklistUpdate),
+			Enabled:  enabledFor(true, cfg.Server.Schedule.Tasks.BlocklistUpdate),
+			Fn: func() error {
+				log.Println("DEBUG scheduler: running blocklist_update")
+				currentCfg := config.Get()
+				blDir := filepath.Join(*dataDir, "security", "blocklists")
+				var err error
+				if currentCfg.Server.Security.Blocklists.Enabled {
+					blMgr := blocklist.NewBlocklistManager(blDir, configuredBlocklistSources(currentCfg))
+					err = blMgr.Update()
+				}
+				if blLookup != nil {
+					loadErr := blLookup.LoadDirWithTypes(blDir, configuredBlocklistTypes(currentCfg))
+					if err == nil {
+						err = loadErr
+					}
+				}
+				if srv != nil && srv.HealthHandler != nil {
+					srv.HealthHandler.RefreshHealthChecks()
+				}
+				return err
+			},
+		}); err != nil {
+			log.Printf("Warning: Failed to add blocklist_update task: %v", err)
+		}
+
+		if err := sched.AddTask(&scheduler.Task{
+			ID:       "security_cleanup",
+			Name:     "Security Data Cleanup",
+			Schedule: "30 3 * * *",
+			Enabled:  true,
+			Fn: func() error {
+				currentCfg := config.Get()
+				if currentCfg == nil {
+					currentCfg = cfg
+				}
+				return cleanupSecurityData(context.Background(), serverDB, configDir, currentCfg.Server.Security.Reports.RetentionDays, time.Now())
+			},
+		}); err != nil {
+			log.Printf("Warning: Failed to add security_cleanup task: %v", err)
+		}
+
+		// threat_update: daily 04:30 — VPN/proxy/Tor exit-node list refresh
+		if err := sched.AddTask(&scheduler.Task{
+			ID:       "threat_update",
+			Name:     "Threat Intelligence Update",
+			Schedule: scheduleFor("30 4 * * *", cfg.Server.Schedule.Tasks.ThreatUpdate),
+			Enabled:  enabledFor(true, cfg.Server.Schedule.Tasks.ThreatUpdate),
+			Fn: func() error {
+				log.Println("DEBUG scheduler: running threat_update")
+				return threatMgr.Update(threatLookup)
+			},
+		}); err != nil {
+			log.Printf("Warning: Failed to add threat_update task: %v", err)
+		}
+
+		// cve_update: daily 05:00 (configurable)
+		cveMgr := cve.NewCVEManager(filepath.Join(*dataDir, "security", "cve"), cfg.Data.CVE.Source)
+		if err := sched.AddTask(&scheduler.Task{
+			ID:       "cve_update",
+			Name:     "CVE Database Update",
+			Schedule: scheduleFor("0 5 * * *", cfg.Server.Schedule.Tasks.CVEUpdate),
+			Enabled:  enabledFor(true, cfg.Server.Schedule.Tasks.CVEUpdate),
+			Fn: func() error {
+				log.Println("DEBUG scheduler: running cve_update")
+				return cveMgr.Update()
+			},
+		}); err != nil {
+			log.Printf("Warning: Failed to add cve_update task: %v", err)
+		}
+
+		// update_check: daily 06:00 — check for newer version (configurable)
+		// Per AI.md PART 18 / PART 22: notify-only unless update.auto_install is true.
+		if err := sched.AddTask(&scheduler.Task{
+			ID:       "update_check",
+			Name:     "Update Check",
+			Schedule: scheduleFor("0 6 * * *", cfg.Server.Schedule.Tasks.UpdateCheck),
+			Enabled:  enabledFor(true, cfg.Server.Schedule.Tasks.UpdateCheck),
+			Fn: func() error {
+				log.Println("DEBUG scheduler: running update_check")
+				updateNotifiedPath := filepath.Join(dataDirPath, "update_notified_version")
+				branch := cfg.Server.Update.Branch
+				if branch == "" {
+					branch = cfg.Server.UpdateBranch
+				}
+				if branch == "" {
+					branch = "stable"
+				}
+				release, err := updater.CheckForScheduledUpdate(context.Background(), Version, branch, buildEpoch(), cfg.Server.Update.DeferDays)
+				if err != nil {
+					return fmt.Errorf("update_check: %w", err)
+				}
+				if release == nil {
+					log.Println("DEBUG scheduler: update_check — already up to date")
+					return nil
+				}
+				latestVersion := strings.TrimPrefix(release.TagName, "v")
+				failedVersionPath := filepath.Join(dataDirPath, "update_failed_version")
+				// update_available is a state-change event, not a per-run report.
+				// The last notified version is persisted so a pending update
+				// does not re-notify on every daily run until it is installed.
+				alreadyNotified := readUpdateNotifiedVersion(updateNotifiedPath) == latestVersion
+				if !alreadyNotified {
+					// AI.md PART 17 lists "Update available" at WARN, not INFO.
+					log.Printf("WARN scheduler: update_check — update available: %s -> %s", Version, latestVersion)
+				}
+				// Per AI.md PART 22 (29592/29597): auto_install:false fires the
+				// update_available event; the email is off by default and gated
+				// by server.notifications.email.events.update_available.
+				if !alreadyNotified && emailMgr != nil && emailMgr.IsEnabled() && cfg.Server.Notifications.Email.Events.UpdateAvailable {
+					sendOperatorEmail(cfg, emailMgr, "update_available", map[string]string{
+						"app_name":        projectName,
+						"app_url":         cfg.Server.BaseURL,
+						"current_version": Version,
+						"new_version":     latestVersion,
+						"channel":         branch,
+						"command":         projectName + " --update yes",
+					})
+				}
+				if !alreadyNotified {
+					writeUpdateNotifiedVersion(updateNotifiedPath, latestVersion)
+				}
+				if cfg.Server.Update.AutoInstall {
+					if readUpdateNotifiedVersion(failedVersionPath) == latestVersion {
+						log.Printf("scheduler: update_check — %s previously failed; waiting for a newer release", latestVersion)
+						return nil
+					}
+					if !paths.StartedElevated() || runtime.GOOS == "windows" && svc.IsRunningAsService() {
+						if logMgr != nil {
+							logMgr.WriteAuditEvent("", "update.install_skipped", "update", "warn", "success", "", map[string]any{"reason": "not_elevated", "version": latestVersion})
+						}
+						log.Printf("scheduler: update_check — auto-install skipped; install manually with %q", projectName+" --update yes")
+						return nil
+					}
+					log.Printf("scheduler: update_check — staging update %s", latestVersion)
+					stagedVersion, stageErr := updater.StageUpdate(context.Background(), release, dataDirPath)
+					if stageErr != nil {
+						writeUpdateNotifiedVersion(failedVersionPath, latestVersion)
+						if logMgr != nil {
+							logMgr.WriteAuditEvent("", "update.failed", "update", "error", "failure", "", map[string]any{"version": latestVersion, "error": stageErr.Error()})
+						}
+						if emailMgr != nil && emailMgr.IsEnabled() {
+							sendOperatorEmail(cfg, emailMgr, "update_failed", map[string]string{"app_name": projectName, "app_url": cfg.Server.BaseURL, "current_version": Version, "new_version": latestVersion, "channel": branch, "error": stageErr.Error()})
+						}
+						return fmt.Errorf("update staging failed: %w", stageErr)
+					}
+					if logMgr != nil {
+						logMgr.WriteAuditEvent("", "update.staged", "update", "info", "success", "", map[string]any{"version": stagedVersion})
+					}
+					_ = os.Remove(failedVersionPath)
+					manager := svc.DetectServiceManager()
+					if !svc.IsRunningAsService() || manager == svc.ServiceOpenRC || manager == svc.ServiceSysVinit || manager == svc.ServiceBSDRC || manager == svc.ServiceContainer || manager == svc.ServiceUnknown {
+						log.Printf("Update staged: restart to apply version %s", stagedVersion)
+						return nil
+					}
+					updateRestartRequested.Store(true)
+					select {
+					case restartRequests <- struct{}{}:
+					default:
+					}
+				}
+				return nil
+			},
+		}); err != nil {
+			log.Printf("Warning: Failed to add update_check task: %v", err)
+		}
+
+		// log_rotation: daily 00:00 — hand off to the log manager, which owns the
+		// open file descriptors. Rotating behind its back (renaming or removing
+		// the files directly) leaves every writer pointed at an unlinked inode.
+		if err := sched.AddTask(&scheduler.Task{
+			ID:       "log_rotation",
+			Name:     "Log Rotation",
+			Schedule: scheduleFor("0 0 * * *", cfg.Server.Schedule.Tasks.LogRotation),
+			Enabled:  enabledFor(true, cfg.Server.Schedule.Tasks.LogRotation),
+			Fn: func() error {
+				log.Println("DEBUG scheduler: running log_rotation")
+				return logMgr.Rotate()
+			},
+		}); err != nil {
+			log.Printf("Warning: Failed to add log_rotation task: %v", err)
+		}
+
+		// backup_daily: daily 02:00 (configurable)
+		if err := sched.AddTask(&scheduler.Task{
+			ID:       "backup_daily",
+			Name:     "Daily Backup",
+			Schedule: scheduleFor("0 2 * * *", cfg.Server.Schedule.Tasks.BackupDaily),
+			Enabled:  enabledFor(true, cfg.Server.Schedule.Tasks.BackupDaily),
+			Fn: func() error {
+				log.Println("DEBUG scheduler: running backup_daily")
+
+				// AI.md PART 21: scheduled backups skip (with an audit log
+				// warning) when compliance mode blocks the encryption
+				// password source rather than failing the scheduler run.
+				if _, pwErr := resolveBackupEncryptionPassword(cfg, false); pwErr != nil {
+					log.Printf("scheduler: backup_daily skipped: %v", pwErr)
+					if logMgr != nil {
+						logMgr.WriteAuditEvent("", "backup.skipped_compliance", "backup", "warn", "failure", "", map[string]any{
+							"reason": pwErr.Error(),
+						})
+					}
+					return nil
+				}
+
+				backupDir := resolvedBackupDir
+				if err := os.MkdirAll(backupDir, 0o755); err != nil {
+					return fmt.Errorf("backup_daily: create dir: %w", err)
+				}
+				applyBackupRetention(backupDir, cfg.Server.Backup.Retention, logMgr, cfg.Server.Backup.Encryption.EncryptionPassword)
+
+				// AI.md PART 21 Backup Creation Flow step 2: check free disk
+				// space before creating the backup; skip (with audit log) if
+				// usage exceeds threshold or there isn't room for the backup.
+				if skip, reason := backupDiskSpaceExceeded(backupDir, cfg.Server.Maintenance.Cleanup.DiskThreshold, logMgr); skip {
+					log.Printf("scheduler: backup_daily skipped: %s", reason)
+					return nil
+				}
+
+				t0 := time.Now().UTC()
+				snapshotFiles, snapshotErr := prepareScheduledBackupSnapshot(cfg, configDir, *dataDir, dirs.DB, false, false)
+				if snapshotErr != nil {
+					return fmt.Errorf("backup_daily: capture snapshot: %w", snapshotErr)
+				}
+				ts := t0.Format("2006-01-02")
+				backupFile := filepath.Join(backupDir, fmt.Sprintf("ipgaze_backup_%s.tar.gz", ts))
+				if err := preserveExistingDailyFull(backupFile, t0); err != nil {
+					return fmt.Errorf("backup_daily: preserve existing full: %w", err)
+				}
+				// AI.md PART 21 requires the daily cumulative incremental to be
+				// captured against the previous full before today's new full.
+				fulls, listErr := listFullBackups(backupDir)
+				if listErr != nil {
+					return fmt.Errorf("backup_daily: list full backups: %w", listErr)
+				}
+				dailyFile := filepath.Join(backupDir, "ipgaze-daily.tar.gz")
+				dailyFinalFile := dailyFile
+				if cfg.Server.Backup.Encryption.EncryptionPassword != "" {
+					dailyFinalFile += ".enc"
+				}
+				previousDaily, previousDailyErr := os.ReadFile(dailyFinalFile)
+				previousDailyExists := previousDailyErr == nil
+				if previousDailyErr != nil && !os.IsNotExist(previousDailyErr) {
+					return fmt.Errorf("backup_daily: read existing incremental: %w", previousDailyErr)
+				}
+				dailyLayout := backupArchiveLayout{configDir: configDir, dataDir: *dataDir, dbDir: dirs.DB}
+				if len(fulls) > 0 && backupBaseSupportsIncremental(fulls[0].path, cfg, dailyLayout) {
+					if err := maintenanceBackupAtWithSnapshot(cfg, configDir, *dataDir, dirs.DB, dailyFile, false, false, false, t0, fulls[0].path, snapshotFiles, logMgr); err != nil {
+						if notifyBackupFailed(cfg, emailMgr, projectName, err) {
+							markCriticalTaskEmail("backup_daily")
+						}
+						return fmt.Errorf("backup_daily incremental: %w", err)
+					}
+					if logMgr != nil {
+						logMgr.WriteAuditEvent("", "backup.daily_updated", "backup", "info", "success", "", map[string]any{
+							"filename": filepath.Base(dailyFile),
+							"since":    fulls[0].name,
+						})
+					}
+				} else if len(fulls) > 0 {
+					log.Printf("scheduler: backup_daily incremental skipped: latest full %s predates the incremental manifest format", fulls[0].name)
+				}
+
+				// Daily fulls use a date-only filename; the incremental and full
+				// share one recorded snapshot instant.
+				if err := maintenanceBackupAtWithSnapshot(cfg, configDir, *dataDir, dirs.DB, backupFile, false, false, false, t0, "", snapshotFiles, logMgr); err != nil {
+					if restoreErr := restoreBackupFile(dailyFinalFile, previousDaily, previousDailyExists); restoreErr != nil {
+						log.Printf("scheduler: restore previous daily incremental after full failure: %v", restoreErr)
+					}
+					if notifyBackupFailed(cfg, emailMgr, projectName, err) {
+						markCriticalTaskEmail("backup_daily")
+					}
+					return fmt.Errorf("backup_daily: %w", err)
+				}
+				// Apply retention policy only after successful creation/verification.
+				applyBackupRetention(backupDir, cfg.Server.Backup.Retention, logMgr, cfg.Server.Backup.Encryption.EncryptionPassword)
+				notifyBackupComplete(cfg, emailMgr, projectName, backupFile)
+				return nil
+			},
+		}); err != nil {
+			log.Printf("Warning: Failed to add backup_daily task: %v", err)
+		}
+
+		// backup_hourly: every hour — disabled by default (configurable)
+		if err := sched.AddTask(&scheduler.Task{
+			ID:       "backup_hourly",
+			Name:     "Hourly Backup",
+			Schedule: scheduleFor("@hourly", cfg.Server.Schedule.Tasks.BackupHourly),
+			Enabled:  enabledFor(false, cfg.Server.Schedule.Tasks.BackupHourly),
+			Fn: func() error {
+				log.Println("DEBUG scheduler: running backup_hourly")
+
+				if _, pwErr := resolveBackupEncryptionPassword(cfg, false); pwErr != nil {
+					log.Printf("scheduler: backup_hourly skipped: %v", pwErr)
+					if logMgr != nil {
+						logMgr.WriteAuditEvent("", "backup.skipped_compliance", "backup", "warn", "failure", "", map[string]any{
+							"reason": pwErr.Error(),
+						})
+					}
+					return nil
+				}
+
+				backupDir := resolvedBackupDir
+				if err := os.MkdirAll(backupDir, 0o755); err != nil {
+					return fmt.Errorf("backup_hourly: create dir: %w", err)
+				}
+				if skip, reason := backupDiskSpaceExceeded(backupDir, cfg.Server.Maintenance.Cleanup.DiskThreshold, logMgr); skip {
+					log.Printf("scheduler: backup_hourly skipped: %s", reason)
+					return nil
+				}
+				fulls, listErr := listFullBackups(backupDir)
+				if listErr != nil {
+					return fmt.Errorf("backup_hourly: list full backups: %w", listErr)
+				}
+				hourlyLayout := backupArchiveLayout{configDir: configDir, dataDir: *dataDir, dbDir: dirs.DB}
+				if len(fulls) == 0 || !backupBaseSupportsIncremental(fulls[0].path, cfg, hourlyLayout) {
+					log.Println("scheduler: backup_hourly skipped: no compatible full backup exists yet")
+					return nil
+				}
+				backupFile := filepath.Join(backupDir, "ipgaze-hourly.tar.gz")
+				if err := maintenanceBackupAt(cfg, configDir, *dataDir, dirs.DB, backupFile, false, false, false, time.Now().UTC(), fulls[0].path, logMgr); err != nil {
+					if notifyBackupFailed(cfg, emailMgr, projectName, err) {
+						markCriticalTaskEmail("backup_hourly")
+					}
+					return fmt.Errorf("backup_hourly: %w", err)
+				}
+				applyBackupRetention(backupDir, cfg.Server.Backup.Retention, logMgr, cfg.Server.Backup.Encryption.EncryptionPassword)
+				notifyBackupComplete(cfg, emailMgr, projectName, backupFile)
+				return nil
+			},
+		}); err != nil {
+			log.Printf("Warning: Failed to add backup_hourly task: %v", err)
+		}
+
+		if err := sched.Start(); err != nil {
+			log.Printf("Warning: start scheduler: %v", err)
+		}
+	}
+
+	// tor_health probes Tor without allowing an overlay failure to block,
+	// restart, or fail the clearnet server.
+	// Registered here rather than at spawn time because the scheduler is
+	// created after the drop.
+	if torAvailable && sched != nil {
+		if err := sched.AddTask(&scheduler.Task{
+			ID:       "tor_health",
+			Name:     "Tor Health Check",
+			Schedule: scheduleFor("@every 10m", cfg.Server.Schedule.Tasks.TorHealth),
+			Enabled:  enabledFor(true, cfg.Server.Schedule.Tasks.TorHealth),
+			Fn: func() error {
+				_ = torMgr.HealthCheck()
+				return nil
+			},
+		}); err != nil {
+			log.Printf("Warning: Failed to add tor_health task: %v", err)
+		}
+	}
+
+	// Initialize I2P per AI.md PART 31.2. Its default is enabled in
+	// containers and disabled elsewhere; initialization runs in the background.
+	i2pLogDir := dirs.Logs
+	if envLog := os.Getenv("LOG_DIR"); envLog != "" {
+		i2pLogDir = envLog
+	}
+	i2pMgr := i2p.NewI2PManager(i2p.I2PServiceConfig{
+		ConfigDir:        configDir,
+		DataDir:          *dataDir,
+		LogDir:           i2pLogDir,
+		Enabled:          cfg.Server.I2P.Enabled,
+		Binary:           cfg.Server.I2P.Binary,
+		SAMAddress:       cfg.Server.I2P.SAMAddress,
+		VirtualPort:      cfg.Server.I2P.VirtualPort,
+		InboundLength:    cfg.Server.I2P.InboundLength,
+		OutboundLength:   cfg.Server.I2P.OutboundLength,
+		InboundQuantity:  cfg.Server.I2P.InboundQuantity,
+		OutboundQuantity: cfg.Server.I2P.OutboundQuantity,
+		SignatureType:    cfg.Server.I2P.SignatureType,
+		BootstrapTimeout: cfg.Server.I2P.BootstrapTimeout,
+	})
+	if cfg.Server.I2P.Enabled {
+		i2pMgr.StartAsync()
+		log.Println("I2P eepsite starting (provider detection and tunnels run in the background)")
+
+		if sched != nil {
+			if err := sched.AddTask(&scheduler.Task{
+				ID:       "i2p_health",
+				Name:     "I2P Health Check",
+				Schedule: "@every 10m",
+				Enabled:  true,
+				Fn: func() error {
+					i2pMgr.HealthCheck()
+					return nil
+				},
+			}); err != nil {
+				log.Printf("Warning: Failed to add i2p_health task: %v", err)
+			}
+		}
+	}
+
+	// Setup signal handling
+	// Per AI.md PART 8 signal table: SIGTERM, SIGINT, and SIGQUIT all trigger
+	// a graceful shutdown; SIGRTMIN+3 (signal 37) is Docker's STOPSIGNAL.
+	// The platform's signal set (and the SIGHUP ignore, which only exists on
+	// Unix) lives behind a build tag per AI.md 11140 — Windows has no SIGHUP,
+	// SIGUSR1, SIGUSR2 or SIGQUIT, so naming those constants here would break
+	// the windows/amd64 and windows/arm64 release builds.
+	// Watch server.yml for external edits and hot-reload or flag
+	// restart-required settings per AI.md PART 12.
+	configMgr := config.NewConfigManager(configPath)
+	var stopConfigWatch func()
+
+	r := geoMgr.Reader()
+	// Initialise the cache backend from config (type: none|memory|valkey|redis|memcache).
+	// CACHE_URL (Runtime env var, e.g. from docker-compose.yml's valkey sidecar)
+	// overrides server.yml's cache.url per AI.md PART 12.
+	cache.ApplyEnvOverrides(&cfg.Server.Cache)
+	appCache, cacheErr := cache.NewCache(cfg.Server.Cache)
+	if cacheErr != nil {
+		log.Printf("warn: cache init failed (%v); falling back to memory cache", cacheErr)
+		appCache, _ = cache.NewCache(config.CacheConfig{Type: "memory"})
+	}
+	// Cache operation logging per AI.md PART 6 server.debug.log_cache —
+	// gated by the debug flag, never by mode alone.
+	if cfg.IsDebug() && cfg.Server.Debug.LogCache {
+		appCache = cache.NewLogging(appCache)
+	}
+	defer func() {
+		if err := appCache.Close(); err != nil {
+			log.Printf("Warning: close cache: %v", err)
+		}
+	}()
+	// Legacy in-server response cache for GeoIP result caching; separate from appCache.
+	httpCache := server.NewCache(0)
+	// Profiling endpoints enabled only in debug mode, not via a separate flag
+	srv = server.NewHTTPServer(r, httpCache)
+	srv.HealthHandler = serverhandler.NewHealthHandler(Version, CommitID, BuildDate, cfg.Server.Mode, time.Now())
+	srv.HealthHandler.DBRequired = true
+	srv.HealthHandler.SchedulerRequired = true
+	srv.HealthHandler.DiskRequired = true
+	if cfg.Server.GeoIP.Enabled {
+		for _, datasetKey := range []string{"geoip_asn", "geoip_country", "geoip_city_ipv4", "geoip_city_ipv6"} {
+			key := datasetKey
+			srv.HealthHandler.RegisterHealthCheck(key, false, func() string { return geoMgr.HealthChecks()[key] })
+		}
+	}
+	srv.SetConfigManager(configMgr)
+	srv.SetConfig(cfg)
+	srv.SetEmailManager(emailMgr)
+	// Cache SHA-256 of operator token in memory per AI.md PART 11.
+	// Hash is never written to DB; raw token is stored only in server.yml (auto-generated above).
+	srv.SetOperatorToken(cfg.Server.Token)
+	srv.DataDir = *dataDir
+	srv.ConfigDir = configDir
+	srv.Version = Version
+	srv.CommitID = CommitID
+	srv.BuildDate = BuildDate
+	srv.SetTorStatus(torMgr)
+	// Live Tor manager behind the INTERNAL /server/tor/* control channel that
+	// `ipgaze tor ...` drives over loopback (AI.md PART 31.1).
+	srv.SetTorControl(torMgr)
+	srv.SetI2PStatus(i2pMgr)
+	srv.Mode = cfg.Server.Mode
+	baseURLFlagExplicit := false
+	flag.Visit(func(f *flag.Flag) {
+		if f.Name == "baseurl" {
+			baseURLFlagExplicit = true
+		}
+	})
+	resolvedBaseURL := cfg.Server.BaseURL
+	if baseURLFlagExplicit {
+		resolvedBaseURL = *baseurlFlag
+	}
+	if resolvedBaseURL == "" {
+		resolvedBaseURL = "/"
+	}
+	srv.BaseURL = resolvedBaseURL
+	// Per AI.md PART 13: /healthz root alias is optional, gated by config.
+	srv.HealthzRootEnabled = cfg.Server.Healthz.Root.Enabled
+	// HOST_IPV4 / HOST_IPV6: host's public IPs for container deployments.
+	// Invalid values are silently ignored per spec.
+	srv.SetHostIPs(os.Getenv("HOST_IPV4"), os.Getenv("HOST_IPV6"))
+
+	// Initialize metrics per AI.md PART 20
+	// ctx is declared below for graceful shutdown; use a local stop channel here.
+	metricsStop := make(chan struct{})
+	if cfg.Server.Metrics.Enabled {
+		if cfg.Server.Metrics.IncludeSystem {
+			smetrics.RegisterSystemMetrics()
+			systemCollector := smetrics.NewSystemCollector(*dataDir, 15*time.Second, metricsStop)
+			systemCollector.Start()
+		}
+		if cfg.Server.Metrics.IncludeRuntime {
+			smetrics.RegisterRuntimeMetrics()
+		}
+		smetrics.InitAppInfo(Version, CommitID, BuildDate)
+		srv.SetMetricsConfig(cfg.Server.Metrics)
+		if cfg.Server.Metrics.IncludeRuntime {
+			rc := smetrics.NewRuntimeCollector()
+			rc.Start()
+			defer rc.Stop()
+		}
+		if serverDB != nil {
+			smetrics.StartDBStatsUpdater(serverDB, metricsStop)
+		}
+		smetrics.StartUptimeUpdater(metricsStop)
+	}
+
+	// Register scheduler tasks.
+	// Per AI.md PART 18: healthcheck_self runs on every node.
+	if sched != nil {
+		// healthcheck_self: every 5 minutes (configurable)
+		if err := sched.AddTask(&scheduler.Task{
+			ID:       "healthcheck_self",
+			Name:     "Self Health Check",
+			Schedule: scheduleFor("@every 5m", cfg.Server.Schedule.Tasks.HealthcheckSelf),
+			Enabled:  enabledFor(true, cfg.Server.Schedule.Tasks.HealthcheckSelf),
+			Fn: func() error {
+				// Use the canonical /server/healthz path, not the /healthz root
+				// alias — that alias is optional and disabled by default (AI.md
+				// PART 13, srv.HealthzRootEnabled above), so this self-check
+				// would always 404 on a default-config server.
+				url := fmt.Sprintf("http://localhost:%s/server/healthz", serverPort)
+				client := &http.Client{Timeout: 10 * time.Second}
+				resp, err := client.Get(url)
+				if err != nil {
+					log.Printf("scheduler: healthcheck_self failed: %v", err)
+					return err
+				}
+				_ = resp.Body.Close()
+				if resp.StatusCode != http.StatusOK {
+					log.Printf("scheduler: healthcheck_self non-200: %d", resp.StatusCode)
+					return fmt.Errorf("healthcheck_self: HTTP %d", resp.StatusCode)
+				}
+				return nil
+			},
+		}); err != nil {
+			log.Printf("Warning: Failed to add healthcheck_self task: %v", err)
+		}
+
+		// token_cleanup: every 15 minutes — purge idle owners only when configured.
+		if err := sched.AddTask(&scheduler.Task{
+			ID:       "token_cleanup",
+			Name:     "Token Cleanup",
+			Schedule: scheduleFor("@every 15m", cfg.Server.Schedule.Tasks.TokenCleanup),
+			Enabled:  enabledFor(true, cfg.Server.Schedule.Tasks.TokenCleanup),
+			Fn: func() error {
+				if serverDB == nil {
+					return nil
+				}
+				cleanupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				defer cancel()
+				if err := deleteInBatches(cleanupCtx, serverDB, `DELETE FROM captcha_challenges WHERE id IN (SELECT id FROM captcha_challenges WHERE expires_at <= ? LIMIT 500)`, time.Now().Unix()); err != nil {
+					return err
+				}
+				days := cfg.Server.Tokens.IdlePurgeDays
+				if days <= 0 {
+					return nil
+				}
+				cutoff := time.Now().Add(-time.Duration(days) * 24 * time.Hour).Unix()
+				return deleteInBatches(cleanupCtx, serverDB, `DELETE FROM owners WHERE id IN (SELECT id FROM owners WHERE id <> 'system' AND last_seen_at < ? LIMIT 500)`, cutoff)
+			},
+		}); err != nil {
+			log.Printf("Warning: Failed to add token_cleanup task: %v", err)
+		}
+
+		var databaseNoticeMu sync.Mutex
+		databaseFailures := 0
+		var databaseSince, databaseLastNotice time.Time
+		if err := sched.AddTask(&scheduler.Task{
+			ID: "database_check", Name: "Database Connection Check", Schedule: "@every 1m", Enabled: true,
+			Fn: func() error {
+				if serverDB == nil {
+					return nil
+				}
+				probeCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				err := serverDB.PingContext(probeCtx)
+				if err == nil {
+					var one int
+					err = serverDB.QueryRowContext(probeCtx, "SELECT 1").Scan(&one)
+				}
+				cancel()
+				now := time.Now()
+				databaseNoticeMu.Lock()
+				defer databaseNoticeMu.Unlock()
+				if err == nil {
+					if databaseFailures > 0 {
+						log.Printf("INFO Database connection recovered")
+					}
+					databaseFailures = 0
+					databaseSince = time.Time{}
+					databaseLastNotice = time.Time{}
+					return nil
+				}
+				if databaseFailures == 0 {
+					databaseSince = now
+				}
+				databaseFailures++
+				if databaseFailures < 3 || !databaseLastNotice.IsZero() && now.Sub(databaseLastNotice) < 24*time.Hour {
+					return nil
+				}
+				message := err.Error()
+				for _, secret := range []string{cfg.Server.Database.URL, cfg.Server.Database.Token} {
+					if secret != "" {
+						message = strings.ReplaceAll(message, secret, "********")
+					}
+				}
+				log.Printf("WARN database connection failed since %s: %s", databaseSince.Format(time.RFC3339), message)
+				if emailMgr != nil && emailMgr.IsEnabled() {
+					sendOperatorEmail(cfg, emailMgr, "database_error", map[string]string{
+						"app_name": projectName, "app_url": cfg.Server.BaseURL,
+						"since": databaseSince.Format(time.RFC3339), "error": message,
+					})
+				}
+				databaseLastNotice = now
+				return nil
+			},
+		}); err != nil {
+			log.Printf("Warning: Failed to add database_check task: %v", err)
+		}
+
+		var diskNoticeMu sync.Mutex
+		diskLastNotice := make(map[string]time.Time)
+		diskAboveThreshold := make(map[string]bool)
+		if err := sched.AddTask(&scheduler.Task{
+			ID: "disk_check", Name: "Disk Space Check", Schedule: "@every 5m", Enabled: true,
+			Fn: func() error {
+				pathsToCheck := []string{*dataDir, dirs.Logs, resolvedBackupDir}
+				seen := make(map[string]bool, len(pathsToCheck))
+				for _, dir := range pathsToCheck {
+					if dir == "" {
+						continue
+					}
+					key := filepath.Clean(dir)
+					if seen[key] {
+						continue
+					}
+					seen[key] = true
+					free, used, err := diskFreeAndUsedPercent(key)
+					if err != nil {
+						log.Printf("WARN disk_check %s: %v", key, err)
+						continue
+					}
+					diskNoticeMu.Lock()
+					now := time.Now()
+					if used < 80 {
+						if diskAboveThreshold[key] {
+							log.Printf("INFO Disk space recovered: %s (%d%% used)", key, used)
+						}
+						delete(diskAboveThreshold, key)
+						delete(diskLastNotice, key)
+						diskNoticeMu.Unlock()
+						continue
+					}
+					if used < 85 || !diskLastNotice[key].IsZero() && now.Sub(diskLastNotice[key]) < 24*time.Hour {
+						diskNoticeMu.Unlock()
+						continue
+					}
+					log.Printf("WARN disk space low: %s is %d%% used (%d bytes free)", key, used, free)
+					diskAboveThreshold[key] = true
+					diskLastNotice[key] = now
+					diskNoticeMu.Unlock()
+					if emailMgr != nil && emailMgr.IsEnabled() {
+						sendOperatorEmail(cfg, emailMgr, "disk_low", map[string]string{
+							"app_name": projectName, "app_url": cfg.Server.BaseURL, "path": key,
+							"time": now.Format(time.RFC3339), "used_percent": fmt.Sprintf("%d", used),
+							"free": fmt.Sprintf("%d bytes", free), "threshold_percent": "85",
+						})
+					}
+				}
+				return nil
+			},
+		}); err != nil {
+			log.Printf("Warning: Failed to add disk_check task: %v", err)
+		}
+
+		if err := sched.AddTask(&scheduler.Task{
+			ID: "keyserver_retry", Name: "PGP Keyserver Retry", Schedule: "@every 15m", Enabled: true,
+			Fn: func() error {
+				if serverDB == nil || !cfg.Web.Security.PublishPGPKey || len(cfg.Web.Security.Keyservers) == 0 {
+					return nil
+				}
+				record, err := pgp.ActiveRecord(serverDB)
+				if err != nil || record == nil {
+					return err
+				}
+				due, err := pgp.DueKeyserverRetries(configDir, record.Fingerprint, time.Now())
+				if err != nil {
+					return err
+				}
+				if len(due) == 0 {
+					return nil
+				}
+				publicKey, err := pgp.LoadPublic(configDir)
+				if err != nil {
+					return err
+				}
+				configured := make(map[string]bool, len(cfg.Web.Security.Keyservers))
+				for _, host := range cfg.Web.Security.Keyservers {
+					configured[host] = true
+				}
+				for host, retry := range due {
+					if !configured[host] {
+						if err := pgp.ClearKeyserverRetry(configDir, record.Fingerprint, host); err != nil {
+							return err
+						}
+						continue
+					}
+					results := pgp.Publish(serverDB, record.Fingerprint, publicKey, []string{host})
+					if len(results) == 0 || results[0].Err == nil {
+						if err := pgp.ClearKeyserverRetry(configDir, record.Fingerprint, host); err != nil {
+							return err
+						}
+						if updated, updateErr := pgp.ActiveRecord(serverDB); updateErr == nil && updated != nil {
+							if err := pgp.WriteKeyserversState(configDir, updated.Fingerprint, updated.KeyserversPublished); err != nil {
+								return err
+							}
+						}
+						continue
+					}
+					publishErr := results[0].Err
+					attempt := retry.AttemptCount + 1
+					if isFinalKeyserverFailure(publishErr) || attempt >= 8 {
+						if err := pgp.ClearKeyserverRetry(configDir, record.Fingerprint, host); err != nil {
+							return err
+						}
+						log.Printf("WARN keyserver publish permanently failed for %s after %d attempts: %v", host, attempt, publishErr)
+						continue
+					}
+					delay := time.Minute * time.Duration(1<<uint(attempt-1))
+					if delay > 6*time.Hour {
+						delay = 6 * time.Hour
+					}
+					if err := pgp.ScheduleKeyserverRetry(configDir, record.Fingerprint, host, pgp.KeyserverRetry{AttemptCount: attempt, NextAttempt: time.Now().Add(delay).UTC()}); err != nil {
+						return err
+					}
+					log.Printf("WARN keyserver publish retry scheduled for %s at %s: %v", host, time.Now().Add(delay).UTC().Format(time.RFC3339), publishErr)
+				}
+				return nil
+			},
+		}); err != nil {
+			log.Printf("Warning: Failed to add keyserver_retry task: %v", err)
+		}
+
+		// public_ip_refresh: every 12h — fetch this server's own external public IP.
+		// Per AI.md PART 18: registered after srv is created so the closure can call srv.RefreshPublicIP().
+		if err := sched.AddTask(&scheduler.Task{
+			ID:       "public_ip_refresh",
+			Name:     "Public IP Refresh",
+			Schedule: "@every 12h",
+			Enabled:  true,
+			Fn: func() error {
+				if err := srv.RefreshPublicIP(); err != nil {
+					log.Printf("scheduler: public_ip_refresh failed: %v", err)
+					return err
+				}
+				log.Printf("DEBUG scheduler: public_ip_refresh: server public IP is %s", srv.PublicIP())
+				return nil
+			},
+		}); err != nil {
+			log.Printf("Warning: Failed to add public_ip_refresh task: %v", err)
+		}
+		// Run once immediately at startup so the cached IP is available on first request.
+		if err := srv.RefreshPublicIP(); err != nil {
+			log.Printf("Warning: public_ip_refresh at startup failed: %v", err)
+		}
+	}
+
+	// Build the trusted-proxy resolver per AI.md PART 12.
+	// Strip bracket notation from IPv6 wildcard — NewTrustResolver expects a bare IP or empty string.
+	bareListenIP := serverAddress
+	if bareListenIP == "[::]" {
+		bareListenIP = "::"
+	}
+	trust := netutil.NewTrustResolver(cfg.Server.TrustedProxies, bareListenIP)
+	// Wire the generated onion address at startup; it is runtime Tor state, never
+	// an operator-supplied configuration value.
+	if hostname := torMgr.GetHostname(); hostname != "" {
+		trust.SetOnionAddress(hostname)
+	}
+	// Wire I2P eepsite address for priority-0 I2P request detection (AI.md
+	// PART 31.2). No static server.yml equivalent exists — the .b32.i2p
+	// address derives entirely from the persisted destination key.
+	if hostname := i2pMgr.GetHostname(); hostname != "" {
+		trust.SetI2PAddress(hostname)
+	}
+	torMgr.AddAddressHandler(trust.SetOnionAddress)
+	i2pMgr.AddAddressHandler(trust.SetI2PAddress)
+	// trustCtx governs the DNS-refresh goroutine; cancelled during graceful shutdown.
+	trustCtx, trustCancel := context.WithCancel(context.Background())
+	defer trustCancel()
+	trust.Start(trustCtx)
+	srv.SetTrust(trust)
+
+	// Configure middleware chain components per AI.md spec PART 5 / PART 9.
+	// Rate limiter: per-class buckets from server.yml (AI.md PART 12 "Rate
+	// Limiting"). Each bucket independently falls back to its
+	// DefaultRateLimitConfig value when the configured requests/window is zero
+	// or rate limiting is disabled entirely.
+	rlCfg := server.DefaultRateLimitConfig()
+	rlCfg.Read = resolveRateBucket(cfg.Server.RateLimit.Read, rlCfg.Read)
+	rlCfg.Write = resolveRateBucket(cfg.Server.RateLimit.Write, rlCfg.Write)
+	rlCfg.Health = resolveRateBucket(cfg.Server.RateLimit.Health, rlCfg.Health)
+	rlCfg.Strict = resolveRateBucket(cfg.Server.RateLimit.Strict, rlCfg.Strict)
+	rlCfg.AuthFailures = resolveRateBucket(cfg.Server.RateLimit.AuthFailures, rlCfg.AuthFailures)
+	if cfg.Server.RateLimit.GlobalBurst > 0 {
+		rlCfg.Global = server.RateLimitBucket{Limit: cfg.Server.RateLimit.GlobalBurst, Window: time.Minute}
+	}
+	limiter := server.NewRateLimiter(rlCfg, trust)
+	// AI.md PART 11: 429 rejections are security events and belong in security.log.
+	if logMgr != nil {
+		limiter.SetLogManager(logMgr)
+	}
+	// AI.md PART 17: security_alert on rate-limit blocks. Debounce per-IP so a
+	// sustained flood doesn't send one email per rejected request.
+	var securityAlertMu sync.Mutex
+	securityAlertLast := make(map[string]time.Time)
+	onRateLimitBlocked := func(clientIP string) {
+		currentCfg := config.Get()
+		if emailMgr == nil || !emailMgr.IsEnabled() || currentCfg == nil || !currentCfg.Server.Notifications.Email.Events.SecurityAlert {
+			return
+		}
+		securityAlertMu.Lock()
+		last, seen := securityAlertLast[clientIP]
+		now := time.Now()
+		if seen && now.Sub(last) < 15*time.Minute {
+			securityAlertMu.Unlock()
+			return
+		}
+		securityAlertLast[clientIP] = now
+		securityAlertMu.Unlock()
+		sendOperatorEmail(currentCfg, emailMgr, "security_alert", map[string]string{
+			"app_name": projectName,
+			"app_url":  currentCfg.Server.BaseURL,
+			"message":  "Rate limit exceeded for " + clientIP,
+			"ip":       clientIP,
+			"time":     now.Format(time.RFC3339),
+		})
+	}
+	limiter.OnBlocked = onRateLimitBlocked
+	srv.SetRateLimiter(limiter)
+
+	// Allowlist: trusted IPs that bypass blocklist/rate-limit/geoip (not auth)
+	if len(cfg.Server.Security.Allowlist) > 0 {
+		entries := make([]server.AllowlistEntry, 0, len(cfg.Server.Security.Allowlist))
+		for _, e := range cfg.Server.Security.Allowlist {
+			entries = append(entries, server.AllowlistEntry{
+				CIDR:        e.CIDR,
+				Description: e.Description,
+			})
+		}
+		srv.SetAllowlist(server.NewAllowlistLookup(entries))
+	}
+
+	// Blocklist: load only the currently enabled configured sources from disk.
+	blDir := filepath.Join(*dataDir, "security", "blocklists")
+	blLookup = &blocklist.Lookup{}
+	if err := blLookup.LoadDirWithTypes(blDir, configuredBlocklistTypes(cfg)); err != nil {
+		log.Printf("Warning: failed to load blocklists from %s: %v", blDir, err)
+	} else {
+		srv.SetBlocklistLookup(blLookup)
+	}
+	blocklistHealthIDs := configuredBlocklistIDs(cfg)
+	for _, listID := range blocklistHealthIDs {
+		id := listID
+		srv.HealthHandler.RegisterHealthCheck("blocklist_"+id, false, func() string { return blLookup.HealthStatus(id) })
+	}
+
+	// Threat intelligence: VPN, proxy, Tor exit-node detection in responses.
+	srv.SetThreatLookup(threatLookup)
+
+	// GeoIP country blocking (deny / allow lists from config)
+	// Preset names (AI.md PART 19) must be expanded to country codes before the
+	// server compares them against a resolved ISO code.
+	srv.SetGeoIPCountries(cfg.Server.GeoIP.ResolvedDenyCountries(), cfg.Server.GeoIP.ResolvedAllowCountries())
+
+	// Wire scheduler and DB to server for /debug/scheduler and /debug/db endpoints.
+	if sched != nil {
+		srv.SetScheduler(sched)
+		if err := sched.AddTask(&scheduler.Task{
+			ID: "health_dataset_refresh", Name: "Health Dataset Refresh", Schedule: "@every 1m", Enabled: true,
+			Fn: func() error { srv.HealthHandler.RefreshHealthChecks(); return nil },
+		}); err != nil {
+			log.Printf("Warning: Failed to add health_dataset_refresh task: %v", err)
+		}
+	}
+	if serverDB != nil {
+		srv.SetDB(serverDB)
+	}
+
+	// Wire the app cache backend and disk-space helper for /server/healthz
+	// checks.cache and checks.disk probes (AI.md PART 13).
+	if appCache != nil {
+		srv.SetCacheBackend(appCache)
+	}
+	srv.SetDiskUsageFunc(diskFreeAndUsedPercent)
+
+	// Wire the log manager (opened earlier, before scheduler task registration)
+	// into the HTTP server and emit the startup audit event.
+	if logMgr != nil {
+		srv.SetLogManager(logMgr)
+		logMgr.WriteAuditEvent("", "server.started", "server", "info", "success", "", map[string]any{
+			"version": Version,
+			"commit":  CommitID,
+			"port":    serverPort,
+		})
+		logMgr.WriteServer("info", fmt.Sprintf("%s %s (%s) starting on port %s", projectName, Version, CommitID, serverPort))
+	}
+
+	// AI.md PART 21: server log warning on startup when backup encryption is
+	// not configured (dismissable after encryption is configured — since this
+	// project has no admin web UI, "dismissable" means the warning stops once
+	// server.yml sets backup.encryption.enabled: true).
+	if !cfg.Server.Backup.Encryption.Enabled {
+		log.Printf("Warning: backup encryption is not configured — backups will be stored unencrypted. Set server.backup.encryption.enabled: true in server.yml to secure backups.")
+		if logMgr != nil {
+			logMgr.WriteApp("warn", "backup encryption is not configured", "component", "backup")
+			logMgr.WriteAuditEvent("", "backup.encryption_not_configured", "backup", "warn", "success", "", map[string]any{
+				"message": "backup encryption is not configured; backups are stored unencrypted",
+			})
+		}
+	}
+
+	// Reverse hostname lookup and port reachability testing are always available —
+	// AI.md "No feature gating: ALL features available to ALL users, ALWAYS" (line
+	// 331) and the zero-config first-run rule both rule out an opt-in flag here.
+	srv.LookupAddr = iputil.LookupAddr
+	srv.LookupPort = iputil.LookupPort
+	// Set up Swagger/OpenAPI handler
+	srv.SwaggerHandler = swagger.Handler(swagger.SwaggerHandlerConfig{
+		Version:          Version,
+		CommitID:         CommitID,
+		Trust:            trust,
+		RegisteredRoutes: srv.RegisteredAPIRoutes,
+		RenderUI: func(w http.ResponseWriter, r *http.Request, page string) error {
+			if srv.PagesHandler == nil || srv.PagesHandler.Render == nil {
+				err := errors.New("server page renderer is unavailable")
+				log.Printf("Swagger page render failed: %v", err)
+				serverhandler.WriteErrorHTML(w, r, http.StatusInternalServerError, i18n.T(r.Context(), "errors.server_error"))
+				return nil
+			}
+			data := srv.PagesHandler.NewPageData(r)
+			data.AssetStamp = srv.AssetStamp()
+			data.SwaggerSpecURL = netutil.BuildURL(r, trust, "") + "/api/v1/server/swagger"
+			if err := srv.PagesHandler.Render(w, r, page, data); err != nil {
+				log.Printf("Swagger page render failed: %v", err)
+				serverhandler.WriteErrorHTML(w, r, http.StatusInternalServerError, i18n.T(r.Context(), "errors.server_error"))
+			}
+			return nil
+		},
+	})
+	// /api/swagger and /api/{api_version}/server/swagger are dedicated JSON
+	// spec endpoints (AI.md PART 14/16) — always application/json, never the
+	// interactive UI that the content-negotiating SwaggerHandler falls back to.
+	srv.SwaggerJSONHandler = swagger.JSONHandler(swagger.SwaggerHandlerConfig{
+		Version:          Version,
+		CommitID:         CommitID,
+		Trust:            trust,
+		RegisteredRoutes: srv.RegisteredAPIRoutes,
+	})
+
+	// Set up GraphQL handler — shares IP/port lookup logic with the REST
+	// handlers by wiring the same Server methods used there.
+	srv.GraphQLHandler = gql.Handler(gql.GraphQLHandlerConfig{
+		Version:          Version,
+		CommitID:         CommitID,
+		RegisteredRoutes: srv.RegisteredAPIRoutes,
+		RenderUI: func(w http.ResponseWriter, r *http.Request, page string) error {
+			if srv.PagesHandler == nil || srv.PagesHandler.Render == nil {
+				err := errors.New("server page renderer is unavailable")
+				log.Printf("GraphQL page render failed: %v", err)
+				serverhandler.WriteErrorHTML(w, r, http.StatusInternalServerError, i18n.T(r.Context(), "errors.server_error"))
+				return nil
+			}
+			data := srv.PagesHandler.NewPageData(r)
+			data.AssetStamp = srv.AssetStamp()
+			data.GraphQLEndpoint = netutil.BuildURL(r, trust, "") + "/api/v1/server/graphql"
+			if err := srv.PagesHandler.Render(w, r, page, data); err != nil {
+				log.Printf("GraphQL page render failed: %v", err)
+				serverhandler.WriteErrorHTML(w, r, http.StatusInternalServerError, i18n.T(r.Context(), "errors.server_error"))
+			}
+			return nil
+		},
+		ClientIP:  srv.RequestIP,
+		LookupIP:  srv.LookupIP,
+		CheckPort: srv.CheckPort,
+		// Resolved lazily: HealthHandler is constructed during route setup, so a
+		// method value taken here would bind a nil receiver permanently.
+		Health: func() model.HealthResponse { return srv.HealthHandler.HealthSnapshot() },
+		AuthCheck: func(r *http.Request) (string, error) {
+			auth := r.Header.Get("Authorization")
+			if !strings.HasPrefix(auth, "Bearer ") || !srv.ValidateOperatorToken(strings.TrimPrefix(auth, "Bearer ")) {
+				return "", errors.New("unauthorized")
+			}
+			return "operator", nil
+		},
+		ContactForm: func(r *http.Request) (map[string]interface{}, error) {
+			form := srv.PagesHandler.ContactFormDefinition(r)
+			fields := make([]map[string]interface{}, 0, len(form.Fields))
+			for _, field := range form.Fields {
+				fields = append(fields, map[string]interface{}{"name": field.Name, "type": field.Type, "required": field.Required, "maxLength": field.MaxLength})
+			}
+			return map[string]interface{}{
+				"fields":      fields,
+				"captcha":     map[string]interface{}{"provider": form.Captcha.Provider, "siteKey": form.Captcha.SiteKey, "captchaId": form.Captcha.CaptchaID, "question": form.Captcha.Question, "fallback": form.Captcha.Fallback},
+				"securityUrl": form.SecurityURL,
+				"abuseEmail":  form.AbuseEmail,
+			}, nil
+		},
+	})
+
+	// Parse configurable HTTP timeouts from server.yml; fall back to spec defaults.
+	readTimeout := parseDurationOrDefault(cfg.Server.Limits.ReadTimeout, 30*time.Second)
+	writeTimeout := parseDurationOrDefault(cfg.Server.Limits.WriteTimeout, 30*time.Second)
+	idleTimeout := parseDurationOrDefault(cfg.Server.Limits.IdleTimeout, 120*time.Second)
+	var httpServer *http.Server
+	var httpsServer *http.Server
+	var httpHub *netutil.ListenerHub
+	var httpsHub *netutil.ListenerHub
+	errChan := make(chan error, 4)
+	var newHTTPServer func(time.Duration, time.Duration, time.Duration) *http.Server
+	var newHTTPSServer func(time.Duration, time.Duration, time.Duration) *http.Server
+	var reloadHTTPTimeouts func(*config.AppConfig) error
+
+	// Build one stable handler dispatcher. Config reloads atomically replace its
+	// active router after in-flight requests complete.
+	appHandler := srv.Handler()
+	configMgr.SetReloadHandler(func(newCfg *config.AppConfig, changed []string) error {
+		var timeoutChanged bool
+		for _, path := range changed {
+			if strings.Contains(path, "timeout") {
+				timeoutChanged = true
+				break
+			}
+		}
+		for _, path := range changed {
+			if strings.HasPrefix(path, "server.ssl.letsencrypt.") || path == "server.security.encryption_key" {
+				sslMgr.UpdateLetsEncryptConfig(ssl.LetsEncryptConfig{
+					Enabled:        newCfg.Server.SSL.Enabled && newCfg.Server.SSL.LetsEncrypt.Enabled,
+					Email:          newCfg.Server.SSL.LetsEncrypt.Email,
+					Staging:        newCfg.Server.SSL.LetsEncrypt.Staging,
+					Challenge:      newCfg.Server.SSL.LetsEncrypt.Challenge,
+					DNSProvider:    newCfg.Server.SSL.LetsEncrypt.DNSProvider,
+					DNSCredentials: newCfg.Server.SSL.LetsEncrypt.DNSCredentials.Values,
+				}, newCfg.Server.Security.EncryptionKey)
+				break
+			}
+		}
+		for _, path := range changed {
+			if strings.HasPrefix(path, "server.logs.") && path != "server.logs.level" && logMgr != nil {
+				if err := logMgr.Reconfigure(buildLogConfig(newCfg)); err != nil {
+					return err
+				}
+				break
+			}
+		}
+		if slicesContainPrefix(changed, "server.security.blocklists.") && blLookup != nil {
+			blDir := filepath.Join(*dataDir, "security", "blocklists")
+			if err := blLookup.LoadDirWithTypes(blDir, configuredBlocklistTypes(newCfg)); err != nil {
+				return fmt.Errorf("reload blocklists: %w", err)
+			}
+			for _, id := range blocklistHealthIDs {
+				srv.HealthHandler.UnregisterHealthCheck("blocklist_" + id)
+			}
+			blocklistHealthIDs = configuredBlocklistIDs(newCfg)
+			for _, id := range blocklistHealthIDs {
+				checkID := id
+				srv.HealthHandler.RegisterHealthCheck("blocklist_"+checkID, false, func() string { return blLookup.HealthStatus(checkID) })
+			}
+			srv.HealthHandler.RefreshHealthChecks()
+		}
+		if slicesContainPrefix(changed, "server.rate_limit.") {
+			newRateConfig := server.DefaultRateLimitConfig()
+			newRateConfig.Read = resolveRateBucket(newCfg.Server.RateLimit.Read, newRateConfig.Read)
+			newRateConfig.Write = resolveRateBucket(newCfg.Server.RateLimit.Write, newRateConfig.Write)
+			newRateConfig.Health = resolveRateBucket(newCfg.Server.RateLimit.Health, newRateConfig.Health)
+			newRateConfig.Strict = resolveRateBucket(newCfg.Server.RateLimit.Strict, newRateConfig.Strict)
+			newRateConfig.AuthFailures = resolveRateBucket(newCfg.Server.RateLimit.AuthFailures, newRateConfig.AuthFailures)
+			if newCfg.Server.RateLimit.GlobalBurst > 0 {
+				newRateConfig.Global = server.RateLimitBucket{Limit: newCfg.Server.RateLimit.GlobalBurst, Window: time.Minute}
+			}
+			newLimiter := server.NewRateLimiter(newRateConfig, trust)
+			newLimiter.OnBlocked = onRateLimitBlocked
+			if logMgr != nil {
+				newLimiter.SetLogManager(logMgr)
+			}
+			srv.SetRateLimiter(newLimiter)
+		}
+		if slicesContainPrefix(changed, "server.tor.") {
+			torVirtualPort := newCfg.Server.Tor.VirtualPort
+			if torVirtualPort == 0 {
+				torVirtualPort = 80
+			}
+			torConfig := tor.TorServiceConfig{
+				ConfigDir:                 configDir,
+				DataDir:                   dataDirPath,
+				LogDir:                    resolvedLogDir,
+				Binary:                    newCfg.Server.Tor.Binary,
+				UseNetwork:                newCfg.Server.Tor.UseNetwork,
+				MaxCircuits:               newCfg.Server.Tor.MaxCircuits,
+				CircuitTimeout:            newCfg.Server.Tor.CircuitTimeout,
+				StartupTimeout:            newCfg.Server.Tor.StartupTimeout,
+				BootstrapTimeout:          newCfg.Server.Tor.BootstrapTimeout,
+				SafeLogging:               newCfg.Server.Tor.SafeLogging,
+				MaxStreamsPerCircuit:      newCfg.Server.Tor.MaxStreamsPerCircuit,
+				CloseCircuitOnStreamLimit: newCfg.Server.Tor.CloseCircuitOnStreamLimit,
+				BandwidthRate:             newCfg.Server.Tor.BandwidthRate,
+				BandwidthBurst:            newCfg.Server.Tor.BandwidthBurst,
+				MaxMonthlyBandwidth:       newCfg.Server.Tor.MaxMonthlyBandwidth,
+				NumIntroPoints:            newCfg.Server.Tor.NumIntroPoints,
+				VirtualPort:               torVirtualPort,
+			}
+			if err := torMgr.UpdateConfig(torConfig); err != nil {
+				return fmt.Errorf("reload Tor configuration: %w", err)
+			}
+			if torConfig.UseNetwork {
+				tor.SetOutboundHTTPClient(torMgr.GetHTTPClient(true))
+			} else {
+				tor.SetOutboundHTTPClient(nil)
+			}
+		}
+		if slicesContainPrefix(changed, "server.i2p.") {
+			i2pConfig := i2p.I2PServiceConfig{
+				ConfigDir:        configDir,
+				DataDir:          dataDirPath,
+				LogDir:           i2pLogDir,
+				Enabled:          newCfg.Server.I2P.Enabled,
+				Binary:           newCfg.Server.I2P.Binary,
+				SAMAddress:       newCfg.Server.I2P.SAMAddress,
+				VirtualPort:      newCfg.Server.I2P.VirtualPort,
+				InboundLength:    newCfg.Server.I2P.InboundLength,
+				OutboundLength:   newCfg.Server.I2P.OutboundLength,
+				InboundQuantity:  newCfg.Server.I2P.InboundQuantity,
+				OutboundQuantity: newCfg.Server.I2P.OutboundQuantity,
+				SignatureType:    newCfg.Server.I2P.SignatureType,
+				BootstrapTimeout: newCfg.Server.I2P.BootstrapTimeout,
+			}
+			if err := i2pMgr.UpdateConfig(i2pConfig); err != nil {
+				return fmt.Errorf("reload I2P configuration: %w", err)
+			}
+		}
+		baseURL := newCfg.Server.BaseURL
+		if baseURLFlagExplicit {
+			baseURL = *baseurlFlag
+		}
+		if baseURL == "" {
+			baseURL = "/"
+		}
+		srv.ReloadRuntimeConfig(newCfg, baseURL)
+		if timeoutChanged {
+			if err := reloadHTTPTimeouts(newCfg); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	// Wire the app handler into the Tor hidden-service backend listener now
+	// that srv is fully configured. Per AI.md PART 31.1 the onion address
+	// is served from a dedicated loopback backend port, never the clearnet
+	// HTTP/HTTPS port. Safe to call even if Tor never started or is not
+	// available (ServeBackend is a no-op until Start() has run).
+	torMgr.ServeBackend(appHandler)
+
+	// Wire the app handler into the I2P eepsite backend listener, mirroring
+	// the Tor wiring above (AI.md PART 31.2). Safe to call even if I2P is
+	// disabled or never started (ServeBackend is a no-op until Start() has run).
+	i2pMgr.ServeBackend(appHandler)
+
+	// Start HTTPS + HTTP-redirect when SSL is enabled, otherwise plain HTTP.
+	// Per AI.md PART 15: Let's Encrypt autocert, TLS 1.2 min, self-signed fallback for dev.
+	// Both listeners were bound before privileges were dropped (AI.md PART 23),
+	// so the servers here only ever call Serve on an already-open socket.
+	if httpsListener != nil {
+		// Resolve TLS config: try existing certs first, then Let's Encrypt, then self-signed for dev.
+		tlsCfg, tlsErr := sslMgr.GetTLSConfig(sslDomains)
+		if tlsErr != nil {
+			if cfg.Server.Mode == "development" || cfg.Server.Mode == "debug" {
+				log.Printf("SSL: no cert available (%v), using self-signed for development", tlsErr)
+				tlsCfg, tlsErr = ssl.GenerateSelfSignedTLSConfig(sslDomains)
+				if tlsCfg != nil && cfg.Server.SSL.MinVersion == "TLS1.3" {
+					tlsCfg.MinVersion = tls.VersionTLS13
+				}
+			}
+			if tlsErr != nil {
+				httpListener.Close()  //nolint:errcheck
+				httpsListener.Close() //nolint:errcheck
+				return &ExitCodeError{Code: exConfig, Err: fmt.Errorf("obtain TLS config: %w", tlsErr)}
+			}
+		}
+
+		newHTTPSServer = func(read, write, idle time.Duration) *http.Server {
+			return &http.Server{
+				Handler:      appHandler,
+				TLSConfig:    tlsCfg,
+				ReadTimeout:  read,
+				WriteTimeout: write,
+				IdleTimeout:  idle,
+			}
+		}
+		httpsServer = newHTTPSServer(readTimeout, writeTimeout, idleTimeout)
+
+		// In dual-port mode ("8090,8443") the HTTP half serves the application
+		// directly; in single-port SSL mode it redirects to HTTPS and answers
+		// ACME HTTP-01 challenges via autocert.Manager (AI.md PART 12, PART 15).
+		httpHandler := appHandler
+		if httpsPort == "" {
+			httpHandler = sslMgr.GetHTTPHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				target := "https://" + r.Host + r.URL.RequestURI()
+				http.Redirect(w, r, target, http.StatusMovedPermanently)
+			}))
+		}
+		newHTTPServer = func(read, write, idle time.Duration) *http.Server {
+			return &http.Server{
+				Handler:      httpHandler,
+				ReadTimeout:  read,
+				WriteTimeout: write,
+				IdleTimeout:  idle,
+			}
+		}
+		httpServer = newHTTPServer(readTimeout, writeTimeout, idleTimeout)
+
+		httpHub = netutil.NewListenerHub(httpListener)
+		httpsHub = netutil.NewListenerHub(httpsListener)
+		log.Printf("Listening on HTTPS %s (HTTP %s)", httpsListenAddr, httpListenAddr)
+		if logMgr != nil {
+			logMgr.WriteServer("info", fmt.Sprintf("listening on HTTPS %s (HTTP %s)", httpsListenAddr, httpListenAddr))
+		}
+	} else {
+		// Plain HTTP server on the listener bound while still privileged.
+		newHTTPServer = func(read, write, idle time.Duration) *http.Server {
+			return &http.Server{
+				Handler:      appHandler,
+				ReadTimeout:  read,
+				WriteTimeout: write,
+				IdleTimeout:  idle,
+			}
+		}
+		httpServer = newHTTPServer(readTimeout, writeTimeout, idleTimeout)
+		httpHub = netutil.NewListenerHub(httpListener)
+		if logMgr != nil {
+			logMgr.WriteServer("info", fmt.Sprintf("listening on HTTP %s", httpListenAddr))
+		}
+	}
+	reloadHTTPTimeouts = func(newCfg *config.AppConfig) error {
+		read := parseDurationOrDefault(newCfg.Server.Limits.ReadTimeout, 30*time.Second)
+		write := parseDurationOrDefault(newCfg.Server.Limits.WriteTimeout, 30*time.Second)
+		idle := parseDurationOrDefault(newCfg.Server.Limits.IdleTimeout, 120*time.Second)
+		type retiringServer struct {
+			name   string
+			server *http.Server
+		}
+		var retiring []retiringServer
+		if httpHub != nil && httpServer != nil {
+			old := httpServer
+			next := newHTTPServer(read, write, idle)
+			listener := httpHub.Switch()
+			httpServer = next
+			go func() {
+				if err := next.Serve(listener); err != nil && err != http.ErrServerClosed && err != net.ErrClosed {
+					errChan <- err
+				}
+			}()
+			retiring = append(retiring, retiringServer{name: "HTTP", server: old})
+		}
+		if httpsHub != nil && httpsServer != nil {
+			old := httpsServer
+			next := newHTTPSServer(read, write, idle)
+			listener := httpsHub.Switch()
+			httpsServer = next
+			go func() {
+				if err := next.ServeTLS(listener, "", ""); err != nil && err != http.ErrServerClosed && err != net.ErrClosed {
+					errChan <- err
+				}
+			}()
+			retiring = append(retiring, retiringServer{name: "HTTPS", server: old})
+		}
+		if len(retiring) > 0 {
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			var drains sync.WaitGroup
+			drains.Add(len(retiring))
+			for _, retired := range retiring {
+				go func(retired retiringServer) {
+					defer drains.Done()
+					if err := retired.server.Shutdown(ctx); err != nil {
+						log.Printf("%s server timeout reload drain failed: %v", retired.name, err)
+						_ = retired.server.Close()
+					}
+				}(retired)
+			}
+			drains.Wait()
+			cancel()
+		}
+		return nil
+	}
+	stopConfigWatch = configMgr.Start()
+	runtimeCfg.runtime = &serverRuntime{
+		httpServer:       httpServer,
+		httpsServer:      httpsServer,
+		httpHub:          httpHub,
+		httpsHub:         httpsHub,
+		errChan:          errChan,
+		restartRequested: restartRequests,
+		onReady: func() {
+			// The banner follows successful Serve startup; overlay lookup never
+			// delays binding or accepting normal HTTP traffic.
+			bannerProto := "http"
+			bannerPort := httpPort
+			if httpsListener != nil {
+				bannerProto = "https"
+				bannerPort = "443"
+				if httpsPort != "" {
+					bannerPort = httpsPort
+				}
+			}
+			bannerURL := bannerProto + "://" + bannerDisplayHost(cfg.Server.FQDN, serverAddress) + bannerPortSuffix(bannerProto, bannerPort)
+			if strings.TrimSpace(cfg.Server.FQDN) == "" {
+				bannerURL = netutil.GetDisplayURL(projectName, bannerPort, bannerProto == "https")
+			}
+			bannerURLs := []string{bannerURL}
+			addressWaitDeadline := time.Now().Add(5 * time.Second)
+			torAddress := torMgr.WaitForAddress(time.Until(addressWaitDeadline))
+			i2pAddress := i2pMgr.WaitForAddress(time.Until(addressWaitDeadline))
+			if torAddress != "" {
+				bannerURLs = append(bannerURLs, "http://"+torAddress)
+			} else {
+				torMgr.AddAddressHandler(func(address string) {
+					if address != "" {
+						log.Printf("INFO: Tor hidden service address available: http://%s", address)
+					}
+				})
+			}
+			if i2pAddress != "" {
+				bannerURLs = append(bannerURLs, "http://"+i2pAddress)
+			} else {
+				i2pMgr.AddAddressHandler(func(address string) {
+					if address != "" {
+						log.Printf("INFO: I2P eepsite address available: http://%s", address)
+					}
+				})
+			}
+			banner.PrintStartupBanner(banner.BannerPrintConfig{
+				AppName:   binaryName,
+				Version:   Version,
+				AppMode:   cfg.Server.Mode,
+				Debug:     *debugMode,
+				ColorFlag: *colorMode,
+				URLs:      bannerURLs,
+				StartedAt: time.Now(),
+			})
+		},
+		onLogReopen: func() {
+			log.Println("Received SIGUSR1, reopening logs...")
+			if logMgr != nil {
+				if err := logMgr.Rotate(); err != nil {
+					log.Printf("log reopen error: %v", err)
+				}
+				logMgr.WriteServer("info", "logs reopened (SIGUSR1)")
+			}
+		},
+		onStatusDump: func() {
+			log.Println("Received SIGUSR2, dumping status...")
+			if srv.HealthHandler != nil {
+				h := srv.HealthHandler.HealthSnapshot()
+				log.Printf("status: status=%s mode=%s uptime=%s requests_total=%d",
+					h.Status, h.Mode, h.Uptime, h.Stats.RequestsTotal)
+				if logMgr != nil {
+					logMgr.WriteServer("info", fmt.Sprintf(
+						"status dump (SIGUSR2): status=%s mode=%s uptime=%s requests_total=%d",
+						h.Status, h.Mode, h.Uptime, h.Stats.RequestsTotal))
+				}
+			}
+		},
+		onShutdown: func() {
+			log.Println("Received shutdown signal or cancellation; draining server gracefully...")
+			if logMgr != nil {
+				logMgr.WriteServer("info", "received shutdown signal or cancellation")
+			}
+		},
+		markShuttingDown: func() {
+			if srv.HealthHandler != nil {
+				srv.HealthHandler.MarkShuttingDown()
+			}
+		},
+		cleanup: func(context.Context) error {
+			stopConfigWatch()
+			trustCancel()
+			var cleanupErr error
+			if stopErr := torMgr.Stop(); stopErr != nil {
+				cleanupErr = errors.Join(cleanupErr, fmt.Errorf("stop Tor: %w", stopErr))
+			}
+			if stopErr := i2pMgr.Stop(); stopErr != nil {
+				cleanupErr = errors.Join(cleanupErr, fmt.Errorf("stop I2P: %w", stopErr))
+			}
+			sched.Stop()
+			srv.StopRateLimiter()
+			close(metricsStop)
+			removePIDFile(pidFile)
+			log.Println("Graceful shutdown complete")
+			if logMgr != nil {
+				logMgr.WriteServer("info", "graceful shutdown complete")
+			}
+			if updateRestartRequested.Load() {
+				if logMgr != nil {
+					logMgr.Close()
+				}
+				return &ExitCodeError{Code: exTempFail}
+			}
+			return cleanupErr
+		},
+	}
+	return run(ctx, runtimeCfg)
+}
+
+func generateRuntimeSecrets(cfg *config.AppConfig, logMgr *applog.Manager) error {
+	if cfg == nil {
+		return fmt.Errorf("missing configuration")
+	}
+	var generated []string
+	for name, token := range map[string]*string{
+		"prometheus": &cfg.Server.Metrics.Auth.Tokens.Prometheus,
+		"grafana":    &cfg.Server.Metrics.Auth.Tokens.Grafana,
+		"loki":       &cfg.Server.Metrics.Auth.Tokens.Loki,
+	} {
+		if *token != "" {
+			continue
+		}
+		value, err := generateTokenWithPrefix("mtr")
+		if err != nil {
+			return fmt.Errorf("generate %s metrics token: %w", name, err)
+		}
+		*token = value
+		generated = append(generated, "server.metrics.auth.tokens."+name)
+	}
+	for _, webhook := range contactWebhookSecrets(cfg) {
+		if webhook.url != "" && webhook.secret == "" {
+			generated = append(generated, webhook.key)
+		}
+	}
+	config.EnsureContactWebhookSecrets(cfg)
+	if len(generated) == 0 {
+		return nil
+	}
+	if err := config.SaveGeneratedRuntimeSecrets(); err != nil {
+		return fmt.Errorf("persist generated metrics tokens: %w", err)
+	}
+	for _, name := range generated {
+		if err := writeGeneratedSecretAudit(logMgr, name); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func writeGeneratedSecretAudit(logMgr *applog.Manager, key string) error {
+	if logMgr == nil {
+		return fmt.Errorf("cannot audit generated secret %s without audit log manager", key)
+	}
+	logMgr.WriteAuditEvent("", "config.secret_generated", "config", "info", "success", "", map[string]any{"key": key})
+	return nil
+}
+
+type contactWebhookSecret struct {
+	key    string
+	url    string
+	secret string
+}
+
+func contactWebhookSecrets(cfg *config.AppConfig) []contactWebhookSecret {
+	roles := []struct {
+		name string
+		cfg  config.ContactEntry
+	}{
+		{"admin", cfg.Server.Contact.Admin},
+		{"security", cfg.Server.Contact.Security},
+		{"abuse", cfg.Server.Contact.Abuse},
+		{"general", cfg.Server.Contact.General},
+	}
+	var secrets []contactWebhookSecret
+	for _, role := range roles {
+		for channel, values := range map[string][2]string{
+			"telegram":   {role.cfg.Webhooks.Telegram, role.cfg.Webhooks.TelegramSecret},
+			"discord":    {role.cfg.Webhooks.Discord, role.cfg.Webhooks.DiscordSecret},
+			"slack":      {role.cfg.Webhooks.Slack, role.cfg.Webhooks.SlackSecret},
+			"mattermost": {role.cfg.Webhooks.Mattermost, role.cfg.Webhooks.MattermostSecret},
+			"pushover":   {role.cfg.Webhooks.Pushover, role.cfg.Webhooks.PushoverSecret},
+			"gotify":     {role.cfg.Webhooks.Gotify, role.cfg.Webhooks.GotifySecret},
+			"generic":    {role.cfg.Webhooks.Generic, role.cfg.Webhooks.GenericSecret},
+		} {
+			secrets = append(secrets, contactWebhookSecret{
+				key: "server.contact." + role.name + ".webhooks." + channel + "_secret", url: values[0], secret: values[1],
+			})
+		}
+	}
+	return secrets
+}
+
+func syncDNSCredentialState(conn *db.Store, cfg *config.AppConfig) error {
+	provider := cfg.Server.SSL.LetsEncrypt.DNSProvider
+	values := cfg.Server.SSL.LetsEncrypt.DNSCredentials.Values
+	fingerprint := ""
+	if len(values) > 0 || provider != "" {
+		var err error
+		fingerprint, err = config.DNSCredentialsFingerprint(provider, cfg.Server.Security.EncryptionKey, values)
+		if err != nil {
+			return err
+		}
+	}
+	var previous string
+	err := conn.QueryRow(`SELECT value FROM app_secrets WHERE name = 'dns_credentials_fingerprint'`).Scan(&previous)
+	if err != nil && err != sql.ErrNoRows {
+		return fmt.Errorf("read DNS credential fingerprint: %w", err)
+	}
+	if err == nil && previous != fingerprint {
+		if _, err := conn.Exec(`DELETE FROM app_secrets WHERE name = 'dns_validated_at'`); err != nil {
+			return fmt.Errorf("clear DNS validation timestamp: %w", err)
+		}
+	}
+	if _, err := conn.Exec(`INSERT INTO app_secrets (name, value) VALUES ('dns_credentials_fingerprint', ?) ON CONFLICT(name) DO UPDATE SET value = excluded.value`, fingerprint); err != nil {
+		return fmt.Errorf("store DNS credential fingerprint: %w", err)
+	}
+	return nil
+}
+
+// parseDurationOrDefault parses a duration string (e.g. "30s", "2m") and
+// returns the fallback value when the string is empty or unparseable.
+func parseDurationOrDefault(s string, fallback time.Duration) time.Duration {
+	if s == "" {
+		return fallback
+	}
+	d, err := time.ParseDuration(s)
+	if err != nil || d <= 0 {
+		log.Printf("Warning: invalid timeout %q, using default %s", s, fallback)
+		return fallback
+	}
+	return d
+}
+
+// isWildcardBindAddress reports whether host is an "any address" bind value
+// that must never be shown to a user (AI.md PART 8 URL Display Rules).
+func isWildcardBindAddress(host string) bool {
+	switch strings.TrimSpace(host) {
+	case "", "0.0.0.0", "::", "[::]", "[::0]", "0:0:0:0:0:0:0:0":
+		return true
+	}
+	return false
+}
+
+// bannerDisplayHost resolves the host shown in the startup banner: the
+// configured FQDN when set, else the bind address when it is a real address,
+// else the FQDN resolved from the environment (DOMAIN, hostname, public IP,
+// localhost). IPv6 literals are returned bracketed so they concatenate into a
+// valid URL with a port suffix.
+func bannerDisplayHost(configuredFQDN, bindAddress string) string {
+	host := strings.TrimSpace(configuredFQDN)
+	if isWildcardBindAddress(host) {
+		host = strings.TrimSpace(bindAddress)
+	}
+	if isWildcardBindAddress(host) {
+		host = netutil.GetFQDN()
+	}
+	if strings.HasPrefix(host, "[") {
+		return host
+	}
+	if ip := net.ParseIP(host); ip != nil && ip.To4() == nil {
+		return "[" + host + "]"
+	}
+	return host
+}
+
+// bannerPortSuffix returns ":{port}" unless port is the default for proto,
+// in which case the banner shows the URL without an explicit port.
+func bannerPortSuffix(proto, port string) string {
+	switch {
+	case port == "":
+		return ""
+	case proto == "http" && port == "80":
+		return ""
+	case proto == "https" && port == "443":
+		return ""
+	}
+	return ":" + port
+}
+
+func printHelp(binaryName string) {
+	locales := i18n.DefaultLocales()
+	fmt.Printf(`%s %s - IP address lookup service with GeoIP information
+
+Usage:
+  %s [flags]
+
+Information:
+  -h, --help                        Show help (--help for any command shows its help)
+  -v, --version                     Show version
+      --status                      Show server status and health
+
+Shell Integration:
+      --shell completions [SHELL]   Print shell completions
+      --shell init [SHELL]          Print shell init command
+      --shell --help                Show shell help
+
+Server Configuration:
+      --mode {production|development|debug}  Application mode (default: production)
+      --config DIR                  Config directory
+      --data DIR                    Data directory
+      --cache DIR                   Cache directory
+      --log DIR                     Log directory
+      --backup DIR                  Backup directory
+      --include-ssl                 Include SSL/TLS keys in backup (default: excluded)
+      --include-data                Include full data dir in backup (default: excluded)
+      --pid FILE                    PID file path
+	      --address ADDR                Listen address (default: [::], dual-stack; 0.0.0.0 if the host has no IPv6)
+      --port PORT                   Listen port (default: random 64xxx, 80 in container)
+      --baseurl PATH                URL path prefix (default: /)
+      --daemon                      Run as daemon (detach from terminal)
+      --debug                       Enable debug mode
+      --color {auto|yes|no}         Color output (default: auto)
+      --lang CODE                   Language for output (default: auto; supported (%d): %s)
+
+Additional Options:
+
+Service Management:
+      --service CMD                 Service management (--service --help for details)
+      --maintenance CMD             Maintenance operations (--maintenance --help for details)
+      --update [CMD]                Check/perform updates (--update --help for details)
+
+Detailed help:
+  %s --shell --help
+  %s --service --help
+  %s --maintenance --help
+  %s --update --help
+`, binaryName, Version, binaryName, len(locales), strings.Join(locales, ", "), binaryName, binaryName, binaryName, binaryName)
+}
+
+// applyI2PEnablement applies the I2P flag, environment, and configuration
+// precedence required by AI.md PART 31.2.
+func applyI2PEnablement(cfg *config.AppConfig, flagValue, flagSet bool, envValue string) error {
+	if flagSet {
+		cfg.Server.I2P.Enabled = flagValue
+		return nil
+	}
+	if strings.TrimSpace(envValue) == "" {
+		return nil
+	}
+	enabled, err := config.ParseBool(envValue, cfg.Server.I2P.Enabled)
+	if err != nil {
+		return err
+	}
+	cfg.Server.I2P.Enabled = enabled
+	return nil
+}
+
+// applyModeString parses a mode string (from the MODE env var or the --mode
+// flag) via appmode.ParseModeWithDebugAlias and applies it to cfg.Server.Mode
+// per AI.md PART 6. When the string is the "debug" alias, DEBUG is forced on
+// unless it was already explicitly set — an explicit DEBUG env var or
+// --debug flag always wins over the alias. Returns the parse error (if any)
+// unchanged so callers can report it in their own format.
+func applyModeString(cfg *config.AppConfig, modeStr string) error {
+	resolvedMode, impliedDebug, err := appmode.ParseModeWithDebugAlias(modeStr)
+	if err != nil {
+		return err
+	}
+	cfg.Server.Mode = string(resolvedMode)
+	if impliedDebug {
+		if _, set := os.LookupEnv("DEBUG"); !set {
+			if err := os.Setenv("DEBUG", "true"); err != nil {
+				return fmt.Errorf("set DEBUG for debug mode: %w", err)
+			}
+		}
+	}
+	return nil
+}
+
+// getLanguage resolves the output language using the priority chain from AI.md PART 30:
+// 1. --lang flag  2. config file  3. LC_ALL env  4. LANG env  5. default "en"
+func getLanguage(flagLang string) string {
+	if flagLang != "" {
+		return validateLang(flagLang)
+	}
+	if lang := os.Getenv("LC_ALL"); lang != "" {
+		return validateLang(strings.Split(lang, "_")[0])
+	}
+	if lang := os.Getenv("LANG"); lang != "" {
+		return validateLang(strings.Split(lang, "_")[0])
+	}
+	return "en"
+}
+
+// validateLang returns lang if it is a supported locale, otherwise "en".
+func validateLang(lang string) string {
+	lang = strings.ToLower(strings.TrimSpace(lang))
+	if i18n.IsSupported(lang) {
+		return lang
+	}
+	return "en"
+}
+
+// handleShellCommand handles --shell completions/init commands
+func handleShellCommand(cmd, binaryName string) {
+	args := flag.Args()
+	shell := ""
+	if len(args) > 0 {
+		shell = args[0]
+	}
+	if shell == "" {
+		// Auto-detect shell from SHELL env
+		shell = filepath.Base(os.Getenv("SHELL"))
+	}
+
+	switch cmd {
+	case "completions":
+		printShellCompletions(binaryName, shell)
+	case "init":
+		printShellInit(binaryName, shell)
+	case "--help", "-h", "help":
+		fmt.Printf(`Shell integration commands:
+
+  completions [SHELL]   Print shell completion script
+                        Auto-detects shell if SHELL omitted
+                        Supported: bash, zsh, fish, sh, dash, ksh, powershell, pwsh
+
+  init [SHELL]          Print shell init command for eval
+                        Auto-detects shell if SHELL omitted
+
+Usage:
+  %s --shell init >> ~/.bashrc
+  %s --shell init >> ~/.zshrc
+  %s --shell init >> ~/.config/fish/config.fish
+  eval "$(%s --shell init)"
+  %s --shell completions bash > /etc/bash_completion.d/%s
+`, binaryName, binaryName, binaryName, binaryName, binaryName, binaryName)
+	default:
+		fmt.Fprintf(os.Stderr, "Unknown shell command: %s\n", cmd)
+		fmt.Fprintln(os.Stderr, "Available: completions, init, --help")
+		os.Exit(exUsage)
+	}
+}
+
+func printShellCompletions(binaryName, shell string) {
+	switch shell {
+	case "bash":
+		fmt.Printf(`# %s bash completions
+_%s_completions() {
+    local cur="${COMP_WORDS[COMP_CWORD]}"
+    local opts="-h -v --help --version --status --config --data --cache --log --backup --pid --port --address --baseurl --mode --service --maintenance --update --shell --debug --i2p --color --lang --daemon --include-ssl --include-data"
+    COMPREPLY=( $(compgen -W "$opts" -- "$cur") )
+}
+complete -F _%s_completions %s
+`, binaryName, binaryName, binaryName, binaryName)
+	case "zsh":
+		fmt.Printf(`#compdef %s
+_arguments \
+    '-h[Show help]' \
+    '--help[Show help]' \
+    '-v[Show version]' \
+    '--version[Show version]' \
+    '--status[Show server status]' \
+    '--config[Config directory]:directory:_files -/' \
+    '--data[Data directory]:directory:_files -/' \
+    '--port[Server port]:port:' \
+    '--address[Server address]:address:' \
+    '--mode[Application mode]:(production development debug)' \
+    '--debug[Enable debug mode]' \
+    '--daemon[Run as daemon]' \
+    '--color[Color output]:(auto yes no)' \
+		    '--service[Service command]:(start stop restart reload --install --uninstall --disable --help)' \
+		    '--maintenance[Maintenance command]:(backup restore update mode setup pgp secret security token data compliance scheduler email tor --help)' \
+    '--update[Update command]:(check yes branch --help)' \
+    '--shell[Shell command]:(completions init --help)' \
+    '--cache[Cache directory]:directory:_files -/' \
+    '--log[Log directory]:directory:_files -/' \
+    '--backup[Backup directory]:directory:_files -/' \
+    '--pid[PID file path]:file:_files' \
+    '--baseurl[URL path prefix]:path:' \
+    '--i2p[Enable the I2P eepsite]' \
+    '--lang[Language for output]:code:' \
+    '--include-ssl[Include SSL/TLS keys in backup]' \
+    '--include-data[Include full data directory in backup]'
+`, binaryName)
+	case "fish":
+		fmt.Print(strings.ReplaceAll(`# %s fish completions
+complete -c %s -l help -d 'Show help'
+complete -c %s -l version -d 'Show version'
+complete -c %s -l status -d 'Show server status'
+complete -c %s -l config -d 'Config directory' -ra '(__fish_complete_directories)'
+complete -c %s -l data -d 'Data directory' -ra '(__fish_complete_directories)'
+complete -c %s -l cache -d 'Cache directory' -ra '(__fish_complete_directories)'
+complete -c %s -l log -d 'Log directory' -ra '(__fish_complete_directories)'
+complete -c %s -l backup -d 'Backup directory' -ra '(__fish_complete_directories)'
+complete -c %s -l pid -d 'PID file path' -r
+complete -c %s -l port -d 'Server port'
+complete -c %s -l address -d 'Server address'
+complete -c %s -l baseurl -d 'URL path prefix' -r
+complete -c %s -l mode -d 'Application mode' -xa 'production development debug'
+complete -c %s -l debug -d 'Enable debug mode'
+complete -c %s -l daemon -d 'Run as daemon'
+complete -c %s -l color -d 'Color output' -xa 'auto yes no'
+complete -c %s -l i2p -d 'Enable the I2P eepsite'
+complete -c %s -l lang -d 'Language for output' -r
+complete -c %s -l service -d 'Service command' -xa 'start stop restart reload --install --uninstall --disable --help'
+complete -c %s -l maintenance -d 'Maintenance command' -xa 'backup restore update mode setup pgp secret security token data compliance scheduler email tor --help'
+complete -c %s -l update -d 'Update command' -xa 'check yes branch --help'
+complete -c %s -l shell -d 'Shell integration' -xa 'completions init --help'
+complete -c %s -l include-ssl -d 'Include SSL/TLS keys in backup'
+complete -c %s -l include-data -d 'Include full data directory in backup'
+`, "%s", binaryName))
+	case "sh", "dash", "ksh":
+		fmt.Printf(`# %s %s completions (POSIX shell function)
+_%s_complete() {
+    _ipgaze_words='-h -v --help --version --status --config --data --cache --log --backup --pid --port --address --baseurl --mode --service --maintenance --update --shell --debug --i2p --color --lang --daemon --include-ssl --include-data'
+    _ipgaze_cur=${1-}
+    for _ipgaze_word in $_ipgaze_words; do
+        case $_ipgaze_word in
+            "$_ipgaze_cur"*) printf '%%s\\n' "$_ipgaze_word" ;;
+        esac
+    done
+}
+`, binaryName, shell, binaryName)
+	case "powershell", "pwsh":
+		fmt.Printf(`# %s PowerShell completions
+Register-ArgumentCompleter -Native -CommandName %s -ScriptBlock {
+    param($wordToComplete, $commandAst, $cursorPosition)
+    '-h','-v','--help','--version','--status','--config','--data','--cache','--log','--backup','--pid','--port','--address','--baseurl','--mode','--service','--maintenance','--update','--shell','--debug','--i2p','--color','--lang','--daemon','--include-ssl','--include-data' |
+        Where-Object { $_ -like "$wordToComplete*" } |
+        ForEach-Object { [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_) }
+}
+`, binaryName, binaryName)
+	default:
+		fmt.Printf("Unknown shell: %s\n", shell)
+		fmt.Println("Supported: bash, zsh, fish, sh, dash, ksh, powershell, pwsh")
+		os.Exit(exUsage)
+	}
+}
+
+func printShellInit(binaryName, shell string) {
+	switch shell {
+	case "bash":
+		fmt.Printf(`source <(%s --shell completions bash)
+`, binaryName)
+	case "zsh":
+		fmt.Printf(`eval "$(%s --shell completions zsh)"
+`, binaryName)
+	case "fish":
+		fmt.Printf(`%s --shell completions fish | source
+`, binaryName)
+	case "sh", "dash", "ksh":
+		fmt.Printf(`eval "$(%s --shell completions %s)"
+`, binaryName, shell)
+	case "powershell", "pwsh":
+		fmt.Printf(`Invoke-Expression (& %s --shell completions %s)
+`, binaryName, shell)
+	default:
+		fmt.Printf("Unknown shell: %s\n", shell)
+		os.Exit(exUsage)
+	}
+}
+
+func checkHealth(port string) error {
+	// Probe the always-registered public health endpoint, not the optional
+	// /healthz root alias (disabled by default per AI.md PART 13) which would
+	// make --status permanently fail and put a container HEALTHCHECK into a
+	// restart loop even while the server is healthy.
+	url := fmt.Sprintf("http://127.0.0.1:%s/server/healthz", port)
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Get(url)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("health check returned status %d", resp.StatusCode)
+	}
+	return nil
+}
+
+func handleServiceCommand(cmd string, dirs paths.Directories) {
+	// Service install/uninstall require elevated privileges per AI.md PART 23.
+	// Attempt escalation if needed and the user can escalate.
+	if (cmd == "--install" || cmd == "--uninstall") && !isElevated() {
+		if canEscalate() {
+			if err := execElevated(os.Args); err != nil {
+				fmt.Fprintf(os.Stderr, "Escalation failed: %v\n", err)
+				os.Exit(exNoPerm)
+			}
+			return
+		}
+		// The service manager selects a per-user unit or agent when the current
+		// account cannot install a system service.
+	}
+
+	s := svc.NewSystemServiceManager()
+	var err error
+	switch cmd {
+	case "start":
+		err = s.Start()
+	case "stop":
+		err = s.Stop()
+	case "restart":
+		err = s.Restart()
+	case "reload":
+		err = s.Reload()
+	case "--install":
+		err = s.Install()
+	case "--uninstall":
+		// Confirmation prompt is handled inside Uninstall().
+		err = s.UninstallWithDirectories(dirs)
+	case "--disable":
+		err = s.Disable()
+	case "--help", "-h", "help":
+		fmt.Println(`Service management commands:
+
+start                                 - Start the service
+stop                                  - Stop the service
+restart                               - Restart the service
+reload                                - Reload configuration without restart
+
+--install                              - Install, enable, and start service
+--disable                              - Stop and disable service (keeps data)
+--uninstall                            - Stop, disable, and remove everything (keeps binary)
+
+Current status:`)
+		if statusErr := s.Status(); statusErr != nil {
+			fmt.Fprintf(os.Stderr, "Unable to read service status: %v\n", statusErr)
+		}
+	default:
+		fmt.Fprintf(os.Stderr, "Unknown service command: %s\n", cmd)
+		os.Exit(exUsage)
+	}
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Service command %q failed: %v\n", cmd, err)
+		os.Exit(exOsErr)
+	}
+}
+
+// resolveRateBucket converts one server.yml rate-limit bucket into a runtime
+// bucket, falling back to the supplied default when the configured values are
+// missing or non-positive (AI.md PART 12 "Rate Limiting").
+func resolveRateBucket(cfgBucket config.RateLimitBucketConfig, fallback server.RateLimitBucket) server.RateLimitBucket {
+	bucket := fallback
+	if cfgBucket.Requests > 0 {
+		bucket.Limit = cfgBucket.Requests
+	}
+	if cfgBucket.Window > 0 {
+		bucket.Window = time.Duration(cfgBucket.Window) * time.Second
+	}
+	return bucket
+}
+
+func slicesContainPrefix(values []string, prefix string) bool {
+	for _, value := range values {
+		if strings.HasPrefix(value, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+// buildLogConfig converts cfg.Server.Logging into an applog.LoggerConfig, ready to
+// pass to applog.NewManager. Shared by the normal server-start path and by
+// maintenance subcommands (e.g. `--maintenance pgp`) that need their own
+// audit-log manager before the main server's log manager exists.
+func buildLogConfig(cfg *config.AppConfig) applog.LoggerConfig {
+	logging := cfg.Server.Logging
+	resolve := func(name string, file *config.LogFileConfig) {
+		if file.Filename == "" {
+			file.Filename = name + ".log"
+		}
+		if file.Custom == "" {
+			file.Custom = logging.Defaults.Custom
+		}
+		if file.Rotate == "" {
+			file.Rotate = logging.Defaults.Rotate
+		}
+		if file.Keep == "" {
+			file.Keep = logging.Defaults.Keep
+		}
+	}
+	resolve("access", &logging.Access)
+	resolve("server", &logging.Server)
+	resolve("error", &logging.Error)
+	resolve("app", &logging.App)
+	resolve("auth", &logging.Auth)
+	resolve("audit", &logging.Audit.LogFileConfig)
+	resolve("security", &logging.Security)
+	resolve("debug", &logging.Debug)
+	return applog.LoggerConfig{
+		Level: logging.Level,
+		// Syslog and CEF lines carry the process identity (AI.md PART 11).
+		Program: projectName,
+		Version: Version,
+		Access: applog.LogFileConfig{
+			Enabled:  logging.Access.Enabled,
+			Filename: logging.Access.Filename,
+			Format:   logging.Access.Format,
+			Custom:   logging.Access.Custom,
+			Rotate:   logging.Access.Rotate,
+			Keep:     logging.Access.Keep,
+		},
+		Server: applog.LogFileConfig{
+			Enabled:  logging.Server.Enabled,
+			Filename: logging.Server.Filename,
+			Format:   logging.Server.Format,
+			Custom:   logging.Server.Custom,
+			Rotate:   logging.Server.Rotate,
+			Keep:     logging.Server.Keep,
+		},
+		Error: applog.LogFileConfig{
+			Enabled:  logging.Error.Enabled,
+			Filename: logging.Error.Filename,
+			Format:   logging.Error.Format,
+			Custom:   logging.Error.Custom,
+			Rotate:   logging.Error.Rotate,
+			Keep:     logging.Error.Keep,
+		},
+		App: applog.LogFileConfig{
+			Enabled:  logging.App.Enabled,
+			Filename: logging.App.Filename,
+			Format:   logging.App.Format,
+			Custom:   logging.App.Custom,
+			Rotate:   logging.App.Rotate,
+			Keep:     logging.App.Keep,
+		},
+		Auth: applog.LogFileConfig{
+			Enabled:  logging.Auth.Enabled,
+			Filename: logging.Auth.Filename,
+			Format:   logging.Auth.Format,
+			Custom:   logging.Auth.Custom,
+			Rotate:   logging.Auth.Rotate,
+			Keep:     logging.Auth.Keep,
+		},
+		Audit: applog.AuditLogConfig{
+			LogFileConfig: applog.LogFileConfig{
+				Enabled:  logging.Audit.Enabled,
+				Filename: logging.Audit.Filename,
+				Format:   logging.Audit.Format,
+				Custom:   logging.Audit.Custom,
+				Rotate:   logging.Audit.Rotate,
+				Keep:     logging.Audit.Keep,
+			},
+			Compress:         logging.Audit.Compress,
+			IncludeUserAgent: logging.Audit.IncludeUserAgent,
+			Events: applog.AuditEventFilter{
+				Configuration: logging.Audit.Events.Configuration,
+				Security:      logging.Audit.Events.Security,
+				Backup:        logging.Audit.Events.Backup,
+				Server:        logging.Audit.Events.Server,
+			},
+		},
+		Security: applog.LogFileConfig{
+			Enabled:  logging.Security.Enabled,
+			Filename: logging.Security.Filename,
+			Format:   logging.Security.Format,
+			Custom:   logging.Security.Custom,
+			Rotate:   logging.Security.Rotate,
+			Keep:     logging.Security.Keep,
+		},
+		Debug: applog.LogFileConfig{
+			Enabled:  logging.Debug.Enabled,
+			Filename: logging.Debug.Filename,
+			Format:   logging.Debug.Format,
+			Custom:   logging.Debug.Custom,
+			Rotate:   logging.Debug.Rotate,
+			Keep:     logging.Debug.Keep,
+		},
+	}
+}
+
+type runtimeLogWriter struct {
+	manager *applog.Manager
+	stderr  io.Writer
+}
+
+func (w runtimeLogWriter) Write(p []byte) (int, error) {
+	message := strings.TrimSpace(string(p))
+	level := "INFO"
+	lower := strings.ToLower(message)
+	if strings.Contains(lower, "error") || strings.Contains(lower, "failed") || strings.Contains(lower, "failure") {
+		level = "ERROR"
+	} else if strings.Contains(lower, "warning") || strings.Contains(lower, "warn:") {
+		level = "WARN"
+	}
+	if w.manager != nil {
+		w.manager.WriteServer(level, message)
+	}
+	if (level == "WARN" || level == "ERROR") && w.stderr != nil {
+		if _, err := fmt.Fprintln(w.stderr, message); err != nil {
+			return 0, err
+		}
+	}
+	return len(p), nil
+}
+
+// requireOperatorAuth implements the AI.md PART 5 "Sensitive Operations"
+// authorization gate: root/elevated processes pass automatically; anyone
+// else must supply the current server.token (constant-time compared).
+func requireOperatorAuth(cfg *config.AppConfig, prompt string) bool {
+	if isElevated() {
+		return true
+	}
+	if cfg.Server.Token == "" {
+		return false
+	}
+	fmt.Print(prompt)
+	reader := bufio.NewReader(os.Stdin)
+	entered, _ := reader.ReadString('\n')
+	entered = strings.TrimSpace(entered)
+	return subtle.ConstantTimeCompare([]byte(entered), []byte(cfg.Server.Token)) == 1
+}
+
+// requireTypedConfirmation prompts the operator to type an exact phrase
+// back, used to gate irreversible/high-impact maintenance actions (PGP
+// export private, import, delete).
+func requireTypedConfirmation(expected, prompt string) bool {
+	fmt.Print(prompt)
+	reader := bufio.NewReader(os.Stdin)
+	entered, _ := reader.ReadString('\n')
+	return strings.TrimSpace(entered) == expected
+}
+
+func maintenanceOperatorIP() string {
+	for _, variable := range []string{"SSH_CONNECTION", "SSH_CLIENT"} {
+		fields := strings.Fields(os.Getenv(variable))
+		if len(fields) > 0 {
+			if ip := net.ParseIP(fields[0]); ip != nil {
+				return ip.String()
+			}
+		}
+	}
+	return "127.0.0.1"
+}
+
+// openMaintenanceDB opens server.db independently of the main server
+// startup path, for maintenance subcommands (e.g. `--maintenance pgp`)
+// that run and exit before the server's own DB connection is created.
+// Mirrors the driver-selection/schema logic in main().
+func openMaintenanceDB(cfg *config.AppConfig, dirs paths.Directories) (*db.Store, error) {
+	dbCfg := cfg.Server.Database
+	if dbCfg.NormalizedDriver() == "libsql" {
+		if valErr := dbCfg.ValidateLibSQL(); valErr != nil {
+			dbCfg.Driver = "sqlite"
+		}
+	}
+
+	// Delegates driver selection, connection pooling, PRAGMA setup, and schema
+	// application to db.NewDB so this logic has a single implementation
+	// (mirrors the server's own DB open in main()). dirs.DB (not dirs.Data)
+	// is authoritative per PART 4/12: it honors the independently-relocatable
+	// DATABASE_DIR env var.
+	conn, err := db.NewDB(&dbCfg, dirs.DB)
+	if err != nil {
+		return nil, fmt.Errorf("open %s database: %w", dbCfg.NormalizedDriver(), err)
+	}
+	return conn, nil
+}
+
+// pgpExportRateLimitWindow bounds `--maintenance pgp export private` to once
+// per hour per AI.md PART 11 "Export private".
+const pgpExportRateLimitWindow = time.Hour
+
+// pgpExportMarkerPath returns the on-disk marker used to rate-limit private
+// key exports (mtime/contents = unix timestamp of the last export).
+func pgpExportMarkerPath(configDir string) string {
+	return filepath.Join(configDir, "security", ".private_key_export_at")
+}
+
+// pgpExportRateLimitRemaining returns how much longer the operator must wait
+// before another `pgp export private` is allowed, or 0 if allowed now.
+func pgpExportRateLimitRemaining(configDir string) time.Duration {
+	data, err := os.ReadFile(pgpExportMarkerPath(configDir))
+	if err != nil {
+		return 0
+	}
+	last, err := strconv.ParseInt(strings.TrimSpace(string(data)), 10, 64)
+	if err != nil {
+		return 0
+	}
+	elapsed := time.Since(time.Unix(last, 0))
+	if elapsed >= pgpExportRateLimitWindow {
+		return 0
+	}
+	return pgpExportRateLimitWindow - elapsed
+}
+
+// pgpMarkExportTimestamp records "now" as the last private-key export time.
+func pgpMarkExportTimestamp(configDir string) {
+	dir := filepath.Join(configDir, "security")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return
+	}
+	_ = os.WriteFile(pgpExportMarkerPath(configDir), []byte(strconv.FormatInt(time.Now().Unix(), 10)), 0o600)
+}
+
+// handlePGPMaintenance dispatches `--maintenance pgp <action>` subcommands
+// per AI.md PART 11 "GPG Keypair Management". Every action requires operator
+// authorization (server.token OR root/elevated); export private, import, and
+// delete additionally require typed confirmation and are audit-logged.
+func handlePGPMaintenance(args []string, configDir, logsDir string, cfg *config.AppConfig) {
+	if len(args) == 0 {
+		fmt.Println("Usage: ipgaze --maintenance pgp <generate|rotate|publish|export|import|delete>")
+		os.Exit(exUsage)
+	}
+
+	if !requireOperatorAuth(cfg, "This is a sensitive PGP key operation. Enter operator token to confirm: ") {
+		fmt.Println("Authorization required: run as root/administrator, or provide a valid operator token.")
+		os.Exit(exNoPerm)
+	}
+
+	dirs := paths.GetDirectories()
+	conn, err := openMaintenanceDB(cfg, dirs)
+	if err != nil {
+		log.Printf("pgp: failed to open database: %v", err)
+		os.Exit(exIoErr)
+	}
+	defer func() { _ = conn.Close() }()
+
+	logMgr, logMgrErr := applog.NewManager(logsDir, buildLogConfig(cfg))
+	if logMgrErr != nil {
+		log.Printf("Warning: pgp: failed to open audit log: %v", logMgrErr)
+		logMgr = nil
+	} else {
+		defer logMgr.Close()
+	}
+
+	appName := projectName
+	securityContact := cfg.Web.Security.Contact
+	if securityContact == "" {
+		securityContact = "security@localhost"
+	}
+
+	action, rest := args[0], args[1:]
+	switch action {
+	case "generate":
+		pgpGenerate(conn, configDir, appName, securityContact, cfg, logMgr)
+	case "rotate":
+		pgpRotate(conn, configDir, appName, securityContact, cfg, logMgr)
+	case "publish":
+		pgpPublishKeyservers(conn, configDir, cfg, logMgr)
+	case "export":
+		if len(rest) == 0 {
+			fmt.Println("Usage: ipgaze --maintenance pgp export <public|private> [path]")
+			os.Exit(exUsage)
+		}
+		switch rest[0] {
+		case "public":
+			path := ""
+			if len(rest) > 1 {
+				path = rest[1]
+			}
+			pgpExportPublic(configDir, path)
+		case "private":
+			if len(rest) < 2 {
+				fmt.Println("Usage: ipgaze --maintenance pgp export private <path>")
+				os.Exit(exUsage)
+			}
+			pgpExportPrivate(conn, configDir, rest[1], cfg, logMgr)
+		default:
+			fmt.Printf("Unknown export target: %s (expected public or private)\n", rest[0])
+			os.Exit(exUsage)
+		}
+	case "import":
+		if len(rest) == 0 {
+			fmt.Println("Usage: ipgaze --maintenance pgp import <file>")
+			os.Exit(exUsage)
+		}
+		pgpImport(conn, configDir, rest[0], appName, securityContact, logMgr)
+	case "delete":
+		pgpDelete(conn, configDir, cfg, logMgr)
+	default:
+		fmt.Printf("Unknown pgp command: %s\n", action)
+		fmt.Println("Available: generate, rotate, publish, export, import, delete")
+		os.Exit(exUsage)
+	}
+}
+
+// pgpGenerate implements `--maintenance pgp generate` (AI.md PART 11 "Generate").
+func pgpGenerate(conn *db.Store, configDir, appName, securityContact string, cfg *config.AppConfig, logMgr *applog.Manager) {
+	secret, err := security.GetOrCreateSecret(conn, security.SecretInstallationSecret)
+	if err != nil {
+		log.Printf("pgp generate: load installation secret: %v", err)
+		os.Exit(exSoftware)
+	}
+	kp, err := pgp.Generate(appName, securityContact)
+	if err != nil {
+		log.Printf("pgp generate: %v", err)
+		os.Exit(exSoftware)
+	}
+	if err := pgp.SaveKeypair(configDir, kp, secret); err != nil {
+		log.Printf("pgp generate: save: %v", err)
+		os.Exit(exIoErr)
+	}
+	if err := pgp.InsertRecord(conn, kp.Fingerprint, kp.CreatedAt, kp.ExpiresAt); err != nil {
+		log.Printf("pgp generate: record: %v", err)
+		os.Exit(exSoftware)
+	}
+	if logMgr != nil {
+		logMgr.WriteAuditEvent("", "security.pgp_key_generated", "security", "info", "success", "", map[string]any{
+			"fingerprint": kp.Fingerprint,
+			"expires_at":  kp.ExpiresAt.Format(time.RFC3339),
+		})
+	}
+	fmt.Printf("Generated PGP keypair: %s\n", kp.Fingerprint)
+	fmt.Printf("Expires: %s\n", kp.ExpiresAt.Format("2006-01-02"))
+
+	if cfg.Web.Security.PublishPGPKey && len(cfg.Web.Security.Keyservers) > 0 {
+		publishToKeyservers(conn, configDir, kp.Fingerprint, kp.PublicArmor, cfg.Web.Security.Keyservers)
+	}
+}
+
+// pgpRotate implements `--maintenance pgp rotate` (AI.md PART 11 "Rotate").
+func pgpRotate(conn *db.Store, configDir, appName, securityContact string, cfg *config.AppConfig, logMgr *applog.Manager) {
+	secret, err := security.GetOrCreateSecret(conn, security.SecretInstallationSecret)
+	if err != nil {
+		log.Printf("pgp rotate: load installation secret: %v", err)
+		os.Exit(exSoftware)
+	}
+
+	oldRec, err := pgp.ActiveRecord(conn)
+	if err != nil {
+		log.Printf("pgp rotate: load active record: %v", err)
+		os.Exit(exSoftware)
+	}
+
+	var oldEntity *openpgp.Entity
+	if oldRec != nil {
+		if oldArmor, loadErr := pgp.LoadPrivateArmor(configDir, secret); loadErr == nil {
+			oldEntity, _ = pgp.ParsePrivate(oldArmor)
+		} else {
+			log.Printf("Warning: pgp rotate: could not load previous private key for cross-signing: %v", loadErr)
+		}
+	}
+
+	kp, err := pgp.Rotate(appName, securityContact, oldEntity)
+	if err != nil {
+		log.Printf("pgp rotate: %v", err)
+		os.Exit(exSoftware)
+	}
+	if oldRec != nil {
+		if err := pgp.ArchiveCurrentKeypair(configDir, oldRec.Fingerprint, time.Now().Add(pgp.RotationGrace)); err != nil {
+			log.Printf("pgp rotate: retain previous private key: %v", err)
+			os.Exit(exIoErr)
+		}
+	}
+	if err := pgp.SaveKeypair(configDir, kp, secret); err != nil {
+		log.Printf("pgp rotate: save: %v", err)
+		os.Exit(exIoErr)
+	}
+	if err := pgp.InsertRecord(conn, kp.Fingerprint, kp.CreatedAt, kp.ExpiresAt); err != nil {
+		log.Printf("pgp rotate: record: %v", err)
+		os.Exit(exSoftware)
+	}
+	if oldRec != nil {
+		if err := pgp.MarkRotated(conn, oldRec.Fingerprint); err != nil {
+			log.Printf("Warning: pgp rotate: mark old key rotated: %v", err)
+		}
+	}
+	if logMgr != nil {
+		logMgr.WriteAuditEvent("", "security.pgp_key_rotated", "security", "info", "success", "", map[string]any{
+			"fingerprint":     kp.Fingerprint,
+			"previous_key_fp": oldRecFingerprint(oldRec),
+		})
+	}
+	fmt.Printf("Rotated PGP keypair: %s\n", kp.Fingerprint)
+	fmt.Printf("Expires: %s\n", kp.ExpiresAt.Format("2006-01-02"))
+	fmt.Printf("Previous key remains valid for %s (grace period) for in-flight reports.\n", pgp.RotationGrace)
+
+	if cfg.Web.Security.PublishPGPKey && len(cfg.Web.Security.Keyservers) > 0 {
+		publishToKeyservers(conn, configDir, kp.Fingerprint, kp.PublicArmor, cfg.Web.Security.Keyservers)
+	}
+}
+
+// oldRecFingerprint safely extracts a fingerprint from a possibly-nil record.
+func oldRecFingerprint(rec *pgp.Record) string {
+	if rec == nil {
+		return ""
+	}
+	return rec.Fingerprint
+}
+
+// publishToKeyservers submits the public key to every configured keyserver
+// and prints per-host results.
+func publishToKeyservers(conn *db.Store, configDir, fingerprint, publicArmor string, keyservers []string) {
+	for _, r := range pgp.Publish(conn, fingerprint, publicArmor, keyservers) {
+		if r.Err != nil {
+			log.Printf("pgp publish: %s: %v", r.Host, r.Err)
+			if !isFinalKeyserverFailure(r.Err) {
+				if err := pgp.ScheduleKeyserverRetry(configDir, fingerprint, r.Host, pgp.KeyserverRetry{AttemptCount: 1, NextAttempt: time.Now().Add(time.Minute).UTC()}); err != nil {
+					log.Printf("pgp publish: persist retry for %s: %v", r.Host, err)
+				}
+			}
+		} else {
+			fmt.Printf("Published to %s\n", r.Host)
+			if err := pgp.ClearKeyserverRetry(configDir, fingerprint, r.Host); err != nil {
+				log.Printf("pgp publish: clear retry for %s: %v", r.Host, err)
+			}
+		}
+	}
+
+	// Mirror the DB's keyservers_published map to {config_dir}/security/keyservers.state
+	// (AI.md PART 11 "Backup Integration (PART 21)") so a backup taken after
+	// this publish carries the state needed to avoid double-submitting on restore.
+	if rec, err := pgp.ActiveRecord(conn); err == nil && rec != nil {
+		if err := pgp.WriteKeyserversState(configDir, rec.Fingerprint, rec.KeyserversPublished); err != nil {
+			log.Printf("pgp publish: write keyservers state: %v", err)
+		}
+	}
+}
+
+func isFinalKeyserverFailure(err error) bool {
+	if err == nil {
+		return false
+	}
+	message := err.Error()
+	const marker = "unexpected status "
+	index := strings.LastIndex(message, marker)
+	if index < 0 {
+		return false
+	}
+	var status int
+	if _, scanErr := fmt.Sscanf(message[index+len(marker):], "%d", &status); scanErr != nil {
+		return false
+	}
+	return status >= 400 && status < 500 && status != http.StatusTooManyRequests
+}
+
+// pgpPublishKeyservers implements `--maintenance pgp publish` (AI.md PART 11
+// "Publish to keyservers"), republishing the active key on demand.
+func pgpPublishKeyservers(conn *db.Store, configDir string, cfg *config.AppConfig, logMgr *applog.Manager) {
+	rec, err := pgp.ActiveRecord(conn)
+	if err != nil {
+		log.Printf("pgp publish: %v", err)
+		os.Exit(exSoftware)
+	}
+	if rec == nil {
+		fmt.Println("No active PGP keypair; run --maintenance pgp generate first.")
+		os.Exit(exConfig)
+	}
+	if len(cfg.Web.Security.Keyservers) == 0 {
+		fmt.Println("No keyservers configured (web.security.keyservers).")
+		return
+	}
+	pubArmor, err := pgp.LoadPublic(configDir)
+	if err != nil {
+		log.Printf("pgp publish: load public key: %v", err)
+		os.Exit(exIoErr)
+	}
+	publishToKeyservers(conn, configDir, rec.Fingerprint, pubArmor, cfg.Web.Security.Keyservers)
+	if logMgr != nil {
+		logMgr.WriteAuditEvent("", "security.pgp_key_published", "security", "info", "success", "", map[string]any{
+			"fingerprint": rec.Fingerprint,
+		})
+	}
+}
+
+// pgpExportPublic implements `--maintenance pgp export public [path]`.
+func pgpExportPublic(configDir, path string) {
+	pubArmor, err := pgp.LoadPublic(configDir)
+	if err != nil {
+		log.Printf("pgp export public: %v", err)
+		os.Exit(exIoErr)
+	}
+	if path == "" {
+		fmt.Print(pubArmor)
+		return
+	}
+	if err := os.WriteFile(path, []byte(pubArmor), 0o644); err != nil {
+		log.Printf("pgp export public: write %s: %v", path, err)
+		os.Exit(exIoErr)
+	}
+	fmt.Printf("Public key written to %s\n", path)
+}
+
+// pgpExportPrivate implements `--maintenance pgp export private <path>`
+// (AI.md PART 11 "Export private"): typed confirmation, 1/hour/operator
+// rate limit, a logged reason, mode-0600 output, and an audit event
+// recording the operator's typed reason.
+func pgpExportPrivate(conn *db.Store, configDir, path string, cfg *config.AppConfig, logMgr *applog.Manager) {
+	if !requireTypedConfirmation("EXPORT PRIVATE KEY",
+		"WARNING: this exposes the raw, decrypted PGP private key.\n"+
+			"Type EXPORT PRIVATE KEY to confirm: ") {
+		fmt.Println("Export cancelled.")
+		return
+	}
+
+	if wait := pgpExportRateLimitRemaining(configDir); wait > 0 {
+		fmt.Printf("Rate limited: private key export is allowed once per hour. Try again in %s.\n", wait.Round(time.Second))
+		os.Exit(exNoPerm)
+	}
+
+	fmt.Print("Reason for export (required, recorded to audit.log): ")
+	reader := bufio.NewReader(os.Stdin)
+	reason, _ := reader.ReadString('\n')
+	reason = strings.TrimSpace(reason)
+	if reason == "" {
+		fmt.Println("A reason is required for this sensitive operation.")
+		os.Exit(exUsage)
+	}
+	if !requireOperatorAuth(cfg, "Re-enter the operator token to authorize private-key export: ") {
+		fmt.Println("Authorization failed; private key was not exported.")
+		os.Exit(exNoPerm)
+	}
+
+	secret, err := security.GetOrCreateSecret(conn, security.SecretInstallationSecret)
+	if err != nil {
+		log.Printf("pgp export private: load installation secret: %v", err)
+		os.Exit(exSoftware)
+	}
+	privArmor, err := pgp.LoadPrivateArmor(configDir, secret)
+	if err != nil {
+		log.Printf("pgp export private: %v", err)
+		os.Exit(exIoErr)
+	}
+	if err := os.WriteFile(path, []byte(privArmor), 0o600); err != nil {
+		log.Printf("pgp export private: write %s: %v", path, err)
+		os.Exit(exIoErr)
+	}
+	pgpMarkExportTimestamp(configDir)
+
+	rec, _ := pgp.ActiveRecord(conn)
+	if logMgr != nil {
+		operatorName := os.Getenv("USER")
+		if current, userErr := user.Current(); userErr == nil && current.Username != "" {
+			operatorName = current.Username
+		}
+		logMgr.WriteAuditEvent("", "security.private_key_exported", "security", "warn", "success", "local", map[string]any{
+			"operator_username": operatorName,
+			"fingerprint":       oldRecFingerprint(rec),
+			"path":              path,
+			"reason":            reason,
+		})
+	}
+	fmt.Printf("Private key exported to %s (mode 0600). This action has been logged.\n", path)
+}
+
+// pgpImport implements `--maintenance pgp import <file>` (AI.md PART 11
+// "Import"): parses the armored private key, warns (with operator override)
+// if its identity doesn't match the project's expected identity, then
+// persists it as the active keypair.
+func pgpImport(conn *db.Store, configDir, file, appName, securityContact string, logMgr *applog.Manager) {
+	if !requireTypedConfirmation("IMPORT PRIVATE KEY",
+		"WARNING: this replaces the current PGP keypair.\n"+
+			"Type IMPORT PRIVATE KEY to confirm: ") {
+		fmt.Println("Import cancelled.")
+		return
+	}
+
+	raw, err := os.ReadFile(file)
+	if err != nil {
+		log.Printf("pgp import: read %s: %v", file, err)
+		os.Exit(exIoErr)
+	}
+	entity, err := pgp.ParsePrivate(string(raw))
+	if err != nil {
+		log.Printf("pgp import: %v", err)
+		os.Exit(exSoftware)
+	}
+
+	expectedIdentity := pgp.Identity(appName, securityContact)
+	matched := false
+	for name := range entity.Identities {
+		if name == expectedIdentity {
+			matched = true
+			break
+		}
+	}
+	if !matched {
+		fmt.Printf("Warning: imported key identity does not match expected %q.\n", expectedIdentity)
+		if !requireTypedConfirmation("OVERRIDE", "Type OVERRIDE to import anyway: ") {
+			fmt.Println("Import cancelled.")
+			return
+		}
+	}
+
+	pubArmor, err := pgp.ArmorPublic(entity)
+	if err != nil {
+		log.Printf("pgp import: %v", err)
+		os.Exit(exSoftware)
+	}
+
+	secret, err := security.GetOrCreateSecret(conn, security.SecretInstallationSecret)
+	if err != nil {
+		log.Printf("pgp import: load installation secret: %v", err)
+		os.Exit(exSoftware)
+	}
+
+	fingerprint := pgp.Fingerprint(entity)
+	createdAt := entity.PrimaryKey.CreationTime
+	kp := &pgp.Keypair{
+		Entity:       entity,
+		Fingerprint:  fingerprint,
+		PublicArmor:  pubArmor,
+		PrivateArmor: string(raw),
+		CreatedAt:    createdAt,
+		ExpiresAt:    createdAt.Add(pgp.KeyLifetime),
+	}
+	if err := pgp.SaveKeypair(configDir, kp, secret); err != nil {
+		log.Printf("pgp import: save: %v", err)
+		os.Exit(exIoErr)
+	}
+	if err := pgp.InsertRecord(conn, kp.Fingerprint, kp.CreatedAt, kp.ExpiresAt); err != nil {
+		log.Printf("pgp import: record: %v", err)
+		os.Exit(exSoftware)
+	}
+	if logMgr != nil {
+		logMgr.WriteAuditEvent("", "security.pgp_key_imported", "security", "warn", "success", "", map[string]any{
+			"fingerprint": kp.Fingerprint,
+			"source_file": file,
+		})
+	}
+	fmt.Printf("Imported PGP keypair: %s\n", kp.Fingerprint)
+}
+
+// pgpDelete implements `--maintenance pgp delete` (AI.md PART 11 "Delete"):
+// removes the key files, marks the DB record revoked, and flips
+// web.security.publish_pgp_key off so security.txt stops advertising it.
+func pgpDelete(conn *db.Store, configDir string, cfg *config.AppConfig, logMgr *applog.Manager) {
+	if !requireTypedConfirmation("DELETE PGP KEY",
+		"WARNING: this permanently deletes the PGP keypair.\n"+
+			"In-flight encrypted security reports become un-decryptable.\n"+
+			"Type DELETE PGP KEY to confirm: ") {
+		fmt.Println("Delete cancelled.")
+		return
+	}
+
+	rec, _ := pgp.ActiveRecord(conn)
+	if err := pgp.DeleteKeypair(configDir); err != nil {
+		log.Printf("pgp delete: %v", err)
+		os.Exit(exIoErr)
+	}
+	if rec != nil {
+		if err := pgp.MarkRevoked(conn, rec.Fingerprint); err != nil {
+			log.Printf("Warning: pgp delete: mark revoked: %v", err)
+		}
+	}
+
+	cfg.Web.Security.PublishPGPKey = false
+	if err := config.SaveConfigToFile(); err != nil {
+		log.Printf("Warning: pgp delete: failed to persist publish_pgp_key=false: %v", err)
+	}
+
+	if logMgr != nil {
+		logMgr.WriteAuditEvent("", "security.pgp_key_deleted", "security", "warn", "success", "", map[string]any{
+			"fingerprint": oldRecFingerprint(rec),
+		})
+	}
+	fmt.Println("PGP keypair deleted. web.security.publish_pgp_key set to false.")
+}
+
+// handleSecretMaintenance implements `--maintenance secret rotate <name>`
+// (AI.md PART 5 "Sensitive Operations" table and PART 11 "Secret Rotation").
+// Only installation_secret and encryption_key are operator-rotatable;
+// cookie_signing_key and csrf_token_secret are auto-rotated only.
+func handleSecretMaintenance(args []string, configDir, logsDir string, cfg *config.AppConfig) {
+	if len(args) < 2 || args[0] != "rotate" {
+		fmt.Println("Usage: ipgaze --maintenance secret rotate <installation_secret|encryption_key>")
+		os.Exit(exUsage)
+	}
+
+	name := args[1]
+	switch name {
+	case "installation_secret", "encryption_key":
+		// valid, handled below
+	case "cookie_signing_key", "csrf_token_secret":
+		fmt.Printf("%s is auto-rotated only and cannot be rotated manually.\n", name)
+		os.Exit(exUsage)
+	default:
+		fmt.Printf("Unknown secret: %s\n", name)
+		fmt.Println("Valid names: installation_secret, encryption_key")
+		os.Exit(exUsage)
+	}
+
+	if !requireOperatorAuth(cfg, "This is a sensitive secret-rotation operation. Enter operator token to confirm: ") {
+		fmt.Println("Authorization required: run as root/administrator, or provide a valid operator token.")
+		os.Exit(exNoPerm)
+	}
+	confirmPhrase := "ROTATE " + strings.ToUpper(name)
+	if !requireTypedConfirmation(confirmPhrase,
+		fmt.Sprintf("WARNING: this rotates %s and re-encrypts dependent data.\nType %s to confirm: ", name, confirmPhrase)) {
+		fmt.Println("Rotation cancelled.")
+		return
+	}
+
+	dirs := paths.GetDirectories()
+	conn, err := openMaintenanceDB(cfg, dirs)
+	if err != nil {
+		log.Printf("secret rotate: failed to open database: %v", err)
+		os.Exit(exIoErr)
+	}
+	defer func() { _ = conn.Close() }()
+
+	logMgr, logMgrErr := applog.NewManager(logsDir, buildLogConfig(cfg))
+	if logMgrErr != nil {
+		log.Printf("Warning: secret rotate: failed to open audit log: %v", logMgrErr)
+		logMgr = nil
+	} else {
+		defer logMgr.Close()
+	}
+
+	switch name {
+	case "installation_secret":
+		rotateInstallationSecret(conn, configDir, logMgr)
+	case "encryption_key":
+		rotateEncryptionKey(conn, configDir, cfg, logMgr)
+	}
+}
+
+// rotateInstallationSecret implements the installation_secret branch of
+// `--maintenance secret rotate` (AI.md PART 11): rotates the app_secrets row,
+// re-encrypts the PGP private key with the new value, and grants the old
+// value a 7-day grace window for in-flight validation.
+func rotateInstallationSecret(conn *db.Store, configDir string, logMgr *applog.Manager) {
+	oldSecret, err := security.GetOrCreateSecret(conn, security.SecretInstallationSecret)
+	if err != nil {
+		log.Printf("secret rotate installation_secret: load current: %v", err)
+		os.Exit(exSoftware)
+	}
+	if err := security.RotateSecret(conn, security.SecretInstallationSecret); err != nil {
+		log.Printf("secret rotate installation_secret: rotate: %v", err)
+		os.Exit(exSoftware)
+	}
+	newSecret, err := security.GetOrCreateSecret(conn, security.SecretInstallationSecret)
+	if err != nil {
+		log.Printf("secret rotate installation_secret: load new: %v", err)
+		os.Exit(exSoftware)
+	}
+
+	if err := pgp.ReencryptPrivateKey(configDir, oldSecret, newSecret); err != nil {
+		log.Printf("secret rotate installation_secret: re-encrypt PGP private key: %v", err)
+		os.Exit(exSoftware)
+	}
+
+	if logMgr != nil {
+		logMgr.WriteAuditEvent("", "security.installation_secret_rotated", "security", "warn", "success", "", map[string]any{
+			"grace_period": "7d",
+		})
+	}
+	fmt.Println("Rotated installation_secret.")
+	fmt.Println("PGP private key re-encrypted with the new value.")
+	fmt.Println("Previous value remains valid for 7 days (grace period) for in-flight validation.")
+}
+
+// rotateEncryptionKey implements the encryption_key branch of
+// `--maintenance secret rotate` (AI.md PART 11): generates a new at-rest
+// encryption key, re-encrypts DNS-01 credentials and AES-encrypted security
+// reports, keeps the previous key valid for a 30-day grace window, and saves
+// the updated configuration.
+func rotateEncryptionKey(conn *db.Store, configDir string, cfg *config.AppConfig, logMgr *applog.Manager) {
+	oldKeyB64 := cfg.Server.Security.EncryptionKey
+	oldKey, err := base64.StdEncoding.DecodeString(oldKeyB64)
+	if err != nil {
+		log.Printf("secret rotate encryption_key: decode current key: %v", err)
+		os.Exit(exSoftware)
+	}
+
+	newKeyB64, err := generateEncryptionKey()
+	if err != nil {
+		log.Printf("secret rotate encryption_key: generate: %v", err)
+		os.Exit(exSoftware)
+	}
+	newKey, err := base64.StdEncoding.DecodeString(newKeyB64)
+	if err != nil {
+		log.Printf("secret rotate encryption_key: decode new key: %v", err)
+		os.Exit(exSoftware)
+	}
+
+	reencryptedDNS, err := config.ReencryptDNSCredentials(
+		cfg.Server.SSL.LetsEncrypt.DNSCredentials.Values, oldKey, newKey)
+	if err != nil {
+		log.Printf("secret rotate encryption_key: re-encrypt dns_credentials: %v", err)
+		os.Exit(exSoftware)
+	}
+	oldPreviousKey := cfg.Server.Security.PreviousEncryptionKey
+	oldPreviousUntil := cfg.Server.Security.PreviousEncryptionKeyUntil
+	oldDNSCredentials := make(map[string]string, len(cfg.Server.SSL.LetsEncrypt.DNSCredentials.Values))
+	for name, value := range cfg.Server.SSL.LetsEncrypt.DNSCredentials.Values {
+		oldDNSCredentials[name] = value
+	}
+	cfg.Server.Security.PreviousEncryptionKey = oldKeyB64
+	cfg.Server.Security.PreviousEncryptionKeyUntil = time.Now().Add(30 * 24 * time.Hour).Unix()
+	cfg.Server.Security.EncryptionKey = newKeyB64
+	cfg.Server.SSL.LetsEncrypt.DNSCredentials.Values = reencryptedDNS
+	if err := config.SaveGeneratedEncryptionKey(); err != nil {
+		cfg.Server.Security.EncryptionKey = oldKeyB64
+		cfg.Server.Security.PreviousEncryptionKey = oldPreviousKey
+		cfg.Server.Security.PreviousEncryptionKeyUntil = oldPreviousUntil
+		cfg.Server.SSL.LetsEncrypt.DNSCredentials.Values = oldDNSCredentials
+		log.Printf("secret rotate encryption_key: save secrets: %v", err)
+		os.Exit(exIoErr)
+	}
+
+	if err := config.SaveConfigToFile(); err != nil {
+		cfg.Server.Security.EncryptionKey = oldKeyB64
+		cfg.Server.Security.PreviousEncryptionKey = oldPreviousKey
+		cfg.Server.Security.PreviousEncryptionKeyUntil = oldPreviousUntil
+		cfg.Server.SSL.LetsEncrypt.DNSCredentials.Values = oldDNSCredentials
+		_ = config.SaveGeneratedEncryptionKey()
+		log.Printf("secret rotate encryption_key: save config: %v", err)
+		os.Exit(exIoErr)
+	}
+	if err := security.ReencryptSecurityReports(conn, oldKey, newKey); err != nil {
+		cfg.Server.Security.EncryptionKey = oldKeyB64
+		cfg.Server.Security.PreviousEncryptionKey = oldPreviousKey
+		cfg.Server.Security.PreviousEncryptionKeyUntil = oldPreviousUntil
+		cfg.Server.SSL.LetsEncrypt.DNSCredentials.Values = oldDNSCredentials
+		if restoreErr := config.SaveGeneratedEncryptionKey(); restoreErr != nil {
+			log.Printf("secret rotate encryption_key: restore generated secret after database failure: %v", restoreErr)
+		}
+		if restoreErr := config.SaveConfigToFile(); restoreErr != nil {
+			log.Printf("secret rotate encryption_key: restore config after database failure: %v", restoreErr)
+		}
+		log.Printf("secret rotate encryption_key: re-encrypt security reports: %v", err)
+		os.Exit(exSoftware)
+	}
+	if logMgr != nil {
+		logMgr.WriteAuditEvent("", "security.encryption_key_rotated", "security", "warn", "success", "", map[string]any{
+			"grace_period": "30d",
+		})
+	}
+	fmt.Println("Rotated encryption_key.")
+	fmt.Println("DNS-01 provider credentials re-encrypted with the new value.")
+	fmt.Println("Previous value remains valid for 30 days (grace period).")
+}
+
+func handleSecurityMaintenance(args []string, logsDir string, cfg *config.AppConfig) {
+	if len(args) == 0 || args[0] == "--help" || args[0] == "help" {
+		fmt.Println("Usage: ipgaze --maintenance security <list|show|update|export>")
+		fmt.Println("  list [--status STATUS]: list report metadata without report content")
+		fmt.Println("  show <tracking_id>: show metadata, researcher comment, and disclosure date")
+		fmt.Println("  update <tracking_id> [--status STATUS] [--comment TEXT] [--disclosure-date YYYY-MM-DD]")
+		fmt.Println("  export <tracking_id> [--output FILE]: write the encrypted notification payload")
+		return
+	}
+	if !requireOperatorAuth(cfg, "This is a sensitive security operation. Enter operator token to confirm: ") {
+		fmt.Println("Authorization required: run as root/administrator, or provide a valid operator token.")
+		os.Exit(exNoPerm)
+	}
+	conn, err := openMaintenanceDB(cfg, paths.GetDirectories())
+	if err != nil {
+		log.Printf("security: failed to open database: %v", err)
+		os.Exit(exIoErr)
+	}
+	defer func() { _ = conn.Close() }()
+	switch args[0] {
+	case "list":
+		statusFilter, err := parseSecurityListArgs(args[1:])
+		if err != nil {
+			fmt.Println(err)
+			os.Exit(exUsage)
+		}
+		if err := listSecurityReports(conn, os.Stdout, statusFilter); err != nil {
+			log.Printf("security: list reports: %v", err)
+			os.Exit(exIoErr)
+		}
+		return
+	case "show":
+		if len(args) != 2 {
+			fmt.Println("Usage: ipgaze --maintenance security show <tracking_id>")
+			os.Exit(exUsage)
+		}
+		if err := showSecurityReport(conn, os.Stdout, args[1]); err != nil {
+			log.Printf("security: show report: %v", err)
+			os.Exit(exIoErr)
+		}
+		return
+	case "update":
+		if len(args) < 2 {
+			fmt.Println("Usage: ipgaze --maintenance security update <tracking_id> [--status STATUS] [--comment TEXT] [--disclosure-date YYYY-MM-DD]")
+			os.Exit(exUsage)
+		}
+	case "export":
+		if len(args) < 2 {
+			fmt.Fprintln(os.Stderr, "Usage: ipgaze --maintenance security export <tracking_id> [--output FILE]")
+			os.Exit(exUsage)
+		}
+		flags := flag.NewFlagSet("maintenance security export", flag.ContinueOnError)
+		flags.SetOutput(io.Discard)
+		output := flags.String("output", args[1]+".asc", "Encrypted payload output path, or - for stdout")
+		if err := flags.Parse(args[2:]); err != nil || flags.NArg() != 0 {
+			fmt.Fprintln(os.Stderr, "Usage: ipgaze --maintenance security export <tracking_id> [--output FILE]")
+			os.Exit(exUsage)
+		}
+		payload, encryption, err := security.LoadSecurityReportPayload(conn, args[1])
+		if err != nil {
+			log.Printf("security: export report: %v", err)
+			os.Exit(exIoErr)
+		}
+		if *output == "-" {
+			if _, err := os.Stdout.Write(payload); err != nil {
+				log.Printf("security: write encrypted report to stdout: %v", err)
+				os.Exit(exIoErr)
+			}
+		} else {
+			file, err := os.OpenFile(*output, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
+			if err != nil {
+				log.Printf("security: create encrypted report export: %v", err)
+				os.Exit(exIoErr)
+			}
+			if chmodErr := file.Chmod(0600); chmodErr != nil {
+				err = chmodErr
+			} else {
+				_, err = file.Write(payload)
+			}
+			closeErr := file.Close()
+			if err != nil || closeErr != nil {
+				log.Printf("security: write encrypted report export: %v", errors.Join(err, closeErr))
+				os.Exit(exIoErr)
+			}
+		}
+		logMgr, logErr := applog.NewManager(logsDir, buildLogConfig(cfg))
+		if logErr == nil {
+			logMgr.WriteAuditEvent("", "security.report_exported", "security", "warning", "success", maintenanceOperatorIP(), map[string]any{
+				"tracking_id": args[1], "encryption": encryption,
+			})
+			logMgr.Close()
+		}
+		if *output != "-" {
+			fmt.Printf("Exported encrypted %s report payload to %s.\n", encryption, *output)
+		}
+		return
+	default:
+		fmt.Println("Usage: ipgaze --maintenance security <list|show|update|export>")
+		os.Exit(exUsage)
+	}
+	trackingID, status, comment, disclosureDate, err := parseSecurityReportUpdateArgs(args[1:])
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(exUsage)
+	}
+	oldStatus, newStatus, err := security.UpdateSecurityReport(conn, trackingID, status, comment, disclosureDate, time.Now())
+	if err != nil {
+		log.Printf("security: update failed: %v", err)
+		os.Exit(exSoftware)
+	}
+	if oldStatus != newStatus {
+		notifySecurityReportStatus(conn, cfg, trackingID, newStatus)
+	}
+	logMgr, logErr := applog.NewManager(logsDir, buildLogConfig(cfg))
+	if logErr == nil {
+		logMgr.WriteAuditEvent("", "security.report_updated", "security", "info", "success", "", map[string]any{
+			"tracking_id": trackingID, "old_status": oldStatus, "new_status": newStatus,
+		})
+		logMgr.WriteSecurity(fmt.Sprintf("security.report_updated tracking_id=%s old_status=%s new_status=%s", safeSecurityLogField(trackingID), oldStatus, newStatus), "")
+		logMgr.Close()
+	}
+	fmt.Printf("Updated security report %s (%s → %s).\n", trackingID, oldStatus, newStatus)
+}
+
+func safeSecurityLogField(value string) string {
+	return strings.Map(func(r rune) rune {
+		if r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '_' || r == '-' {
+			return r
+		}
+		return '_'
+	}, value)
+}
+
+func notifySecurityReportStatus(conn *db.Store, cfg *config.AppConfig, trackingID, status string) {
+	if conn == nil || cfg == nil {
+		return
+	}
+	key, err := base64.StdEncoding.DecodeString(cfg.Server.Security.EncryptionKey)
+	if err != nil || len(key) != 32 {
+		return
+	}
+	contact, err := security.LoadSecurityReportContact(conn, trackingID, key)
+	if err != nil || strings.TrimSpace(contact.Email) == "" {
+		return
+	}
+	smtpCfg := email.SMTPConfig{
+		Enabled:  cfg.Server.Notifications.Email.Enabled,
+		Host:     cfg.Server.Notifications.Email.SMTP.Host,
+		Port:     cfg.Server.Notifications.Email.SMTP.Port,
+		Username: cfg.Server.Notifications.Email.SMTP.Username,
+		Password: cfg.Server.Notifications.Email.SMTP.Password,
+		TLS:      cfg.Server.Notifications.Email.SMTP.TLS,
+		From:     cfg.Server.Notifications.Email.From.Email,
+		FromName: cfg.Server.Notifications.Email.From.Name,
+	}
+	email.ApplyEnvOverrides(&smtpCfg)
+	if smtpCfg.Host == "" {
+		globalIPv4, _ := netutil.FetchPublicIP()
+		if probe, probeErr := email.AutoDetectSMTP(netutil.DefaultGatewayIP(), cfg.Server.FQDN, globalIPv4); probeErr == nil {
+			smtpCfg.Host, smtpCfg.Port = probe.Host, probe.Port
+		}
+	}
+	if smtpCfg.Host == "" || email.TestConnection(smtpCfg) != nil {
+		return
+	}
+	smtpCfg.Enabled = true
+	manager := email.NewEmailManager(smtpCfg, "")
+	lang := contact.Language
+	if !i18n.IsSupported(lang) {
+		lang = "en"
+	}
+	subject := i18n.Translate(lang, "security.report_status_email_subject")
+	body := i18n.Translate(lang, "security.report_status_email_body")
+	if subject == "security.report_status_email_subject" || subject == "" {
+		subject = "Security report status updated"
+	}
+	if body == "security.report_status_email_body" || body == "" {
+		body = "The status of your security report {tracking_id} changed to {status}."
+	}
+	subject = strings.ReplaceAll(subject, "{tracking_id}", trackingID)
+	body = strings.NewReplacer("{tracking_id}", trackingID, "{status}", status).Replace(body)
+	if err := manager.SendDirect(&email.Message{To: []string{contact.Email}, Subject: subject, Body: body}); err != nil {
+		log.Printf("security: status notification failed for %s: %v", trackingID, err)
+	}
+}
+
+func listSecurityReports(conn *db.Store, out io.Writer, statusFilter string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	query := `SELECT tracking_id, status, severity, component, created_at, updated_at FROM security_reports`
+	var rows *sql.Rows
+	var err error
+	if statusFilter == "" {
+		rows, err = conn.QueryContext(ctx, query+` ORDER BY created_at DESC`)
+	} else {
+		rows, err = conn.QueryContext(ctx, query+` WHERE status = ? ORDER BY created_at DESC`, statusFilter)
+	}
+	if err != nil {
+		return err
+	}
+	defer func() { _ = rows.Close() }()
+	if _, err := fmt.Fprintf(out, "%-22s %-12s %-14s %-24s %-20s %s\n", "TRACKING_ID", "STATUS", "SEVERITY", "COMPONENT", "CREATED_UTC", "UPDATED_UTC"); err != nil {
+		return err
+	}
+	for rows.Next() {
+		var trackingID, status, severity, component string
+		var created, updated int64
+		if err := rows.Scan(&trackingID, &status, &severity, &component, &created, &updated); err != nil {
+			return err
+		}
+		if _, err := fmt.Fprintf(out, "%-22s %-12s %-14s %-24s %-20s %s\n", trackingID, status, severity, component, time.Unix(created, 0).UTC().Format(time.RFC3339), time.Unix(updated, 0).UTC().Format(time.RFC3339)); err != nil {
+			return err
+		}
+	}
+	return rows.Err()
+}
+
+func parseSecurityListArgs(args []string) (string, error) {
+	fs := flag.NewFlagSet("security list", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	status := fs.String("status", "", "Filter by status")
+	if err := fs.Parse(args); err != nil || fs.NArg() != 0 {
+		return "", fmt.Errorf("usage: --maintenance security list [--status STATUS]")
+	}
+	if *status != "" && !validMaintenanceSecurityStatus(*status) {
+		return "", fmt.Errorf("invalid status %q", *status)
+	}
+	return *status, nil
+}
+
+func validMaintenanceSecurityStatus(status string) bool {
+	switch status {
+	case "received", "triaged", "confirmed", "patching", "disclosed", "wont_fix":
+		return true
+	default:
+		return false
+	}
+}
+
+func parseSecurityReportUpdateArgs(args []string) (string, *string, *string, *time.Time, error) {
+	if len(args) < 1 || strings.TrimSpace(args[0]) == "" {
+		return "", nil, nil, nil, fmt.Errorf("expected tracking ID")
+	}
+	trackingID := strings.TrimSpace(args[0])
+	fs := flag.NewFlagSet("security update", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	status := fs.String("status", "", "New status")
+	comment := fs.String("comment", "", "Researcher-visible maintainer comment")
+	disclosure := fs.String("disclosure-date", "", "Expected disclosure date (YYYY-MM-DD)")
+	if err := fs.Parse(args[1:]); err != nil || fs.NArg() != 0 {
+		return "", nil, nil, nil, fmt.Errorf("invalid security update flags")
+	}
+	statusSet, commentSet, dateSet := false, false, false
+	fs.Visit(func(f *flag.Flag) {
+		switch f.Name {
+		case "status":
+			statusSet = true
+		case "comment":
+			commentSet = true
+		case "disclosure-date":
+			dateSet = true
+		}
+	})
+	if !statusSet && !commentSet && !dateSet {
+		return "", nil, nil, nil, fmt.Errorf("provide at least one update flag")
+	}
+	var statusValue, commentValue *string
+	if statusSet {
+		if !validMaintenanceSecurityStatus(*status) {
+			return "", nil, nil, nil, fmt.Errorf("invalid status %q", *status)
+		}
+		statusValue = status
+	}
+	if commentSet {
+		commentValue = comment
+	}
+	var disclosureDate *time.Time
+	if dateSet {
+		parsed, err := time.Parse("2006-01-02", *disclosure)
+		if err != nil {
+			return "", nil, nil, nil, fmt.Errorf("invalid --disclosure-date: expected YYYY-MM-DD")
+		}
+		parsed = parsed.UTC()
+		disclosureDate = &parsed
+	}
+	return trackingID, statusValue, commentValue, disclosureDate, nil
+}
+
+func showSecurityReport(conn *db.Store, out io.Writer, trackingID string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	var status, severity, component, comment string
+	var created, updated int64
+	var disclosure sql.NullString
+	err := conn.QueryRowContext(ctx, `SELECT status, severity, component, researcher_comment, strftime('%Y-%m-%d', disclosure_date), created_at, updated_at FROM security_reports WHERE tracking_id = ?`, trackingID).
+		Scan(&status, &severity, &component, &comment, &disclosure, &created, &updated)
+	if err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(out, "Tracking ID: %s\nStatus: %s\nSeverity: %s\nComponent: %s\nCreated: %s\nUpdated: %s\nResearcher comment: %s\n",
+		trackingID, status, severity, component, time.Unix(created, 0).UTC().Format(time.RFC3339), time.Unix(updated, 0).UTC().Format(time.RFC3339), comment); err != nil {
+		return err
+	}
+	if disclosure.Valid {
+		_, err = fmt.Fprintf(out, "Disclosure date: %s\n", disclosure.String)
+	} else {
+		_, err = fmt.Fprintln(out, "Disclosure date: (not set)")
+	}
+	return err
+}
+
+func handleMaintenanceCommand(cmd, configDir, dataDir, logsDir, configPath string, cfg *config.AppConfig, includeSSL, includeData bool, lang, pidFile string) {
+	args := flag.Args()
+	dirs := paths.GetDirectories()
+
+	switch cmd {
+	case "--help", "-h", "help":
+		fmt.Println(`Maintenance commands: backup, restore, update, mode, setup, pgp, secret, security, token, data, compliance, scheduler, email, tor
+
+Backup:
+  --maintenance backup [file]     Create a backup archive
+  --maintenance backup test       Decrypt-check the backed-up PGP key
+      --include-ssl                Include SSL/TLS private keys (default: excluded)
+      --include-data               Include the full data directory (default: excluded)
+
+  By default a backup contains only server.yml, server.db, template/, and
+  theme/ — it is safe to move off-host without exposing credentials.
+
+  Examples:
+    ipgaze --maintenance backup
+    ipgaze --maintenance backup /path/to/backup.tar.gz
+    ipgaze --include-ssl --maintenance backup
+    ipgaze --include-ssl --include-data --maintenance backup
+
+Restore:
+  --maintenance restore <file>    Restore from a backup archive
+
+  Archives created without --include-ssl or --include-data are partial by
+  design: restoring one leaves the existing SSL certs and/or data directory
+  untouched rather than failing.
+
+  Example:
+    ipgaze --maintenance restore /path/to/backup.tar.gz`)
+		fmt.Println(`Security reports:
+  --maintenance security list [--status STATUS]
+      Lists tracking IDs, status, severity, component, and timestamps.
+  --maintenance security show <tracking_id>
+      Shows metadata, researcher comment, and disclosure date (never the report body).
+  --maintenance security update <tracking_id> [--status STATUS] [--comment TEXT] [--disclosure-date YYYY-MM-DD]
+      Updates researcher-visible triage fields.
+      Requires operator authorization.
+
+Email:
+  --maintenance email test [--to ADDRESS] [--dry-run]
+      Send a test email or preview and validate all configured templates.
+      Requires operator authorization.`)
+		return
+	case "backup":
+		if len(args) > 0 && args[0] == "test" {
+			archivePath := ""
+			if len(args) > 1 {
+				archivePath = args[1]
+			}
+			if err := maintenanceBackupTest(configDir, cfg, dirs, archivePath); err != nil {
+				log.Printf("Backup key test failed: %v", err)
+				os.Exit(exIoErr)
+			}
+			return
+		}
+		backupFile := ""
+		if len(args) > 0 {
+			backupFile = args[0]
+		} else {
+			backupDir := dirs.Backup
+			if err := os.MkdirAll(backupDir, 0755); err != nil {
+				log.Printf("Failed to create backup directory: %v", err)
+				os.Exit(exCantCreat)
+			}
+			timestamp := time.Now().Format("2006-01-02_150405")
+			backupFile = filepath.Join(backupDir, fmt.Sprintf("ipgaze_backup_%s.tar.gz", timestamp))
+		}
+		cliLogMgr, cliLogErr := applog.NewManager(logsDir, buildLogConfig(cfg))
+		if cliLogErr != nil {
+			cliLogMgr = nil
+		} else {
+			defer cliLogMgr.Close()
+		}
+		if err := maintenanceBackup(cfg, configDir, dataDir, dirs.DB, backupFile, includeSSL, includeData, true, cliLogMgr); err != nil {
+			log.Printf("Backup failed: %v", err)
+			os.Exit(exIoErr)
+		}
+		applyBackupRetention(dirs.Backup, cfg.Server.Backup.Retention, cliLogMgr, cfg.Server.Backup.Encryption.EncryptionPassword)
+	case "restore":
+		backupFile := ""
+		if len(args) > 0 {
+			backupFile = args[0]
+		} else {
+			var backupErr error
+			backupFile, backupErr = newestFullBackup(dirs.Backup)
+			if backupErr != nil {
+				log.Printf("Restore: %v", backupErr)
+				os.Exit(exIoErr)
+			}
+		}
+		restoreLogMgr, restoreLogErr := applog.NewManager(logsDir, buildLogConfig(cfg))
+		if restoreLogErr != nil {
+			restoreLogMgr = nil
+		} else {
+			defer restoreLogMgr.Close()
+		}
+		maintenanceRestore(backupFile, configDir, dataDir, dirs.DB, cfg, dirs, restoreLogMgr)
+	case "update":
+		// --maintenance update is an alias for --update yes per AI.md PART 22
+		if cfg == nil {
+			loaded, loadErr := config.LoadConfigFromFile(configPath)
+			if loadErr != nil {
+				log.Printf("Failed to load config from %s: %v", configPath, loadErr)
+				os.Exit(exConfig)
+			}
+			cfg = loaded
+		}
+		handleUpdateCommand("yes", cfg)
+	case "mode":
+		maintenanceMode(args, cfg)
+	case "setup":
+		maintenanceSetup(configPath, cfg, dirs)
+	case "pgp":
+		handlePGPMaintenance(args, configDir, logsDir, cfg)
+	case "secret":
+		handleSecretMaintenance(args, configDir, logsDir, cfg)
+	case "security":
+		handleSecurityMaintenance(args, logsDir, cfg)
+	case "token":
+		maintenanceToken(args, cfg, configDir, logsDir, dirs)
+	case "data":
+		maintenanceData(args, cfg, logsDir, dirs)
+	case "compliance":
+		conn, err := openMaintenanceDB(cfg, dirs)
+		if err != nil {
+			log.Printf("compliance: failed to open database: %v", err)
+			os.Exit(exIoErr)
+		}
+		defer func() { _ = conn.Close() }()
+		maintenanceCompliance(args, cfg, logsDir, conn)
+	case "email":
+		handleEmailMaintenance(args, configDir, logsDir, cfg, lang)
+	case "tor":
+		handleTorCommand(args, configDir, dataDir, logsDir, pidFile, cfg)
+	default:
+		fmt.Fprintf(os.Stderr, "Unknown maintenance command: %s\n", cmd)
+		fmt.Fprintln(os.Stderr, "Available commands: backup, restore, update, mode, setup, pgp, secret, security, token, data, compliance, scheduler, email, tor")
+		os.Exit(exUsage)
+	}
+}
+
+type emailTestOptions struct {
+	recipient string
+	dryRun    bool
+}
+
+func parseEmailTestArgs(args []string, defaultRecipient, lang string) (emailTestOptions, error) {
+	if len(args) == 0 || args[0] != "test" {
+		return emailTestOptions{}, fmt.Errorf("%s", i18n.Translate(lang, "cli.email_test_usage"))
+	}
+	flags := flag.NewFlagSet("maintenance email test", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	to := flags.String("to", defaultRecipient, "Test email recipient")
+	dryRun := flags.Bool("dry-run", false, "Preview and validate templates without sending")
+	if err := flags.Parse(args[1:]); err != nil || flags.NArg() != 0 {
+		return emailTestOptions{}, fmt.Errorf("%s", i18n.Translate(lang, "cli.email_test_usage"))
+	}
+	recipient := strings.TrimSpace(*to)
+	if recipient != "" {
+		parsed, err := mail.ParseAddress(recipient)
+		if err != nil || parsed.Address != recipient {
+			return emailTestOptions{}, fmt.Errorf("%s", i18n.Translate(lang, "cli.email_invalid_recipient"))
+		}
+	}
+	if !*dryRun && recipient == "" {
+		return emailTestOptions{}, fmt.Errorf("%s", i18n.Translate(lang, "cli.email_recipient_required"))
+	}
+	return emailTestOptions{recipient: recipient, dryRun: *dryRun}, nil
+}
+
+func emailTestSampleVariables(cfg *config.AppConfig) map[string]string {
+	appName := projectName
+	fqdn := "localhost"
+	appURL := "http://localhost"
+	var replyTo string
+	if cfg != nil {
+		if title := strings.TrimSpace(cfg.Server.Branding.Title); title != "" {
+			appName = title
+		}
+		if host := strings.TrimSpace(cfg.Server.FQDN); host != "" {
+			fqdn = host
+			appURL = "https://" + host
+		}
+		replyTo = cfg.Server.Notifications.Email.ReplyTo
+	}
+	variables := map[string]string{
+		"action": "Review the application status.", "app_name": appName, "app_url": appURL,
+		"channel": "stable", "current_version": Version, "days": "7", "days_until_expiry": "7",
+		"details": "Sample details", "domain": fqdn, "error": "Sample error", "event": "Test event",
+		"expiry": "2030-01-01", "expiry_date": "2030-01-01", "filename": "backup.tar.gz", "fqdn": fqdn,
+		"free": "1 GiB", "from_line": fmt.Sprintf("From: %s (%s)", appName, fqdn), "heading": "TEST EMAIL",
+		"hostname": fqdn, "intro": "This is a test message.", "ip": "192.168.1.100",
+		"i2p_address": "", "i2p_url": "", "label_channel": "Channel:", "label_current_version": "Current version:",
+		"label_days_remaining": "Days remaining:", "label_days_until_expiry": "Days until expiry:", "label_domain": "Domain:",
+		"label_error": "Error:", "label_event": "Event:", "label_expires": "Expires:", "label_filename": "Filename:",
+		"label_ip": "IP:", "label_new_expiry": "New expiry:", "label_new_version": "New version:",
+		"label_mode": "Mode:", "label_path": "Path:", "label_reason": "Reason:",
+		"label_free_space": "Free space:", "label_threshold": "Threshold:", "label_used_percent": "Used:",
+		"label_next_retry": "Next retry:", "label_next_run": "Next run:", "label_previous_version": "Previous version:",
+		"label_size": "Size:", "label_task": "Task:", "label_time": "Time:", "message": "Sample message",
+		"mode": "production", "new_version": Version, "next_retry": "in one hour", "next_run": "in one hour",
+		"notification_reply_to": replyTo, "onion_address": "", "onion_url": "", "path": "/data",
+		"previous_version": Version, "reason": "service stop", "size": "1 MiB", "since": "now",
+		"staged_version": Version, "subject": "Test Email - " + appName, "task": "sample task", "task_name": "sample task",
+		"threshold_percent": "90", "time": time.Now().UTC().Format(time.RFC3339), "timestamp": time.Now().UTC().Format(time.RFC3339),
+		"used_percent": "10", "valid_until": "2030-01-01", "version": Version, "year": time.Now().UTC().Format("2006"),
+	}
+	return variables
+}
+
+func handleEmailMaintenance(args []string, configDir, logsDir string, cfg *config.AppConfig, lang string) {
+	if len(args) == 0 || args[0] == "--help" || args[0] == "help" {
+		fmt.Println(i18n.Translate(lang, "cli.email_test_usage"))
+		return
+	}
+	options, err := parseEmailTestArgs(args, cfg.Server.Notifications.Email.ReplyTo, lang)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(exUsage)
+	}
+	if !requireOperatorAuth(cfg, "Email maintenance requires authorization. Enter operator token to confirm: ") {
+		fmt.Fprintln(os.Stderr, i18n.Translate(lang, "cli.email_auth_required"))
+		os.Exit(exNoPerm)
+	}
+	manager := email.NewEmailManager(email.SMTPConfig{}, configDir)
+	variables := emailTestSampleVariables(cfg)
+	if options.dryRun {
+		previews, validationErrors := manager.PreviewTemplates(variables, lang)
+		for _, preview := range previews {
+			fmt.Printf("=== %s ===\n%s\n\n%s\n\n",
+				i18n.TranslateFormat(lang, "cli.email_preview_template", "name", preview.Name),
+				i18n.TranslateFormat(lang, "cli.email_preview_subject", "subject", preview.Subject), preview.Body)
+		}
+		for _, validationErr := range validationErrors {
+			fmt.Fprintln(os.Stderr, validationErr)
+		}
+		if len(validationErrors) > 0 {
+			os.Exit(65)
+		}
+		return
+	}
+
+	emailConfig := cfg.Server.Notifications.Email
+	smtpConfig := email.SMTPConfig{
+		Enabled: emailConfig.Enabled, Host: emailConfig.SMTP.Host, Port: emailConfig.SMTP.Port,
+		Username: emailConfig.SMTP.Username, Password: emailConfig.SMTP.Password, TLS: emailConfig.SMTP.TLS,
+		From: emailConfig.From.Email, FromName: emailConfig.From.Name,
+	}
+	email.ApplyEnvOverrides(&smtpConfig)
+	if smtpConfig.Host == "" {
+		fmt.Fprintln(os.Stderr, i18n.Translate(lang, "cli.email_smtp_required"))
+		os.Exit(exConfig)
+	}
+	if err := email.TestConnection(smtpConfig); err != nil {
+		fmt.Fprintln(os.Stderr, i18n.TranslateFormat(lang, "cli.email_smtp_failed", "error", err.Error()))
+		os.Exit(exIoErr)
+	}
+	smtpConfig.Enabled = true
+	manager = email.NewEmailManager(smtpConfig, configDir)
+	subject, body, err := manager.RenderLocalizedTemplate("test", lang, variables)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, i18n.TranslateFormat(lang, "cli.email_render_failed", "error", err.Error()))
+		os.Exit(exIoErr)
+	}
+	subject = "[TEST] " + subject
+	fmt.Println(i18n.TranslateFormat(lang, "cli.email_sending", "recipient", options.recipient, "subject", subject))
+	logManager, err := applog.NewManager(logsDir, buildLogConfig(cfg))
+	if err != nil {
+		fmt.Fprintln(os.Stderr, i18n.TranslateFormat(lang, "cli.email_audit_failed", "error", err.Error()))
+		os.Exit(exIoErr)
+	}
+	defer logManager.Close()
+	result := "success"
+	sendErr := manager.SendDirect(&email.Message{To: []string{options.recipient}, ReplyTo: emailConfig.ReplyTo, Subject: subject, Body: body})
+	if sendErr != nil {
+		result = "failure"
+	}
+	logManager.WriteAuditEvent("", "email.test", "email", "info", result, maintenanceOperatorIP(), map[string]any{
+		"recipient": options.recipient, "template": "test", "subject": subject,
+	})
+	if sendErr != nil {
+		fmt.Fprintln(os.Stderr, i18n.TranslateFormat(lang, "cli.email_send_failed", "error", sendErr.Error()))
+		os.Exit(exIoErr)
+	}
+	fmt.Println(i18n.Translate(lang, "cli.email_sent"))
+}
+
+// isDatabaseEmpty reports whether this looks like a fresh install — no audit
+// log entries and no API tokens issued yet. Used to gate first-run bypasses
+// for setup/restore per AI.md PART 5 "Sensitive Operations" authorization
+// flowcharts (isDatabaseEmpty()).
+func isDatabaseEmpty(conn *db.Store) bool {
+	var auditCount, tokenCount int
+	// AI.md PART 10 "Query Timeouts": simple SELECTs get a 5-second budget.
+	ctx, cancel := context.WithTimeout(context.Background(), simpleSelectTimeout)
+	defer cancel()
+	if err := conn.QueryRowContext(ctx, "SELECT COUNT(*) FROM audit_log").Scan(&auditCount); err != nil {
+		return false
+	}
+	if err := conn.QueryRowContext(ctx, "SELECT COUNT(*) FROM api_tokens").Scan(&tokenCount); err != nil {
+		return false
+	}
+	return auditCount == 0 && tokenCount == 0
+}
+
+// maintenanceMode implements `--maintenance mode [production|development]` per
+// AI.md PART 5 "Mode change authorization flow": read-only when no argument is
+// given; changing the mode requires `server.token` OR root (requireOperatorAuth).
+func maintenanceMode(args []string, cfg *config.AppConfig) {
+	if len(args) == 0 {
+		mode := cfg.Server.Mode
+		if mode == "" {
+			mode = "production"
+		}
+		fmt.Printf("Current mode: %s\n", mode)
+		return
+	}
+
+	if !requireOperatorAuth(cfg, "Changing the application mode requires authorization. Enter operator token to confirm: ") {
+		fmt.Println("Authorization required: run as root/administrator, or provide a valid operator token.")
+		os.Exit(exNoPerm)
+	}
+
+	newMode := args[0]
+	if newMode != "production" && newMode != "development" {
+		fmt.Printf("Invalid mode: %s\n", newMode)
+		fmt.Println("Valid modes: production, development")
+		os.Exit(exUsage)
+	}
+	cfg.Server.Mode = newMode
+	if err := config.SaveConfigToFile(); err != nil {
+		log.Printf("Failed to save config: %v", err)
+		os.Exit(exIoErr)
+	}
+	fmt.Printf("Application mode set to: %s\n", newMode)
+}
+
+// maintenanceSetup implements `--maintenance setup` per AI.md PART 5 "Setup
+// authorization flow": allowed on first-run (empty database) or when
+// root/elevated (with typed confirmation); otherwise rejected with the exact
+// operator-facing message from AI.md.
+func maintenanceSetup(configPath string, cfg *config.AppConfig, dirs paths.Directories) {
+	conn, err := openMaintenanceDB(cfg, dirs)
+	if err != nil {
+		log.Printf("setup: failed to open database: %v", err)
+		os.Exit(exIoErr)
+	}
+	firstRun := isDatabaseEmpty(conn)
+	_ = conn.Close()
+
+	if !firstRun && !isElevated() {
+		fmt.Println("Setup already completed. To reconfigure:")
+		fmt.Println(" 1. Edit server.yml directly and restart the server")
+		fmt.Printf(" 2. Run as root: sudo %s --maintenance setup\n", projectName)
+		os.Exit(exNoPerm)
+	}
+	if !firstRun {
+		if !requireTypedConfirmation("RESET SETUP", "Running as root will reset server configuration to defaults.\nType RESET SETUP to confirm: ") {
+			fmt.Println("Setup cancelled.")
+			return
+		}
+	}
+
+	fmt.Println("IPGaze Initial Setup")
+	fmt.Println("====================")
+	token := cfg.Server.Token
+	def := config.DefaultConfig()
+	def.Server.Token = token
+	*cfg = *def
+	if err := config.SaveConfigToFile(); err != nil {
+		log.Printf("Failed to save config: %v", err)
+		os.Exit(exIoErr)
+	}
+	fmt.Printf("Config: %s\n", configPath)
+	fmt.Printf("Port: %s\n", cfg.Server.Port)
+	fmt.Printf("Mode: %s\n", cfg.Server.Mode)
+	fmt.Println("Setup complete. Configuration reset to defaults.")
+}
+
+// maintenanceToken implements `--maintenance token <list|revoke>` per AI.md
+// PART 11 "Operator revocation" — operator-only via CLI (server.token OR root).
+func maintenanceToken(args []string, cfg *config.AppConfig, configDir, logsDir string, dirs paths.Directories) {
+	if len(args) == 0 {
+		fmt.Println("Usage: ipgaze --maintenance token <list|revoke|adopt-ids> [prefix]")
+		os.Exit(exUsage)
+	}
+	if !requireOperatorAuth(cfg, "Token management requires authorization. Enter operator token to confirm: ") {
+		fmt.Println("Authorization required: run as root/administrator, or provide a valid operator token.")
+		os.Exit(exNoPerm)
+	}
+	if args[0] == "adopt-ids" {
+		if err := os.MkdirAll(dirs.Backup, 0o700); err != nil {
+			log.Printf("token adoption: create backup directory: %v", err)
+			os.Exit(exIoErr)
+		}
+		backup := filepath.Join(dirs.Backup, "ipgaze_pre_token_uuid7_"+time.Now().UTC().Format("20060102T150405Z")+".tar.gz")
+		if err := maintenanceBackup(cfg, configDir, dirs.Data, dirs.DB, backup, false, true, true, nil); err != nil {
+			log.Printf("token adoption: backup failed: %v", err)
+			os.Exit(exIoErr)
+		}
+		conn, err := openMaintenanceDB(cfg, dirs)
+		if err != nil {
+			log.Printf("token adoption: open database: %v", err)
+			os.Exit(exIoErr)
+		}
+		if err := db.AdoptLegacyAPITokenIDs(conn); err != nil {
+			_ = conn.Close()
+			log.Printf("token adoption failed (backup at %s): %v", backup, err)
+			os.Exit(exIoErr)
+		}
+		if err := conn.Close(); err != nil {
+			log.Printf("token adoption: close database: %v", err)
+			os.Exit(exIoErr)
+		}
+		fmt.Printf("API token IDs adopted as UUIDv7. Backup: %s\n", backup)
+		return
+	}
+
+	conn, err := openMaintenanceDB(cfg, dirs)
+	if err != nil {
+		log.Printf("token: failed to open database: %v", err)
+		os.Exit(exIoErr)
+	}
+	defer func() { _ = conn.Close() }()
+
+	switch args[0] {
+	case "list":
+		maintenanceTokenList(conn)
+	case "revoke":
+		if len(args) < 2 {
+			fmt.Println("Usage: ipgaze --maintenance token revoke <prefix>")
+			os.Exit(exUsage)
+		}
+		maintenanceTokenRevoke(conn, args[1], logsDir, cfg)
+	default:
+		fmt.Printf("Unknown token command: %s\n", args[0])
+		os.Exit(exUsage)
+	}
+}
+
+// maintenanceTokenList prints active/expired/revoked api_tokens rows.
+func maintenanceTokenList(conn *db.Store) {
+	ctx, cancel := context.WithTimeout(context.Background(), simpleSelectTimeout)
+	defer cancel()
+	rows, err := conn.QueryContext(ctx, `SELECT token_prefix, kind, COALESCE(name, ''), owner_id, created_at, expires_at, revoked_at
+		FROM api_tokens ORDER BY created_at DESC`)
+	if err != nil {
+		log.Printf("token list: query failed: %v", err)
+		os.Exit(exIoErr)
+	}
+	defer func() { _ = rows.Close() }()
+
+	fmt.Printf("%-14s %-9s %-18s %-36s %-20s %-10s\n", "PREFIX", "KIND", "NAME", "OWNER", "CREATED", "STATUS")
+	count := 0
+	for rows.Next() {
+		var prefix, kind, name, ownerID string
+		var createdAt int64
+		var expiresAt, revokedAt sql.NullInt64
+		if err := rows.Scan(&prefix, &kind, &name, &ownerID, &createdAt, &expiresAt, &revokedAt); err != nil {
+			continue
+		}
+		status := "active"
+		if revokedAt.Valid {
+			status = "revoked"
+		} else if expiresAt.Valid && expiresAt.Int64 <= time.Now().Unix() {
+			status = "expired"
+		}
+		fmt.Printf("%-14s %-9s %-18s %-36s %-20s %-10s\n",
+			prefix, kind, name, ownerID, time.Unix(createdAt, 0).Format(time.RFC3339), status)
+		count++
+	}
+	if count == 0 {
+		fmt.Println("No tokens found.")
+	}
+}
+
+// maintenanceTokenRevoke revokes every active api_tokens row matching prefix.
+func maintenanceTokenRevoke(conn *db.Store, prefix, logsDir string, cfg *config.AppConfig) {
+	ctx, cancel := context.WithTimeout(context.Background(), writeQueryTimeout)
+	defer cancel()
+	rows, err := conn.QueryContext(ctx, `SELECT id, owner_id, kind FROM api_tokens WHERE token_prefix LIKE ? AND revoked_at IS NULL`, prefix+"%")
+	if err != nil {
+		log.Printf("token revoke: lookup failed: %v", err)
+		os.Exit(exIoErr)
+	}
+	type tokenMatch struct {
+		id            string
+		ownerID, kind string
+	}
+	var matches []tokenMatch
+	for rows.Next() {
+		var match tokenMatch
+		if err := rows.Scan(&match.id, &match.ownerID, &match.kind); err == nil {
+			matches = append(matches, match)
+		}
+	}
+	_ = rows.Close()
+	if len(matches) == 0 {
+		fmt.Printf("No active token found with prefix %q.\n", prefix)
+		return
+	}
+	if len(matches) > 1 {
+		fmt.Printf("Token prefix %q is ambiguous; provide a longer prefix.\n", prefix)
+		os.Exit(exUsage)
+	}
+	match := matches[0]
+	now := time.Now().Unix()
+	if match.kind == "primary" {
+		_, err = conn.ExecContext(ctx, `UPDATE api_tokens SET revoked_at = ?, revoked_reason = ? WHERE owner_id = ? AND revoked_at IS NULL`, now, "owner revoked via --maintenance token revoke", match.ownerID)
+	} else {
+		_, err = conn.ExecContext(ctx, `UPDATE api_tokens SET revoked_at = ?, revoked_reason = ? WHERE id = ? AND revoked_at IS NULL`, now, "revoked via --maintenance token revoke", match.id)
+	}
+	if err != nil {
+		log.Printf("token revoke: update failed: %v", err)
+		os.Exit(exIoErr)
+	}
+	logMgr, logMgrErr := applog.NewManager(logsDir, buildLogConfig(cfg))
+	if logMgrErr == nil {
+		logMgr.WriteAuditEvent(match.ownerID, "token.revoked", "security", "warn", "success", "", map[string]any{
+			"token_prefix": prefix,
+			"source":       "cli",
+		})
+		logMgr.Close()
+	}
+	fmt.Printf("Token %s revoked.\n", prefix)
+}
+
+// maintenanceData implements owner-scoped data subject export and deletion.
+func maintenanceData(args []string, cfg *config.AppConfig, logsDir string, dirs paths.Directories) {
+	if len(args) == 0 {
+		fmt.Println("Usage: ipgaze --maintenance data <export|delete> --owner <prefix> [--output FILE] [--yes]")
+		os.Exit(exUsage)
+	}
+	if !requireOperatorAuth(cfg, "Data operations require authorization. Enter operator token to confirm: ") {
+		fmt.Println("Authorization required: run as root/administrator, or provide a valid operator token.")
+		os.Exit(exNoPerm)
+	}
+
+	conn, err := openMaintenanceDB(cfg, dirs)
+	if err != nil {
+		log.Printf("data: failed to open database: %v", err)
+		os.Exit(exIoErr)
+	}
+	defer func() { _ = conn.Close() }()
+
+	command := args[0]
+	var ownerPrefix, output string
+	yes := false
+	for i := 1; i < len(args); i++ {
+		switch args[i] {
+		case "--owner", "--output":
+			if i+1 >= len(args) {
+				fmt.Printf("%s requires a value.\n", args[i])
+				os.Exit(exUsage)
+			}
+			value := args[i+1]
+			i++
+			if args[i-1] == "--owner" {
+				ownerPrefix = value
+			} else {
+				output = value
+			}
+		case "--yes":
+			yes = true
+		default:
+			fmt.Printf("Unknown data option: %s\n", args[i])
+			os.Exit(exUsage)
+		}
+	}
+	if (command != "export" && command != "delete") || ownerPrefix == "" || (command == "delete" && output != "") || (command == "export" && yes) {
+		fmt.Println("A token prefix is required with --owner; --output is only valid for export.")
+		os.Exit(exUsage)
+	}
+	ownerID, err := resolveDataOwner(conn, ownerPrefix)
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(exUsage)
+	}
+	switch command {
+	case "export":
+		if err := maintenanceDataExport(conn, ownerID, output, logsDir, cfg); err != nil {
+			log.Printf("data export: %v", err)
+			os.Exit(exIoErr)
+		}
+	case "delete":
+		if !yes && !requireTypedConfirmation(ownerID, fmt.Sprintf("Delete owner %s and its tokens? Type the owner id to confirm: ", ownerID)) {
+			fmt.Println("Data delete cancelled.")
+			return
+		}
+		if err := maintenanceDataDelete(conn, ownerID, logsDir, cfg); err != nil {
+			log.Printf("data delete: %v", err)
+			os.Exit(exIoErr)
+		}
+	default:
+		fmt.Printf("Unknown data command: %s\n", args[0])
+		os.Exit(exUsage)
+	}
+}
+
+func resolveDataOwner(conn *db.Store, prefix string) (string, error) {
+	rows, err := conn.Query(`SELECT DISTINCT owner_id FROM api_tokens WHERE substr(token_prefix, 1, length(?)) = ? ORDER BY owner_id`, prefix, prefix)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = rows.Close() }()
+	var matches []string
+	for rows.Next() {
+		var ownerID string
+		if err := rows.Scan(&ownerID); err != nil {
+			return "", err
+		}
+		matches = append(matches, ownerID)
+	}
+	if err := rows.Err(); err != nil {
+		return "", err
+	}
+	if len(matches) == 0 {
+		return "", fmt.Errorf("no owner found for token prefix %q", prefix)
+	}
+	if len(matches) != 1 {
+		return "", fmt.Errorf("token prefix %q is ambiguous; provide a longer prefix", prefix)
+	}
+	return matches[0], nil
+}
+
+func maintenanceDataExport(conn *db.Store, ownerID, outputPath, logsDir string, cfg *config.AppConfig) error {
+	ctx, cancel := context.WithTimeout(context.Background(), simpleSelectTimeout)
+	defer cancel()
+	var createdAt, lastSeenAt int64
+	if err := conn.QueryRowContext(ctx, `SELECT created_at, last_seen_at FROM owners WHERE id = ?`, ownerID).Scan(&createdAt, &lastSeenAt); err != nil {
+		return err
+	}
+	rows, err := conn.QueryContext(ctx, `SELECT token_prefix, kind, COALESCE(name,''), created_at, last_used_at, expires_at, revoked_at FROM api_tokens WHERE owner_id = ? ORDER BY created_at, id`, ownerID)
+	if err != nil {
+		return err
+	}
+	tokens := make([]map[string]any, 0)
+	for rows.Next() {
+		var prefix, kind, name string
+		var created int64
+		var lastUsed, expires, revoked sql.NullInt64
+		if err := rows.Scan(&prefix, &kind, &name, &created, &lastUsed, &expires, &revoked); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		status := "active"
+		if revoked.Valid {
+			status = "revoked"
+		} else if expires.Valid && expires.Int64 <= time.Now().Unix() {
+			status = "expired"
+		}
+		tokens = append(tokens, map[string]any{"prefix": prefix, "kind": kind, "name": name, "created": created, "last_used": nullableInt64Value(lastUsed), "expires": nullableInt64Value(expires), "status": status})
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return err
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	report := map[string]any{"format": 1, "owner": map[string]any{"id": ownerID, "created": createdAt, "last_seen": lastSeenAt}, "tokens": tokens, "resources": []any{}}
+	out, err := json.MarshalIndent(report, "", "  ")
+	if err != nil {
+		return err
+	}
+	var requestBytes [16]byte
+	if _, err := cryptorand.Read(requestBytes[:]); err != nil {
+		return err
+	}
+	requestID := fmt.Sprintf("%x", requestBytes[:])
+	logMgr, logErr := applog.NewManager(logsDir, buildLogConfig(cfg))
+	if logErr != nil {
+		return fmt.Errorf("open audit log: %w", logErr)
+	}
+	defer logMgr.Close()
+	logMgr.WriteOwnerAuditEvent(ownerID, "compliance.data_export_requested", "compliance", "info", "success", map[string]any{"request_id": requestID})
+	if outputPath == "" {
+		outputPath = fmt.Sprintf("%s-export-%s-%s.json", projectName, ownerID, time.Now().UTC().Format("20060102"))
+	}
+	if outputPath == "-" {
+		if _, err := fmt.Fprintln(os.Stdout, string(out)); err != nil {
+			return err
+		}
+	} else {
+		file, err := os.OpenFile(outputPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0600)
+		if err != nil {
+			return err
+		}
+		if err := file.Chmod(0600); err != nil {
+			_ = file.Close()
+			return err
+		}
+		if _, err := file.Write(append(out, '\n')); err != nil {
+			_ = file.Close()
+			return err
+		}
+		if err := file.Close(); err != nil {
+			return err
+		}
+		fmt.Printf("Data export written to %s (mode 0600).\n", outputPath)
+	}
+	logMgr.WriteOwnerAuditEvent(ownerID, "compliance.data_export_completed", "compliance", "info", "success", map[string]any{"request_id": requestID, "file_size": len(out) + 1})
+	return nil
+}
+
+func nullableInt64Value(value sql.NullInt64) any {
+	if !value.Valid {
+		return nil
+	}
+	return value.Int64
+}
+
+func maintenanceDataDelete(conn *db.Store, ownerID, logsDir string, cfg *config.AppConfig) error {
+	ctx, cancel := context.WithTimeout(context.Background(), simpleSelectTimeout)
+	defer cancel()
+	logMgr, err := applog.NewManager(logsDir, buildLogConfig(cfg))
+	if err != nil {
+		return fmt.Errorf("open audit log: %w", err)
+	}
+	defer logMgr.Close()
+	var tokenCount int64
+	writeCtx, writeCancel := context.WithTimeout(ctx, transactionTimeout)
+	defer writeCancel()
+	if err := conn.Write(writeCtx, func(tx *sql.Tx) error {
+		if err := tx.QueryRowContext(writeCtx, `SELECT COUNT(*) FROM api_tokens WHERE owner_id = ?`, ownerID).Scan(&tokenCount); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(writeCtx, `DELETE FROM api_tokens WHERE owner_id = ?`, ownerID); err != nil {
+			return err
+		}
+		result, err := tx.ExecContext(writeCtx, `DELETE FROM owners WHERE id = ? AND id <> 'system'`, ownerID)
+		if err != nil {
+			return err
+		}
+		deleted, err := result.RowsAffected()
+		if err != nil {
+			return err
+		}
+		if deleted == 0 {
+			return fmt.Errorf("owner %q no longer exists or is reserved", ownerID)
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+	logMgr.WriteOwnerAuditEvent(ownerID, "compliance.data_deletion_completed", "compliance", "info", "success", map[string]any{"deleted": tokenCount + 1, "anonymized": 0, "tokens": tokenCount, "resources": 0})
+	fmt.Printf("Owner data deleted: %d items deleted, 0 anonymized.\n", tokenCount+1)
+	return nil
+}
+
+// maintenanceCompliance implements `--maintenance compliance report` per
+// AI.md PART 11: a read-only summary of configured standards and controls.
+func maintenanceCompliance(args []string, cfg *config.AppConfig, logsDir string, conn *db.Store) {
+	if len(args) > 0 && args[0] != "report" {
+		fmt.Printf("Unknown compliance command: %s\n", args[0])
+		fmt.Println("Usage: ipgaze --maintenance compliance report")
+		os.Exit(exUsage)
+	}
+	if logMgr, err := applog.NewManager(logsDir, buildLogConfig(cfg)); err == nil {
+		logMgr.WriteAuditEvent("", "compliance.report_generated", "compliance", "info", "success", "", map[string]any{
+			"standards": cfg.Server.Compliance.EnabledStandards(),
+		})
+		logMgr.Close()
+	}
+
+	fmt.Println("IPGaze Compliance Report")
+	fmt.Println("========================")
+	fmt.Printf("Compliance mode enabled:  %t\n", cfg.Server.Compliance.IsEnabled())
+	standards := cfg.Server.Compliance.EnabledStandards()
+	if len(standards) == 0 {
+		fmt.Println("Enabled standards:       none")
+	} else {
+		fmt.Printf("Enabled standards:       %s\n", strings.Join(standards, ", "))
+	}
+	fmt.Println("Note: this report summarizes configuration; it is not a certification.")
+	fmt.Printf("Data sold to third parties: %t\n", cfg.Server.Privacy.Data.Sold)
+	fmt.Printf("Data stored on server:      %t\n", cfg.Server.Privacy.Data.StoredOnServer)
+	fmt.Printf("Retention period:  %s\n", cfg.Server.Privacy.Retention.Period)
+	fmt.Printf("Retention export:  %t\n", cfg.Server.Privacy.Retention.ExportAvailable)
+	fmt.Printf("Retention deletion: %t\n", cfg.Server.Privacy.Retention.DeletionAvailable)
+	fmt.Printf("Consent banner shown until acknowledged: %t\n", cfg.Server.Privacy.Consent.ShowUntilAcknowledged)
+	fmt.Printf("TLS enabled:       %t\n", cfg.Server.SSL.Enabled)
+	fmt.Printf("Let's Encrypt:     %t\n", cfg.Server.SSL.LetsEncrypt.Enabled)
+	fmt.Printf("PGP key published: %t\n", cfg.Web.Security.PublishPGPKey)
+	fmt.Printf("Audit logging level: %s\n", cfg.Server.Logging.Level)
+	owners, activeTokens, openReports, err := complianceCounts(conn)
+	if err != nil {
+		log.Printf("compliance report counts: %v", err)
+	}
+	fmt.Printf("Owners: %d\n", owners)
+	fmt.Printf("Active tokens: %d\n", activeTokens)
+	fmt.Printf("Open security reports: %d\n", openReports)
+	fmt.Printf("Resources: %d\n", 0)
+	events, eventErr := recentComplianceEvents(filepath.Join(logsDir, configuredAuditFilename(cfg)), time.Now().UTC().Add(-30*24*time.Hour))
+	if eventErr != nil {
+		log.Printf("compliance report events: %v", eventErr)
+	}
+	fmt.Println("Compliance events (last 30 days):")
+	if len(events) == 0 {
+		fmt.Println("  none")
+	} else {
+		names := make([]string, 0, len(events))
+		for name := range events {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		for _, name := range names {
+			fmt.Printf("  %s: %d\n", name, events[name])
+		}
+	}
+	if conn != nil {
+		var lastBackup sql.NullInt64
+		if err := conn.QueryRow(`SELECT MAX(created_at) FROM backups`).Scan(&lastBackup); err != nil {
+			log.Printf("compliance report last backup: %v", err)
+		}
+		if lastBackup.Valid {
+			fmt.Printf("Last backup: %s\n", time.Unix(lastBackup.Int64, 0).UTC().Format(time.RFC3339))
+		} else {
+			fmt.Println("Last backup: none")
+		}
+	} else {
+		fmt.Println("Last backup: unavailable")
+	}
+	entries, brokenLine, integrityErr := verifyAuditLogIntegrity(filepath.Join(logsDir, configuredAuditFilename(cfg)))
+	if integrityErr != nil {
+		brokenLine = 1
+		log.Printf("compliance report audit verification failed: %v", integrityErr)
+	}
+	if brokenLine > 0 {
+		fmt.Printf("Audit log integrity: broken at %s:%d\n", configuredAuditFilename(cfg), brokenLine)
+	} else {
+		fmt.Printf("Audit log integrity: intact (%d entries)\n", entries)
+	}
+}
+
+func complianceCounts(conn *db.Store) (owners, activeTokens, openReports int64, err error) {
+	if conn == nil {
+		return 0, 0, 0, nil
+	}
+	queries := []struct {
+		query  string
+		target *int64
+	}{
+		{`SELECT COUNT(*) FROM owners WHERE id <> 'system'`, &owners},
+		{`SELECT COUNT(*) FROM api_tokens WHERE revoked_at IS NULL AND (expires_at IS NULL OR expires_at > strftime('%s','now'))`, &activeTokens},
+		{`SELECT COUNT(*) FROM security_reports WHERE closed_at IS NULL`, &openReports},
+	}
+	for _, item := range queries {
+		if err := conn.QueryRow(item.query).Scan(item.target); err != nil {
+			return owners, activeTokens, openReports, err
+		}
+	}
+	return owners, activeTokens, openReports, nil
+}
+
+func configuredAuditFilename(cfg *config.AppConfig) string {
+	filename := strings.TrimSpace(cfg.Server.Logging.Audit.Filename)
+	if filename == "" {
+		return "audit.log"
+	}
+	return filepath.Base(filename)
+}
+
+func recentComplianceEvents(path string, since time.Time) (map[string]int, error) {
+	events := make(map[string]int)
+	paths := []string{path}
+	archives, err := filepath.Glob(path + ".*")
+	if err != nil {
+		return nil, err
+	}
+	paths = append(paths, archives...)
+	for _, entryPath := range paths {
+		file, err := os.Open(entryPath)
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return nil, err
+		}
+		var input io.Reader = file
+		var zipped *gzip.Reader
+		if strings.HasSuffix(entryPath, ".gz") {
+			zipped, err = gzip.NewReader(file)
+			if err != nil {
+				_ = file.Close()
+				return nil, err
+			}
+			input = zipped
+		}
+		scanner := bufio.NewScanner(input)
+		scanner.Buffer(make([]byte, 64*1024), 4*1024*1024)
+		for scanner.Scan() {
+			var event struct {
+				Time     string `json:"time"`
+				Event    string `json:"event"`
+				Category string `json:"category"`
+			}
+			if json.Unmarshal(scanner.Bytes(), &event) != nil || event.Category != "compliance" {
+				continue
+			}
+			at, err := time.Parse(time.RFC3339Nano, event.Time)
+			if err == nil && !at.Before(since) {
+				events[event.Event]++
+			}
+		}
+		scanErr := scanner.Err()
+		if zipped != nil {
+			_ = zipped.Close()
+		}
+		_ = file.Close()
+		if scanErr != nil {
+			return nil, scanErr
+		}
+	}
+	return events, nil
+}
+
+func verifyAuditLogIntegrity(path string) (entries int, brokenLine int, err error) {
+	file, err := os.Open(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return 0, 0, nil
+		}
+		return 0, 0, err
+	}
+	defer func() {
+		if closeErr := file.Close(); err == nil && closeErr != nil {
+			err = closeErr
+		}
+	}()
+	anchor := strings.Repeat("0", 64)
+	if data, readErr := os.ReadFile(filepath.Join(filepath.Dir(path), "audit.anchor")); readErr == nil {
+		anchor = strings.TrimSpace(string(data))
+	} else if !os.IsNotExist(readErr) {
+		return 0, 0, readErr
+	}
+	scanner := bufio.NewScanner(file)
+	scanner.Buffer(make([]byte, 64*1024), 4*1024*1024)
+	previous := anchor
+	for scanner.Scan() {
+		entries++
+		line := append([]byte(nil), scanner.Bytes()...)
+		var entry struct {
+			Prev string `json:"prev"`
+		}
+		if json.Unmarshal(line, &entry) != nil || entry.Prev != previous {
+			return entries, entries, nil
+		}
+		digest := sha256.Sum256(line)
+		previous = fmt.Sprintf("%x", digest)
+	}
+	if err := scanner.Err(); err != nil {
+		return entries, 0, err
+	}
+	return entries, 0, nil
+}
+
+// scheduleFor returns the configured schedule override if non-empty, otherwise the default.
+func scheduleFor(defaultSched string, taskCfg config.TaskScheduleConfig) string {
+	if taskCfg.Schedule != "" {
+		return taskCfg.Schedule
+	}
+	return defaultSched
+}
+
+// enabledFor returns the configured enabled override if set, otherwise the default.
+func enabledFor(defaultEnabled bool, taskCfg config.TaskScheduleConfig) bool {
+	if taskCfg.Enabled != nil {
+		return *taskCfg.Enabled
+	}
+	return defaultEnabled
+}
+
+// Maintenance functions
+
+// maintenanceBackup creates a verified backup archive per AI.md PART 21.
+// It builds manifest.json and the tar.gz entirely in memory, encrypts it with
+// AES-256-GCM when a backup password is configured (or required by compliance
+// mode), writes the result to disk, then runs all 7 required verification
+// checks. Returns an error on any failure; never calls log.Fatalf.
+// interactive controls whether a password may be prompted for on the
+// controlling terminal — scheduled/background backups must pass false.
+func maintenanceBackup(cfg *config.AppConfig, configDir, dataDir, dbDir, backupFile string, includeSSL, includeData, interactive bool, logMgr *applog.Manager) (backupErr error) {
+	return maintenanceBackupAt(cfg, configDir, dataDir, dbDir, backupFile, includeSSL, includeData, interactive, time.Now().UTC(), "", logMgr)
+}
+
+// restoreBackupFile restores the previous incremental if the subsequent full
+// backup in the same scheduled run fails verification.
+func restoreBackupFile(path string, contents []byte, existed bool) error {
+	if !existed {
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".ipgaze-backup-restore-*")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmp.Name()
+	defer os.Remove(tmpPath) //nolint:errcheck
+	if _, err := tmp.Write(contents); err != nil {
+		return errors.Join(err, tmp.Close())
+	}
+	if err := tmp.Chmod(0o600); err != nil {
+		return errors.Join(err, tmp.Close())
+	}
+	if err := tmp.Sync(); err != nil {
+		return errors.Join(err, tmp.Close())
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return replaceVerifiedBackup(tmpPath, path)
+}
+
+// maintenanceBackupAt creates either a full backup or a differential
+// incremental relative to baseBackupFile. snapshotAt is shared by the daily
+// incremental and full created in the same scheduled run.
+func maintenanceBackupAt(cfg *config.AppConfig, configDir, dataDir, dbDir, backupFile string, includeSSL, includeData, interactive bool, snapshotAt time.Time, baseBackupFile string, logMgr *applog.Manager) (backupErr error) {
+	return maintenanceBackupAtWithSnapshot(cfg, configDir, dataDir, dbDir, backupFile, includeSSL, includeData, interactive, snapshotAt, baseBackupFile, nil, logMgr)
+}
+
+func maintenanceBackupAtWithSnapshot(cfg *config.AppConfig, configDir, dataDir, dbDir, backupFile string, includeSSL, includeData, interactive bool, snapshotAt time.Time, baseBackupFile string, snapshotFiles []backupFileRecord, logMgr *applog.Manager) (backupErr error) {
+	fmt.Printf("Creating backup: %s\n", backupFile)
+	if snapshotFiles == nil {
+		var err error
+		snapshotFiles, err = prepareScheduledBackupSnapshot(cfg, configDir, dataDir, dbDir, includeSSL, includeData)
+		if err != nil {
+			return fmt.Errorf("backup: capture snapshot: %w", err)
+		}
+	}
+
+	// AI.md PART 21 requires a backup.failed audit event for every failed
+	// backup. Emitted from a defer so no error path can skip it, and skipped
+	// for backup.verification_failed which already records its own event.
+	defer func() {
+		if backupErr == nil || logMgr == nil {
+			return
+		}
+		if strings.HasPrefix(backupErr.Error(), "backup verification failed") {
+			return
+		}
+		logMgr.WriteAuditEvent("", "backup.failed", "backup", "error", "failure", "", map[string]any{
+			"filename": filepath.Base(backupFile),
+			"error":    backupErr.Error(),
+		})
+	}()
+
+	password, err := resolveBackupEncryptionPassword(cfg, interactive)
+	if err != nil {
+		return fmt.Errorf("backup: %w", err)
+	}
+	encrypted := password != ""
+
+	layout := backupArchiveLayout{
+		configDir:   configDir,
+		dataDir:     dataDir,
+		dbDir:       dbDir,
+		includeSSL:  includeSSL,
+		includeData: includeData,
+	}
+
+	// Build manifest before archiving. checksum and contents are filled in by
+	// buildBackupArchive from what this layout actually includes.
+	now := snapshotAt.UTC()
+	manifest := map[string]interface{}{
+		"version":     Version,
+		"created_at":  now.Format(time.RFC3339),
+		"snapshot_at": now.Format(time.RFC3339Nano),
+		"created_by":  "scheduler",
+		"app_version": Version,
+		"encrypted":   encrypted,
+		"required_secrets": []string{
+			string(security.SecretInstallationSecret),
+			string(security.SecretCookieSigningKey),
+			string(security.SecretCSRFTokenSecret),
+			"server.security.encryption_key",
+		},
+	}
+	if interactive {
+		manifest["created_by"] = "operator"
+	}
+	if encrypted {
+		manifest["encryption_method"] = "AES-256-GCM"
+	}
+
+	// Build the tar.gz archive entirely in memory. Incrementals compare against
+	// the named full backup and never chain from an earlier incremental.
+	var archive []byte
+	if baseBackupFile != "" {
+		baseRaw, readErr := os.ReadFile(baseBackupFile)
+		if readErr != nil {
+			return fmt.Errorf("backup: read incremental base: %w", readErr)
+		}
+		baseArchive, decErr := decryptBackupPayload(baseBackupFile, baseRaw, password)
+		if decErr != nil {
+			return fmt.Errorf("backup: decrypt incremental base: %w", decErr)
+		}
+		baseManifest, readErr := readBackupManifest(baseArchive)
+		if readErr != nil {
+			return fmt.Errorf("backup: read incremental base manifest: %w", readErr)
+		}
+		if kind, _ := baseManifest["type"].(string); kind != "full" {
+			return fmt.Errorf("backup: incremental base %s is not a full archive", filepath.Base(baseBackupFile))
+		}
+		archive, err = buildIncrementalBackupArchiveFromFiles(manifest, snapshotFiles, baseArchive, filepath.Base(baseBackupFile), backupBytesSHA256(baseRaw), layout)
+	} else {
+		archive, err = buildBackupArchiveFromFiles(manifest, layout, snapshotFiles)
+	}
+	if err != nil {
+		return fmt.Errorf("backup: build archive: %w", err)
+	}
+
+	finalFile := backupFile
+	payload := archive
+	if encrypted {
+		// The unencrypted archive never touches disk — encrypt in memory
+		// before the first write.
+		enc, encErr := encryptBackupArchive(archive, password, func() string {
+			if baseBackupFile != "" {
+				return filepath.Base(baseBackupFile)
+			}
+			return ""
+		}())
+		if encErr != nil {
+			return fmt.Errorf("backup: encrypt: %w", encErr)
+		}
+		payload = enc
+		if !strings.HasSuffix(finalFile, ".enc") {
+			finalFile += ".enc"
+		}
+	}
+
+	// Write and verify beside the destination so an invalid replacement never
+	// damages the last known-good daily or hourly archive.
+	if err := os.MkdirAll(filepath.Dir(finalFile), 0o700); err != nil {
+		return fmt.Errorf("backup: create archive directory: %w", err)
+	}
+	candidate, err := os.CreateTemp(filepath.Dir(finalFile), ".ipgaze-backup-*.tar.gz")
+	if err != nil {
+		return fmt.Errorf("backup: create candidate archive: %w", err)
+	}
+	candidatePath := candidate.Name()
+	if encrypted {
+		candidatePath += ".enc"
+	}
+	defer func() {
+		if removeErr := os.Remove(candidatePath); removeErr != nil && !os.IsNotExist(removeErr) {
+			log.Printf("backup: remove candidate %s: %v", candidatePath, removeErr)
+		}
+	}()
+	if _, err := candidate.Write(payload); err != nil {
+		return fmt.Errorf("backup: write candidate archive: %w", errors.Join(err, candidate.Close()))
+	}
+	if err := candidate.Chmod(0o600); err != nil {
+		return fmt.Errorf("backup: secure candidate archive: %w", errors.Join(err, candidate.Close()))
+	}
+	if err := candidate.Sync(); err != nil {
+		return fmt.Errorf("backup: sync candidate archive: %w", errors.Join(err, candidate.Close()))
+	}
+	if err := candidate.Close(); err != nil {
+		return fmt.Errorf("backup: close candidate archive: %w", err)
+	}
+	if encrypted {
+		if err := os.Rename(candidate.Name(), candidatePath); err != nil {
+			return fmt.Errorf("backup: name encrypted candidate: %w", err)
+		}
+	}
+
+	// 7 required verification checks per AI.md PART 21.
+	// If any check fails: delete the new backup file, write an audit log
+	// entry (level=error), and return an error.
+	if verifyErr := verifyBackup(candidatePath, password, layout); verifyErr != nil {
+		// Best-effort cleanup of the failed backup; verification failure is the real error.
+		if logMgr != nil {
+			logMgr.WriteAuditEvent("", "backup.verification_failed", "backup", "error", "failure", "", map[string]any{
+				"filename": filepath.Base(finalFile),
+				"error":    verifyErr.Error(),
+			})
+		}
+		return fmt.Errorf("backup verification failed: %w", verifyErr)
+	}
+	if err := replaceVerifiedBackup(candidatePath, finalFile); err != nil {
+		return fmt.Errorf("backup: install verified archive: %w", err)
+	}
+
+	info, statErr := os.Stat(finalFile)
+	var size int64
+	if statErr == nil {
+		size = info.Size()
+	}
+	if logMgr != nil {
+		logMgr.WriteAuditEvent("", "backup.created", "backup", "info", "success", "", map[string]any{
+			"filename":  filepath.Base(finalFile),
+			"size":      size,
+			"encrypted": encrypted,
+			"verified":  true,
+		})
+	}
+
+	fmt.Printf("Backup created and verified: %s\n", finalFile)
+	return nil
+}
+
+func replaceVerifiedBackup(candidatePath, finalPath string) error {
+	if _, err := os.Lstat(finalPath); os.IsNotExist(err) {
+		return os.Rename(candidatePath, finalPath)
+	} else if err != nil {
+		return err
+	}
+	previous := finalPath + ".previous"
+	for suffix := 1; ; suffix++ {
+		if _, err := os.Lstat(previous); os.IsNotExist(err) {
+			break
+		} else if err != nil {
+			return err
+		}
+		previous = fmt.Sprintf("%s.previous-%d", finalPath, suffix)
+	}
+	if err := os.Rename(finalPath, previous); err != nil {
+		return err
+	}
+	if err := os.Rename(candidatePath, finalPath); err != nil {
+		if restoreErr := os.Rename(previous, finalPath); restoreErr != nil {
+			return fmt.Errorf("install candidate: %v; restore previous backup: %w", err, restoreErr)
+		}
+		return err
+	}
+	if err := os.Remove(previous); err != nil {
+		log.Printf("backup: remove replaced archive %s: %v", previous, err)
+	}
+	return nil
+}
+
+func prepareScheduledBackupSnapshot(cfg *config.AppConfig, configDir, dataDir, dbDir string, includeSSL, includeData bool) ([]backupFileRecord, error) {
+	tmpDir, err := paths.CreateProjectTempDir()
+	if err != nil {
+		return nil, fmt.Errorf("create snapshot temp directory: %w", err)
+	}
+	defer func() {
+		if err := os.RemoveAll(tmpDir); err != nil {
+			log.Printf("backup snapshot: remove temp directory: %v", err)
+		}
+	}()
+	conn, err := openMaintenanceDB(cfg, paths.Directories{DB: dbDir})
+	if err != nil {
+		return nil, fmt.Errorf("open database: %w", err)
+	}
+	if err := initializeBackupSecrets(conn); err != nil {
+		_ = conn.Close()
+		return nil, fmt.Errorf("initialize backup secrets: %w", err)
+	}
+	if err := conn.Close(); err != nil {
+		return nil, fmt.Errorf("close database after secret initialization: %w", err)
+	}
+	layout := backupArchiveLayout{configDir: configDir, dataDir: dataDir, dbDir: dbDir, includeSSL: includeSSL, includeData: includeData}
+	if cfg.Server.Database.NormalizedDriver() == "sqlite" {
+		dbSnapshotDir := filepath.Join(tmpDir, "db")
+		if err := os.MkdirAll(dbSnapshotDir, 0o700); err != nil {
+			return nil, fmt.Errorf("create database snapshot directory: %w", err)
+		}
+		conn, err := db.OpenSQLite(filepath.Join(dbDir, "server.db"))
+		if err != nil {
+			return nil, fmt.Errorf("open SQLite source for snapshot: %w", err)
+		}
+		snapshotDB := filepath.Join(dbSnapshotDir, "server.db")
+		snapshotCtx, cancelSnapshot := context.WithTimeout(context.Background(), 60*time.Second)
+		err = conn.VacuumInto(snapshotCtx, snapshotDB)
+		cancelSnapshot()
+		if err != nil {
+			_ = conn.Close()
+			return nil, fmt.Errorf("create SQLite online snapshot: %w", err)
+		}
+		sourceInfo, statErr := os.Stat(filepath.Join(dbDir, "server.db"))
+		if statErr != nil {
+			_ = conn.Close()
+			return nil, fmt.Errorf("stat SQLite source after snapshot: %w", statErr)
+		}
+		if err := os.Chtimes(snapshotDB, sourceInfo.ModTime(), sourceInfo.ModTime()); err != nil {
+			_ = conn.Close()
+			return nil, fmt.Errorf("set SQLite snapshot mtime: %w", err)
+		}
+		if err := conn.Close(); err != nil {
+			return nil, fmt.Errorf("close SQLite snapshot source: %w", err)
+		}
+		layout.dbDir = dbSnapshotDir
+	}
+	files, err := collectBackupFiles(layout)
+	if err != nil {
+		return nil, fmt.Errorf("capture backup snapshot: %w", err)
+	}
+	return files, nil
+}
+
+// verifyBackup runs all 7 required backup verification checks per AI.md PART 21.
+// password is required when backupFile ends in .enc; ignored otherwise.
+// Returns the first failing check as an error.
+func verifyBackup(backupFile, password string, layout backupArchiveLayout) error {
+	// Check 1: file exists
+	info, err := os.Stat(backupFile)
+	if err != nil {
+		return fmt.Errorf("check 1 (file exists): %w", err)
+	}
+
+	// Check 2: size > 0
+	if info.Size() == 0 {
+		return fmt.Errorf("check 2 (size > 0): backup file is empty")
+	}
+
+	raw, err := os.ReadFile(backupFile)
+	if err != nil {
+		return fmt.Errorf("check 3 (checksum): cannot read: %w", err)
+	}
+
+	// Check 4: decrypt test — required whenever the file is encrypted.
+	archiveBytes := raw
+	if strings.HasSuffix(backupFile, ".enc") {
+		if password == "" {
+			return fmt.Errorf("check 4 (decrypt test): encrypted backup but no password provided")
+		}
+		decrypted, decErr := decryptBackupArchive(raw, password)
+		if decErr != nil {
+			return fmt.Errorf("check 4 (decrypt test): %w", decErr)
+		}
+		archiveBytes = decrypted
+	}
+
+	// Check 5: manifest readable.
+	manifest, manifestErr := readBackupManifest(archiveBytes)
+	if manifestErr != nil {
+		return fmt.Errorf("check 5 (manifest readable): %w", manifestErr)
+	}
+	manifestChecksum, checksumPresent := manifest["checksum"].(string)
+	if !checksumPresent || !strings.HasPrefix(manifestChecksum, "sha256:") || len(strings.TrimPrefix(manifestChecksum, "sha256:")) != 64 {
+		return fmt.Errorf("check 3 (checksum): manifest SHA-256 checksum is missing or invalid")
+	}
+	backupType, _ := manifest["type"].(string)
+	if backupType == "full" || backupType == "incremental" {
+		snapshotAt, ok := manifest["snapshot_at"].(string)
+		if !ok {
+			return fmt.Errorf("check 5 (manifest readable): snapshot_at is missing")
+		}
+		if _, err := time.Parse(time.RFC3339Nano, snapshotAt); err != nil {
+			return fmt.Errorf("check 5 (manifest readable): invalid snapshot_at: %w", err)
+		}
+	}
+	if err := validateRequiredSecretManifest(manifest["required_secrets"]); err != nil {
+		return fmt.Errorf("check 5 (manifest readable): %w", err)
+	}
+
+	// Check 6: content extraction test — extract to temp dir and verify non-empty
+	tmpDir, err := paths.CreateProjectTempDir()
+	if err != nil {
+		return fmt.Errorf("check 6 (extraction): create temp dir: %w", err)
+	}
+	defer func() {
+		if err := os.RemoveAll(tmpDir); err != nil {
+			log.Printf("backup verification: remove temp dir: %v", err)
+		}
+	}()
+	archivesToExtract := [][]byte{archiveBytes}
+	if backupType == "incremental" {
+		baseName, _ := manifest["base_backup"].(string)
+		baseDigest, _ := manifest["base_sha256"].(string)
+		if !validBackupArchivePath(baseName) || filepath.Base(baseName) != baseName {
+			return fmt.Errorf("check 6 (base): invalid base_backup %q", baseName)
+		}
+		basePath := filepath.Join(filepath.Dir(backupFile), baseName)
+		baseRaw, readErr := os.ReadFile(basePath)
+		if readErr != nil {
+			return fmt.Errorf("check 6 (base): %w: %v", errors.New("ERR_BASE_MISSING"), readErr)
+		}
+		if backupBytesSHA256(baseRaw) != baseDigest {
+			return fmt.Errorf("check 6 (base): %w", errors.New("ERR_BASE_CORRUPT"))
+		}
+		baseArchive, decErr := decryptBackupPayload(basePath, baseRaw, password)
+		if decErr != nil {
+			return fmt.Errorf("check 6 (base): decrypt: %w", decErr)
+		}
+		baseManifest, readErr := readBackupManifest(baseArchive)
+		if readErr != nil {
+			return fmt.Errorf("check 6 (base): read manifest: %w", readErr)
+		}
+		if kind, _ := baseManifest["type"].(string); kind != "full" {
+			return fmt.Errorf("check 6 (base): %q is not a full backup", baseName)
+		}
+		if err := verifyBackup(basePath, password, layout); err != nil {
+			return fmt.Errorf("check 6 (base verification): %w", err)
+		}
+		archivesToExtract = [][]byte{baseArchive, archiveBytes}
+	}
+	if err := validateCombinedBackupLimits(archivesToExtract, defaultBackupRestoreLimits()); err != nil {
+		return fmt.Errorf("check 6 (restore limits): %w", err)
+	}
+	for _, archive := range archivesToExtract {
+		if extractErr := extractBackupArchiveWithLimits(archive, tmpDir, defaultBackupRestoreLimits()); extractErr != nil {
+			return fmt.Errorf("check 6 (extraction): %w", extractErr)
+		}
+	}
+	if backupType == "incremental" {
+		if err := applyBackupDeletions(tmpDir, manifest["deleted"]); err != nil {
+			return fmt.Errorf("check 6 (incremental deletions): %w", err)
+		}
+	}
+	if err := validateRestoredBackupSecrets(filepath.Join(tmpDir, filepath.Base(layout.configDir)), filepath.Join(tmpDir, "db"), nil); err != nil {
+		return fmt.Errorf("check 6 (required secrets): %w", err)
+	}
+	entries, err := os.ReadDir(tmpDir)
+	if err != nil || len(entries) == 0 {
+		return fmt.Errorf("check 6 (extraction): extracted dir is empty")
+	}
+
+	// Check 3: SHA-256 checksum over this archive's data entries. An
+	// incremental checksum covers only its changed/new files.
+	archiveFiles, cksErr := readBackupArchiveFiles(archiveBytes)
+	if cksErr != nil {
+		return fmt.Errorf("check 3 (checksum): read archive contents: %w", cksErr)
+	}
+	if backupType == "full" || backupType == "incremental" {
+		if err := validateBackupManifestFiles(manifest, archiveFiles); err != nil {
+			return fmt.Errorf("check 5 (manifest file list): %w", err)
+		}
+	}
+	if manifestChecksum != "" {
+		actualChecksum := checksumBackupFiles(archiveFiles)
+		if actualChecksum != manifestChecksum {
+			return fmt.Errorf("check 3 (checksum): mismatch: manifest=%s actual=%s", manifestChecksum, actualChecksum)
+		}
+		if archiveSHA, ok := manifest["sha256"].(string); ok && archiveSHA != actualChecksum {
+			return fmt.Errorf("check 3 (SHA-256): manifest=%s actual=%s", archiveSHA, actualChecksum)
+		}
+	}
+
+	// Check 7: database integrity — find every .db and run SQLite integrity_check.
+	var dbFiles []string
+	err = filepath.Walk(tmpDir, func(p string, fi os.FileInfo, e error) error {
+		if e != nil {
+			return e
+		}
+		if strings.HasSuffix(p, ".db") {
+			dbFiles = append(dbFiles, p)
+		}
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("check 7 (db integrity): walk error: %w", err)
+	}
+	if len(dbFiles) == 0 {
+		return fmt.Errorf("check 7 (db integrity): backup contains no database file")
+	}
+	for _, dbFile := range dbFiles {
+		integrityDB, openErr := db.OpenSQLite(dbFile)
+		if openErr != nil {
+			return fmt.Errorf("check 7 (db integrity): open %s: %w", filepath.Base(dbFile), openErr)
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		var integrity string
+		queryErr := integrityDB.QueryRowContext(ctx, `PRAGMA integrity_check`).Scan(&integrity)
+		cancel()
+		closeErr := integrityDB.Close()
+		if queryErr != nil {
+			return fmt.Errorf("check 7 (db integrity): query %s: %w", filepath.Base(dbFile), queryErr)
+		}
+		if closeErr != nil {
+			return fmt.Errorf("check 7 (db integrity): close %s: %w", filepath.Base(dbFile), closeErr)
+		}
+		if integrity != "ok" {
+			return fmt.Errorf("check 7 (db integrity): %s: %s", filepath.Base(dbFile), integrity)
+		}
+	}
+
+	return nil
+}
+
+func decryptBackupPayload(backupFile string, raw []byte, password string) ([]byte, error) {
+	if !strings.HasSuffix(backupFile, ".enc") {
+		return raw, nil
+	}
+	if password == "" {
+		return nil, errors.New("encrypted backup requires a password")
+	}
+	header, err := readBackupEncryptionHeader(raw)
+	if err != nil {
+		return nil, err
+	}
+	archive, err := decryptBackupArchive(raw, password)
+	if err != nil {
+		return nil, err
+	}
+	manifest, err := readBackupManifest(archive)
+	if err != nil {
+		return nil, err
+	}
+	kind, _ := manifest["type"].(string)
+	base, _ := manifest["base_backup"].(string)
+	if kind == "incremental" {
+		if filepath.Base(base) != header.baseName || header.baseName == "" {
+			return nil, errors.New("encrypted backup header base does not match its manifest")
+		}
+	} else if header.baseName != "" {
+		return nil, errors.New("full encrypted backup unexpectedly names an incremental base")
+	}
+	return archive, nil
+}
+
+func backupBaseSupportsIncremental(backupFile string, cfg *config.AppConfig, layout backupArchiveLayout) bool {
+	raw, err := os.ReadFile(backupFile)
+	if err != nil {
+		return false
+	}
+	password := ""
+	if cfg != nil {
+		password = cfg.Server.Backup.Encryption.EncryptionPassword
+	}
+	archive, err := decryptBackupPayload(backupFile, raw, password)
+	if err != nil {
+		return false
+	}
+	manifest, err := readBackupManifest(archive)
+	if err != nil {
+		return false
+	}
+	if kind, _ := manifest["type"].(string); kind != "full" {
+		return false
+	}
+	if !backupManifestContentsCompatible(manifest, layout) {
+		return false
+	}
+	_, err = parseBackupFileManifest(manifest["files"])
+	return err == nil
+}
+
+func initializeBackupSecrets(conn *db.Store) error {
+	for _, name := range []security.SecretName{security.SecretInstallationSecret, security.SecretCookieSigningKey, security.SecretCSRFTokenSecret} {
+		if _, err := security.GetOrCreateSecret(conn, name); err != nil {
+			return fmt.Errorf("initialize %s: %w", name, err)
+		}
+	}
+	return nil
+}
+
+func validateRequiredSecretManifest(value interface{}) error {
+	entries, ok := value.([]interface{})
+	if !ok {
+		return errors.New("required_secrets list is missing")
+	}
+	present := make(map[string]bool, len(entries))
+	for _, entry := range entries {
+		if name, ok := entry.(string); ok {
+			present[name] = true
+		}
+	}
+	for _, required := range []string{
+		string(security.SecretInstallationSecret),
+		string(security.SecretCookieSigningKey),
+		string(security.SecretCSRFTokenSecret),
+		"server.security.encryption_key",
+	} {
+		if !present[required] {
+			return fmt.Errorf("manifest does not declare required secret %q", required)
+		}
+	}
+	return nil
+}
+
+func readBackupManifest(archiveBytes []byte) (map[string]interface{}, error) {
+	gr, err := gzip.NewReader(bytes.NewReader(archiveBytes))
+	if err != nil {
+		return nil, fmt.Errorf("open archive: %w", err)
+	}
+	defer func() { _ = gr.Close() }()
+	tr := tar.NewReader(gr)
+	for {
+		hdr, err := tr.Next()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return nil, fmt.Errorf("read archive: %w", err)
+		}
+		if hdr.Name != "manifest.json" {
+			continue
+		}
+		data, err := io.ReadAll(io.LimitReader(tr, 1<<20))
+		if err != nil {
+			return nil, fmt.Errorf("read manifest: %w", err)
+		}
+		var manifest map[string]interface{}
+		if err := json.Unmarshal(data, &manifest); err != nil {
+			return nil, fmt.Errorf("parse manifest: %w", err)
+		}
+		return manifest, nil
+	}
+	return nil, errors.New("manifest.json is missing")
+}
+
+func validateRestoredBackupSecrets(configDir, dbDir string, cfg *config.AppConfig) error {
+	if cfg == nil {
+		loaded, err := config.LoadConfigFromFile(filepath.Join(configDir, "server.yml"))
+		if err != nil {
+			return fmt.Errorf("load restored server.yml: %w", err)
+		}
+		cfg = loaded
+	}
+	encryptionKey, err := base64.StdEncoding.DecodeString(cfg.Server.Security.EncryptionKey)
+	if err != nil || len(encryptionKey) != 32 {
+		return errors.New("restored server.security.encryption_key is missing or invalid")
+	}
+	conn, err := db.OpenSQLite(filepath.Join(dbDir, "server.db"))
+	if err != nil {
+		return fmt.Errorf("open restored server.db: %w", err)
+	}
+	defer func() { _ = conn.Close() }()
+	for _, name := range []security.SecretName{security.SecretInstallationSecret, security.SecretCookieSigningKey, security.SecretCSRFTokenSecret} {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		var encoded string
+		queryErr := conn.QueryRowContext(ctx, `SELECT value FROM app_secrets WHERE name = ?`, string(name)).Scan(&encoded)
+		cancel()
+		if queryErr != nil {
+			return fmt.Errorf("restored database is missing %s: %w", name, queryErr)
+		}
+		secret, decodeErr := base64.StdEncoding.DecodeString(encoded)
+		if decodeErr != nil || len(secret) != 32 {
+			return fmt.Errorf("restored %s is invalid", name)
+		}
+	}
+	return nil
+}
+
+// maintenanceRestore unpacks a backup archive and replaces configDir, dbDir,
+// and (if present in the archive) dataDir. Per AI.md PART 21: restore is
+// destructive, requires confirmation, and MUST NOT extract to the filesystem
+// root (path traversal risk). Archives created without --include-ssl or
+// --include-data are partial by design (PART 21 Backup Contents) — restoring
+// one must NOT fail or error; the corresponding existing on-disk content
+// (ssl/, data/) is simply left untouched, and the operator is told what was
+// and wasn't restored.
+func maintenanceRestore(backupFile, configDir, dataDir, dbDir string, cfg *config.AppConfig, dirs paths.Directories, logMgr *applog.Manager) {
+	restoreLimits := backupRestoreLimits(cfg)
+	// Authorization per AI.md PART 5 "Restore authorization flow": allowed on
+	// first-run (nothing to protect), otherwise requires server.token OR root
+	// (requireOperatorAuth already grants root a bypass via isElevated()).
+	firstRun := false
+	if conn, err := openMaintenanceDB(cfg, dirs); err == nil {
+		firstRun = isDatabaseEmpty(conn)
+		if err := conn.Close(); err != nil {
+			log.Printf("restore: close maintenance database: %v", err)
+		}
+	}
+	if !firstRun && !requireOperatorAuth(cfg, "This will OVERWRITE all data. Enter operator token to confirm: ") {
+		fmt.Println("Restore requires administrator authorization.")
+		fmt.Println(" Run as root or provide the operator token.")
+		os.Exit(exNoPerm)
+	}
+
+	backupInfo, statErr := os.Stat(backupFile)
+	if os.IsNotExist(statErr) {
+		log.Printf("Backup file not found: %s", backupFile)
+		os.Exit(exIoErr)
+	}
+	if statErr != nil {
+		log.Printf("Restore: cannot stat backup file: %v", statErr)
+		os.Exit(exIoErr)
+	}
+	if backupInfo.Size() > restoreLimits.MaxArchiveSize {
+		log.Printf("Restore: archive size %d exceeds configured limit %d", backupInfo.Size(), restoreLimits.MaxArchiveSize)
+		os.Exit(exIoErr)
+	}
+
+	raw, err := os.ReadFile(backupFile)
+	if err != nil {
+		log.Printf("Restore: cannot read backup file: %v", err)
+		os.Exit(exIoErr)
+	}
+
+	// Decrypt first if the archive was encrypted per AI.md PART 21.
+	// Password is always prompted interactively — there is no password flag.
+	archiveBytes := raw
+	backupPassword := ""
+	if strings.HasSuffix(backupFile, ".enc") {
+		password, pwErr := promptBackupPassword("Backup password: ")
+		if pwErr != nil {
+			log.Printf("Restore: %v", pwErr)
+			os.Exit(exIoErr)
+		}
+		backupPassword = password
+		decrypted, decErr := decryptBackupArchive(raw, password)
+		if decErr != nil {
+			log.Printf("Restore: decrypt failed: %v", decErr)
+			os.Exit(exIoErr)
+		}
+		archiveBytes = decrypted
+	}
+
+	// Pre-restore verification: confirm archive is readable before destructive step.
+	if gr, gzErr := gzip.NewReader(bytes.NewReader(archiveBytes)); gzErr != nil {
+		log.Printf("Restore: archive verification failed: %v", gzErr)
+		os.Exit(exIoErr)
+	} else {
+		_ = gr.Close()
+	}
+	manifest, manifestErr := readBackupManifest(archiveBytes)
+	if manifestErr != nil {
+		log.Printf("Restore: invalid manifest: %v", manifestErr)
+		os.Exit(exIoErr)
+	}
+	if err := validateRequiredSecretManifest(manifest["required_secrets"]); err != nil {
+		log.Printf("Restore: manifest secret check failed: %v", err)
+		os.Exit(exIoErr)
+	}
+	backupType, _ := manifest["type"].(string)
+	if backupType == "" {
+		// Archives predating the incremental contract are full backups.
+		backupType = "full"
+	}
+	if backupType != "full" && backupType != "incremental" {
+		log.Printf("Restore: unsupported backup type %q", backupType)
+		os.Exit(exIoErr)
+	}
+	var baseArchiveBytes []byte
+	if backupType == "incremental" {
+		baseName, _ := manifest["base_backup"].(string)
+		baseDigest, _ := manifest["base_sha256"].(string)
+		if !validBackupArchivePath(baseName) || filepath.Base(baseName) != baseName {
+			log.Printf("Restore: invalid incremental base filename %q", baseName)
+			os.Exit(exIoErr)
+		}
+		basePath := filepath.Join(filepath.Dir(backupFile), baseName)
+		baseRaw, readErr := os.ReadFile(basePath)
+		if readErr != nil {
+			log.Printf("Restore: ERR_BASE_MISSING: %v", readErr)
+			os.Exit(exIoErr)
+		}
+		if backupBytesSHA256(baseRaw) != baseDigest {
+			log.Printf("Restore: ERR_BASE_CORRUPT: base checksum mismatch")
+			os.Exit(exIoErr)
+		}
+		baseArchiveBytes, err = decryptBackupPayload(basePath, baseRaw, backupPassword)
+		if err != nil {
+			log.Printf("Restore: incremental base decrypt failed: %v", err)
+			os.Exit(exIoErr)
+		}
+		baseManifest, readErr := readBackupManifest(baseArchiveBytes)
+		if readErr != nil {
+			log.Printf("Restore: incremental base manifest invalid: %v", readErr)
+			os.Exit(exIoErr)
+		}
+		if kind, _ := baseManifest["type"].(string); kind != "full" {
+			log.Printf("Restore: incremental base %s is not a full backup", baseName)
+			os.Exit(exIoErr)
+		}
+		if _, fileErr := parseBackupFileManifest(baseManifest["files"]); fileErr != nil {
+			log.Printf("Restore: incremental base file manifest invalid: %v", fileErr)
+			os.Exit(exIoErr)
+		}
+		baseLayout := backupArchiveLayout{configDir: configDir, dataDir: dataDir, dbDir: dbDir, includeSSL: true, includeData: true}
+		if verifyErr := verifyBackup(basePath, backupPassword, baseLayout); verifyErr != nil {
+			log.Printf("Restore: incremental base verification failed: %v", verifyErr)
+			os.Exit(exIoErr)
+		}
+	}
+	if backupType == "incremental" || manifest["type"] == "full" {
+		layout := backupArchiveLayout{configDir: configDir, dataDir: dataDir, dbDir: dbDir, includeSSL: true, includeData: true}
+		if verifyErr := verifyBackup(backupFile, backupPassword, layout); verifyErr != nil {
+			log.Printf("Restore: backup verification failed: %v", verifyErr)
+			os.Exit(exIoErr)
+		}
+	}
+
+	fmt.Printf("WARNING: Restoring from %s will overwrite current data in:\n", backupFile)
+	fmt.Printf("  Config: %s\n", configDir)
+	fmt.Printf("  Data:   %s\n", dataDir)
+	fmt.Print("This operation cannot be undone. Continue? [y/N]: ")
+	var answer string
+	if _, err := fmt.Scanln(&answer); err != nil || strings.ToLower(strings.TrimSpace(answer)) != "y" {
+		fmt.Println("Restore cancelled.")
+		return
+	}
+
+	// Extract to a controlled temp directory — NEVER to the filesystem root.
+	tmpDir, err := paths.CreateProjectTempDir()
+	if err != nil {
+		log.Printf("Restore: failed to create temp directory: %v", err)
+		os.Exit(exOsErr)
+	}
+	cleanupTempDir := func() {
+		if err := os.RemoveAll(tmpDir); err != nil {
+			log.Printf("Restore: failed to remove temp directory: %v", err)
+		}
+	}
+	defer cleanupTempDir()
+
+	fmt.Printf("Restoring from backup: %s\n", backupFile)
+	archives := [][]byte{archiveBytes}
+	if backupType == "incremental" {
+		archives = [][]byte{baseArchiveBytes, archiveBytes}
+	}
+	if limitsErr := validateCombinedBackupLimits(archives, restoreLimits); limitsErr != nil {
+		log.Printf("Restore: combined archive limits failed: %v", limitsErr)
+		cleanupTempDir()
+		os.Exit(exIoErr)
+	}
+	for _, archive := range archives {
+		if extractErr := extractBackupArchiveWithLimits(archive, tmpDir, restoreLimits); extractErr != nil {
+			log.Printf("Restore: extraction failed: %v", extractErr)
+			cleanupTempDir()
+			os.Exit(exIoErr)
+		}
+	}
+	if backupType == "incremental" {
+		if deleteErr := applyBackupDeletions(tmpDir, manifest["deleted"]); deleteErr != nil {
+			log.Printf("Restore: incremental deletion failed: %v", deleteErr)
+			cleanupTempDir()
+			os.Exit(exIoErr)
+		}
+	}
+	extractedConfig := filepath.Join(tmpDir, filepath.Base(configDir))
+	if err := validateRestoredBackupSecrets(extractedConfig, filepath.Join(tmpDir, "db"), nil); err != nil {
+		log.Printf("Restore: %v", err)
+		cleanupTempDir()
+		os.Exit(exIoErr)
+	}
+
+	// Move extracted config dir to its canonical location. If the archive
+	// omitted ssl/ (created without --include-ssl per AI.md PART 21), copy
+	// the operator's existing SSL certs forward first so the atomic swap
+	// below preserves rather than destroys them.
+	sslRestored := false
+	if _, err := os.Stat(extractedConfig); err == nil {
+		extractedSSL := filepath.Join(extractedConfig, "ssl")
+		if _, sslErr := os.Stat(extractedSSL); sslErr == nil {
+			sslRestored = true
+		} else if existingSSL := filepath.Join(configDir, "ssl"); dirOrFileExists(existingSSL) {
+			if copyErr := restoreCopyDir(existingSSL, extractedSSL); copyErr != nil {
+				log.Printf("Restore: failed to preserve existing SSL certs: %v", copyErr)
+				cleanupTempDir()
+				os.Exit(exIoErr)
+			}
+		}
+		if err := restoreReplaceDir(extractedConfig, configDir); err != nil {
+			log.Printf("Restore: failed to restore config: %v", err)
+			cleanupTempDir()
+			os.Exit(exIoErr)
+		}
+	}
+	if sslRestored {
+		fmt.Println("  ssl:    restored from archive")
+	} else {
+		fmt.Println("  ssl:    not in archive — existing SSL certs left untouched")
+	}
+
+	// Restore the database. Newer archives carry it as a fixed top-level "db"
+	// entry (independent of --include-data); older archives nested it inside
+	// config/data, which the wholesale restores above already handled.
+	extractedDB := filepath.Join(tmpDir, "db")
+	dbRestored := false
+	if _, err := os.Stat(extractedDB); err == nil {
+		if err := restoreReplaceDir(extractedDB, dbDir); err != nil {
+			log.Printf("Restore: failed to restore database: %v", err)
+			cleanupTempDir()
+			os.Exit(exIoErr)
+		}
+		dbRestored = true
+	}
+	if dbRestored {
+		fmt.Println("  db:     restored from archive")
+	} else {
+		fmt.Println("  db:     no dedicated db/ entry in archive — left as extracted via config/data (if any)")
+	}
+
+	// Move extracted data dir to its canonical location. Per AI.md PART 21,
+	// data/ is only present when the archive was created with --include-data
+	// — its absence is expected and must not be treated as an error.
+	extractedData := filepath.Join(tmpDir, filepath.Base(dataDir))
+	dataRestored := false
+	if _, err := os.Stat(extractedData); err == nil {
+		if err := restoreReplaceDir(extractedData, dataDir); err != nil {
+			log.Printf("Restore: failed to restore data: %v", err)
+			cleanupTempDir()
+			os.Exit(exIoErr)
+		}
+		dataRestored = true
+	}
+	if dataRestored {
+		fmt.Println("  data:   restored from archive")
+	} else {
+		fmt.Println("  data:   not in archive — existing data directory left untouched")
+	}
+	restoredConfig := cfg
+	if loadedConfig, loadErr := config.LoadConfigFromFile(filepath.Join(configDir, "server.yml")); loadErr == nil {
+		restoredConfig = loadedConfig
+	} else {
+		log.Printf("Restore: load restored server.yml: %v", loadErr)
+	}
+	if conn, openErr := openMaintenanceDB(restoredConfig, dirs); openErr == nil {
+		if rec, recErr := pgp.ActiveRecord(conn); recErr == nil && rec != nil {
+			if published, stateErr := pgp.ReadKeyserversState(configDir, rec.Fingerprint); stateErr != nil {
+				log.Printf("Restore: read keyserver publish state: %v", stateErr)
+			} else {
+				for host, unix := range published {
+					if _, exists := rec.KeyserversPublished[host]; !exists {
+						_ = pgp.RecordKeyserverPublish(conn, rec.Fingerprint, host, time.Unix(unix, 0))
+					}
+				}
+				if restoredConfig.Web.Security.PublishPGPKey && len(restoredConfig.Web.Security.Keyservers) > 0 {
+					if publicKey, keyErr := pgp.LoadPublic(configDir); keyErr == nil {
+						publishToKeyservers(conn, configDir, rec.Fingerprint, publicKey, restoredConfig.Web.Security.Keyservers)
+					} else {
+						log.Printf("Restore: load public PGP key: %v", keyErr)
+					}
+				}
+			}
+		}
+		if closeErr := conn.Close(); closeErr != nil {
+			log.Printf("Restore: close restored database: %v", closeErr)
+		}
+	} else {
+		log.Printf("Restore: open restored database: %v", openErr)
+	}
+
+	// AI.md PART 21 requires a backup.restored audit event on every successful
+	// restore; only the filename is recorded.
+	if logMgr != nil {
+		logMgr.WriteAuditEvent("", "backup.restored", "backup", "warn", "success", "", map[string]any{
+			"filename": filepath.Base(backupFile),
+		})
+	}
+
+	fmt.Println("Restore completed successfully")
+}
+
+func backupRestoreLimits(cfg *config.AppConfig) BackupRestoreLimits {
+	limits := defaultBackupRestoreLimits()
+	if cfg == nil {
+		return limits
+	}
+	setting := cfg.Server.Restore
+	if size, err := parseByteSize(setting.MaxArchiveSize); err == nil && size > 0 {
+		limits.MaxArchiveSize = size
+	}
+	if size, err := parseByteSize(setting.MaxExpandedSize); err == nil && size > 0 {
+		limits.MaxExpandedSize = size
+	}
+	if setting.MaxFiles > 0 {
+		limits.MaxFiles = setting.MaxFiles
+	}
+	if size, err := parseByteSize(setting.MaxFileSize); err == nil && size > 0 {
+		limits.MaxFileSize = size
+	}
+	if setting.MaxRatio > 0 {
+		limits.MaxRatio = int64(setting.MaxRatio)
+	}
+	return limits
+}
+
+// reportBackupTestSkipped reports every dependent check that could not run,
+// so an operator receives a complete result list even when an earlier stage fails.
+func reportBackupTestSkipped(reason string, checks ...string) {
+	for _, check := range checks {
+		fmt.Printf("%s: NOT CHECKED (%s)\n", check, reason)
+	}
+}
+
+var backupTestAfterDecryptChecks = []string{"Manifest", "Manifest checksums", "Archive extraction", "Restored database integrity", "Installation secret", "Encrypted PGP private key", "PGP public key", "PGP fingerprint match"}
+
+// maintenanceBackupTest verifies a real archive without modifying live data.
+func maintenanceBackupTest(configDir string, cfg *config.AppConfig, dirs paths.Directories, archivePath string) error {
+	var err error
+	if archivePath == "" {
+		archivePath, err = newestFullBackup(dirs.Backup)
+		if err != nil {
+			return err
+		}
+	}
+	info, statErr := os.Stat(archivePath)
+	if statErr != nil {
+		fmt.Printf("Archive exists: FAIL (%v)\n", statErr)
+		return statErr
+	}
+	fmt.Println("Archive exists: PASS")
+	if info.Size() <= 0 {
+		err := errors.New("backup archive is empty")
+		fmt.Printf("Archive size: FAIL (%v)\n", err)
+		return err
+	}
+	fmt.Println("Archive size: PASS")
+	password := ""
+	if strings.HasSuffix(archivePath, ".enc") {
+		password, err = promptBackupPassword("Backup password: ")
+		if err != nil {
+			return err
+		}
+	}
+	liveLayout := backupArchiveLayout{configDir: configDir, dataDir: dirs.Data, dbDir: dirs.DB, includeSSL: true, includeData: true}
+	failures := make([]error, 0, 4)
+	if verifyErr := verifyBackup(archivePath, password, liveLayout); verifyErr != nil {
+		fmt.Printf("Archive integrity, manifest, checksum, and extraction: FAIL (%v)\n", verifyErr)
+		failures = append(failures, verifyErr)
+	} else {
+		fmt.Println("Archive integrity, manifest, checksum, and extraction: PASS")
+	}
+	raw, err := os.ReadFile(archivePath)
+	if err != nil {
+		return fmt.Errorf("read backup: %w", err)
+	}
+	archive, err := decryptBackupPayload(archivePath, raw, password)
+	if err != nil {
+		reportBackupTestSkipped("archive decryption failed", backupTestAfterDecryptChecks...)
+		return fmt.Errorf("decrypt backup: %w", err)
+	}
+	manifest, err := readBackupManifest(archive)
+	if err != nil {
+		fmt.Printf("Manifest: FAIL (%v)\n", err)
+		reportBackupTestSkipped("manifest could not be read", backupTestAfterDecryptChecks[1:]...)
+		return errors.Join(append(failures, err)...)
+	}
+	fmt.Println("Manifest: PASS")
+	tmpDir, err := paths.CreateProjectTempDir()
+	if err != nil {
+		reportBackupTestSkipped("temporary restore directory unavailable", "Archive extraction", "Restored database integrity", "Installation secret", "Encrypted PGP private key", "PGP public key", "PGP fingerprint match")
+		return fmt.Errorf("create temporary restore directory: %w", err)
+	}
+	defer func() {
+		if err := os.RemoveAll(tmpDir); err != nil {
+			log.Printf("backup test: remove temporary restore directory: %v", err)
+		}
+	}()
+	if backupType, _ := manifest["type"].(string); backupType == "incremental" {
+		baseName, _ := manifest["base_backup"].(string)
+		baseRaw, err := os.ReadFile(filepath.Join(filepath.Dir(archivePath), baseName))
+		if err != nil {
+			fmt.Printf("Incremental base: FAIL (%v)\n", err)
+			reportBackupTestSkipped("incremental base is unavailable", "Incremental base decrypt", "Incremental base extraction", "Archive extraction", "Restored database integrity", "Installation secret", "Encrypted PGP private key", "PGP public key", "PGP fingerprint match")
+			return errors.Join(append(failures, err)...)
+		}
+		baseArchive, err := decryptBackupPayload(baseName, baseRaw, password)
+		if err != nil {
+			fmt.Printf("Incremental base decrypt: FAIL (%v)\n", err)
+			reportBackupTestSkipped("incremental base decryption failed", "Incremental base extraction", "Archive extraction", "Restored database integrity", "Installation secret", "Encrypted PGP private key", "PGP public key", "PGP fingerprint match")
+			return errors.Join(append(failures, err)...)
+		}
+		if err := extractBackupArchiveWithLimits(baseArchive, tmpDir, backupRestoreLimits(cfg)); err != nil {
+			fmt.Printf("Incremental base extraction: FAIL (%v)\n", err)
+			reportBackupTestSkipped("incremental base extraction failed", "Archive extraction", "Restored database integrity", "Installation secret", "Encrypted PGP private key", "PGP public key", "PGP fingerprint match")
+			return errors.Join(append(failures, err)...)
+		}
+		fmt.Println("Incremental base: PASS")
+	}
+	if err := extractBackupArchiveWithLimits(archive, tmpDir, backupRestoreLimits(cfg)); err != nil {
+		fmt.Printf("Archive extraction: FAIL (%v)\n", err)
+		reportBackupTestSkipped("archive extraction failed", "Restored database integrity", "Installation secret", "Encrypted PGP private key", "PGP public key", "PGP fingerprint match")
+		return errors.Join(append(failures, err)...)
+	}
+	fmt.Println("Archive extraction: PASS")
+	restoredDirs := dirs
+	restoredDirs.DB = filepath.Join(tmpDir, "db")
+	restoredCfg := *cfg
+	restoredCfg.Server.Database.Driver = "sqlite"
+	restoredDB, err := openMaintenanceDB(&restoredCfg, restoredDirs)
+	if err != nil {
+		reportBackupTestSkipped("restored database could not be opened", "Installation secret", "Encrypted PGP private key", "PGP public key", "PGP fingerprint match")
+		return fmt.Errorf("open restored database: %w", err)
+	}
+	defer func() { _ = restoredDB.Close() }()
+	restoredConfigDir := filepath.Join(tmpDir, filepath.Base(configDir))
+	publicArmor, publicErr := pgp.LoadPublic(restoredConfigDir)
+	if publicErr != nil {
+		fmt.Printf("PGP public key: FAIL (%v)\n", publicErr)
+		failures = append(failures, publicErr)
+	} else {
+		fmt.Println("PGP public key: PASS")
+	}
+	secret, secretErr := security.GetOrCreateSecret(restoredDB, security.SecretInstallationSecret)
+	if secretErr != nil {
+		fmt.Printf("Installation secret: FAIL (%v)\n", secretErr)
+		failures = append(failures, secretErr)
+		fmt.Println("Encrypted PGP private key: NOT CHECKED (installation secret unavailable)")
+		fmt.Println("PGP fingerprint match: NOT CHECKED (private key unavailable)")
+		return errors.Join(failures...)
+	}
+	fmt.Println("Installation secret: PASS")
+	armor, privateErr := pgp.LoadPrivateArmor(restoredConfigDir, secret)
+	if errors.Is(privateErr, os.ErrNotExist) {
+		fmt.Println("Encrypted PGP private key: NOT PRESENT")
+		fmt.Println("PGP fingerprint match: NOT APPLICABLE (no private key in backup)")
+		return errors.Join(failures...)
+	}
+	if privateErr != nil {
+		fmt.Printf("Encrypted PGP private key: FAIL (%v)\n", privateErr)
+		failures = append(failures, privateErr)
+		fmt.Println("PGP fingerprint match: NOT CHECKED (private key decryption failed)")
+		return errors.Join(failures...)
+	}
+	if strings.TrimSpace(armor) == "" {
+		privateErr = errors.New("decrypted PGP private key is empty")
+		fmt.Printf("Encrypted PGP private key: FAIL (%v)\n", privateErr)
+		failures = append(failures, privateErr)
+		fmt.Println("PGP fingerprint match: NOT CHECKED (private key is empty)")
+		return errors.Join(failures...)
+	}
+	fmt.Println("Encrypted PGP private key: PASS")
+	if publicErr != nil {
+		fmt.Println("PGP fingerprint match: NOT CHECKED (public key unavailable)")
+		return errors.Join(failures...)
+	}
+	privateKeys, privateParseErr := openpgp.ReadArmoredKeyRing(strings.NewReader(armor))
+	publicKeys, publicParseErr := openpgp.ReadArmoredKeyRing(strings.NewReader(publicArmor))
+	if privateParseErr != nil || publicParseErr != nil || len(privateKeys) == 0 || len(publicKeys) == 0 || pgp.Fingerprint(privateKeys[0]) != pgp.Fingerprint(publicKeys[0]) {
+		matchErr := errors.Join(privateParseErr, publicParseErr)
+		if matchErr == nil {
+			matchErr = errors.New("private and public PGP fingerprints do not match")
+		}
+		fmt.Printf("PGP fingerprint match: FAIL (%v)\n", matchErr)
+		failures = append(failures, matchErr)
+	} else {
+		fmt.Println("PGP fingerprint match: PASS")
+	}
+	return errors.Join(failures...)
+}
+
+// dirOrFileExists reports whether p exists on disk (any type).
+func dirOrFileExists(p string) bool {
+	_, err := os.Stat(p)
+	return err == nil
+}
+
+// restoreReplaceDir atomically replaces dst with src without a window where dst
+// is gone. The live dst is renamed aside first; only after the new content
+// lands successfully is the old copy deleted. If the move fails, the live copy
+// is rolled back so a partial restore never loses existing data (AI.md PART 21:
+// keep existing valid data if a restore does not complete).
+func restoreReplaceDir(src, dst string) error {
+	oldDir := dst + ".restore-old"
+	// Clear any stale backup from a previous interrupted restore.
+	_ = os.RemoveAll(oldDir)
+
+	haveOld := false
+	if _, err := os.Stat(dst); err == nil {
+		if err := os.Rename(dst, oldDir); err != nil {
+			return fmt.Errorf("move existing %s aside: %w", dst, err)
+		}
+		haveOld = true
+	}
+
+	if err := restoreMoveDir(src, dst); err != nil {
+		// Roll back: put the live copy back where it was.
+		if haveOld {
+			_ = os.RemoveAll(dst)
+			if rbErr := os.Rename(oldDir, dst); rbErr != nil {
+				return fmt.Errorf("restore %s failed (%v) and rollback failed: %w", dst, err, rbErr)
+			}
+		}
+		return err
+	}
+
+	if haveOld {
+		_ = os.RemoveAll(oldDir)
+	}
+	return nil
+}
+
+// restoreMoveDir moves src to dst using rename; falls back to a recursive copy
+// when src and dst are on different filesystems (os.Rename returns an error).
+func restoreMoveDir(src, dst string) error {
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		return fmt.Errorf("create parent of %s: %w", dst, err)
+	}
+	if err := os.Rename(src, dst); err == nil {
+		return nil
+	}
+	return restoreCopyDir(src, dst)
+}
+
+// restoreCopyDir recursively copies src into dst using stdlib only.
+func restoreCopyDir(src, dst string) error {
+	return filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(src, path)
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(dst, rel)
+		if info.IsDir() {
+			return os.MkdirAll(target, info.Mode())
+		}
+		return restoreCopyFile(path, target, info.Mode())
+	})
+}
+
+// restoreCopyFile copies a single file preserving its permission bits.
+func restoreCopyFile(src, dst string, mode os.FileMode) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = in.Close() }()
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		return err
+	}
+	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, mode)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = out.Close() }()
+	_, err = io.Copy(out, in)
+	return err
+}
+
+// randomPort generates a random port in the 64000-64999 range
+// Per AI.md: default host port is random 64xxx
+func randomPort() string {
+	// Use crypto/rand for a seed, then pick a port in 64000-64999
+	b := make([]byte, 2)
+	if _, err := cryptorand.Read(b); err != nil {
+		return "64000"
+	}
+	// combine both bytes (0-65535) before the modulus so the full
+	// 0-999 offset is reachable; using only b[0] capped the range at 64255
+	port := 64000 + (int(b[0])<<8|int(b[1]))%1000
+	return strconv.Itoa(port)
+}
+
+// randomAvailablePort picks a random 64000-64999 port that is actually free.
+// AI.md PART 12 requires the first-run port to be an unused port, so each
+// candidate is probed with a real bind before it is accepted. After the
+// attempt budget is exhausted the last candidate is returned so startup
+// still surfaces a normal bind error rather than looping forever.
+func randomAvailablePort() string {
+	const attempts = 50
+	candidate := randomPort()
+	for i := 0; i < attempts; i++ {
+		candidate = randomPort()
+		ln, err := net.Listen("tcp", ":"+candidate)
+		if err != nil {
+			continue
+		}
+		ln.Close() //nolint:errcheck
+		return candidate
+	}
+	return candidate
+}
+
+// parsePortSpec splits a port setting into its HTTP and HTTPS halves.
+// AI.md PART 12 "Dual Port Support": a bare "8080" configures HTTP only,
+// while "8090,8443" configures HTTP on 8090 and HTTPS on 8443.
+func parsePortSpec(spec string) (string, string) {
+	spec = strings.TrimSpace(spec)
+	if spec == "" {
+		return "", ""
+	}
+	first, second, found := strings.Cut(spec, ",")
+	first = strings.TrimSpace(first)
+	if !found {
+		return first, ""
+	}
+	return first, strings.TrimSpace(second)
+}
+
+// resolveServerPort follows the startup precedence in AI.md PART 8: CLI flag,
+// PORT environment variable, early server.yml peek, then an empty result.
+func resolveServerPort(flagPort string, cfg *config.AppConfig) string {
+	if strings.TrimSpace(flagPort) != "" {
+		return strings.TrimSpace(flagPort)
+	}
+	if envPort := strings.TrimSpace(os.Getenv("PORT")); envPort != "" {
+		return envPort
+	}
+	if cfg != nil {
+		if persisted := strings.TrimSpace(cfg.Server.Port); persisted != "" {
+			return persisted
+		}
+	}
+	return ""
+}
+
+// operatorRecipients returns the address operator notifications are delivered
+// to. AI.md PART 17 routes every operator event to the `admin` contact role;
+// sending them to the no-reply From address delivered them nowhere. The
+// From address remains the last-resort fallback so a misconfigured admin
+// contact never silently drops a critical alert.
+func operatorRecipients(cfg *config.AppConfig) []string {
+	if cfg == nil {
+		return nil
+	}
+	if to := strings.TrimSpace(config.ResolveContactRole(cfg, "admin").Email); to != "" {
+		return []string{to}
+	}
+	if from := strings.TrimSpace(cfg.Server.Notifications.Email.From.Email); from != "" {
+		return []string{from}
+	}
+	return nil
+}
+
+// operatorLanguage returns the locale operator notification emails are
+// rendered in: the configured default language, then the configured fallback,
+// then the i18n default locale (AI.md PART 17, PART 30).
+func operatorLanguage(cfg *config.AppConfig) string {
+	if cfg != nil {
+		if lang := strings.TrimSpace(cfg.Server.I18n.DefaultLanguage); lang != "" {
+			return lang
+		}
+		if lang := strings.TrimSpace(cfg.Server.I18n.FallbackLanguage); lang != "" {
+			return lang
+		}
+	}
+	return "en"
+}
+
+// sendOperatorEmail dispatches a localized operator notification and reports
+// whether it was delivered. A delivery failure is logged and never aborts the
+// task that raised the notification.
+func sendOperatorEmail(cfg *config.AppConfig, emailMgr *email.EmailManager, templateName string, vars map[string]string) bool {
+	if emailMgr == nil {
+		return false
+	}
+	if err := emailMgr.SendLocalizedTemplate(templateName, operatorLanguage(cfg), operatorRecipients(cfg), vars); err != nil {
+		log.Printf("Warning: failed to send %s notification: %v", templateName, err)
+		return false
+	}
+	return true
+}
+
+// readUpdateNotifiedVersion returns the version the update_available event was
+// last raised for, or "" when no notification has been sent yet. A missing or
+// unreadable file always reads as "" so a lost state file re-notifies rather
+// than silently swallowing the alert.
+func readUpdateNotifiedVersion(path string) string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(data))
+}
+
+// writeUpdateNotifiedVersion records the version the operator was told about so
+// the next scheduled run does not repeat the same notification.
+func writeUpdateNotifiedVersion(path, version string) {
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+		log.Printf("Warning: Failed to create update state directory: %v", err)
+		return
+	}
+	if err := os.WriteFile(path, []byte(version+"\n"), 0o640); err != nil {
+		log.Printf("Warning: Failed to record notified update version: %v", err)
+	}
+}
+
+// criticalTaskEmails records scheduled tasks that already sent their own
+// critical operator email for the execution that is about to fail. AI.md
+// PART 17 suppresses scheduler_error when backup_failed or ssl_renewal_failed
+// fires for the same execution, so the OnFailure hook consumes the marker
+// instead of sending a second email.
+var criticalTaskEmails sync.Map
+
+// markCriticalTaskEmail flags taskID as having already notified the operator.
+func markCriticalTaskEmail(taskID string) {
+	criticalTaskEmails.Store(taskID, true)
+}
+
+// consumeCriticalTaskEmail reports whether taskID notified the operator during
+// this execution and clears the marker so the next run starts clean.
+func consumeCriticalTaskEmail(taskID string) bool {
+	_, found := criticalTaskEmails.LoadAndDelete(taskID)
+	return found
+}
+
+// listenAddress builds the bind address for net.Listen from the configured
+// address and port. Wildcard addresses collapse to ":port" so a single
+// listener accepts both IPv4 and IPv6 connections.
+func listenAddress(address, port string) string {
+	switch address {
+	case "", "*", "::", "[::]", "0.0.0.0":
+		return ":" + port
+	}
+	return net.JoinHostPort(address, port)
+}
+
+// generateOperatorToken generates a new operator token per AI.md PART 11.
+// Format: adm_ prefix + 32 URL-safe random base62 chars.
+func generateOperatorToken() (string, error) {
+	return generateTokenWithPrefix("adm")
+}
+
+func generateTokenWithPrefix(prefix string) (string, error) {
+	const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
+	const tokenLen = 32
+	if strings.TrimSpace(prefix) == "" {
+		return "", errors.New("token prefix is required")
+	}
+	b := make([]byte, tokenLen)
+	if _, err := cryptorand.Read(b); err != nil {
+		return "", fmt.Errorf("generating operator token: %w", err)
+	}
+	out := make([]byte, tokenLen)
+	for i, v := range b {
+		out[i] = alphabet[int(v)%len(alphabet)]
+	}
+	return prefix + "_" + string(out), nil
+}
+
+// generateEncryptionKey generates a new 32-byte AES-256-GCM at-rest encryption
+// key per AI.md PART 11, base64-encoded for storage in server.security.encryption_key.
+func generateEncryptionKey() (string, error) {
+	const keyLen = 32
+	b := make([]byte, keyLen)
+	if _, err := cryptorand.Read(b); err != nil {
+		return "", fmt.Errorf("generating encryption key: %w", err)
+	}
+	return base64.StdEncoding.EncodeToString(b), nil
+}
+
+func handleUpdateCommand(cmd string, cfg *config.AppConfig) {
+	args := flag.Args()
+	branch := cfg.Server.Update.Branch
+	if branch == "" {
+		branch = cfg.Server.UpdateBranch
+	}
+	if branch == "" {
+		branch = "stable"
+	}
+	if canonical, ok := updatechannel.Normalize(branch); ok {
+		branch = canonical
+	} else {
+		branch = "stable"
+	}
+
+	ctx := context.Background()
+
+	switch cmd {
+	case "--help", "-h", "help":
+		fmt.Println(`Update management:
+
+check                                 - Check for available updates
+                                        Compares current version with latest release
+
+yes                                   - Download and install update
+                                        Downloads latest release, replaces binary, restarts
+
+branch <name>                         - Switch update branch
+  stable                              - Stable releases (default)
+  beta                                - Beta/preview releases
+  devel                               - Devel builds (development)
+
+Examples:
+  ipgaze --update check
+  ipgaze --update yes
+  ipgaze --update branch beta`)
+		fmt.Printf("\nCurrent:\n  Version:  %s\n  Branch:   %s\n", Version, branch)
+		release, err := updater.CheckForUpdate(ctx, Version, branch, buildEpoch())
+		if err != nil {
+			fmt.Printf("  Latest:   unavailable (%v)\n", err)
+		} else if release == nil {
+			fmt.Printf("  Latest:   %s\n", strings.TrimPrefix(Version, "v"))
+		} else {
+			fmt.Printf("  Latest:   %s\n", strings.TrimPrefix(release.TagName, "v"))
+		}
+	case "check":
+		release, err := updater.CheckForUpdate(ctx, Version, branch, buildEpoch())
+		if err != nil {
+			fmt.Printf("Update check failed: %v\n", err)
+			os.Exit(exGeneral)
+		}
+		fmt.Printf("Current version:  %s\n", Version)
+		fmt.Printf("Update branch:    %s\n", branch)
+		if release == nil {
+			fmt.Println("Already up to date.")
+			return
+		}
+		latestVersion := strings.TrimPrefix(release.TagName, "v")
+		fmt.Printf("Latest version:   %s\n", latestVersion)
+		fmt.Printf("Update available: %s\n", release.HTMLURL)
+		fmt.Println("Run 'ipgaze --update yes' to install.")
+	case "yes":
+		release, err := updater.CheckForUpdate(ctx, Version, branch, buildEpoch())
+		if err != nil {
+			fmt.Printf("Update check failed: %v\n", err)
+			os.Exit(exGeneral)
+		}
+		if release == nil {
+			fmt.Println("Already up to date.")
+			return
+		}
+		latestVersion := strings.TrimPrefix(release.TagName, "v")
+		fmt.Printf("Updating from %s to %s...\n", Version, latestVersion)
+		if err := updater.DoUpdate(ctx, release); err != nil {
+			fmt.Printf("Update failed: %v\n", err)
+			os.Exit(exGeneral)
+		}
+		fmt.Printf("Updated to %s successfully.\n", latestVersion)
+		fmt.Println("Restarting...")
+		restart := updater.RestartSelf
+		if svc.IsRunningAsService() {
+			restart = updater.RestartService
+		}
+		if err := restart(); err != nil {
+			fmt.Printf("Restart failed: %v\nPlease restart the server manually.\n", err)
+			os.Exit(0)
+		}
+	case "branch":
+		if len(args) == 0 {
+			fmt.Printf("Current branch: %s\n", branch)
+			return
+		}
+		canonical, ok := updatechannel.Normalize(args[0])
+		if !ok {
+			fmt.Printf("Invalid branch: %s\n", args[0])
+			fmt.Println("Valid branches: stable, beta, devel")
+			os.Exit(exUsage)
+		}
+		cfg.Server.Update.Branch = canonical
+		cfg.Server.UpdateBranch = canonical
+		if err := config.SaveConfigToFile(); err != nil {
+			log.Printf("Failed to save config: %v", err)
+		}
+		fmt.Printf("Branch set to: %s\n", canonical)
+	default:
+		fmt.Printf("Unknown update command: %s\n", cmd)
+		fmt.Println("Available commands: check, yes, branch")
+		os.Exit(exUsage)
+	}
+}
+
+// torNoServerError is the exact message AI.md PART 31.1 mandates when a
+// mutating tor subcommand cannot reach a running server.
+const torNoServerError = "Error: no running server detected — start the server first"
+
+// torControlTimeout bounds a control request. Restart, regenerate, and apply
+// all wait on a Tor bootstrap, which routinely takes tens of seconds.
+const torControlTimeout = 120 * time.Second
+
+// torVanityData mirrors tor.VanityStatus as it appears on the wire.
+type torVanityData struct {
+	State          string   `json:"state"`
+	Prefix         string   `json:"prefix"`
+	Workers        int      `json:"workers"`
+	Attempts       uint64   `json:"attempts"`
+	Rate           float64  `json:"rate"`
+	ElapsedSeconds float64  `json:"elapsed_seconds"`
+	Candidates     []string `json:"candidates"`
+	LastError      string   `json:"last_error"`
+}
+
+// torControlData is the union of every payload the /server/tor/* endpoints
+// produce; each endpoint fills only the fields that apply to it.
+type torControlData struct {
+	Running            bool          `json:"running"`
+	PID                *int          `json:"pid"`
+	Version            string        `json:"version"`
+	OnionAddress       string        `json:"onion_address"`
+	BootstrapPercent   int           `json:"bootstrap_percent"`
+	CircuitEstablished bool          `json:"circuit_established"`
+	Valid              bool          `json:"valid"`
+	Errors             []torError    `json:"errors"`
+	Restarted          bool          `json:"restarted"`
+	PreviousAddress    string        `json:"previous_address"`
+	State              string        `json:"state"`
+	Prefix             string        `json:"prefix"`
+	Workers            int           `json:"workers"`
+	Stopped            bool          `json:"stopped"`
+	Candidates         []string      `json:"candidates"`
+	Vanity             torVanityData `json:"vanity"`
+}
+
+type torError struct {
+	Field   string `json:"field"`
+	Message string `json:"message"`
+}
+
+// torControlEnvelope is the canonical API envelope of AI.md PART 14 as the
+// Tor control endpoints return it.
+type torControlEnvelope struct {
+	OK      bool           `json:"ok"`
+	Data    torControlData `json:"data"`
+	Error   string         `json:"error"`
+	Message string         `json:"message"`
+	Details map[string]any `json:"details"`
+}
+
+// failure renders the envelope's error for the terminal, preferring the
+// specific reason the server put in details over the generic message.
+func (e *torControlEnvelope) failure() string {
+	if reason, ok := e.Details["reason"].(string); ok && reason != "" {
+		return reason
+	}
+	if prefix, ok := e.Details["prefix"].(string); ok && prefix != "" {
+		return "a vanity search is already running for prefix " + prefix
+	}
+	if candidates, ok := e.Details["candidates"].([]any); ok && len(candidates) > 0 {
+		values := make([]string, 0, len(candidates))
+		for _, candidate := range candidates {
+			if value, ok := candidate.(string); ok {
+				values = append(values, value)
+			}
+		}
+		if len(values) > 0 {
+			return "ambiguous candidate prefix; matches: " + strings.Join(values, ", ")
+		}
+	}
+	if e.Message != "" {
+		return e.Message
+	}
+	return e.Error
+}
+
+// torServerPort resolves the loopback port of the running server exactly as
+// --status does: the configured bind port, defaulting to 8080.
+func torServerPort(cfg *config.AppConfig) string {
+	if cfg != nil && cfg.Server.Port != "" {
+		return cfg.Server.Port
+	}
+	return "8080"
+}
+
+// torServerRunning reports whether a live server is reachable on loopback.
+// Detection reuses the --status mechanism: the PID file the server wrote plus
+// a health probe on the configured bind port. A dead PID file is a fast
+// negative on a host, but containers deliberately write no PID file
+// (AI.md PART 8), so the health probe is what ultimately decides.
+func torServerRunning(pidFile, port string) bool {
+	if running, _, err := paths.CheckPIDFile(pidFile); err == nil && !running && !paths.IsRunningInContainer() {
+		return false
+	}
+	return checkHealth(port) == nil
+}
+
+// torControlCall issues one request to an internal /server/tor/* endpoint on
+// loopback and decodes the canonical envelope. body may be nil for GET.
+func torControlCall(port, method, endpoint string, body map[string]interface{}) (*torControlEnvelope, error) {
+	var payload io.Reader
+	if body != nil {
+		encoded, err := json.Marshal(body)
+		if err != nil {
+			return nil, err
+		}
+		payload = bytes.NewReader(encoded)
+	}
+	url := fmt.Sprintf("http://127.0.0.1:%s%s", port, endpoint)
+	req, err := http.NewRequest(method, url, payload)
+	if err != nil {
+		return nil, err
+	}
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	client := &http.Client{Timeout: torControlTimeout}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return nil, err
+	}
+	var env torControlEnvelope
+	if err := json.Unmarshal(raw, &env); err != nil {
+		return nil, fmt.Errorf("unexpected response from server (HTTP %d)", resp.StatusCode)
+	}
+	return &env, nil
+}
+
+// torControlRequire performs a control call for a subcommand that cannot work
+// without a running server, exiting with the mandated message on failure.
+func torControlRequire(port, method, endpoint string, body map[string]interface{}) *torControlEnvelope {
+	env, err := torControlCall(port, method, endpoint, body)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, torNoServerError)
+		os.Exit(1)
+	}
+	if !env.OK {
+		fmt.Fprintf(os.Stderr, "Error: %s\n", env.failure())
+		os.Exit(exOsErr)
+	}
+	return env
+}
+
+// torRequireServer aborts with the mandated message when no server is running.
+func torRequireServer(pidFile, port string) {
+	if !torServerRunning(pidFile, port) {
+		fmt.Fprintln(os.Stderr, torNoServerError)
+		os.Exit(1)
+	}
+}
+
+// printTorUsage prints the `ipgaze tor` help text.
+func printTorUsage() {
+	fmt.Println("Usage: ipgaze --maintenance tor <subcommand>")
+	fmt.Println("")
+	fmt.Println("Tor is owned by the running server; these subcommands drive it")
+	fmt.Println("through the server's loopback-only control channel.")
+	fmt.Println("")
+	fmt.Println("Subcommands:")
+	fmt.Println("  status                        Show Tor hidden service status")
+	fmt.Println("  validate                      Validate the Tor configuration")
+	fmt.Println("  restart                       Restart the Tor hidden service")
+	fmt.Println("  regenerate                    Regenerate the .onion address (destroys the current one)")
+	fmt.Println("  vanity start <prefix> [-w N]  Search for an address starting with <prefix> (1-6 chars)")
+	fmt.Println("  vanity stop                   Cancel the running vanity search")
+	fmt.Println("  vanity apply [address]        Install a found vanity address (destroys the current one)")
+	fmt.Println("  import-keys <path>            Import existing hidden service keys")
+	fmt.Println("")
+	fmt.Println("status and validate read on-disk state when no server is running;")
+	fmt.Println("every other subcommand requires a running server.")
+	fmt.Println("")
+	fmt.Println("Examples:")
+	fmt.Println("  ipgaze --maintenance tor status")
+	fmt.Println("  ipgaze --maintenance tor vanity start news -w 4")
+	fmt.Println("  ipgaze --maintenance tor vanity stop")
+	fmt.Println("  ipgaze --maintenance tor vanity apply newsxyz")
+	fmt.Println("  ipgaze --maintenance tor import-keys /path/to/keys/")
+}
+
+// printTorVanityStatus renders the vanity search section of `tor status`.
+// Per AI.md PART 31.1 the section appears whenever a search is running or a
+// candidate is waiting on disk.
+func printTorVanityStatus(v torVanityData) {
+	running := v.State == "running"
+	if !running && len(v.Candidates) == 0 && v.LastError == "" {
+		return
+	}
+	fmt.Println("")
+	fmt.Println("Vanity Search")
+	fmt.Printf("  State:    %s\n", v.State)
+	if running {
+		fmt.Printf("  Prefix:   %s\n", v.Prefix)
+		fmt.Printf("  Workers:  %d\n", v.Workers)
+		fmt.Printf("  Attempts: %d\n", v.Attempts)
+		fmt.Printf("  Rate:     %.2f/sec\n", v.Rate)
+		fmt.Printf("  Elapsed:  %.0fs\n", v.ElapsedSeconds)
+	}
+	for _, addr := range v.Candidates {
+		fmt.Printf("  Found:    %s\n", addr)
+	}
+	if v.LastError != "" {
+		fmt.Printf("  Error:    %s\n", v.LastError)
+	}
+}
+
+// torStatusFromDisk renders `tor status` from on-disk state, the read-only
+// fallback AI.md PART 31.1 permits when no server is running.
+func torStatusFromDisk(configDir, dataDir, logDir string) {
+	fmt.Println("Tor Hidden Service")
+	fmt.Println("  Status:   server not running")
+	hostnameFile := filepath.Join(dataDir, "tor", "site", "hostname")
+	if data, err := os.ReadFile(hostnameFile); err == nil {
+		fmt.Printf("  Address:  %s\n", strings.TrimSpace(string(data)))
+	} else {
+		fmt.Println("  Address:  (not yet generated)")
+	}
+	fmt.Printf("  Config:   %s\n", filepath.Join(configDir, "tor", "torrc"))
+	fmt.Printf("  Data:     %s\n", filepath.Join(dataDir, "tor"))
+	fmt.Printf("  Log:      %s\n", filepath.Join(logDir, "tor.log"))
+}
+
+// torValidateFromDisk validates the on-disk Tor configuration without a
+// running server, the second read-only fallback of AI.md PART 31.1.
+func torValidateFromDisk(configDir, dataDir string, cfg *config.AppConfig) {
+	mgr := tor.NewTorManager(tor.TorServiceConfig{
+		ConfigDir: configDir,
+		DataDir:   dataDir,
+		Binary:    cfg.Server.Tor.Binary,
+	})
+	fmt.Println("Tor configuration (server not running)")
+	fmt.Printf("  Config:   %s\n", mgr.TorrcPath())
+	fmt.Printf("  Site:     %s\n", mgr.SiteDir())
+	if err := mgr.Validate(); err != nil {
+		fmt.Printf("  Result:   invalid — %v\n", err)
+		os.Exit(exOsErr)
+	}
+	fmt.Println("  Result:   valid")
+}
+
+// torVanityStartArgs parses `vanity start <prefix> [-w N | --workers N]`.
+func torVanityStartArgs(args []string) (string, int) {
+	prefix := ""
+	workers := 0
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "-w", "--workers":
+			if i+1 >= len(args) {
+				fmt.Fprintln(os.Stderr, "Error: --workers requires a value")
+				os.Exit(exUsage)
+			}
+			n, err := strconv.Atoi(args[i+1])
+			if err != nil || n < 1 {
+				fmt.Fprintf(os.Stderr, "Error: invalid worker count %q\n", args[i+1])
+				os.Exit(exUsage)
+			}
+			workers = n
+			i++
+		default:
+			if prefix != "" {
+				fmt.Fprintf(os.Stderr, "Error: unexpected argument %q\n", args[i])
+				os.Exit(exUsage)
+			}
+			prefix = args[i]
+		}
+	}
+	if prefix == "" {
+		fmt.Fprintln(os.Stderr, "Usage: ipgaze tor vanity start <prefix> [--workers N]")
+		os.Exit(exUsage)
+	}
+	return prefix, workers
+}
+
+// torVanityCall performs a vanity control call, exiting 1 on any failure as
+// AI.md PART 31.1 mandates for a busy search, an unresolvable candidate, or a
+// post-apply hostname mismatch.
+func torVanityCall(port, endpoint string, body map[string]interface{}) *torControlEnvelope {
+	env, err := torControlCall(port, http.MethodPost, endpoint, body)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, torNoServerError)
+		os.Exit(1)
+	}
+	if !env.OK {
+		fmt.Fprintf(os.Stderr, "Error: %s\n", env.failure())
+		os.Exit(1)
+	}
+	return env
+}
+
+// handleTorVanityCommand dispatches `ipgaze tor vanity <start|stop|apply>`.
+func handleTorVanityCommand(args []string, pidFile, port string) {
+	if len(args) == 0 {
+		fmt.Fprintln(os.Stderr, "Usage: ipgaze tor vanity <start|stop|apply>")
+		os.Exit(exUsage)
+	}
+	switch args[0] {
+	case "start":
+		prefix, workers := torVanityStartArgs(args[1:])
+		torRequireServer(pidFile, port)
+		body := map[string]interface{}{"prefix": prefix}
+		if workers > 0 {
+			body["workers"] = workers
+		}
+		env := torVanityCall(port, "/server/tor/vanity/start", body)
+		fmt.Printf("Vanity search started for prefix %q\n", prefix)
+		fmt.Println("Check progress with: ipgaze tor status")
+		fmt.Printf("  Workers: %d\n", env.Data.Workers)
+	case "stop":
+		if len(args) != 1 {
+			fmt.Fprintln(os.Stderr, "Usage: ipgaze --maintenance tor vanity stop")
+			os.Exit(exUsage)
+		}
+		torRequireServer(pidFile, port)
+		env := torVanityCall(port, "/server/tor/vanity/stop", nil)
+		if env.Data.Stopped {
+			fmt.Println("Vanity search cancelled.")
+		} else {
+			fmt.Println("No vanity search was running.")
+		}
+		fmt.Println("Candidates already written to disk are kept.")
+	case "apply":
+		if len(args) > 2 {
+			fmt.Fprintln(os.Stderr, "Usage: ipgaze --maintenance tor vanity apply [address]")
+			os.Exit(exUsage)
+		}
+		address := ""
+		if len(args) > 1 {
+			address = args[1]
+		}
+		torRequireServer(pidFile, port)
+		fmt.Println("WARNING: This will destroy the current .onion address and replace it with the vanity address.")
+		fmt.Println("Any bookmarks or links to the current address will stop working.")
+		fmt.Print("Type 'yes' to confirm: ")
+		var confirm string
+		fmt.Scanln(&confirm) //nolint:errcheck
+		if confirm != "yes" {
+			fmt.Println("Vanity apply cancelled.")
+			return
+		}
+		env := torVanityCall(port, "/server/tor/vanity/apply",
+			map[string]interface{}{"address": address, "confirm": true})
+		fmt.Println("Vanity address applied")
+		fmt.Printf("  Address: %s\n", env.Data.OnionAddress)
+	default:
+		fmt.Fprintf(os.Stderr, "Unknown vanity subcommand: %s\n", args[0])
+		os.Exit(exUsage)
+	}
+}
+
+// handleTorCommand dispatches `ipgaze tor <subcommand>` per AI.md PART 31.1.
+// The running server owns the embedded Tor process, so every subcommand is a
+// request to the server's INTERNAL loopback control channel rather than a
+// direct manipulation of Tor's files or process.
+func handleTorCommand(args []string, configDir, dataDir, logDir, pidFile string, cfg *config.AppConfig) {
+	if len(args) == 0 || args[0] == "--help" || args[0] == "help" {
+		printTorUsage()
+		return
+	}
+	if !requireOperatorAuth(cfg, "Tor maintenance requires authorization. Enter operator token to confirm: ") {
+		fmt.Fprintln(os.Stderr, "Authorization required: run as root/administrator, or provide a valid operator token.")
+		os.Exit(exNoPerm)
+	}
+
+	sub := args[0]
+	subArgs := args[1:]
+	port := torServerPort(cfg)
+
+	switch sub {
+	case "status":
+		if len(subArgs) != 0 {
+			fmt.Fprintln(os.Stderr, "Usage: ipgaze --maintenance tor status")
+			os.Exit(exUsage)
+		}
+		if !torServerRunning(pidFile, port) {
+			torStatusFromDisk(configDir, dataDir, logDir)
+			return
+		}
+		env := torControlRequire(port, http.MethodGet, "/server/tor/status", nil)
+		fmt.Println("Tor Hidden Service")
+		fmt.Printf("  Running:  %t\n", env.Data.Running)
+		fmt.Printf("  Version:  %s\n", env.Data.Version)
+		if env.Data.PID != nil {
+			fmt.Printf("  PID:      %d\n", *env.Data.PID)
+		}
+		if env.Data.OnionAddress != "" {
+			fmt.Printf("  Address:  %s\n", env.Data.OnionAddress)
+		} else {
+			fmt.Println("  Address:  (not yet generated)")
+		}
+		fmt.Printf("  Bootstrap: %d%%\n", env.Data.BootstrapPercent)
+		fmt.Printf("  Circuit:   %t\n", env.Data.CircuitEstablished)
+		printTorVanityStatus(env.Data.Vanity)
+
+	case "validate":
+		if len(subArgs) != 0 {
+			fmt.Fprintln(os.Stderr, "Usage: ipgaze --maintenance tor validate")
+			os.Exit(exUsage)
+		}
+		if !torServerRunning(pidFile, port) {
+			torValidateFromDisk(configDir, dataDir, cfg)
+			return
+		}
+		env := torControlRequire(port, http.MethodPost, "/server/tor/validate", nil)
+		fmt.Println("Tor configuration")
+		if !env.Data.Valid {
+			for _, item := range env.Data.Errors {
+				fmt.Printf("  %s: %s\n", item.Field, item.Message)
+			}
+			os.Exit(exOsErr)
+		}
+		fmt.Println("  Result:   valid")
+
+	case "restart":
+		if len(subArgs) != 0 {
+			fmt.Fprintln(os.Stderr, "Usage: ipgaze --maintenance tor restart")
+			os.Exit(exUsage)
+		}
+		torRequireServer(pidFile, port)
+		env := torControlRequire(port, http.MethodPost, "/server/tor/restart", nil)
+		fmt.Println("Tor restarted successfully")
+		fmt.Printf("  Address:  %s\n", env.Data.OnionAddress)
+
+	case "regenerate":
+		if len(subArgs) != 0 {
+			fmt.Fprintln(os.Stderr, "Usage: ipgaze --maintenance tor regenerate")
+			os.Exit(exUsage)
+		}
+		torRequireServer(pidFile, port)
+		fmt.Println("WARNING: This will destroy the current .onion address and generate a new one.")
+		fmt.Println("Any bookmarks or links to the current address will stop working.")
+		fmt.Print("Type 'yes' to confirm: ")
+		var confirm string
+		fmt.Scanln(&confirm) //nolint:errcheck
+		if confirm != "yes" {
+			fmt.Println("Regeneration cancelled.")
+			return
+		}
+		env := torControlRequire(port, http.MethodPost, "/server/tor/regenerate", map[string]interface{}{"confirm": true})
+		fmt.Println("New .onion address generated")
+		fmt.Printf("  Address:  %s\n", env.Data.OnionAddress)
+
+	case "vanity":
+		handleTorVanityCommand(subArgs, pidFile, port)
+
+	case "import-keys":
+		if len(subArgs) != 1 {
+			fmt.Fprintln(os.Stderr, "Usage: ipgaze --maintenance tor import-keys <path>")
+			os.Exit(exUsage)
+		}
+		srcDir, err := filepath.Abs(subArgs[0])
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(exUsage)
+		}
+		fmt.Println("WARNING: This replaces the current .onion address with imported keys.")
+		fmt.Println("Any bookmarks or links to the current address may stop working.")
+		if !requireTypedConfirmation("yes", "Type 'yes' to confirm: ") {
+			fmt.Println("Key import cancelled.")
+			return
+		}
+		torRequireServer(pidFile, port)
+		env := torControlRequire(port, http.MethodPost, "/server/tor/import-keys",
+			map[string]interface{}{"path": srcDir, "confirm": true})
+		fmt.Printf("Imported hidden service keys from %s\n", srcDir)
+		fmt.Printf("  Address:  %s\n", env.Data.OnionAddress)
+
+	default:
+		fmt.Fprintf(os.Stderr, "Unknown tor subcommand: %s\n", sub)
+		fmt.Fprintln(os.Stderr, "Run 'ipgaze tor help' for usage.")
+		os.Exit(exUsage)
+	}
+}
+
+// handleI2PCommand dispatches `ipgaze i2p <subcommand>` per AI.md PART 31.2.
+// Subcommands: status, restart, regenerate
+func handleI2PCommand(args []string, configDir, dataDir, logDir string, cfg *config.AppConfig) {
+	if len(args) == 0 || args[0] == "--help" || args[0] == "help" {
+		fmt.Println("Usage: ipgaze i2p <subcommand>")
+		fmt.Println("")
+		fmt.Println("Subcommands:")
+		fmt.Println("  status              Show I2P eepsite status")
+		fmt.Println("  restart             Restart the I2P eepsite")
+		fmt.Println("  regenerate          Regenerate the .b32.i2p address (destroys current address)")
+		fmt.Println("")
+		fmt.Println("Examples:")
+		fmt.Println("  ipgaze i2p status")
+		fmt.Println("  ipgaze i2p regenerate")
+		return
+	}
+
+	sub := args[0]
+
+	mgr := i2p.NewI2PManager(i2p.I2PServiceConfig{
+		ConfigDir:        configDir,
+		DataDir:          dataDir,
+		LogDir:           logDir,
+		Enabled:          cfg.Server.I2P.Enabled,
+		Binary:           cfg.Server.I2P.Binary,
+		SAMAddress:       cfg.Server.I2P.SAMAddress,
+		VirtualPort:      cfg.Server.I2P.VirtualPort,
+		InboundLength:    cfg.Server.I2P.InboundLength,
+		OutboundLength:   cfg.Server.I2P.OutboundLength,
+		InboundQuantity:  cfg.Server.I2P.InboundQuantity,
+		OutboundQuantity: cfg.Server.I2P.OutboundQuantity,
+		SignatureType:    cfg.Server.I2P.SignatureType,
+		BootstrapTimeout: cfg.Server.I2P.BootstrapTimeout,
+	})
+
+	switch sub {
+	case "status":
+		if !cfg.Server.I2P.Enabled {
+			fmt.Println("I2P Eepsite: Disabled")
+			return
+		}
+		if !mgr.IsAvailable() {
+			fmt.Println("I2P Eepsite: No Provider (no i2pd binary or reachable SAM bridge)")
+			return
+		}
+		info := mgr.GetInfo()
+		fmt.Printf("I2P Eepsite: %s (%s)\n", info.Status, info.Provider)
+		if info.Hostname != "" {
+			fmt.Printf("  Address:  %s\n", info.Hostname)
+		} else {
+			fmt.Println("  Address:  (not yet generated)")
+		}
+		fmt.Printf("  Config:   %s\n", filepath.Join(configDir, "i2p"))
+		fmt.Printf("  Data:     %s\n", filepath.Join(dataDir, "i2p"))
+
+	case "restart":
+		if !mgr.IsAvailable() {
+			fmt.Fprintln(os.Stderr, "no I2P provider found — cannot restart")
+			os.Exit(exOsErr)
+		}
+		fmt.Println("Stopping I2P eepsite...")
+		_ = mgr.Stop()
+		fmt.Println("Starting I2P eepsite...")
+		if err := mgr.Start(); err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to start I2P eepsite: %v\n", err)
+			os.Exit(exOsErr)
+		}
+		fmt.Println("I2P eepsite restarted successfully")
+		fmt.Printf("  Address: %s\n", mgr.GetHostname())
+
+	case "regenerate":
+		if !mgr.IsAvailable() {
+			fmt.Fprintln(os.Stderr, "no I2P provider found — cannot regenerate")
+			os.Exit(exOsErr)
+		}
+		fmt.Println("WARNING: This will destroy the current .b32.i2p address and generate a new one.")
+		fmt.Println("Any bookmarks or links to the current address will stop working.")
+		fmt.Print("Type 'yes' to confirm: ")
+		var confirm string
+		if _, err := fmt.Scanln(&confirm); err != nil {
+			fmt.Println("Regeneration cancelled.")
+			return
+		}
+		if confirm != "yes" {
+			fmt.Println("Regeneration cancelled.")
+			return
+		}
+		hostname, err := mgr.RegenerateAddress()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to regenerate address: %v\n", err)
+			os.Exit(exIoErr)
+		}
+		fmt.Println("New I2P eepsite address generated.")
+		fmt.Printf("  Address: %s\n", hostname)
+
+	default:
+		fmt.Fprintf(os.Stderr, "Unknown i2p subcommand: %s\n", sub)
+		fmt.Fprintln(os.Stderr, "Run 'ipgaze i2p help' for usage.")
+		os.Exit(exUsage)
+	}
+}

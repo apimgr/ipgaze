@@ -1,13 +1,13 @@
 //go:build windows
 
-package main
+package run
 
 import (
 	"os"
 	"os/signal"
 )
 
-var windowsServiceStopSignal = make(chan os.Signal, 1)
+var WindowsServiceStopSignal = make(chan os.Signal, 1)
 
 // notifyServerSignals registers the Windows signal set from AI.md PART 8's
 // Windows signal table (11132-11138): only os.Interrupt (Ctrl+C / Ctrl+Break)
@@ -19,7 +19,7 @@ var windowsServiceStopSignal = make(chan os.Signal, 1)
 func notifyServerSignals(ch chan<- os.Signal) {
 	signal.Notify(ch, os.Interrupt)
 	go func() {
-		if sig := <-windowsServiceStopSignal; sig != nil {
+		if sig := <-WindowsServiceStopSignal; sig != nil {
 			ch <- sig
 		}
 	}()

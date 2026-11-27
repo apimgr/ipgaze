@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -162,4 +163,36 @@ func (l *clientLogger) Warn(format string, args ...any) {
 // Error logs an error-level message.
 func (l *clientLogger) Error(format string, args ...any) {
 	l.write(logLevelError, "error", format, args...)
+}
+
+// Audit records a timestamped audit-format line independently of the selected
+// verbosity level; audit events are always retained in cli.log.
+func (l *clientLogger) Audit(event string, fields map[string]string) {
+	if l == nil {
+		return
+	}
+	keys := make([]string, 0, len(fields))
+	for key := range fields {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	var detail strings.Builder
+	for i, key := range keys {
+		if i > 0 {
+			detail.WriteByte(' ')
+		}
+		fmt.Fprintf(&detail, "%s=%q", key, fields[key])
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.rotate()
+	f, err := os.OpenFile(l.path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		return
+	}
+	defer func() { _ = f.Close() }()
+	if err := setFilePermissions(l.path); err != nil {
+		return
+	}
+	_, _ = fmt.Fprintf(f, "%s AUDIT %s %s\n", time.Now().UTC().Format(time.RFC3339), event, detail.String())
 }

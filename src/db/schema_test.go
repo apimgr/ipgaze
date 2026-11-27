@@ -1,21 +1,20 @@
 package db
 
 import (
+	"context"
 	"database/sql"
 	"strings"
 	"testing"
 
 	"github.com/google/uuid"
-
-	_ "modernc.org/sqlite"
 )
 
 // openMemDB opens an in-memory SQLite database via the pure-Go driver.
-func openMemDB(t *testing.T) *sql.DB {
+func openMemDB(t *testing.T) *Store {
 	t.Helper()
-	db, err := sql.Open("sqlite", ":memory:")
+	db, err := OpenSQLite(":memory:")
 	if err != nil {
-		t.Fatalf("sql.Open: %v", err)
+		t.Fatalf("OpenSQLite: %v", err)
 	}
 	t.Cleanup(func() {
 		if err := db.Close(); err != nil {
@@ -57,7 +56,7 @@ func TestEnsureSchema_CreatesAllTables(t *testing.T) {
 	}
 }
 
-func TestEnsureSchemaUpgradesLegacyCaptchaChallenges(t *testing.T) {
+func TestEnsureSchemaPreservesLegacyCaptchaChallenges(t *testing.T) {
 	db := openMemDB(t)
 	if _, err := db.Exec(`CREATE TABLE contact_captcha_challenges (
 		token_hash TEXT PRIMARY KEY, answer_hash TEXT NOT NULL,
@@ -78,45 +77,79 @@ func TestEnsureSchemaUpgradesLegacyCaptchaChallenges(t *testing.T) {
 	if err := db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='contact_captcha_challenges'`).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
-	if count != 0 {
-		t.Fatal("legacy captcha table remains after upgrade")
+	if count != 1 {
+		t.Fatal("legacy captcha table was not preserved")
 	}
-	if err := db.QueryRow(`SELECT COUNT(*) FROM captcha_challenges`).Scan(&count); err != nil {
-		t.Fatalf("query canonical captcha table: %v", err)
+	if err := db.QueryRow(`SELECT COUNT(*) FROM contact_captcha_challenges WHERE token_hash='legacy'`).Scan(&count); err != nil {
+		t.Fatalf("query preserved legacy captcha row: %v", err)
 	}
-	if count != 0 {
-		t.Fatalf("canonical table contains %d legacy rows, want none", count)
+	if count != 1 {
+		t.Fatalf("legacy captcha table contains %d preserved rows, want 1", count)
 	}
 	if err := EnsureSchema(db); err != nil {
 		t.Fatalf("second EnsureSchema: %v", err)
 	}
 }
 
-func TestEnsureSchemaBackfillsOpaqueAPITokenIDs(t *testing.T) {
-	db := openMemDB(t)
-	if err := EnsureSchema(db); err != nil {
+func TestEnsureSchemaUsesUUIDv7TextTokenIDs(t *testing.T) {
+	store := openMemDB(t)
+	if err := EnsureSchema(store); err != nil {
 		t.Fatalf("EnsureSchema: %v", err)
 	}
-	if _, err := db.Exec(`INSERT INTO owners(id) VALUES('owner-public-id-test')`); err != nil {
-		t.Fatalf("insert owner: %v", err)
-	}
-	result, err := db.Exec(`INSERT INTO api_tokens(owner_id, kind, token_hash, token_prefix, token_last4, token_enc) VALUES('owner-public-id-test', 'linked', 'public-id-test-hash', 'own_public12', 'last', 'encrypted')`)
+	rows, err := store.Query(`PRAGMA table_info(api_tokens)`)
 	if err != nil {
-		t.Fatalf("insert token without a public ID: %v", err)
+		t.Fatal(err)
 	}
-	id, err := result.LastInsertId()
-	if err != nil {
-		t.Fatalf("read internal ID: %v", err)
+	var idType string
+	for rows.Next() {
+		var cid, notNull, primary int
+		var name, kind string
+		var defaultValue sql.NullString
+		if err := rows.Scan(&cid, &name, &kind, &notNull, &defaultValue, &primary); err != nil {
+			t.Fatal(err)
+		}
+		if name == "id" {
+			idType = strings.ToUpper(kind)
+		}
 	}
-	if err := EnsureSchema(db); err != nil {
-		t.Fatalf("EnsureSchema backfill: %v", err)
+	if err := rows.Close(); err != nil {
+		t.Fatal(err)
 	}
-	var publicID string
-	if err := db.QueryRow(`SELECT public_id FROM api_tokens WHERE id = ?`, id).Scan(&publicID); err != nil {
-		t.Fatalf("read public ID: %v", err)
+	if !strings.Contains(idType, "TEXT") {
+		t.Fatalf("api_tokens.id type = %q, want TEXT", idType)
 	}
-	if _, err := uuid.Parse(publicID); err != nil {
-		t.Fatalf("public ID = %q, want UUID: %v", publicID, err)
+}
+
+func TestAdoptLegacyAPITokenIDsRemapsRows(t *testing.T) {
+	store := openMemDB(t)
+	if err := EnsureSchema(store); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Exec(`DROP TABLE api_tokens`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Exec(`CREATE TABLE api_tokens (id INTEGER PRIMARY KEY AUTOINCREMENT, owner_id TEXT NOT NULL REFERENCES owners(id), kind TEXT NOT NULL, name TEXT, token_hash TEXT NOT NULL UNIQUE, token_prefix TEXT NOT NULL, token_last4 TEXT NOT NULL, token_enc TEXT NOT NULL, created_at INTEGER NOT NULL DEFAULT 1, rotated_at INTEGER, expires_at INTEGER, last_used_at INTEGER, revoked_at INTEGER, revoked_reason TEXT, public_id TEXT)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Exec(`INSERT INTO owners(id) VALUES('adopt-owner')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Exec(`INSERT INTO api_tokens(owner_id,kind,token_hash,token_prefix,token_last4,token_enc) VALUES('adopt-owner','primary','adopt-hash','own_prefix','last','enc')`); err != nil {
+		t.Fatal(err)
+	}
+	if err := AdoptLegacyAPITokenIDs(store); err != nil {
+		t.Fatalf("adopt IDs: %v", err)
+	}
+	var id, owner, hash string
+	if err := store.QueryRow(`SELECT id,owner_id,token_hash FROM api_tokens`).Scan(&id, &owner, &hash); err != nil {
+		t.Fatal(err)
+	}
+	parsed, err := uuid.Parse(id)
+	if err != nil || parsed.Version() != 7 {
+		t.Fatalf("adopted id = %q, want UUIDv7: %v", id, err)
+	}
+	if owner != "adopt-owner" || hash != "adopt-hash" {
+		t.Fatalf("adopted row lost data: owner=%q hash=%q", owner, hash)
 	}
 }
 
@@ -157,6 +190,59 @@ func TestEnsureSchema_AddsPreviousRateLimitWindow(t *testing.T) {
 	}
 	if previousCount != 0 {
 		t.Fatalf("prev_count = %d, want 0", previousCount)
+	}
+}
+
+func TestEnsureSchemaRenamesCanonicalSchedulerColumnsInPlace(t *testing.T) {
+	store := openMemDB(t)
+	if _, err := store.Exec(`CREATE TABLE scheduler_tasks(task_id TEXT PRIMARY KEY, task_name TEXT NOT NULL, enabled INTEGER NOT NULL DEFAULT 1, schedule TEXT NOT NULL)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Exec(`CREATE TABLE scheduler_history(id INTEGER PRIMARY KEY, task_id TEXT NOT NULL, ran_at INTEGER NOT NULL, status TEXT NOT NULL)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Exec(`INSERT INTO scheduler_tasks(task_id,task_name,schedule) VALUES('task-1','Legacy task','@every 1h'); INSERT INTO scheduler_history(task_id,ran_at,status) VALUES('task-1',123,'success')`); err != nil {
+		t.Fatal(err)
+	}
+	if err := EnsureSchema(store); err != nil {
+		t.Fatalf("EnsureSchema: %v", err)
+	}
+	var name, schedule string
+	if err := store.QueryRow(`SELECT name,schedule FROM scheduler_tasks WHERE id='task-1'`).Scan(&name, &schedule); err != nil {
+		t.Fatal(err)
+	}
+	if name != "Legacy task" || schedule != "@every 1h" {
+		t.Fatalf("renamed scheduler task = %q / %q", name, schedule)
+	}
+	var startedAt int64
+	if err := store.QueryRow(`SELECT started_at FROM scheduler_history WHERE task_id='task-1'`).Scan(&startedAt); err != nil {
+		t.Fatal(err)
+	}
+	if startedAt != 123 {
+		t.Fatalf("renamed scheduler history timestamp = %d, want 123", startedAt)
+	}
+	for _, table := range []string{"scheduler_tasks", "scheduler_history"} {
+		rows, err := store.QueryContext(context.Background(), `PRAGMA table_info(`+table+`)`)
+		if err != nil {
+			t.Fatal(err)
+		}
+		columns := make(map[string]bool)
+		for rows.Next() {
+			var cid, notNull, primaryKey int
+			var columnName, kind string
+			var defaultValue any
+			if err := rows.Scan(&cid, &columnName, &kind, &notNull, &defaultValue, &primaryKey); err != nil {
+				_ = rows.Close()
+				t.Fatal(err)
+			}
+			columns[columnName] = true
+		}
+		if err := rows.Close(); err != nil {
+			t.Fatal(err)
+		}
+		if columns["task_id"] && table == "scheduler_tasks" || columns["task_name"] || columns["ran_at"] {
+			t.Fatalf("legacy column remains in %s: %v", table, columns)
+		}
 	}
 }
 
@@ -341,9 +427,13 @@ func TestSchema_ApiTokens_UniqueHash(t *testing.T) {
 	}
 
 	insert := func(hash, prefix string) error {
-		_, err := db.Exec(
-			`INSERT INTO api_tokens(owner_id, kind, token_hash, token_prefix, token_last4, token_enc) VALUES(?,?,?,?,?,?)`,
-			"owner-1", "primary", hash, prefix, "last", "encrypted")
+		id, err := uuid.NewV7()
+		if err != nil {
+			return err
+		}
+		_, err = db.Exec(
+			`INSERT INTO api_tokens(id,owner_id, kind, token_hash, token_prefix, token_last4, token_enc) VALUES(?,?,?,?,?,?,?)`,
+			id.String(), "owner-1", "primary", hash, prefix, "last", "encrypted")
 		return err
 	}
 	if _, err := db.Exec(`INSERT INTO owners(id) VALUES(?)`, "owner-1"); err != nil {
@@ -381,11 +471,15 @@ func TestEnsureSchema_MigratesLegacyResourceTokensWithoutDiscardingRows(t *testi
 		t.Fatalf("EnsureSchema: %v", err)
 	}
 	var got string
-	if err := db.QueryRow(`SELECT token_hash FROM api_tokens_legacy WHERE token_hash=?`, "legacy-hash").Scan(&got); err != nil {
+	var resourceType, resourceID string
+	if err := db.QueryRow(`SELECT token_hash,resource_type,resource_id FROM api_tokens WHERE token_hash=?`, "legacy-hash").Scan(&got, &resourceType, &resourceID); err != nil {
 		t.Fatalf("read preserved legacy token: %v", err)
 	}
 	if got != "legacy-hash" {
 		t.Fatalf("preserved token hash = %q, want legacy-hash", got)
+	}
+	if resourceType != "lookup" || resourceID != "8.8.8.8" {
+		t.Fatalf("preserved legacy resource = %q / %q, want lookup / 8.8.8.8", resourceType, resourceID)
 	}
 	if err := EnsureSchema(db); err != nil {
 		t.Fatalf("second EnsureSchema: %v", err)

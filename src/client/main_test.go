@@ -97,7 +97,6 @@ func TestExitCodeForError(t *testing.T) {
 		{"forbidden", &api.APIError{StatusCode: http.StatusForbidden}, exitAuth},
 		{"not found", &api.APIError{StatusCode: http.StatusNotFound}, exitNotFound},
 		{"server error", &api.APIError{StatusCode: http.StatusInternalServerError}, exitGeneral},
-		{"token revoked", api.ErrTokenRevoked, exitAuth},
 		{"plain", errors.New("boom"), exitGeneral},
 	}
 	for _, tc := range cases {

@@ -5,7 +5,6 @@ package handler
 import (
 	"bytes"
 	"context"
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	htmltemplate "html/template"
@@ -20,6 +19,7 @@ import (
 
 	"github.com/apimgr/ipgaze/src/common/httputil"
 	"github.com/apimgr/ipgaze/src/common/i18n"
+	dbstore "github.com/apimgr/ipgaze/src/db"
 	"github.com/apimgr/ipgaze/src/scheduler"
 	"github.com/apimgr/ipgaze/src/server/model"
 )
@@ -126,7 +126,7 @@ type HealthHandler struct {
 	PendingRestart func() (bool, []string)
 	// DB is the live database connection, pinged for checks.database.
 	// Nil is treated as a missing (required) subsystem -> "error" (AI.md PART 10).
-	DB         *sql.DB
+	DB         *dbstore.Store
 	DBRequired bool
 	// CachePing verifies the configured cache backend (AI.md PART 9).
 	// Nil means no cache backend was wired -> reported "ok" (nothing to probe).
@@ -498,18 +498,27 @@ func (h *HealthHandler) buildHealthResponse() model.HealthResponse {
 		Datasets:  h.datasetChecks(),
 	}
 
-	torInfo := model.TorInfo{Status: "disabled"}
+	torInfo := model.TorInfo{State: "disabled", Status: "disabled"}
 	if h.TorStatus != nil && h.TorStatus.IsAvailable() {
 		torStatus := "unavailable"
-		switch h.TorStatus.Status() {
-		case "starting":
+		torState := h.TorStatus.Status()
+		switch {
+		case torState == "starting":
 			torStatus = "starting"
-		case "healthy", "running":
+		case torState == "running" || torState == "healthy":
+			torState = "running"
 			torStatus = "healthy"
+		case torState == "building":
+			torStatus = "starting"
+		case strings.HasPrefix(torState, "error") || torState == "unavailable" || torState == "stopped":
+			torState = "error"
+		default:
+			torState = "starting"
 		}
 		torInfo = model.TorInfo{
 			Enabled:  true,
 			Running:  h.TorStatus.IsRunning(),
+			State:    torState,
 			Status:   torStatus,
 			Hostname: h.TorStatus.GetHostname(),
 		}

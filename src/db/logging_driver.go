@@ -53,9 +53,8 @@ func registerLoggingDrivers() {
 	})
 }
 
-// OpenSQLite opens dsn via the sqlite driver, transparently logging every
-// query when SetQueryLogging(true) is active.
-func OpenSQLite(dsn string) (*sql.DB, error) {
+// openSQLiteDB opens dsn via the sqlite driver for use only inside the Store.
+func openSQLiteDB(dsn string) (*sql.DB, error) {
 	registerLoggingDrivers()
 	return sql.Open("sqlite+logged", dsn)
 }

@@ -15,12 +15,25 @@ import (
 	"github.com/apimgr/ipgaze/src/common/urlutil"
 )
 
-// ErrTokenRevoked is returned by doAPIRequest when the server responds with
-// 401 and a TOKEN_REVOKED body. Callers should clear stored credentials and
-// log the cli.token_revoked_detected audit event (AI.md PART 32).
-var ErrTokenRevoked = errors.New("token revoked by server")
-
 const defaultTimeout = 10 * time.Second
+
+// APIResponse is the canonical JSON response envelope used by the server.
+type APIResponse struct {
+	OK      bool            `json:"ok"`
+	Data    json.RawMessage `json:"data,omitempty"`
+	Error   string          `json:"error,omitempty"`
+	Message string          `json:"message,omitempty"`
+	Details map[string]any  `json:"details,omitempty"`
+}
+
+// ParseAPIResponse parses the canonical JSON response envelope.
+func ParseAPIResponse(body []byte) (*APIResponse, error) {
+	var response APIResponse
+	if err := json.Unmarshal(body, &response); err != nil {
+		return nil, err
+	}
+	return &response, nil
+}
 
 // ConnectionError reports a transport-level failure: the server could not be
 // reached at all (DNS, TCP, TLS or timeout). Callers map it to exit code 3.
@@ -380,10 +393,6 @@ func (c *APIClient) doAPIRequest(ctx context.Context, path, accept string) (body
 		return nil, fmt.Errorf("read response: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		// Detect TOKEN_REVOKED before returning a generic error (AI.md PART 32).
-		if resp.StatusCode == http.StatusUnauthorized && isTokenRevoked(body) {
-			return nil, ErrTokenRevoked
-		}
 		return nil, &APIError{
 			StatusCode: resp.StatusCode,
 			URL:        requestURL,
@@ -391,19 +400,4 @@ func (c *APIClient) doAPIRequest(ctx context.Context, path, accept string) (body
 		}
 	}
 	return body, nil
-}
-
-// isTokenRevoked returns true when the response body signals a revoked token.
-// Handles plain-text "TOKEN_REVOKED" and JSON {"error":"TOKEN_REVOKED"}.
-func isTokenRevoked(body []byte) bool {
-	if strings.TrimSpace(string(body)) == "TOKEN_REVOKED" {
-		return true
-	}
-	var errResp struct {
-		Error string `json:"error"`
-	}
-	if err := json.Unmarshal(body, &errResp); err == nil {
-		return errResp.Error == "TOKEN_REVOKED"
-	}
-	return false
 }

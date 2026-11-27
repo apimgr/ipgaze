@@ -1,4 +1,4 @@
-package main
+package run
 
 import (
 	"errors"
@@ -27,7 +27,7 @@ func TestListFullBackups(t *testing.T) {
 	dir := t.TempDir()
 	now := time.Now()
 	writeBackupFile(t, dir, "ipgaze_backup_2026-01-01.tar.gz", 10, now.Add(-48*time.Hour))
-	writeBackupFile(t, dir, "ipgaze_backup_2026-01-02_120000.tar.gz.enc", 20, now.Add(-24*time.Hour))
+	writeBackupFile(t, dir, "ipgaze_backup_2026-01-02.tar.gz.enc", 20, now.Add(-72*time.Hour))
 	writeBackupFile(t, dir, "ipgaze-daily.tar.gz", 5, now)
 	writeBackupFile(t, dir, "notes.txt", 1, now)
 
@@ -38,7 +38,7 @@ func TestListFullBackups(t *testing.T) {
 	if len(fulls) != 2 {
 		t.Fatalf("expected 2 full backups, got %d", len(fulls))
 	}
-	if fulls[0].name != "ipgaze_backup_2026-01-02_120000.tar.gz.enc" {
+	if fulls[0].name != "ipgaze_backup_2026-01-02.tar.gz.enc" {
 		t.Errorf("expected newest first, got %s", fulls[0].name)
 	}
 }

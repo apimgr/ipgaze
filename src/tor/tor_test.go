@@ -1,17 +1,23 @@
 package tor
 
 import (
+	"bufio"
 	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"errors"
+	"fmt"
 	"net"
 	"net/http"
+	"net/textproto"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/cretz/bine/control"
 )
 
 // makeTempDirs creates a temp config/data dir pair for testing.
@@ -184,6 +190,26 @@ func TestStop_WhenAlreadyStopped_IsIdempotent(t *testing.T) {
 	}
 	if err := m.Stop(); err != nil {
 		t.Errorf("second Stop() error: %v", err)
+	}
+}
+
+func TestStopCancelsTorMonitor(t *testing.T) {
+	m := NewTorManager(defaultCfg(t))
+	m.ensureMonitor()
+	m.mu.RLock()
+	monitorStarted := m.monitorCancel != nil
+	m.mu.RUnlock()
+	if !monitorStarted {
+		t.Fatal("ensureMonitor() did not start a cancellable monitor")
+	}
+	if err := m.Stop(); err != nil {
+		t.Fatalf("Stop(): %v", err)
+	}
+	m.mu.RLock()
+	monitorStopped := m.monitorCancel == nil
+	m.mu.RUnlock()
+	if !monitorStopped {
+		t.Fatal("Stop() retained the monitor cancellation handle")
 	}
 }
 
@@ -690,14 +716,14 @@ func TestWaitControlPortWaitsForCompleteFile(t *testing.T) {
 	child := &managedTorProcess{done: make(chan struct{}), stderr: &tailBuffer{}}
 	writeErr := make(chan error, 1)
 	go func() {
-		time.Sleep(300 * time.Millisecond)
+		time.Sleep(5 * time.Second)
 		if err := os.WriteFile(path, []byte("PORT=127.0.0.1:12345\n"), 0o600); err != nil {
 			writeErr <- err
 			return
 		}
 		writeErr <- nil
 	}()
-	address, err := waitControlPort(context.Background(), child, path, 2*time.Second)
+	address, err := waitControlPort(context.Background(), child, path, 7*time.Second)
 	if err != nil {
 		t.Fatalf("waitControlPort: %v", err)
 	}
@@ -707,6 +733,156 @@ func TestWaitControlPortWaitsForCompleteFile(t *testing.T) {
 	if err := <-writeErr; err != nil {
 		t.Fatal(err)
 	}
+}
+
+func TestStartDedicatedBootstrapTimeoutStopsChild(t *testing.T) {
+	base := t.TempDir()
+	cfg := TorServiceConfig{
+		ConfigDir:        filepath.Join(base, "config"),
+		DataDir:          filepath.Join(base, "data"),
+		StartupTimeout:   2,
+		BootstrapTimeout: 1,
+	}
+	m := NewTorManager(cfg)
+	controlLn, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = controlLn.Close() }()
+	var child *managedTorProcess
+	m.spawn = func(context.Context, string, string) (*managedTorProcess, error) {
+		cmd := exec.Command("sleep", "30")
+		if err := cmd.Start(); err != nil {
+			return nil, err
+		}
+		child = &managedTorProcess{cmd: cmd, done: make(chan struct{}), stderr: &tailBuffer{}}
+		t.Cleanup(func() {
+			if child != nil && child.cmd != nil {
+				_ = child.cmd.Process.Kill()
+			}
+		})
+		go func() {
+			child.mu.Lock()
+			child.waitErr = cmd.Wait()
+			child.mu.Unlock()
+			close(child.done)
+		}()
+		port := controlLn.Addr().(*net.TCPAddr).Port
+		if err := os.WriteFile(filepath.Join(cfg.DataDir, "tor", "control_port"), []byte(fmt.Sprintf("PORT=127.0.0.1:%d\n", port)), 0o600); err != nil {
+			_ = cmd.Process.Kill()
+			return nil, err
+		}
+		return child, nil
+	}
+	m.controlDial = func(context.Context, string) (*control.Conn, net.Conn, error) {
+		client, server := net.Pipe()
+		go func() {
+			defer func() { _ = server.Close() }()
+			reader := bufio.NewReader(server)
+			for {
+				line, readErr := reader.ReadString('\n')
+				if readErr != nil {
+					return
+				}
+				if strings.HasPrefix(line, "SIGNAL SHUTDOWN") && child != nil && child.cmd != nil {
+					_ = child.cmd.Process.Kill()
+				}
+				_, _ = server.Write([]byte("250 OK\r\n"))
+			}
+		}()
+		return control.NewConn(textproto.NewConn(client)), client, nil
+	}
+	_, err = m.startDedicated(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "context deadline exceeded") {
+		t.Fatalf("startDedicated() error = %v, want bootstrap timeout", err)
+	}
+	if child == nil {
+		t.Fatal("fake Tor child was not started")
+	}
+	select {
+	case <-child.done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Tor child remained alive after bootstrap timeout")
+	}
+}
+
+func TestStartDedicatedRetriesCookieAuthenticationOnce(t *testing.T) {
+	base := t.TempDir()
+	cfg := TorServiceConfig{
+		ConfigDir:      filepath.Join(base, "config"),
+		DataDir:        filepath.Join(base, "data"),
+		StartupTimeout: 2,
+	}
+	m := NewTorManager(cfg)
+	dials := 0
+	spawns := 0
+	seenCookieState := make([]bool, 0, 2)
+	dataDir := filepath.Join(cfg.DataDir, "tor")
+	controlLn, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = controlLn.Close() }()
+	m.spawn = func(context.Context, string, string) (*managedTorProcess, error) {
+		spawns++
+		_, err := os.Stat(filepath.Join(dataDir, "control_auth_cookie"))
+		seenCookieState = append(seenCookieState, err == nil)
+		if err := os.WriteFile(filepath.Join(dataDir, "control_auth_cookie"), []byte("cookie"), 0o600); err != nil {
+			return nil, err
+		}
+		port := controlLn.Addr().(*net.TCPAddr).Port
+		if err := os.WriteFile(filepath.Join(dataDir, "control_port"), []byte(fmt.Sprintf("PORT=127.0.0.1:%d\n", port)), 0o600); err != nil {
+			return nil, err
+		}
+		if spawns == 2 {
+			hostname := strings.Repeat("a", 56) + ".onion\n"
+			if err := os.WriteFile(filepath.Join(dataDir, "site", "hostname"), []byte(hostname), 0o600); err != nil {
+				return nil, err
+			}
+		}
+		return &managedTorProcess{done: make(chan struct{}), stderr: &tailBuffer{}}, nil
+	}
+	m.controlDial = func(context.Context, string) (*control.Conn, net.Conn, error) {
+		dials++
+		if dials == 1 {
+			return nil, nil, errors.New("515 Authentication failed")
+		}
+		client, server := net.Pipe()
+		go func() {
+			defer func() { _ = server.Close() }()
+			reader := bufio.NewReader(server)
+			for {
+				line, readErr := reader.ReadString('\n')
+				if readErr != nil {
+					return
+				}
+				switch {
+				case strings.HasPrefix(line, "SETEVENTS "), strings.HasPrefix(line, "SETCONF "), strings.HasPrefix(line, "SIGNAL "), strings.HasPrefix(line, "QUIT"):
+					_, _ = server.Write([]byte("250 OK\r\n"))
+				case strings.HasPrefix(line, "GETINFO status/bootstrap-phase"):
+					_, _ = server.Write([]byte("250-status/bootstrap-phase=NOTICE BOOTSTRAP PROGRESS=100 TAG=done SUMMARY=\"Done\"\r\n250 OK\r\n"))
+				default:
+					_, _ = server.Write([]byte("510 Unrecognized command\r\n"))
+				}
+			}
+		}()
+		return control.NewConn(textproto.NewConn(client)), client, nil
+	}
+	svc, err := m.startDedicated(context.Background())
+	if err != nil {
+		t.Fatalf("startDedicated() after cookie retry: %v", err)
+	}
+	if dials != 2 || spawns != 2 {
+		t.Fatalf("control authentication attempts/process starts = %d/%d, want exactly 2/2", dials, spawns)
+	}
+	if len(seenCookieState) != 2 || seenCookieState[0] || seenCookieState[1] {
+		t.Fatalf("cookie existed before process starts: %v, want stale cookie absent for both attempts", seenCookieState)
+	}
+	if svc.onionAddress != strings.Repeat("a", 56)+".onion" {
+		t.Fatalf("retried onion address = %q, want valid address from replacement process", svc.onionAddress)
+	}
+	_ = svc.ctrl.Close()
+	_ = svc.backendLn.Close()
 }
 
 func TestWaitControlPortTimesOutOnPartialFile(t *testing.T) {

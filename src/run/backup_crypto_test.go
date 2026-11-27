@@ -1,9 +1,10 @@
-package main
+package run
 
 import (
 	"archive/tar"
 	"bytes"
 	"compress/gzip"
+	"encoding/binary"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -733,5 +734,44 @@ func TestExtractBackupArchiveWithLimits(t *testing.T) {
 				t.Fatal("expected configured archive limit to reject input")
 			}
 		})
+	}
+}
+
+func TestBackupHeaderBKUP1AndIncrementalBase(t *testing.T) {
+	encoded, err := encryptBackupArchive([]byte("payload"), "password", "ipgaze_backup_2026-01-01.tar.gz.enc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	header, err := readBackupEncryptionHeader(encoded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if header.baseName != "ipgaze_backup_2026-01-01.tar.gz.enc" || header.memory != 65536 || header.iterations != 3 || header.threads != 4 {
+		t.Fatalf("unexpected BKUP1 header: %#v", header)
+	}
+	if got := len(header.raw); got != backupHeaderFixedLen+len(header.baseName) {
+		t.Fatalf("header length = %d", got)
+	}
+	if _, err := decryptBackupArchive(encoded, "password"); err != nil {
+		t.Fatal(err)
+	}
+	encoded[backupHeaderFixedLen] ^= 1
+	if _, err := decryptBackupArchive(encoded, "password"); err == nil {
+		t.Fatal("modified header authenticated")
+	}
+}
+
+func TestBackupHeaderRejectsKDFBoundsBeforeDerivation(t *testing.T) {
+	encoded, err := encryptBackupArchive([]byte("payload"), "password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	binary.BigEndian.PutUint32(encoded[21:25], backupMaxArgonMemory+1)
+	if _, err := decryptBackupArchive(encoded, "password"); err == nil {
+		t.Fatal("out-of-range Argon2 memory accepted")
+	}
+	binary.BigEndian.PutUint32(encoded[21:25], 8)
+	if _, err := decryptBackupArchive(encoded, "password"); err == nil {
+		t.Fatal("below-minimum Argon2 memory accepted")
 	}
 }

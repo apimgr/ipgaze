@@ -12,6 +12,7 @@ import (
 	i18n "github.com/apimgr/ipgaze/src/common/i18n"
 	"github.com/apimgr/ipgaze/src/server/handler"
 	"github.com/apimgr/ipgaze/src/server/model"
+	"github.com/apimgr/ipgaze/src/swagger"
 )
 
 // Schema represents the GraphQL schema (populated by InitSchema in schema.go)
@@ -36,6 +37,9 @@ type GraphQLHandlerConfig struct {
 	Health      func() model.HealthResponse
 	AuthCheck   func(r *http.Request) (string, error)
 	ContactForm func(r *http.Request) (map[string]interface{}, error)
+	// RegisteredRoutes supplies the handler-bearing route snapshot mounted by
+	// the server so GraphQL fields match the active API registry.
+	RegisteredRoutes func() []swagger.Route
 }
 
 // Handler serves the GraphQL endpoint and GraphiQL UI
@@ -51,7 +55,7 @@ func Handler(cfg GraphQLHandlerConfig) http.HandlerFunc {
 	}
 
 	// Initialize schema on first call
-	if Schema.QueryType() == nil {
+	if cfg.RegisteredRoutes == nil && Schema.QueryType() == nil {
 		if err := InitSchema(); err != nil {
 			return func(w http.ResponseWriter, r *http.Request) {
 				lang := i18n.DetectLocale(r)
@@ -66,7 +70,7 @@ func Handler(cfg GraphQLHandlerConfig) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// Handle POST requests (GraphQL queries)
 		if r.Method == http.MethodPost {
-			handleGraphQLQuery(w, r)
+			handleGraphQLQueryWithRoutes(w, r, cfg.RegisteredRoutes)
 			return
 		}
 
@@ -85,7 +89,8 @@ func Handler(cfg GraphQLHandlerConfig) http.HandlerFunc {
 			if cfg.RenderUI != nil {
 				if err := cfg.RenderUI(w, r, "graphql.tmpl"); err != nil {
 					log.Printf("GraphQL UI render failed: %v", err)
-					http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+					lang := i18n.DetectLocale(r)
+					http.Error(w, i18n.T(i18n.WithLang(r.Context(), lang), "errors.server_error"), http.StatusInternalServerError)
 					return
 				}
 				return
@@ -118,6 +123,10 @@ func serveGraphiQLThemeCSS(w http.ResponseWriter, r *http.Request, cfg GraphQLHa
 
 // handleGraphQLQuery executes a GraphQL query
 func handleGraphQLQuery(w http.ResponseWriter, r *http.Request) {
+	handleGraphQLQueryWithRoutes(w, r, nil)
+}
+
+func handleGraphQLQueryWithRoutes(w http.ResponseWriter, r *http.Request, registeredRoutes func() []swagger.Route) {
 	var params struct {
 		Query         string                 `json:"query"`
 		Variables     map[string]interface{} `json:"variables"`
@@ -143,8 +152,18 @@ func handleGraphQLQuery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	lang := i18n.DetectLocale(r)
+	schema := schemaForLocale(lang)
+	if registeredRoutes != nil {
+		var err error
+		schema, err = buildSchemaForRoutes(lang, registeredRoutes())
+		if err != nil {
+			writeGraphQLError(w, i18n.T(i18n.WithLang(r.Context(), lang), "errors.server_error"), http.StatusInternalServerError)
+			return
+		}
+	}
 	result := gql.Do(gql.Params{
-		Schema:         schemaForLocale(i18n.DetectLocale(r)),
+		Schema:         schema,
 		RequestString:  params.Query,
 		VariableValues: params.Variables,
 		OperationName:  params.OperationName,

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	i18n "github.com/apimgr/ipgaze/src/common/i18n"
 	"github.com/apimgr/ipgaze/src/config"
 	"github.com/apimgr/ipgaze/src/netutil"
 )
@@ -84,6 +85,19 @@ func TestGeneratedTrackingEndpointConsentAndOverlayGate(t *testing.T) {
 	h.ServerTrackingScript(w, onion)
 	if w.Code != http.StatusNotFound {
 		t.Fatalf("onion tracking response = %d, want 404", w.Code)
+	}
+}
+
+func TestGeneratedTrackingEndpointMethodErrorIsTranslated(t *testing.T) {
+	h := analyticsTestHandler()
+	r := httptest.NewRequest(http.MethodPost, "https://ipgaze.example/server/tracking.js", nil)
+	r.Header.Set("Accept-Language", "fr")
+	w := httptest.NewRecorder()
+	h.ServerTrackingScript(w, r)
+
+	want := i18n.T(i18n.WithLang(r.Context(), i18n.DetectLocale(r)), "errors.method_not_allowed")
+	if w.Code != http.StatusMethodNotAllowed || strings.TrimSpace(w.Body.String()) != want {
+		t.Fatalf("method error = %d %q, want %d %q", w.Code, strings.TrimSpace(w.Body.String()), http.StatusMethodNotAllowed, want)
 	}
 }
 

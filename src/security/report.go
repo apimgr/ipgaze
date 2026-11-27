@@ -14,6 +14,8 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	dbstore "github.com/apimgr/ipgaze/src/db"
 )
 
 const securityIDWindow = int64(48 * time.Hour / time.Second)
@@ -36,7 +38,7 @@ func SecurityID(secret []byte, unixSeconds int64) string {
 
 // CurrentSecurityID loads the persisted installation secret and computes the
 // token for the current 48-hour window.
-func CurrentSecurityID(db *sql.DB, now time.Time) (string, error) {
+func CurrentSecurityID(db *dbstore.Store, now time.Time) (string, error) {
 	secret, err := GetOrCreateSecret(db, SecretInstallationSecret)
 	if err != nil {
 		return "", err
@@ -46,7 +48,7 @@ func CurrentSecurityID(db *sql.DB, now time.Time) (string, error) {
 
 // IsValidSecurityID validates a published token against current and live
 // previous installation secrets.
-func IsValidSecurityID(db *sql.DB, candidate string, now time.Time) (bool, error) {
+func IsValidSecurityID(db *dbstore.Store, candidate string, now time.Time) (bool, error) {
 	current, err := GetOrCreateSecret(db, SecretInstallationSecret)
 	if err != nil {
 		return false, err
@@ -151,63 +153,57 @@ func DecryptSecurityCredit(secret []byte, stored string) (string, error) {
 // EncryptLegacySecurityCredits upgrades pre-encryption credit names in place.
 // Startup calls this before serving requests so existing names are not left
 // in plaintext at rest.
-func EncryptLegacySecurityCredits(db *sql.DB, secret []byte) error {
+func EncryptLegacySecurityCredits(db *dbstore.Store, secret []byte) error {
 	if db == nil || len(secret) == 0 {
 		return errors.New("security: invalid researcher-credit migration input")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), securityCreditMigrationTimeout)
 	defer cancel()
-	tx, err := db.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("security: begin researcher-credit migration: %w", err)
-	}
-	defer func() { _ = tx.Rollback() }()
-	rows, err := tx.QueryContext(ctx, `SELECT tracking_id, credit_name FROM security_reports WHERE credit_name != ''`)
-	if err != nil {
-		return fmt.Errorf("security: read legacy researcher credits: %w", err)
-	}
-	type legacyCredit struct{ trackingID, name string }
-	var credits []legacyCredit
-	for rows.Next() {
-		var credit legacyCredit
-		if err := rows.Scan(&credit.trackingID, &credit.name); err != nil {
-			_ = rows.Close()
-			return fmt.Errorf("security: read legacy researcher credit: %w", err)
-		}
-		credits = append(credits, credit)
-	}
-	if err := rows.Err(); err != nil {
-		_ = rows.Close()
-		return fmt.Errorf("security: iterate legacy researcher credits: %w", err)
-	}
-	if err := rows.Close(); err != nil {
-		return fmt.Errorf("security: close legacy researcher credits: %w", err)
-	}
-	for _, credit := range credits {
-		if strings.HasPrefix(credit.name, securityCreditPrefix) {
-			if _, err := DecryptSecurityCredit(secret, credit.name); err != nil {
-				return fmt.Errorf("security: existing researcher credit cannot be decrypted: %w", err)
-			}
-			continue
-		}
-		encrypted, err := EncryptSecurityCredit(secret, credit.name)
+	return db.Write(ctx, func(tx *sql.Tx) error {
+		rows, err := tx.QueryContext(ctx, `SELECT tracking_id, credit_name FROM security_reports WHERE credit_name != ''`)
 		if err != nil {
-			return err
+			return fmt.Errorf("security: read legacy researcher credits: %w", err)
 		}
-		if _, err := tx.ExecContext(ctx, `UPDATE security_reports SET credit_name = ? WHERE tracking_id = ?`, encrypted, credit.trackingID); err != nil {
-			return fmt.Errorf("security: encrypt legacy researcher credit: %w", err)
+		type legacyCredit struct{ trackingID, name string }
+		var credits []legacyCredit
+		for rows.Next() {
+			var credit legacyCredit
+			if err := rows.Scan(&credit.trackingID, &credit.name); err != nil {
+				_ = rows.Close()
+				return fmt.Errorf("security: read legacy researcher credit: %w", err)
+			}
+			credits = append(credits, credit)
 		}
-	}
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("security: commit researcher-credit migration: %w", err)
-	}
-	return nil
+		if err := rows.Err(); err != nil {
+			_ = rows.Close()
+			return fmt.Errorf("security: iterate legacy researcher credits: %w", err)
+		}
+		if err := rows.Close(); err != nil {
+			return fmt.Errorf("security: close legacy researcher credits: %w", err)
+		}
+		for _, credit := range credits {
+			if strings.HasPrefix(credit.name, securityCreditPrefix) {
+				if _, err := DecryptSecurityCredit(secret, credit.name); err != nil {
+					return fmt.Errorf("security: existing researcher credit cannot be decrypted: %w", err)
+				}
+				continue
+			}
+			encrypted, err := EncryptSecurityCredit(secret, credit.name)
+			if err != nil {
+				return err
+			}
+			if _, err := tx.ExecContext(ctx, `UPDATE security_reports SET credit_name = ? WHERE tracking_id = ?`, encrypted, credit.trackingID); err != nil {
+				return fmt.Errorf("security: encrypt legacy researcher credit: %w", err)
+			}
+		}
+		return nil
+	})
 }
 
 // StoreSecurityReport stores encrypted report content and non-identifying
 // triage metadata. Names, email addresses, URLs, and report details belong in
 // Ciphertext; CreditName is separately encrypted with the server data key.
-func StoreSecurityReport(db *sql.DB, report SecurityReportMetadata) error {
+func StoreSecurityReport(db *dbstore.Store, report SecurityReportMetadata) error {
 	if db == nil {
 		return errors.New("security: report database unavailable")
 	}
@@ -249,7 +245,7 @@ func nullableBytes(value []byte) any {
 
 // LoadSecurityReportPayload returns the encrypted notification payload without
 // decrypting or transforming report content.
-func LoadSecurityReportPayload(db *sql.DB, trackingID string) ([]byte, string, error) {
+func LoadSecurityReportPayload(db *dbstore.Store, trackingID string) ([]byte, string, error) {
 	if db == nil || trackingID == "" {
 		return nil, "", errors.New("security: invalid report export request")
 	}
@@ -276,7 +272,7 @@ type SecurityReportContact struct {
 
 // LoadSecurityReportContact decrypts the report's separately encrypted contact
 // fields for an operator-authorized status notification.
-func LoadSecurityReportContact(db *sql.DB, trackingID string, key []byte) (SecurityReportContact, error) {
+func LoadSecurityReportContact(db *dbstore.Store, trackingID string, key []byte) (SecurityReportContact, error) {
 	if db == nil || len(key) != 32 {
 		return SecurityReportContact{}, errors.New("security: invalid report contact lookup")
 	}
@@ -302,24 +298,15 @@ func LoadSecurityReportContact(db *sql.DB, trackingID string, key []byte) (Secur
 
 // ReencryptSecurityReports rotates AES-encrypted report bodies in one
 // transaction. PGP-encrypted reports are unaffected by the server AES key.
-func ReencryptSecurityReports(db *sql.DB, oldKey, newKey []byte) error {
+func ReencryptSecurityReports(db *dbstore.Store, oldKey, newKey []byte) error {
 	if db == nil || len(oldKey) != 32 || len(newKey) != 32 {
 		return errors.New("security: invalid report encryption rotation input")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), reportReencryptionTimeout)
 	defer cancel()
-	tx, err := db.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("security: begin report key rotation: %w", err)
-	}
-	defer func() { _ = tx.Rollback() }()
-	if err := ReencryptSecurityReportsTx(ctx, tx, oldKey, newKey); err != nil {
-		return err
-	}
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("security: commit report key rotation: %w", err)
-	}
-	return nil
+	return db.Write(ctx, func(tx *sql.Tx) error {
+		return ReencryptSecurityReportsTx(ctx, tx, oldKey, newKey)
+	})
 }
 
 // ReencryptSecurityReportsTx performs report re-encryption inside a caller's
@@ -444,7 +431,7 @@ func ReencryptSecurityReportsTx(ctx context.Context, tx *sql.Tx, oldKey, newKey 
 
 // UpdateSecurityReportTriage changes only canonical triage fields; encrypted
 // report content is never exposed through this maintenance operation.
-func UpdateSecurityReportTriage(db *sql.DB, trackingID, status, comment string, disclosureDate *time.Time, now time.Time) error {
+func UpdateSecurityReportTriage(db *dbstore.Store, trackingID, status, comment string, disclosureDate *time.Time, now time.Time) error {
 	comment = strings.Map(func(r rune) rune {
 		if r < 0x20 && r != '\n' && r != '\t' || r == 0x7f {
 			return -1
@@ -461,17 +448,30 @@ func UpdateSecurityReportTriage(db *sql.DB, trackingID, status, comment string, 
 // UpdateSecurityReport applies only the provided researcher-visible fields and
 // returns the old and resulting status for audit logging. Status changes may
 // advance through the workflow or close a report as Won't Fix, never regress.
-func UpdateSecurityReport(db *sql.DB, trackingID string, status, comment *string, disclosureDate *time.Time, now time.Time) (string, string, error) {
+func UpdateSecurityReport(db *dbstore.Store, trackingID string, status, comment *string, disclosureDate *time.Time, now time.Time) (string, string, error) {
 	if db == nil || strings.TrimSpace(trackingID) == "" || status == nil && comment == nil && disclosureDate == nil {
 		return "", "", errors.New("security: invalid report update")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
+	var oldStatus, newStatus string
+	err := db.Write(ctx, func(tx *sql.Tx) error {
+		var err error
+		oldStatus, newStatus, err = updateSecurityReportTx(ctx, tx, trackingID, status, comment, disclosureDate, now)
+		return err
+	})
+	if err != nil {
+		return oldStatus, oldStatus, err
+	}
+	return oldStatus, newStatus, nil
+}
+
+func updateSecurityReportTx(ctx context.Context, tx *sql.Tx, trackingID string, status, comment *string, disclosureDate *time.Time, now time.Time) (string, string, error) {
 	var oldStatus, oldComment string
 	var oldDisclosure sql.NullString
 	var oldDisclosedYear sql.NullInt64
 	var closed sql.NullInt64
-	if err := db.QueryRowContext(ctx, `SELECT status, COALESCE(researcher_comment, ''), strftime('%Y-%m-%d', disclosure_date), disclosed_year, closed_at FROM security_reports WHERE tracking_id = ?`, trackingID).Scan(&oldStatus, &oldComment, &oldDisclosure, &oldDisclosedYear, &closed); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT status, COALESCE(researcher_comment, ''), strftime('%Y-%m-%d', disclosure_date), disclosed_year, closed_at FROM security_reports WHERE tracking_id = ?`, trackingID).Scan(&oldStatus, &oldComment, &oldDisclosure, &oldDisclosedYear, &closed); err != nil {
 		return "", "", fmt.Errorf("security: load report for update: %w", err)
 	}
 	newStatus := oldStatus
@@ -511,7 +511,7 @@ func UpdateSecurityReport(db *sql.DB, trackingID string, status, comment *string
 			disclosedYear = oldDisclosedYear.Int64
 		}
 	}
-	result, err := db.ExecContext(ctx, `UPDATE security_reports SET status = ?, researcher_comment = ?, disclosure_date = ?, closed_at = ?, disclosed_year = ?, updated_at = ?
+	result, err := tx.ExecContext(ctx, `UPDATE security_reports SET status = ?, researcher_comment = ?, disclosure_date = ?, closed_at = ?, disclosed_year = ?, updated_at = ?
 		WHERE tracking_id = ? AND status = ? AND COALESCE(researcher_comment, '') = ?
 		AND COALESCE(strftime('%Y-%m-%d', disclosure_date), '') = ?
 		AND COALESCE(disclosed_year, 0) = ? AND COALESCE(closed_at, 0) = ?`,
@@ -585,53 +585,64 @@ type SecurityReportStatus struct {
 
 // ConsumeSecurityAccessToken validates a report token and permits one access
 // per UTC day. A closed report remains accessible for 30 days.
-func ConsumeSecurityAccessToken(db *sql.DB, trackingID, token string, now time.Time) (SecurityReportStatus, error) {
+func ConsumeSecurityAccessToken(db *dbstore.Store, trackingID, token string, now time.Time) (SecurityReportStatus, error) {
+	if db == nil {
+		return SecurityReportStatus{}, errors.New("security: report database unavailable")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
 	var status SecurityReportStatus
+	err := db.Write(ctx, func(tx *sql.Tx) error {
+		return consumeSecurityAccessTokenTx(ctx, tx, trackingID, token, now, &status)
+	})
+	if err != nil {
+		return SecurityReportStatus{}, err
+	}
+	return status, nil
+}
+
+func consumeSecurityAccessTokenTx(ctx context.Context, tx *sql.Tx, trackingID, token string, now time.Time, status *SecurityReportStatus) error {
 	var hash string
 	var lastAccessDay sql.NullString
 	var disclosure sql.NullString
 	var closed sql.NullInt64
 	var comment sql.NullString
-	readCtx, cancelRead := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancelRead()
 	var rawStatus string
-	err := db.QueryRowContext(readCtx, `SELECT tracking_id, status, researcher_comment, strftime('%Y-%m-%d', disclosure_date),
+	err := tx.QueryRowContext(ctx, `SELECT tracking_id, status, researcher_comment, strftime('%Y-%m-%d', disclosure_date),
 		closed_at, token_hash, strftime('%Y-%m-%d', token_last_used) FROM security_reports WHERE tracking_id = ?`, trackingID).
 		Scan(&status.TrackingID, &rawStatus, &comment, &disclosure, &closed, &hash, &lastAccessDay)
 	if err != nil {
-		return SecurityReportStatus{}, err
+		return err
 	}
 	suppliedHash := sha256.Sum256([]byte(token))
 	if !hmac.Equal([]byte(hash), []byte(hex.EncodeToString(suppliedHash[:]))) {
-		return SecurityReportStatus{}, errors.New("security: invalid report access token")
+		return errors.New("security: invalid report access token")
 	}
 	day := now.UTC().Unix() / 86400
 	if lastAccessDay.Valid {
 		last, parseErr := time.Parse("2006-01-02", lastAccessDay.String)
 		if parseErr != nil {
-			return SecurityReportStatus{}, errors.New("security: invalid report access date")
+			return errors.New("security: invalid report access date")
 		}
 		if last.Unix()/86400 >= day {
-			return SecurityReportStatus{}, errors.New("security: report token already used today")
+			return errors.New("security: report token already used today")
 		}
 	}
 	if closed.Valid && now.Unix() > closed.Int64+int64(30*24*time.Hour/time.Second) {
-		return SecurityReportStatus{}, errors.New("security: report access expired")
+		return errors.New("security: report access expired")
 	}
-	writeCtx, cancelWrite := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancelWrite()
 	dayText := time.Unix(day*86400, 0).UTC().Format("2006-01-02")
-	result, err := db.ExecContext(writeCtx, `UPDATE security_reports SET token_last_used = ?
+	result, err := tx.ExecContext(ctx, `UPDATE security_reports SET token_last_used = ?
 		WHERE tracking_id = ? AND (token_last_used IS NULL OR token_last_used < ?)`, dayText, trackingID, dayText)
 	if err != nil {
-		return SecurityReportStatus{}, fmt.Errorf("security: consume report token: %w", err)
+		return fmt.Errorf("security: consume report token: %w", err)
 	}
 	n, err := result.RowsAffected()
 	if err != nil {
-		return SecurityReportStatus{}, fmt.Errorf("security: confirm report token use: %w", err)
+		return fmt.Errorf("security: confirm report token use: %w", err)
 	}
 	if n != 1 {
-		return SecurityReportStatus{}, errors.New("security: report token already used today")
+		return errors.New("security: report token already used today")
 	}
 	status.Status = securityReportStatusTitle(rawStatus)
 	if comment.Valid {
@@ -640,7 +651,7 @@ func ConsumeSecurityAccessToken(db *sql.DB, trackingID, token string, now time.T
 	if disclosure.Valid {
 		t, parseErr := time.Parse("2006-01-02", disclosure.String)
 		if parseErr != nil {
-			return SecurityReportStatus{}, fmt.Errorf("security: parse disclosure date: %w", parseErr)
+			return fmt.Errorf("security: parse disclosure date: %w", parseErr)
 		}
 		status.DisclosureDate = &t
 	}
@@ -648,7 +659,7 @@ func ConsumeSecurityAccessToken(db *sql.DB, trackingID, token string, now time.T
 		t := time.Unix(closed.Int64, 0).UTC()
 		status.ClosedAt = &t
 	}
-	return status, nil
+	return nil
 }
 
 func validSecuritySeverity(value string) bool {

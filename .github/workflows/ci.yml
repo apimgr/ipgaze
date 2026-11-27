@@ -46,18 +46,20 @@ jobs:
       GOFLAGS: "-buildvcs=false"
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-      - name: Run tests with coverage
+      - name: Run tests and enforce coverage
         run: |
-          mkdir -p "/tmp/${{ github.repository_owner }}"
-          COVDIR=$(mktemp -d "/tmp/${{ github.repository_owner }}/$(basename "${{ github.repository }}")-XXXXXX")
-          echo "COVDIR=$COVDIR" >> "$GITHUB_ENV"
-          export TMPDIR="$COVDIR"
-          go test -cover -coverprofile="$COVDIR/coverage.out" ./...
-      - name: Enforce coverage threshold
-        run: |
+          PROJECT_ORG="$(sed -n 's/^project_org:[[:space:]]*//p' IDEA.md | head -n1 | tr -d '[:space:]')"
+          INTERNAL_NAME="$(sed -n 's/^internal_name:[[:space:]]*//p' IDEA.md | head -n1 | tr -d '[:space:]')"
+          mkdir -p "/tmp/$PROJECT_ORG"
+          COVDIR="$(mktemp -d "/tmp/$PROJECT_ORG/$INTERNAL_NAME-XXXXXX")"
+          chmod 700 "$COVDIR"
+          trap 'rm -rf -- "$COVDIR"' EXIT
+          mkdir -p "$COVDIR/data"
+          go test -cover ./... -args -test.gocoverdir="$COVDIR/data"
+          go tool covdata textfmt -i="$COVDIR/data" -o="$COVDIR/coverage.out"
           THRESHOLD=60
           PCT=$(go tool cover -func="$COVDIR/coverage.out" | awk '/^total:/ {gsub("%","",$3); print int($3)}')
-          if [ "$PCT" -lt "$THRESHOLD" ]; then
+          if [ -z "$PCT" ] || [ "$PCT" -lt "$THRESHOLD" ]; then
             echo "::error::coverage $PCT% < threshold $THRESHOLD%"
             exit 1
           fi

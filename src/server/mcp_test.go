@@ -241,12 +241,16 @@ func TestMCPToolSpecUsesOperationIDAndOpenAPISchema(t *testing.T) {
 func TestMCPOperationVisibilityFollowsBearerSecurityAndExcludesTokenManagement(t *testing.T) {
 	server := &Server{}
 	server.SetOperatorToken("adm_test_operator_token")
-	public := &swagger.Operation{}
-	protected := &swagger.Operation{Security: []map[string][]string{{"BearerAuth": {}}}}
+	public, _ := swagger.RouteForOperationID("v1_ip")
+	protected, _ := swagger.RouteForOperationID("v1_auth_check")
+	internal := swagger.Route{Auth: "none", Listed: true, Internal: true}
 	request := httptest.NewRequest(http.MethodPost, "/mcp", nil)
 
 	if !server.mcpOperationVisible(request, "/api/v1/ip", public) {
 		t.Fatal("public operation should be visible without a token")
+	}
+	if server.mcpOperationVisible(request, "/api/v1/internal", internal) {
+		t.Fatal("internal operation must never be visible in MCP")
 	}
 	if server.mcpOperationVisible(request, "/api/v1/server/auth/check", protected) {
 		t.Fatal("operator-only operation should be hidden from anonymous callers")
@@ -278,25 +282,53 @@ func TestMCPToolInventoryRequiresRegisteredRuntimeRoute(t *testing.T) {
 	}
 }
 
+func TestMCPIncludesAuthorizedUnlistedRoutes(t *testing.T) {
+	server := testServer()
+	server.SetOperatorToken("adm_test_operator_token")
+	server.Handler()
+	request := httptest.NewRequest(http.MethodPost, "/mcp", nil)
+	for _, operation := range server.registeredMCPOperations(request) {
+		if operation.route.OperationID == "v1AuthCheck" {
+			t.Fatal("operator-only tool was visible without operator authorization")
+		}
+	}
+	request.Header.Set("Authorization", "Bearer adm_test_operator_token")
+	for _, operation := range server.registeredMCPOperations(request) {
+		if operation.route.OperationID == "v1AuthCheck" {
+			return
+		}
+	}
+	t.Fatal("MCP omitted an authorized operator route because it was not Listed")
+}
+
 func TestAPIV1RuntimeRegistryUsesOpenAPIRouteDefinitions(t *testing.T) {
 	server := testServer()
 	server.Handler()
-	for _, definition := range swagger.APIV1RouteDefinitions() {
-		wantRegistered := definition.OperationID != "v1_swagger" &&
-			definition.OperationID != "v1_graphql_get" &&
-			definition.OperationID != "v1_graphql_post"
-		_, registered := server.apiOperationIDs[definition.OperationID]
-		if registered != wantRegistered {
-			t.Errorf("operation %q registered = %v, want %v", definition.OperationID, registered, wantRegistered)
+	routes := server.RegisteredAPIRoutes()
+	if len(routes) == 0 {
+		t.Fatal("runtime route registry is empty")
+	}
+	for _, route := range routes {
+		if !strings.HasPrefix(route.Path, "/api/v1") {
+			continue
+		}
+		if route.Handler == nil {
+			t.Errorf("registered route %q has no mounted handler", route.OperationID)
+		}
+		if _, ok := server.apiOperationIDs[route.OperationID]; !ok {
+			t.Errorf("route %q is absent from the runtime operation set", route.OperationID)
+		}
+		if route.Internal {
+			t.Errorf("internal route %q entered the public API registry", route.OperationID)
 		}
 	}
-	if !server.isAPIOperationRegistered("v1_ip_lookup", "/api/v1/ip/{ip}", http.MethodGet) {
+	if !server.isAPIOperationRegistered("v1IpLookup", "/api/v1/ip/{ip}", http.MethodGet) {
 		t.Fatal("registered runtime API operation was not exposed to MCP discovery")
 	}
-	if server.isAPIOperationRegistered("v1_graphql_get", "/api/v1/server/graphql", http.MethodGet) {
+	if server.isAPIOperationRegistered("v1GraphQLGet", "/api/v1/server/graphql", http.MethodGet) {
 		t.Fatal("disabled GraphQL operation was exposed to MCP discovery")
 	}
-	for _, operationID := range []string{"v1_graphql_get", "v1_swagger"} {
+	for _, operationID := range []string{"v1GraphQLGet", "v1Swagger"} {
 		if _, ok := server.apiOperationIDs[operationID]; ok {
 			t.Errorf("disabled optional operation %q present in runtime registry", operationID)
 		}

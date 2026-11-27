@@ -14,8 +14,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/apimgr/ipgaze/src/swagger"
 	gql "github.com/graphql-go/graphql"
 
+	i18n "github.com/apimgr/ipgaze/src/common/i18n"
 	"github.com/apimgr/ipgaze/src/server/model"
 )
 
@@ -119,6 +121,33 @@ func TestSchema_HasQueryFields(t *testing.T) {
 		if _, ok := qt.Fields()[name]; !ok {
 			t.Errorf("schema missing expected field: %q", name)
 		}
+	}
+}
+
+func TestSchema_QueryFieldsComeFromRouteAdapters(t *testing.T) {
+	ensureSchema(t)
+	fields := Schema.QueryType().Fields()
+	for _, route := range swagger.APIV1RouteDefinitions() {
+		if route.Internal || route.GraphQLField == "" {
+			continue
+		}
+		if _, exists := fields[route.GraphQLField]; !exists {
+			t.Errorf("route %q declares GraphQL field %q but schema omits it", route.OperationID, route.GraphQLField)
+		}
+	}
+}
+
+func TestSchema_UsesActiveRouteRegistrySnapshot(t *testing.T) {
+	schema, err := buildSchemaForRoutes("en", []swagger.Route{{GraphQLField: "myIP"}})
+	if err != nil {
+		t.Fatalf("buildSchemaForRoutes() error = %v", err)
+	}
+	fields := schema.QueryType().Fields()
+	if _, ok := fields["myIP"]; !ok {
+		t.Fatal("active GraphQL route was omitted from schema")
+	}
+	if _, ok := fields["health"]; ok {
+		t.Fatal("GraphQL field without a route registry entry was included")
 	}
 }
 
@@ -734,6 +763,7 @@ func TestHandler_GET_RenderUIErrorReturnsInternalServerError(t *testing.T) {
 		return errors.New("template render failed")
 	}})
 	req := httptest.NewRequest(http.MethodGet, "/graphql", nil)
+	req.Header.Set("Accept-Language", "fr")
 	rec := httptest.NewRecorder()
 
 	h(rec, req)
@@ -743,6 +773,10 @@ func TestHandler_GET_RenderUIErrorReturnsInternalServerError(t *testing.T) {
 	}
 	if rec.Body.Len() == 0 {
 		t.Fatal("render failure returned an empty response")
+	}
+	want := i18n.T(i18n.WithLang(req.Context(), i18n.DetectLocale(req)), "errors.server_error")
+	if strings.TrimSpace(rec.Body.String()) != want {
+		t.Fatalf("render error body = %q, want translated %q", strings.TrimSpace(rec.Body.String()), want)
 	}
 }
 

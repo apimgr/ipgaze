@@ -1,6 +1,6 @@
 //go:build windows
 
-package main
+package run
 
 import (
 	"os"
@@ -97,4 +97,10 @@ func ensureSystemUser(_, _ string) (uid, gid int, err error) {
 // under the Virtual Service Account, not POSIX uid/gid.
 func chownRecursive(_ string, _, _ int) error {
 	return nil
+}
+
+// hasLegacyMacOSServiceUser is always false on Windows; this migration notice
+// applies only to the historical macOS service account name.
+func hasLegacyMacOSServiceUser(_ string) bool {
+	return false
 }

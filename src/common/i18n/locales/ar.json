@@ -544,7 +544,12 @@
     "tokens_status_revoked": "ملغى",
     "tokens_forget_confirm": "تأكيد نسيان رمز هذا المتصفح",
     "tokens_rotate_confirm": "تأكيد تدوير الرمز",
-    "tokens_revoke_confirm": "تأكيد إلغاء الرمز"
+    "tokens_revoke_confirm": "تأكيد إلغاء الرمز",
+    "tokens_revoke_primary": "إلغاء الرمز الأساسي",
+    "tokens_revoke_primary_warning": "سيؤدي هذا إلى حذف هويتك وجميع الرموز ({tokens}) والموارد ({resources}) نهائيًا.",
+    "tokens_revoke_primary_confirm": "اكتب الأحرف الأربعة الأخيرة من الرمز الأساسي لتأكيد الحذف.",
+    "tokens_revoke_primary_invalid": "التأكيد غير مطابق. لم يتم حذف أي شيء.",
+    "tokens_revoke_primary_success": "تم حذف المالك والرموز."
   },
   "announcements": {
     "warning": "تحذير",
@@ -942,7 +947,6 @@
     "err_update_failed": "فشل التحديث: {error}",
     "err_unknown_update": "أمر تحديث غير معروف \"{command}\". الأوامر الصالحة: check، yes",
     "update_prompt": "هل تريد تثبيت هذا التحديث الآن؟ [y/N]",
-    "err_token_revoked": "أبطل الخادم هذا الرمز. أعد المصادقة باستخدام ‎--token أو ‎--token-file.",
     "shell_help_usage": "الاستخدام: {binary} --shell completions|init|help SHELL",
     "err_unknown_shell_command": "أمر صدفة غير معروف \"{command}\". الأوامر الصالحة: completions، init، help",
     "err_unsupported_shell": "صدفة غير مدعومة \"{shell}\". الصدفات المدعومة: {shells}",

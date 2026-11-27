@@ -8,6 +8,7 @@
 </header>
 {{if not .HasOwner}}
 <section class="section-card" aria-labelledby="new-owner-token">
+  {{if eq .TokenAction "revoked"}}<p class="alert alert-success" role="status">{{t .Lang "preferences.tokens_revoke_primary_success"}}</p>{{end}}
   <h2 id="new-owner-token">{{t .Lang "preferences.tokens_new_heading"}}</h2>
   {{if eq .TokenAction "created"}}
   <p class="alert alert-success" role="status">{{t .Lang "preferences.tokens_created_primary"}} <code class="copy-value">{{.NewToken}}</code><button type="button" class="copy-btn" data-copy="{{.NewToken}}" data-copied-label="{{t .Lang "common.copied"}}">{{t .Lang "common.copy"}}</button></p>
@@ -55,6 +56,25 @@
       </div>
     </div>
   </section>
+  {{if .RevokeCountsAvailable}}
+  <section class="section-card" id="revoke-primary-token" aria-labelledby="revoke-primary-heading">
+    <h2 id="revoke-primary-heading">{{t .Lang "preferences.tokens_revoke_primary"}}</h2>
+    <p>{{tf .Lang "preferences.tokens_revoke_primary_warning" "tokens" (printf "%d" .RevokeTokens) "resources" (printf "%d" .RevokeResources)}}</p>
+    {{if .RevokeInvalid}}<p class="alert alert-danger" role="alert">{{t .Lang "preferences.tokens_revoke_primary_invalid"}}</p>{{end}}
+    <details>
+      <summary>{{t .Lang "preferences.tokens_revoke_primary"}}</summary>
+      <p>{{t .Lang "preferences.tokens_revoke_primary_confirm"}}</p>
+      <form method="POST" action="/server/preferences/token/revoke">
+        <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+        <div class="form-group">
+          <label for="revoke-primary-confirm">{{t .Lang "preferences.tokens_revoke_primary_confirm"}}</label>
+          <input class="form-input" id="revoke-primary-confirm" name="confirm" type="text" autocomplete="off" minlength="4" maxlength="4" required>
+        </div>
+        <button class="btn btn-danger" type="submit">{{t .Lang "preferences.tokens_revoke_primary"}}</button>
+      </form>
+    </details>
+  </section>
+  {{end}}
   <section class="section-card" id="linked-token-list" aria-labelledby="linked-tokens">
     <h2 id="linked-tokens">{{t .Lang "preferences.tokens_linked_heading"}} ({{len .LinkedTokens}})</h2>
     {{range .LinkedTokens}}

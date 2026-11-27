@@ -48,7 +48,14 @@ func TestNewDB_SQLitePragmaEffect(t *testing.T) {
 	if err := sqlDB.QueryRow("PRAGMA busy_timeout").Scan(&busyTimeout); err != nil {
 		t.Fatalf("PRAGMA busy_timeout: %v", err)
 	}
-	if busyTimeout != 5000 {
-		t.Errorf("busy_timeout = %d, want 5000", busyTimeout)
+	if busyTimeout != 10000 {
+		t.Errorf("busy_timeout = %d, want 10000", busyTimeout)
+	}
+	var queryOnly int
+	if err := sqlDB.readDB.QueryRow("PRAGMA query_only").Scan(&queryOnly); err != nil {
+		t.Fatalf("reader PRAGMA query_only: %v", err)
+	}
+	if queryOnly != 1 {
+		t.Errorf("reader query_only = %d, want 1", queryOnly)
 	}
 }

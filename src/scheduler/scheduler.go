@@ -12,6 +12,7 @@ import (
 	"time"
 	_ "time/tzdata"
 
+	dbstore "github.com/apimgr/ipgaze/src/db"
 	gocron "github.com/go-co-op/gocron/v2"
 )
 
@@ -57,7 +58,7 @@ type Scheduler struct {
 	tasks map[string]*Task
 	// jobs stores live gocron job handles for NextRun()/LastRun() access
 	jobs          map[string]gocron.Job
-	db            *sql.DB
+	db            *dbstore.Store
 	timezone      *time.Location
 	CatchUpWindow time.Duration
 	mu            sync.RWMutex
@@ -84,7 +85,7 @@ func DefaultConfig() SchedulerRunConfig {
 }
 
 // NewScheduler creates a new scheduler with the given configuration.
-func NewScheduler(db *sql.DB, cfg SchedulerRunConfig) (*Scheduler, error) {
+func NewScheduler(db *dbstore.Store, cfg SchedulerRunConfig) (*Scheduler, error) {
 	loc, err := time.LoadLocation(cfg.Timezone)
 	if err != nil {
 		defaultZone := DefaultConfig().Timezone

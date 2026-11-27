@@ -4,9 +4,15 @@
 # NEVER run Go or binaries locally - ALL builds use Docker containers
 # =============================================================================
 
-# Infer PROJECT_NAME and PROJECT_ORG from git remote or directory path (NEVER hardcode)
-PROJECT_NAME := $(shell git remote get-url origin 2>/dev/null | sed -E 's|.*/([^/]+)(\.git)?$$|\1|' || basename "$$(pwd)")
+# PROJECT_NAME and PROJECT_ORG: IDEA.md project variables first, then git remote, then directory path.
+PROJECT_NAME := $(strip $(shell sed -n 's/^project_name:[[:space:]]*//p' IDEA.md 2>/dev/null | head -n1))
+ifeq ($(PROJECT_NAME),)
+PROJECT_NAME := $(shell git remote get-url origin 2>/dev/null | sed -E 's|.*/([^/]+)$$|\1|; s|\.git$$||' || basename "$$(pwd)")
+endif
+PROJECT_ORG := $(strip $(shell sed -n 's/^project_org:[[:space:]]*//p' IDEA.md 2>/dev/null | head -n1))
+ifeq ($(PROJECT_ORG),)
 PROJECT_ORG := $(shell git remote get-url origin 2>/dev/null | sed -E 's|.*/([^/]+)/[^/]+(\.git)?$$|\1|' || basename "$$(dirname "$$(pwd)")")
+endif
 
 # INTERNAL_NAME is frozen at first-time setup (IDEA.md ## Project variables) - used for
 # every on-disk identifier so a later PROJECT_NAME rename never orphans paths (PART 3)

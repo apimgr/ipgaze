@@ -454,6 +454,7 @@ pipeline {
                     TMP_BASE="${TMPDIR:-/tmp}/${PROJECT_ORG}"
                     mkdir -p "$TMP_BASE"
                     TMP_ROOT=$(mktemp -d "$TMP_BASE/${INTERNAL_NAME}-XXXXXX")
+                    chmod 700 "$TMP_ROOT"
                     cleanup() {
                         [ -n "${TMP_ROOT:-}" ] || return 0
                         [ -d "$TMP_ROOT" ] && [ ! -L "$TMP_ROOT" ] || return 0
@@ -465,13 +466,19 @@ pipeline {
                     docker run --rm \
                         --name "${PROJECT_NAME}-$(tr -dc 'a-z0-9' </dev/urandom | head -c8)" \
                         -v ${WORKSPACE}:/app \
-                        -v "$TMP_ROOT:$TMP_ROOT" \
+                        -v "$TMP_ROOT:/cov" \
                         -v ${GO_CACHE}:/usr/local/share/go/pkg/mod \
                         -v ${GO_BUILD}:/usr/local/share/go/cache \
                         -w /app \
-                        -e "TMPDIR=$TMP_ROOT" \
+                        -e CGO_ENABLED=0 \
+                        -e GOFLAGS=-buildvcs=false \
                         casjaysdev/go:latest \
-                        sh -ec 'go test -v -coverprofile="$TMPDIR/coverage.out" ./...; pct=$(go tool cover -func="$TMPDIR/coverage.out" | awk '\''/^total:/ {gsub("%", "", $3); print int($3)}'\''); test "$pct" -ge 60 || { echo "ERROR: coverage $pct% < threshold 60%"; exit 1; }'
+                        sh -ec 'mkdir -p /cov/data && go test -v -cover ./... -args -test.gocoverdir=/cov/data && go tool covdata textfmt -i=/cov/data -o=/cov/coverage.out'
+                    COVERAGE=$(awk '$1 == "total:" {gsub("%", "", $3); print $3}' "$TMP_ROOT/coverage.out")
+                    if [ -z "$COVERAGE" ] || [ "$(awk -v coverage="$COVERAGE" 'BEGIN {print (coverage < 60)}')" -eq 1 ]; then
+                        printf 'ERROR: coverage %s%% < threshold 60%%\n' "${COVERAGE:-unknown}" >&2
+                        exit 1
+                    fi
                 '''
             }
         }

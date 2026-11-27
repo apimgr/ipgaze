@@ -1,6 +1,7 @@
 package ssl
 
 import (
+	"context"
 	"crypto"
 	"crypto/ecdsa"
 	"crypto/elliptic"
@@ -22,13 +23,14 @@ import (
 	"sync"
 	"time"
 
-	"github.com/go-acme/lego/v4/certcrypto"
-	"github.com/go-acme/lego/v4/certificate"
-	"github.com/go-acme/lego/v4/challenge"
-	"github.com/go-acme/lego/v4/challenge/tlsalpn01"
-	"github.com/go-acme/lego/v4/lego"
-	"github.com/go-acme/lego/v4/providers/dns"
-	"github.com/go-acme/lego/v4/registration"
+	"github.com/go-acme/lego/v5/acme"
+	"github.com/go-acme/lego/v5/certcrypto"
+	"github.com/go-acme/lego/v5/certificate"
+	"github.com/go-acme/lego/v5/challenge"
+	"github.com/go-acme/lego/v5/challenge/tlsalpn01"
+	"github.com/go-acme/lego/v5/lego"
+	"github.com/go-acme/lego/v5/providers/dns"
+	"github.com/go-acme/lego/v5/registration"
 
 	"github.com/apimgr/ipgaze/src/security"
 	"github.com/apimgr/ipgaze/src/tor"
@@ -87,6 +89,20 @@ func NewSSLManager(cfg SSLManagerConfig) *SSLManager {
 		config:          cfg,
 		challengeServer: NewChallengeServer(),
 	}
+}
+
+// UpdateLetsEncryptConfig applies hot-reloaded ACME settings without changing
+// the TLS listener settings, which require a process restart.
+func (m *SSLManager) UpdateLetsEncryptConfig(cfg LetsEncryptConfig, encryptionKey string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	credentials := make(map[string]string, len(cfg.DNSCredentials))
+	for name, value := range cfg.DNSCredentials {
+		credentials[name] = value
+	}
+	cfg.DNSCredentials = credentials
+	m.config.LetsEncrypt = cfg
+	m.config.EncryptionKey = encryptionKey
 }
 
 // GetTLSConfig returns TLS configuration for the server.
@@ -211,14 +227,13 @@ func (m *SSLManager) obtainLetsEncryptCert(domains []string) (certPath, keyPath 
 	if err := tor.ApplyOutboundTransport(legoCfg.HTTPClient); err != nil {
 		return "", "", fmt.Errorf("configure Tor for ACME client: %w", err)
 	}
-	legoCfg.Certificate.KeyType = certcrypto.EC256
 	switch {
 	case m.config.LetsEncrypt.caDirURL != "":
 		legoCfg.CADirURL = m.config.LetsEncrypt.caDirURL
 	case m.config.LetsEncrypt.Staging:
-		legoCfg.CADirURL = lego.LEDirectoryStaging
+		legoCfg.CADirURL = lego.DirectoryURLLetsEncryptStaging
 	default:
-		legoCfg.CADirURL = lego.LEDirectoryProduction
+		legoCfg.CADirURL = lego.DirectoryURLLetsEncrypt
 	}
 
 	client, err := lego.NewClient(legoCfg)
@@ -239,7 +254,7 @@ func (m *SSLManager) obtainLetsEncryptCert(domains []string) (certPath, keyPath 
 	defer closeChallenge()
 
 	if user.registration == nil {
-		reg, regErr := client.Registration.Register(registration.RegisterOptions{TermsOfServiceAgreed: true})
+		reg, regErr := client.Registration.Register(context.Background(), registration.RegisterOptions{TermsOfServiceAgreed: true})
 		if regErr != nil {
 			return "", "", fmt.Errorf("acme registration: %w", regErr)
 		}
@@ -249,9 +264,10 @@ func (m *SSLManager) obtainLetsEncryptCert(domains []string) (certPath, keyPath 
 		}
 	}
 
-	certs, err := client.Certificate.Obtain(certificate.ObtainRequest{
+	certs, err := client.Certificate.Obtain(context.Background(), certificate.ObtainRequest{
 		Domains: domains,
 		Bundle:  true,
+		KeyType: certcrypto.EC256,
 	})
 	if err != nil {
 		return "", "", fmt.Errorf("obtain certificate: %w", err)
@@ -592,15 +608,15 @@ func normalizeRFC2136Credentials(credentials map[string]string) (map[string]stri
 // packet contents or TSIG secrets in the surfaced error text.
 type safeRFC2136Provider struct{ challenge.Provider }
 
-func (p safeRFC2136Provider) Present(domain, token, keyAuth string) error {
-	if err := p.Provider.Present(domain, token, keyAuth); err != nil {
+func (p safeRFC2136Provider) Present(ctx context.Context, domain, token, keyAuth string) error {
+	if err := p.Provider.Present(ctx, domain, token, keyAuth); err != nil {
 		return safeRFC2136Error(err)
 	}
 	return nil
 }
 
-func (p safeRFC2136Provider) CleanUp(domain, token, keyAuth string) error {
-	if err := p.Provider.CleanUp(domain, token, keyAuth); err != nil {
+func (p safeRFC2136Provider) CleanUp(ctx context.Context, domain, token, keyAuth string) error {
+	if err := p.Provider.CleanUp(ctx, domain, token, keyAuth); err != nil {
 		return safeRFC2136Error(err)
 	}
 	return nil
@@ -687,20 +703,30 @@ func (m *SSLManager) loadOrCreateAccountKey() (*ecdsa.PrivateKey, error) {
 }
 
 // loadRegistration loads a persisted ACME registration resource, if any.
-func (m *SSLManager) loadRegistration() *registration.Resource {
+func (m *SSLManager) loadRegistration() *acme.ExtendedAccount {
 	data, err := os.ReadFile(filepath.Join(m.acmeDir(), "registration.json"))
 	if err != nil {
 		return nil
 	}
-	var reg registration.Resource
+	var reg acme.ExtendedAccount
 	if err := json.Unmarshal(data, &reg); err != nil {
 		return nil
 	}
-	return &reg
+	if reg.Location != "" {
+		return &reg
+	}
+	var legacy struct {
+		Body acme.Account `json:"body"`
+		URI  string       `json:"uri"`
+	}
+	if err := json.Unmarshal(data, &legacy); err != nil || legacy.URI == "" {
+		return nil
+	}
+	return &acme.ExtendedAccount{Account: legacy.Body, Location: legacy.URI}
 }
 
 // saveRegistration persists the ACME registration resource for reuse across renewals.
-func (m *SSLManager) saveRegistration(reg *registration.Resource) error {
+func (m *SSLManager) saveRegistration(reg *acme.ExtendedAccount) error {
 	data, err := json.MarshalIndent(reg, "", "  ")
 	if err != nil {
 		return fmt.Errorf("marshal acme registration: %w", err)
@@ -711,13 +737,13 @@ func (m *SSLManager) saveRegistration(reg *registration.Resource) error {
 // acmeUser implements lego's registration.User interface.
 type acmeUser struct {
 	email        string
-	registration *registration.Resource
-	key          crypto.PrivateKey
+	registration *acme.ExtendedAccount
+	key          crypto.Signer
 }
 
-func (u *acmeUser) GetEmail() string                        { return u.email }
-func (u *acmeUser) GetRegistration() *registration.Resource { return u.registration }
-func (u *acmeUser) GetPrivateKey() crypto.PrivateKey        { return u.key }
+func (u *acmeUser) GetEmail() string                       { return u.email }
+func (u *acmeUser) GetRegistration() *acme.ExtendedAccount { return u.registration }
+func (u *acmeUser) GetPrivateKey() crypto.Signer           { return u.key }
 
 // http01Provider adapts ChallengeServer to lego's challenge.Provider interface.
 type http01Provider struct {
@@ -728,12 +754,12 @@ func newHTTP01Provider(cs *ChallengeServer) *http01Provider {
 	return &http01Provider{cs: cs}
 }
 
-func (p *http01Provider) Present(_, token, keyAuth string) error {
+func (p *http01Provider) Present(_ context.Context, _, token, keyAuth string) error {
 	p.cs.SetToken(token, keyAuth)
 	return nil
 }
 
-func (p *http01Provider) CleanUp(_, token, _ string) error {
+func (p *http01Provider) CleanUp(_ context.Context, _, token, _ string) error {
 	p.cs.ClearToken(token)
 	return nil
 }
@@ -750,7 +776,7 @@ func newTLSALPNProvider() *tlsALPNProvider {
 	return &tlsALPNProvider{certs: make(map[string]*tls.Certificate)}
 }
 
-func (p *tlsALPNProvider) Present(domain, _, keyAuth string) error {
+func (p *tlsALPNProvider) Present(_ context.Context, domain, _, keyAuth string) error {
 	cert, err := tlsalpn01.ChallengeCert(domain, keyAuth)
 	if err != nil {
 		return fmt.Errorf("tls-alpn-01: build challenge cert: %w", err)
@@ -761,7 +787,7 @@ func (p *tlsALPNProvider) Present(domain, _, keyAuth string) error {
 	return nil
 }
 
-func (p *tlsALPNProvider) CleanUp(domain, _, _ string) error {
+func (p *tlsALPNProvider) CleanUp(_ context.Context, domain, _, _ string) error {
 	p.mu.Lock()
 	delete(p.certs, domain)
 	p.mu.Unlock()

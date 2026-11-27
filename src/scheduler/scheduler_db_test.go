@@ -1,22 +1,21 @@
 package scheduler
 
 import (
-	"database/sql"
 	"testing"
 	"time"
 
-	_ "modernc.org/sqlite"
+	"github.com/apimgr/ipgaze/src/db"
 )
 
 // openTestDB opens an in-memory SQLite DB and creates the scheduler schema.
-func openTestDB(t *testing.T) *sql.DB {
+func openTestDB(t *testing.T) *db.Store {
 	t.Helper()
-	db, err := sql.Open("sqlite", ":memory:")
+	store, err := db.OpenSQLite(":memory:")
 	if err != nil {
-		t.Fatalf("sql.Open: %v", err)
+		t.Fatalf("open SQLite store: %v", err)
 	}
 	t.Cleanup(func() {
-		if err := db.Close(); err != nil {
+		if err := store.Close(); err != nil {
 			t.Errorf("close test database: %v", err)
 		}
 	})
@@ -44,11 +43,11 @@ func openTestDB(t *testing.T) *sql.DB {
 		)`,
 	}
 	for _, s := range schema {
-		if _, err := db.Exec(s); err != nil {
+		if _, err := store.Exec(s); err != nil {
 			t.Fatalf("schema exec: %v", err)
 		}
 	}
-	return db
+	return store
 }
 
 // newDBScheduler creates a scheduler wired to an in-memory SQLite DB.

@@ -181,6 +181,60 @@ func TestPersistedRateLimitUsesSlidingWindowPerToken(t *testing.T) {
 	}
 }
 
+func TestRateLimitWindowsBufferPeriodicAndFinalFlush(t *testing.T) {
+	store := newAbuseTestDB(t)
+	limiter := NewRateLimiter(DefaultRateLimitConfig(), netutil.NewTrustResolver(config.TrustedProxiesConfig{}, ""))
+	limiter.SetDB(store)
+	if _, _, err := limiter.rateWindow("buffered", time.Unix(120, 0), time.Minute, true); err != nil {
+		t.Fatalf("buffer rate window: %v", err)
+	}
+	var count int64
+	if err := store.QueryRow(`SELECT COUNT(*) FROM rate_limits WHERE key = 'buffered'`).Scan(&count); err != nil || count != 0 {
+		t.Fatalf("buffered window reached database before flush: count=%d err=%v", count, err)
+	}
+	ack := make(chan error, 1)
+	limiter.flushNow <- ack
+	if err := <-ack; err != nil {
+		t.Fatalf("periodic flush: %v", err)
+	}
+	if err := store.QueryRow(`SELECT count FROM rate_limits WHERE key = 'buffered'`).Scan(&count); err != nil || count != 1 {
+		t.Fatalf("periodic flush count=%d err=%v, want 1", count, err)
+	}
+	if _, _, err := limiter.rateWindow("final", time.Unix(120, 0), time.Minute, true); err != nil {
+		t.Fatalf("buffer final rate window: %v", err)
+	}
+	limiter.Stop()
+	if err := store.QueryRow(`SELECT count FROM rate_limits WHERE key = 'final'`).Scan(&count); err != nil || count != 1 {
+		t.Fatalf("Stop final flush count=%d err=%v, want 1", count, err)
+	}
+}
+
+func TestRateLimitWindowMapExpiresAndCapsActiveKeys(t *testing.T) {
+	limiter := NewRateLimiter(DefaultRateLimitConfig(), netutil.NewTrustResolver(config.TrustedProxiesConfig{}, ""))
+	defer limiter.Stop()
+	limiter.maxWindows = 2
+	start := time.Unix(120, 0)
+	for _, key := range []string{"a", "b"} {
+		if _, _, err := limiter.rateWindow(key, start, time.Minute, true); err != nil {
+			t.Fatalf("record %s: %v", key, err)
+		}
+	}
+	if _, _, err := limiter.rateWindow("c", start, time.Minute, true); err == nil {
+		t.Fatal("expected active-window capacity to reject another key")
+	}
+	limiter.windowMu.Lock()
+	limiter.pruneRateWindowsLocked(start.Add(2 * time.Minute))
+	limiter.windowMu.Unlock()
+	if _, _, err := limiter.rateWindow("c", start.Add(2*time.Minute), time.Minute, true); err != nil {
+		t.Fatalf("record after expiry pruning: %v", err)
+	}
+	limiter.windowMu.Lock()
+	defer limiter.windowMu.Unlock()
+	if len(limiter.windows) > limiter.maxWindows {
+		t.Fatalf("window count = %d, cap %d", len(limiter.windows), limiter.maxWindows)
+	}
+}
+
 func TestNewRateLimiter(t *testing.T) {
 	cfg := RateLimitConfig{Read: RateLimitBucket{Limit: 10, Window: time.Second, Burst: 5}}
 	rl := NewRateLimiter(cfg, netutil.NewTrustResolver(config.TrustedProxiesConfig{}, ""))

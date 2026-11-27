@@ -5,6 +5,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"log"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -355,28 +357,6 @@ func TestRestart_DisabledNeverFatal(t *testing.T) {
 	}
 }
 
-func TestRegenerateAddress_EnabledNoProviderReturnsEmptyNoError(t *testing.T) {
-	// Mirrors Tor's TestRegenerateAddress_WhenBinaryMissing_ReturnsEmptyNoError:
-	// Start() swallows the "no provider available" error (logged, non-fatal,
-	// per AI.md PART 31.2's "log WARN, continue without I2P" behavior), so
-	// RegenerateAddress must also return an empty address with a nil error.
-	tmp := t.TempDir()
-	m := NewI2PManager(I2PServiceConfig{
-		Enabled:    true,
-		DataDir:    tmp,
-		ConfigDir:  tmp,
-		Binary:     "/nonexistent/i2pd",
-		SAMAddress: "127.0.0.1:1",
-	})
-	addr, err := m.RegenerateAddress()
-	if err != nil {
-		t.Fatalf("RegenerateAddress() with no provider = error %v, want nil", err)
-	}
-	if addr != "" {
-		t.Errorf("RegenerateAddress() address = %q, want empty", addr)
-	}
-}
-
 func TestReadSAMReply(t *testing.T) {
 	t.Run("valid reply", func(t *testing.T) {
 		r := bufio.NewReader(strings.NewReader("HELLO REPLY RESULT=OK VERSION=3.3\n"))
@@ -547,6 +527,20 @@ func TestUpdateConfig_EnabledNoProviderNeverFatal(t *testing.T) {
 	}
 }
 
+func TestRegenerateAddressReturnsErrorWhenProviderUnavailable(t *testing.T) {
+	tmp := t.TempDir()
+	m := NewI2PManager(I2PServiceConfig{
+		Enabled:    true,
+		DataDir:    tmp,
+		ConfigDir:  tmp,
+		Binary:     filepath.Join(tmp, "missing-i2pd"),
+		SAMAddress: "127.0.0.1:1",
+	})
+	if _, err := m.RegenerateAddress(); err == nil {
+		t.Fatal("RegenerateAddress() error = nil when no provider is available")
+	}
+}
+
 func fakeSAMPrivateKey() string {
 	destination := make([]byte, 387)
 	for i := range destination[:384] {
@@ -568,6 +562,33 @@ func TestLoadOrCreateSAMDestination_LoadsPersistedKeyWithoutTouchingConn(t *test
 	}
 	if dest.priv != priv {
 		t.Errorf("dest.priv = %q, want persisted key", dest.priv)
+	}
+}
+
+func TestLoadOrCreateSAMDestination_InvalidKeyDoesNotRegenerate(t *testing.T) {
+	tmp := t.TempDir()
+	keysPath := filepath.Join(tmp, "site-keys.dat")
+	secret := "DO-NOT-LOG-THIS-PRIV"
+	if err := os.WriteFile(keysPath, []byte(secret), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	client, server := net.Pipe()
+	defer checkTestConnClose(t, client)
+	defer checkTestConnClose(t, server)
+	logOutput := &strings.Builder{}
+	originalWriter := log.Writer()
+	log.SetOutput(logOutput)
+	t.Cleanup(func() { log.SetOutput(originalWriter) })
+	_, err := loadOrCreateSAMDestination(client, bufio.NewReader(client), keysPath, 7)
+	if err == nil || !strings.Contains(err.Error(), keysPath) {
+		t.Fatalf("invalid destination error = %v, want an error naming %s", err, keysPath)
+	}
+	if strings.Contains(err.Error(), secret) || strings.Contains(logOutput.String(), secret) {
+		t.Fatal("invalid destination private value appeared in error or logs")
+	}
+	_ = server.SetReadDeadline(time.Now().Add(20 * time.Millisecond))
+	if _, err := bufio.NewReader(server).ReadString('\n'); err == nil {
+		t.Fatal("invalid persisted key triggered a SAM command")
 	}
 }
 
@@ -597,8 +618,8 @@ func TestLoadOrCreateSAMDestination_GeneratesAndPersistsAtomically(t *testing.T)
 	if err != nil {
 		t.Fatalf("read persisted key: %v", err)
 	}
-	if string(persisted) != priv+"\n" {
-		t.Errorf("persisted key does not contain the single PRIV line")
+	if string(persisted) != priv {
+		t.Errorf("persisted key must contain the bare PRIV value without a trailing newline")
 	}
 	info, err := os.Stat(keysPath)
 	if err != nil || info.Mode().Perm() != 0o600 {
@@ -619,6 +640,10 @@ func TestStartSAMEepsite_UsesSAM31AndSeparateSilentForwardSocket(t *testing.T) {
 	backendPort := backend.Addr().(*net.TCPAddr).Port
 	t.Cleanup(func() { checkTestConnClose(t, backend) })
 	priv := fakeSAMPrivateKey()
+	logOutput := &strings.Builder{}
+	originalLogWriter := log.Writer()
+	log.SetOutput(logOutput)
+	t.Cleanup(func() { log.SetOutput(originalLogWriter) })
 	commands := make(chan []string, 2)
 	serverErr := make(chan error, 1)
 	release := make(chan struct{})
@@ -659,7 +684,27 @@ func TestStartSAMEepsite_UsesSAM31AndSeparateSilentForwardSocket(t *testing.T) {
 			serverErr <- fmt.Errorf("SESSION CREATE missing: %q (%v)", line, e)
 			return
 		}
-		control = append(control, strings.TrimSpace(line))
+		firstSession := strings.TrimSpace(line)
+		control = append(control, firstSession)
+		_, e = controlConn.Write([]byte("SESSION STATUS RESULT=DUPLICATED_ID\n"))
+		if e != nil {
+			checkTestConnClose(t, controlConn)
+			serverErr <- e
+			return
+		}
+		line, e = bufio.NewReader(controlConn).ReadString('\n')
+		if e != nil || !strings.HasPrefix(line, "SESSION CREATE") {
+			checkTestConnClose(t, controlConn)
+			serverErr <- fmt.Errorf("SESSION CREATE retry missing: %q (%v)", line, e)
+			return
+		}
+		secondSession := strings.TrimSpace(line)
+		control = append(control, secondSession)
+		if firstSession == secondSession {
+			checkTestConnClose(t, controlConn)
+			serverErr <- fmt.Errorf("duplicate session retry reused session ID: %q", secondSession)
+			return
+		}
 		_, e = controlConn.Write([]byte("SESSION STATUS RESULT=OK\n"))
 		if e != nil {
 			checkTestConnClose(t, controlConn)
@@ -685,17 +730,23 @@ func TestStartSAMEepsite_UsesSAM31AndSeparateSilentForwardSocket(t *testing.T) {
 		t.Fatalf("startSAMEepsite(): %v", err)
 	}
 	control, forward := <-commands, <-commands
-	if len(control) != 3 || !strings.HasPrefix(control[0], "HELLO VERSION MIN=3.1 MAX=3.3") {
+	if len(control) != 4 || !strings.HasPrefix(control[0], "HELLO VERSION MIN=3.1 MAX=3.3") || !strings.HasPrefix(control[1], "DEST GENERATE") {
 		t.Errorf("control socket did not negotiate SAM 3.1 and create session: %v", control)
 	}
-	if len(forward) != 2 || !strings.HasPrefix(forward[0], "HELLO VERSION MIN=3.1 MAX=3.3") || !strings.Contains(forward[1], "SILENT=true") {
-		t.Errorf("forward socket did not negotiate SAM 3.1 and use SILENT=true: %v", forward)
+	if len(control) == 4 && (!strings.Contains(control[2], "DESTINATION="+priv) || !strings.Contains(control[3], "DESTINATION="+priv)) {
+		t.Errorf("DUPLICATED_ID retry did not reuse the persisted destination key: %v", control)
+	}
+	if len(forward) != 2 || !strings.HasPrefix(forward[0], "HELLO VERSION MIN=3.1 MAX=3.3") || !strings.Contains(forward[1], "SILENT=true") || !strings.Contains(forward[1], fmt.Sprintf("PORT=%d", backendPort)) || strings.Contains(forward[1], "HOST=") {
+		t.Errorf("forward socket did not use only the backend port with SILENT=true: %v", forward)
 	}
 	if svc.samConn == nil || svc.forwardConn == nil || svc.samConn == svc.forwardConn {
 		t.Error("control and forward connections must be distinct and retained")
 	}
 	if want := b32Address(mustDestination(t, priv)); addr != want {
 		t.Errorf("address = %q, want %q", addr, want)
+	}
+	if strings.Contains(logOutput.String(), priv) || strings.Contains(logOutput.String(), "PRIV=") {
+		t.Error("I2P private destination appeared in logs")
 	}
 	_ = svc.forwardConn.Close()
 	_ = svc.samConn.Close()
@@ -704,6 +755,69 @@ func TestStartSAMEepsite_UsesSAM31AndSeparateSilentForwardSocket(t *testing.T) {
 	case e := <-serverErr:
 		t.Errorf("SAM mock: %v", e)
 	default:
+	}
+}
+
+func TestStartSAMEepsiteInvalidKeyPreservesPersistedIdentity(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer checkTestConnClose(t, ln)
+	priv := fakeSAMPrivateKey()
+	keysPath := filepath.Join(t.TempDir(), "site-keys.dat")
+	if err := os.WriteFile(keysPath, []byte(priv), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	command := make(chan string, 1)
+	serverErr := make(chan error, 1)
+	go func() {
+		conn, acceptErr := ln.Accept()
+		if acceptErr != nil {
+			serverErr <- acceptErr
+			return
+		}
+		defer checkTestConnClose(t, conn)
+		reader := bufio.NewReader(conn)
+		line, readErr := reader.ReadString('\n')
+		if readErr != nil {
+			serverErr <- readErr
+			return
+		}
+		if !strings.HasPrefix(line, "HELLO VERSION MIN=3.1 MAX=3.3") {
+			serverErr <- fmt.Errorf("HELLO = %q", line)
+			return
+		}
+		_, _ = conn.Write([]byte("HELLO REPLY RESULT=OK VERSION=3.3\n"))
+		line, readErr = reader.ReadString('\n')
+		if readErr != nil {
+			serverErr <- readErr
+			return
+		}
+		command <- strings.TrimSpace(line)
+		_, _ = conn.Write([]byte("SESSION STATUS RESULT=INVALID_KEY\n"))
+		line, readErr = reader.ReadString('\n')
+		if readErr == nil && strings.HasPrefix(line, "DEST GENERATE") {
+			serverErr <- errors.New("invalid key caused automatic destination regeneration")
+			return
+		}
+		serverErr <- nil
+	}()
+	m := NewI2PManager(I2PServiceConfig{Enabled: true, SAMAddress: ln.Addr().String(), BootstrapTimeout: 30})
+	_, err = m.startSAMEepsite(context.Background(), ln.Addr().String(), keysPath, 12345, &service{})
+	if err == nil || !strings.Contains(err.Error(), "INVALID_KEY") {
+		t.Fatalf("startSAMEepsite() error = %v, want INVALID_KEY", err)
+	}
+	gotCommand := <-command
+	if !strings.HasPrefix(gotCommand, "SESSION CREATE") || !strings.Contains(gotCommand, "DESTINATION="+priv) {
+		t.Fatalf("SAM command = %q, want SESSION CREATE with persisted key", gotCommand)
+	}
+	if err := <-serverErr; err != nil {
+		t.Fatal(err)
+	}
+	persisted, err := os.ReadFile(keysPath)
+	if err != nil || string(persisted) != priv {
+		t.Fatalf("persisted key changed after INVALID_KEY: got %q, err %v", persisted, err)
 	}
 }
 
@@ -753,6 +867,11 @@ func TestI2PDConfigDisablesUnrelatedServicesAndUsesPrivateSAMPort(t *testing.T) 
 			t.Errorf("i2pd.conf missing %q", expected)
 		}
 	}
+	for _, forbiddenPort := range []string{"7070", "4444", "4447", "7654"} {
+		if strings.Contains(conf, forbiddenPort) {
+			t.Errorf("i2pd.conf unexpectedly references forbidden service port %s", forbiddenPort)
+		}
+	}
 }
 
 func TestSAMDialRequiresVersion31(t *testing.T) {
@@ -787,6 +906,246 @@ func TestSAMCommandHasDeadline(t *testing.T) {
 	go func() { _, _ = bufio.NewReader(server).ReadString('\n') }()
 	if _, err := samCommand(client, bufio.NewReader(client), 20*time.Millisecond, "SESSION STATUS"); err == nil {
 		t.Fatal("samCommand without a reply succeeded; expected deadline error")
+	}
+}
+
+func TestSAMCommandAllowsSixtySecondSessionBootstrap(t *testing.T) {
+	client, server := net.Pipe()
+	t.Cleanup(func() { checkTestConnClose(t, client) })
+	t.Cleanup(func() { checkTestConnClose(t, server) })
+	serverErr := make(chan error, 1)
+	go func() {
+		line, err := bufio.NewReader(server).ReadString('\n')
+		if err != nil {
+			serverErr <- err
+			return
+		}
+		if !strings.HasPrefix(line, "SESSION CREATE") {
+			serverErr <- fmt.Errorf("command = %q, want SESSION CREATE", line)
+			return
+		}
+		time.Sleep(60 * time.Second)
+		_, err = server.Write([]byte("SESSION STATUS RESULT=OK\n"))
+		serverErr <- err
+	}()
+	_, err := samCommand(client, bufio.NewReader(client), 90*time.Second, "SESSION CREATE STYLE=STREAM")
+	if err != nil {
+		t.Fatalf("samCommand() after 60-second tunnel build: %v", err)
+	}
+	if err := <-serverErr; err != nil {
+		t.Fatalf("SAM mock: %v", err)
+	}
+}
+
+func TestMonitorSAMErrorsAfterThreeConsecutiveProbeFailures(t *testing.T) {
+	m := NewI2PManager(I2PServiceConfig{Enabled: true})
+	svc := &service{provider: ProviderSAM, status: "running", samLost: make(chan error, 1)}
+	m.svc = svc
+	m.running = true
+	m.provider = ProviderSAM
+	ticks := make(chan time.Time, 3)
+	for range 3 {
+		ticks <- time.Now()
+	}
+	probes := 0
+	var recoveryDelay time.Duration
+	m.recoveryWait = func(_ context.Context, delay time.Duration) bool {
+		recoveryDelay = delay
+		return false
+	}
+	m.monitorServiceWithProbe(context.Background(), svc, ticks, func(context.Context) error {
+		probes++
+		return errors.New("SAM probe failed")
+	})
+	if probes != 3 || recoveryDelay != 5*time.Second {
+		t.Fatalf("probe count/recovery delay = %d/%s, want 3/5s", probes, recoveryDelay)
+	}
+	if got := m.Status(); got != "error" {
+		t.Fatalf("Status() = %q after three probe failures, want error", got)
+	}
+}
+
+func TestRecoveryBackoffCapsAtFiveMinutes(t *testing.T) {
+	delay := 5 * time.Second
+	want := []time.Duration{10 * time.Second, 20 * time.Second, 40 * time.Second, 80 * time.Second, 160 * time.Second, 5 * time.Minute, 5 * time.Minute}
+	for _, expected := range want {
+		delay = nextRecoveryDelay(delay)
+		if delay != expected {
+			t.Fatalf("nextRecoveryDelay() = %s, want %s", delay, expected)
+		}
+	}
+}
+
+func TestSAMSessionLossRecoversUsingPersistedDestination(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer checkTestConnClose(t, ln)
+	type readySession struct {
+		control net.Conn
+		command string
+	}
+	ready := make(chan readySession, 2)
+	serverErr := make(chan error, 1)
+	priv := fakeSAMPrivateKey()
+	go func() {
+		generation := 0
+		for generation < 2 {
+			control, acceptErr := ln.Accept()
+			if acceptErr != nil {
+				serverErr <- acceptErr
+				return
+			}
+			reader := bufio.NewReader(control)
+			line, readErr := reader.ReadString('\n')
+			if readErr != nil || !strings.HasPrefix(line, "HELLO VERSION") {
+				_ = control.Close()
+				continue
+			}
+			_, _ = control.Write([]byte("HELLO REPLY RESULT=OK VERSION=3.3\n"))
+			line, readErr = reader.ReadString('\n')
+			if readErr != nil {
+				serverErr <- readErr
+				return
+			}
+			if generation == 0 {
+				if !strings.HasPrefix(line, "DEST GENERATE") {
+					serverErr <- fmt.Errorf("first generation command = %q, want DEST GENERATE", line)
+					return
+				}
+				_, _ = control.Write([]byte("DEST REPLY PUB=public PRIV=" + priv + "\n"))
+				line, readErr = reader.ReadString('\n')
+				if readErr != nil {
+					serverErr <- readErr
+					return
+				}
+			} else if !strings.HasPrefix(line, "SESSION CREATE") {
+				serverErr <- fmt.Errorf("recovery command = %q, want SESSION CREATE without DEST GENERATE", line)
+				return
+			}
+			sessionCommand := strings.TrimSpace(line)
+			if !strings.Contains(sessionCommand, "DESTINATION="+priv) {
+				serverErr <- errors.New("session did not reuse the persisted destination key")
+				return
+			}
+			_, _ = control.Write([]byte("SESSION STATUS RESULT=OK\n"))
+			forward, acceptErr := ln.Accept()
+			if acceptErr != nil {
+				serverErr <- acceptErr
+				return
+			}
+			forwardReader := bufio.NewReader(forward)
+			for _, step := range []struct{ prefix, response string }{
+				{"HELLO VERSION", "HELLO REPLY RESULT=OK VERSION=3.3\n"},
+				{"STREAM FORWARD", "STREAM STATUS RESULT=OK\n"},
+			} {
+				command, commandErr := forwardReader.ReadString('\n')
+				if commandErr != nil {
+					serverErr <- commandErr
+					return
+				}
+				if !strings.HasPrefix(command, step.prefix) {
+					serverErr <- fmt.Errorf("forward command = %q, want %s", command, step.prefix)
+					return
+				}
+				_, _ = forward.Write([]byte(step.response))
+			}
+			ready <- readySession{control: control, command: sessionCommand}
+			generation++
+			if generation == 1 {
+				continue
+			}
+			_, _ = io.Copy(io.Discard, control)
+		}
+	}()
+	m := NewI2PManager(I2PServiceConfig{
+		Enabled: true, ConfigDir: t.TempDir(), DataDir: t.TempDir(),
+		Binary: filepath.Join(t.TempDir(), "missing-i2pd"), SAMAddress: ln.Addr().String(),
+		SignatureType: 7, InboundLength: 3, OutboundLength: 3, InboundQuantity: 5, OutboundQuantity: 5, BootstrapTimeout: 30,
+	})
+	recoveryWaits := 0
+	m.recoveryWait = func(ctx context.Context, delay time.Duration) bool {
+		recoveryWaits++
+		return delay == 5*time.Second && ctx.Err() == nil
+	}
+	if err := m.Start(); err != nil {
+		t.Fatalf("initial Start(): %v", err)
+	}
+	var first readySession
+	select {
+	case first = <-ready:
+	case <-time.After(5 * time.Second):
+		t.Fatalf("initial SAM session did not start: status=%s", m.Status())
+	}
+	address := m.EepsiteAddress()
+	_ = first.control.Close()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) && (!m.IsRunning() || recoveryWaits == 0) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	var second readySession
+	select {
+	case second = <-ready:
+	case <-time.After(5 * time.Second):
+		t.Fatalf("SAM session was not recovered: status=%s", m.Status())
+	}
+	if !strings.Contains(first.command, "DESTINATION="+priv) || !strings.Contains(second.command, "DESTINATION="+priv) {
+		t.Fatalf("recovery did not reuse the same destination key: first=%q second=%q", first.command, second.command)
+	}
+	if m.EepsiteAddress() != address || !m.IsRunning() {
+		t.Fatalf("recovered address/running = %q/%t, want stable address %q and running", m.EepsiteAddress(), m.IsRunning(), address)
+	}
+	if recoveryWaits != 1 {
+		t.Fatalf("recovery wait count = %d, want one 5-second backoff", recoveryWaits)
+	}
+	if err := m.Stop(); err != nil {
+		t.Errorf("Stop(): %v", err)
+	}
+	_ = second.control.Close()
+	select {
+	case serverErr := <-serverErr:
+		if serverErr != nil && !errors.Is(serverErr, net.ErrClosed) {
+			t.Errorf("SAM mock: %v", serverErr)
+		}
+	default:
+	}
+}
+
+func TestSAMHealthProbeUsesSeparateHelloAndQuitOnly(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer checkTestConnClose(t, ln)
+	commands := make(chan []string, 1)
+	go func() {
+		conn, acceptErr := ln.Accept()
+		if acceptErr != nil {
+			return
+		}
+		defer checkTestConnClose(t, conn)
+		reader := bufio.NewReader(conn)
+		var got []string
+		for len(got) < 2 {
+			line, readErr := reader.ReadString('\n')
+			if readErr != nil {
+				return
+			}
+			got = append(got, strings.TrimSpace(line))
+			if strings.HasPrefix(line, "HELLO VERSION") {
+				_, _ = conn.Write([]byte("HELLO REPLY RESULT=OK VERSION=3.3\n"))
+			}
+		}
+		commands <- got
+	}()
+	m := NewI2PManager(I2PServiceConfig{SAMAddress: ln.Addr().String()})
+	if err := m.probeSAM(context.Background()); err != nil {
+		t.Fatalf("probeSAM(): %v", err)
+	}
+	got := <-commands
+	if len(got) != 2 || !strings.HasPrefix(got[0], "HELLO VERSION MIN=3.1 MAX=3.3") || got[1] != "QUIT" {
+		t.Fatalf("SAM probe commands = %v, want only HELLO and QUIT", got)
 	}
 }
 

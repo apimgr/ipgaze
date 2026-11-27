@@ -10,8 +10,10 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
+	dbstore "github.com/apimgr/ipgaze/src/db"
 	"github.com/apimgr/ipgaze/src/security"
 )
 
@@ -303,7 +305,7 @@ type Record struct {
 }
 
 // InsertRecord records a newly generated/rotated keypair's metadata.
-func InsertRecord(db *sql.DB, fingerprint string, createdAt, expiresAt time.Time) error {
+func InsertRecord(db *dbstore.Store, fingerprint string, createdAt, expiresAt time.Time) error {
 	ctx, cancel := context.WithTimeout(context.Background(), storeWriteTimeout)
 	defer cancel()
 
@@ -320,7 +322,7 @@ func InsertRecord(db *sql.DB, fingerprint string, createdAt, expiresAt time.Time
 
 // MarkRotated stamps last_rotated_at on the active (non-revoked) keypair row
 // that preceded the rotation, identified by fingerprint.
-func MarkRotated(db *sql.DB, fingerprint string) error {
+func MarkRotated(db *dbstore.Store, fingerprint string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), storeWriteTimeout)
 	defer cancel()
 
@@ -336,7 +338,7 @@ func MarkRotated(db *sql.DB, fingerprint string) error {
 
 // MarkRevoked sets revoked = 1 on the given fingerprint's row (AI.md PART 11
 // "Delete" — the key file may be gone but the fingerprint stays in audit history).
-func MarkRevoked(db *sql.DB, fingerprint string) error {
+func MarkRevoked(db *dbstore.Store, fingerprint string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), storeWriteTimeout)
 	defer cancel()
 
@@ -349,7 +351,7 @@ func MarkRevoked(db *sql.DB, fingerprint string) error {
 
 // ActiveRecord returns the most recent non-revoked keypair record, or
 // (nil, nil) if none exists.
-func ActiveRecord(db *sql.DB) (*Record, error) {
+func ActiveRecord(db *dbstore.Store) (*Record, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), storeReadTimeout)
 	defer cancel()
 
@@ -398,58 +400,180 @@ func scanRecord(row *sql.Row) (*Record, error) {
 
 // RecordKeyserverPublish updates keyservers_published for fingerprint with
 // the given host and publish timestamp.
-func RecordKeyserverPublish(db *sql.DB, fingerprint, host string, publishedAt time.Time) error {
+func RecordKeyserverPublish(db *dbstore.Store, fingerprint, host string, publishedAt time.Time) error {
 	readCtx, cancelRead := context.WithTimeout(context.Background(), storeReadTimeout)
 	defer cancelRead()
-
-	var raw string
-	err := db.QueryRowContext(readCtx, `SELECT keyservers_published FROM pgp_keypairs WHERE fingerprint = ?`, fingerprint).Scan(&raw)
-	if err != nil {
-		return fmt.Errorf("pgp: load keyservers_published: %w", err)
-	}
-
-	published := map[string]int64{}
-	_ = json.Unmarshal([]byte(raw), &published)
-	published[host] = publishedAt.Unix()
-
-	encoded, err := json.Marshal(published)
-	if err != nil {
-		return fmt.Errorf("pgp: encode keyservers_published: %w", err)
-	}
-
-	writeCtx, cancelWrite := context.WithTimeout(context.Background(), storeWriteTimeout)
-	defer cancelWrite()
-
-	_, err = db.ExecContext(writeCtx, `UPDATE pgp_keypairs SET keyservers_published = ? WHERE fingerprint = ?`, string(encoded), fingerprint)
-	if err != nil {
-		return fmt.Errorf("pgp: persist keyservers_published: %w", err)
-	}
-	return nil
+	return db.Write(readCtx, func(tx *sql.Tx) error {
+		var raw string
+		if err := tx.QueryRowContext(readCtx, `SELECT keyservers_published FROM pgp_keypairs WHERE fingerprint = ?`, fingerprint).Scan(&raw); err != nil {
+			return fmt.Errorf("pgp: load keyservers_published: %w", err)
+		}
+		published := map[string]int64{}
+		_ = json.Unmarshal([]byte(raw), &published)
+		published[host] = publishedAt.Unix()
+		encoded, err := json.Marshal(published)
+		if err != nil {
+			return fmt.Errorf("pgp: encode keyservers_published: %w", err)
+		}
+		if _, err := tx.ExecContext(readCtx, `UPDATE pgp_keypairs SET keyservers_published = ? WHERE fingerprint = ?`, string(encoded), fingerprint); err != nil {
+			return fmt.Errorf("pgp: persist keyservers_published: %w", err)
+		}
+		return nil
+	})
 }
 
 // keyserversState is the on-disk shape of {config_dir}/security/keyservers.state
 // (AI.md PART 11 "Backup Integration (PART 21)": "Per-keyserver publish
 // state, so a restore doesn't double-submit.").
 type keyserversState struct {
-	Fingerprint string           `json:"fingerprint"`
-	Published   map[string]int64 `json:"published"`
+	Fingerprint string                    `json:"fingerprint"`
+	Published   map[string]int64          `json:"published"`
+	Retries     map[string]KeyserverRetry `json:"retries,omitempty"`
 }
+
+// KeyserverRetry stores durable retry state for one configured keyserver.
+type KeyserverRetry struct {
+	AttemptCount int       `json:"attempt_count"`
+	NextAttempt  time.Time `json:"next_attempt"`
+}
+
+var keyserversStateMu sync.Mutex
 
 // WriteKeyserversState mirrors the DB's keyservers_published map to
 // {config_dir}/security/keyservers.state. Called after a successful publish
 // so a backup taken afterward carries the same state a restore needs to
 // avoid re-submitting to keyservers that already have the key.
 func WriteKeyserversState(configDir, fingerprint string, published map[string]int64) error {
+	keyserversStateMu.Lock()
+	defer keyserversStateMu.Unlock()
 	dir, err := SecurityDir(configDir)
 	if err != nil {
 		return err
 	}
 
-	encoded, err := json.MarshalIndent(keyserversState{Fingerprint: fingerprint, Published: published}, "", "  ")
+	state := keyserversState{Fingerprint: fingerprint, Published: published}
+	if previous, readErr := readKeyserversState(configDir); readErr == nil {
+		if previous.Fingerprint == fingerprint {
+			state.Retries = previous.Retries
+		}
+	} else if !errors.Is(readErr, os.ErrNotExist) {
+		return readErr
+	}
+	return writeKeyserversStateFile(dir, state)
+}
+
+// ScheduleKeyserverRetry persists the next retry time without replacing the
+// successful-publish entries already recorded in keyservers.state.
+func ScheduleKeyserverRetry(configDir, fingerprint, host string, retry KeyserverRetry) error {
+	keyserversStateMu.Lock()
+	defer keyserversStateMu.Unlock()
+	dir, err := SecurityDir(configDir)
+	if err != nil {
+		return err
+	}
+	state, err := readKeyserversState(configDir)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	if state.Fingerprint != fingerprint {
+		state = keyserversState{Fingerprint: fingerprint, Published: make(map[string]int64), Retries: make(map[string]KeyserverRetry)}
+	}
+	if state.Retries == nil {
+		state.Retries = make(map[string]KeyserverRetry)
+	}
+	state.Retries[host] = retry
+	return writeKeyserversStateFile(dir, state)
+}
+
+// DueKeyserverRetries returns only retry entries whose persisted next_attempt
+// time has passed for the active fingerprint.
+func DueKeyserverRetries(configDir, fingerprint string, now time.Time) (map[string]KeyserverRetry, error) {
+	keyserversStateMu.Lock()
+	defer keyserversStateMu.Unlock()
+	state, err := readKeyserversState(configDir)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	if state.Fingerprint != fingerprint {
+		return nil, nil
+	}
+	due := make(map[string]KeyserverRetry)
+	for host, retry := range state.Retries {
+		if !retry.NextAttempt.After(now) {
+			due[host] = retry
+		}
+	}
+	return due, nil
+}
+
+// ClearKeyserverRetry removes retry state after success or a final failure.
+func ClearKeyserverRetry(configDir, fingerprint, host string) error {
+	keyserversStateMu.Lock()
+	defer keyserversStateMu.Unlock()
+	dir, err := SecurityDir(configDir)
+	if err != nil {
+		return err
+	}
+	state, err := readKeyserversState(configDir)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return err
+	}
+	if state.Fingerprint != fingerprint {
+		return nil
+	}
+	delete(state.Retries, host)
+	return writeKeyserversStateFile(dir, state)
+}
+
+func readKeyserversState(configDir string) (keyserversState, error) {
+	data, err := os.ReadFile(filepath.Join(configDir, SecurityDirName, keyserversFile))
+	if err != nil {
+		return keyserversState{}, err
+	}
+	var state keyserversState
+	if err := json.Unmarshal(data, &state); err != nil {
+		return keyserversState{}, fmt.Errorf("pgp: decode keyservers state: %w", err)
+	}
+	return state, nil
+}
+
+func writeKeyserversStateFile(dir string, state keyserversState) error {
+	encoded, err := json.MarshalIndent(state, "", "  ")
 	if err != nil {
 		return fmt.Errorf("pgp: encode keyservers state: %w", err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, keyserversFile), encoded, 0o600); err != nil {
+	tmp, err := os.CreateTemp(dir, ".keyservers-*.tmp")
+	if err != nil {
+		return fmt.Errorf("pgp: create keyservers state temp file: %w", err)
+	}
+	name := tmp.Name()
+	if err := tmp.Chmod(0o600); err != nil {
+		_ = tmp.Close()
+		_ = os.Remove(name)
+		return fmt.Errorf("pgp: secure keyservers state: %w", err)
+	}
+	if _, err := tmp.Write(encoded); err != nil {
+		_ = tmp.Close()
+		_ = os.Remove(name)
+		return fmt.Errorf("pgp: write keyservers state: %w", err)
+	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		_ = os.Remove(name)
+		return fmt.Errorf("pgp: sync keyservers state: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(name)
+		return fmt.Errorf("pgp: close keyservers state: %w", err)
+	}
+	if err := os.Rename(name, filepath.Join(dir, keyserversFile)); err != nil {
+		_ = os.Remove(name)
 		return fmt.Errorf("pgp: write keyservers state: %w", err)
 	}
 	return nil
@@ -460,7 +584,9 @@ func WriteKeyserversState(configDir, fingerprint string, published map[string]in
 // this is a fresh restore predating the feature). Callers use this on
 // restore to avoid re-publishing to keyservers already recorded here.
 func ReadKeyserversState(configDir, fingerprint string) (map[string]int64, error) {
-	data, err := os.ReadFile(filepath.Join(configDir, SecurityDirName, keyserversFile))
+	keyserversStateMu.Lock()
+	defer keyserversStateMu.Unlock()
+	state, err := readKeyserversState(configDir)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return nil, nil
@@ -468,10 +594,6 @@ func ReadKeyserversState(configDir, fingerprint string) (map[string]int64, error
 		return nil, fmt.Errorf("pgp: read keyservers state: %w", err)
 	}
 
-	var state keyserversState
-	if err := json.Unmarshal(data, &state); err != nil {
-		return nil, fmt.Errorf("pgp: decode keyservers state: %w", err)
-	}
 	if state.Fingerprint != fingerprint {
 		return nil, nil
 	}

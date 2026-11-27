@@ -29,6 +29,16 @@ func RecordAuthAttempt(method, status string) {
 	AuthAttemptsTotal.WithLabelValues(method, status).Inc()
 }
 
+// RecordDBBusyRetry records one SQLite write retry caused by SQLITE_BUSY or
+// SQLITE_LOCKED.
+func RecordDBBusyRetry() { DBBusyTotal.Inc() }
+
+// ObserveDBWriteWait records time spent waiting for the serialized SQLite
+// write handle and file lock.
+func ObserveDBWriteWait(duration time.Duration) {
+	DBWriteWait.Observe(duration.Seconds())
+}
+
 func classifyDBStatement(query string) (string, string) {
 	fields := strings.Fields(strings.TrimSpace(query))
 	if len(fields) == 0 {
@@ -95,7 +105,7 @@ func classifyDBError(err error) string {
 }
 
 // StartDBStatsUpdater periodically exports database/sql pool statistics until stop closes.
-func StartDBStatsUpdater(db *sql.DB, stop <-chan struct{}) {
+func StartDBStatsUpdater(db interface{ Stats() sql.DBStats }, stop <-chan struct{}) {
 	if db == nil {
 		return
 	}
@@ -191,6 +201,17 @@ var (
 		Name: "ipgaze_db_errors_total",
 		Help: "Total number of database errors.",
 	}, []string{"operation", "error_type"})
+
+	DBBusyTotal = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "ipgaze_db_busy_total",
+		Help: "SQLite writes that hit a busy or locked error and were retried.",
+	})
+
+	DBWriteWait = promauto.NewHistogram(prometheus.HistogramOpts{
+		Name:    "ipgaze_db_write_wait_seconds",
+		Help:    "Time a SQLite write waited for the single write handle and file lock.",
+		Buckets: []float64{0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10},
+	})
 
 	// Cache metrics
 	CacheHitsTotal = promauto.NewCounterVec(prometheus.CounterOpts{

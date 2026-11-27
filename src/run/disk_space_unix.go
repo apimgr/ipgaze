@@ -1,6 +1,6 @@
 //go:build linux || darwin || freebsd
 
-package main
+package run
 
 import (
 	"golang.org/x/sys/unix"

@@ -10,9 +10,9 @@ import (
 // wrapper driver, exercising the full loggingConn/loggingStmt code path.
 func openLoggingMemDB(t *testing.T) *sql.DB {
 	t.Helper()
-	db, err := OpenSQLite(":memory:")
+	db, err := openSQLiteDB(":memory:")
 	if err != nil {
-		t.Fatalf("OpenSQLite: %v", err)
+		t.Fatalf("open logged SQLite handle: %v", err)
 	}
 	t.Cleanup(func() {
 		if err := db.Close(); err != nil {

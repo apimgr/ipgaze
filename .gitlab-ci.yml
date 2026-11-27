@@ -46,11 +46,19 @@ lint:
 test:
   stage: test
   script:
-    - mkdir -p "/tmp/${CI_PROJECT_PATH%/*}"
-    - COVDIR="$(mktemp -d "/tmp/${CI_PROJECT_PATH//\//-}-XXXXXX")"
+    - PROJECT_ORG="$(awk '$1 == "project_org:" {print $2; exit}' IDEA.md)"
+    - INTERNAL_NAME="$(awk '$1 == "internal_name:" {print $2; exit}' IDEA.md)"
+    - mkdir -p "/tmp/$PROJECT_ORG"
+    - COVDIR="$(mktemp -d "/tmp/$PROJECT_ORG/$INTERNAL_NAME-XXXXXX")"
+    - chmod 700 "$COVDIR"
     - trap 'rm -rf -- "$COVDIR"' EXIT
     - |
-      docker run --rm --name "ipgaze-test-${CI_PIPELINE_ID}" -v "$CI_PROJECT_DIR:/app" -v "$COVDIR:$COVDIR" -w /app -e "TMPDIR=$COVDIR" -e CGO_ENABLED=0 -e GOFLAGS=-buildvcs=false casjaysdev/go:latest sh -ec 'go test -cover -coverprofile="$TMPDIR/coverage.out" ./...; pct=$(go tool cover -func="$TMPDIR/coverage.out" | awk '\''/^total:/ {gsub("%", "", $3); print int($3)}'\''); test "$pct" -ge 60 || { echo "ERROR: coverage $pct% < threshold 60%"; exit 1; }'
+      docker run --rm --name "ipgaze-test-${CI_PIPELINE_ID}" -v "$CI_PROJECT_DIR:/app" -v "$COVDIR:/cov" -w /app -e CGO_ENABLED=0 -e GOFLAGS=-buildvcs=false casjaysdev/go:latest sh -ec 'mkdir -p /cov/data && go test -cover ./... -args -test.gocoverdir=/cov/data && go tool covdata textfmt -i=/cov/data -o=/cov/coverage.out'
+      COVERAGE="$(awk '$1 == "total:" {gsub("%", "", $3); print $3}' "$COVDIR/coverage.out")"
+      if [ -z "$COVERAGE" ] || [ "$(awk -v coverage="$COVERAGE" 'BEGIN {print (coverage < 60)}')" -eq 1 ]; then
+        printf 'ERROR: coverage %s%% < threshold 60%%\n' "${COVERAGE:-unknown}" >&2
+        exit 1
+      fi
 license-check:
   stage: test
   script:

@@ -1,4 +1,4 @@
-package main
+package run
 
 import (
 	"fmt"
@@ -17,6 +17,7 @@ import (
 )
 
 var backupIncrementalFileRe = regexp.MustCompile(`^ipgaze-(daily|hourly)\.tar\.gz(\.enc)?$`)
+var backupFullFileRe = regexp.MustCompile(`^ipgaze_backup_(\d{4}-\d{2}-\d{2})(?:_\d{6}(?:-\d+)?)?\.tar\.gz(\.enc)?$`)
 
 type backupFileInfo struct {
 	path string
@@ -36,7 +37,7 @@ func listFullBackups(backupDir string) ([]backupFileInfo, error) {
 	}
 	var out []backupFileInfo
 	for _, e := range entries {
-		if e.IsDir() || !strings.HasPrefix(e.Name(), "ipgaze_backup_") || !strings.Contains(e.Name(), ".tar.gz") {
+		if e.IsDir() || !backupFullFileRe.MatchString(e.Name()) {
 			continue
 		}
 		info, ierr := e.Info()
@@ -50,8 +51,26 @@ func listFullBackups(backupDir string) ([]backupFileInfo, error) {
 			size: info.Size(),
 		})
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].mod.After(out[j].mod) })
+	sort.Slice(out, func(i, j int) bool {
+		left := backupFullFileRe.FindStringSubmatch(out[i].name)[1]
+		right := backupFullFileRe.FindStringSubmatch(out[j].name)[1]
+		if left != right {
+			return left > right
+		}
+		return out[i].mod.After(out[j].mod)
+	})
 	return out, nil
+}
+
+func newestFullBackup(backupDir string) (string, error) {
+	fulls, err := listFullBackups(backupDir)
+	if err != nil {
+		return "", err
+	}
+	if len(fulls) == 0 {
+		return "", fmt.Errorf("no full backup archive found in %s", backupDir)
+	}
+	return fulls[0].path, nil
 }
 
 func listAllBackupFiles(backupDir string) ([]backupFileInfo, error) {
@@ -371,10 +390,15 @@ func backupIncrementalBaseReferences(backupDir, password string) (map[string]boo
 		if err != nil {
 			return nil, false
 		}
-		archive, err := decryptBackupPayload(path, raw, password)
-		if err != nil {
-			return nil, false
+		if strings.HasSuffix(path, ".enc") {
+			header, headerErr := readBackupEncryptionHeader(raw)
+			if headerErr != nil || header.baseName == "" || !validBackupArchivePath(header.baseName) || filepath.Base(header.baseName) != header.baseName {
+				return nil, false
+			}
+			refs[header.baseName] = true
+			continue
 		}
+		archive := raw
 		manifest, err := readBackupManifest(archive)
 		if err != nil {
 			if strings.HasSuffix(path, ".enc") {

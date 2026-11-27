@@ -34,7 +34,7 @@ var configAreas = []configArea{
 	{file: "tor.yml", paths: []string{"server.tor", "tor"}},
 	{file: "i2p.yml", paths: []string{"server.i2p"}},
 	{file: "maintenance.yml", paths: []string{
-		"server.maintenance", "server.scheduler", "server.update", "server.auto_update", "server.backup", "server.restore",
+		"server.maintenance", "server.scheduler", "server.update", "server.auto_update", "server.backup", "server.restore", "server.cli",
 	}},
 }
 

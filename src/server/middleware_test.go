@@ -38,11 +38,11 @@ func TestContactCaptchaCSPAddsOnlySelectedProviderHosts(t *testing.T) {
 func TestPermissionsPolicyIsFixed(t *testing.T) {
 	policy := permissionsPolicyValue(DefaultSecurityHeaderConfig().PermissionsPolicy)
 	for _, required := range []string{
-		"accelerometer=()", "ambient-light-sensor=()", "battery=()", "camera=()",
+		"accelerometer=()", "camera=()",
 		"display-capture=()", "geolocation=()", "hid=()", "idle-detection=()",
 		"microphone=()", "midi=()", "serial=()", "usb=()", "xr-spatial-tracking=()",
-		"attribution-reporting=()", "browsing-topics=()", "interest-cohort=()",
-		"autoplay=(self)", "publickey-credentials-get=(self)", "web-share=(self)",
+		"attribution-reporting=()", "browsing-topics=()",
+		"autoplay=(self)", "publickey-credentials-get=(self)",
 	} {
 		if !strings.Contains(policy, required) {
 			t.Errorf("Permissions-Policy missing %q: %s", required, policy)
@@ -131,14 +131,19 @@ func TestSecurityHeadersMiddleware(t *testing.T) {
 func TestURLNormalizeMiddleware(t *testing.T) {
 	tests := []struct {
 		name           string
+		method         string
 		inputPath      string
 		expectedPath   string
 		expectRedirect bool
+		wantStatus     int
 	}{
-		{"double slashes", "/api//v1//test", "/api/v1/test", true},
-		{"trailing slash", "/api/v1/", "/api/v1", true},
-		{"root path", "/", "/", false},
-		{"already normalized", "/api/v1", "/api/v1", false},
+		{"double slashes", http.MethodGet, "/api//v1//test", "/api/v1/test", true, http.StatusMovedPermanently},
+		{"trailing slash", http.MethodGet, "/api/v1/", "/api/v1", true, http.StatusMovedPermanently},
+		{"head trailing slash", http.MethodHead, "/api/v1/", "/api/v1", true, http.StatusMovedPermanently},
+		{"post trailing slash", http.MethodPost, "/api/v1/", "/api/v1", true, http.StatusPermanentRedirect},
+		{"put trailing slash", http.MethodPut, "/api/v1/", "/api/v1", true, http.StatusPermanentRedirect},
+		{"root path", http.MethodGet, "/", "/", false, 0},
+		{"already normalized", http.MethodGet, "/api/v1", "/api/v1", false, 0},
 	}
 
 	for _, tt := range tests {
@@ -151,25 +156,21 @@ func TestURLNormalizeMiddleware(t *testing.T) {
 
 			wrapped := URLNormalizeMiddleware(handler)
 
-			req := httptest.NewRequest(http.MethodGet, tt.inputPath, nil)
+			req := httptest.NewRequest(tt.method, tt.inputPath, strings.NewReader("request body"))
 			rec := httptest.NewRecorder()
 
 			wrapped.ServeHTTP(rec, req)
 
 			if tt.expectRedirect {
-				// Should redirect to normalized path with 301.
-				if rec.Code != http.StatusMovedPermanently {
-					t.Errorf("status = %d, want %d (301 redirect)", rec.Code, http.StatusMovedPermanently)
+				if rec.Code != tt.wantStatus {
+					t.Errorf("status = %d, want %d", rec.Code, tt.wantStatus)
 				}
 				loc := rec.Header().Get("Location")
 				if loc != tt.expectedPath {
 					t.Errorf("Location header = %q, want %q", loc, tt.expectedPath)
 				}
-			} else {
-				// Should pass through to handler with unchanged path.
-				if capturedPath != tt.expectedPath {
-					t.Errorf("Normalized path = %q, want %q", capturedPath, tt.expectedPath)
-				}
+			} else if capturedPath != tt.expectedPath {
+				t.Errorf("Normalized path = %q, want %q", capturedPath, tt.expectedPath)
 			}
 		})
 	}

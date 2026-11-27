@@ -16,11 +16,11 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/apimgr/ipgaze/src/config"
-	_ "modernc.org/sqlite"
+	"github.com/apimgr/ipgaze/src/db"
 )
 
 func TestLinkedTokenRevealRendersOnlyItsLinkedCard(t *testing.T) {
-	database, err := sql.Open("sqlite", ":memory:")
+	database, err := db.OpenSQLite(":memory:")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -29,11 +29,9 @@ func TestLinkedTokenRevealRendersOnlyItsLinkedCard(t *testing.T) {
 			t.Errorf("close database: %v", err)
 		}
 	})
-	database.SetMaxOpenConns(1)
 	_, err = database.Exec(`CREATE TABLE owners (id TEXT PRIMARY KEY, last_seen_at INTEGER);
 		CREATE TABLE api_tokens (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			public_id TEXT UNIQUE,
+			id TEXT PRIMARY KEY,
 			owner_id TEXT NOT NULL,
 			kind TEXT NOT NULL,
 			name TEXT,
@@ -59,8 +57,8 @@ func TestLinkedTokenRevealRendersOnlyItsLinkedCard(t *testing.T) {
 		t.Fatal(err)
 	}
 	const linkedToken = "own_0123456789ABCDEFGHIJKLMNOPQRSTUV"
-	linkedID := uuid.NewString()
-	_, err = database.Exec(`INSERT INTO api_tokens(public_id, owner_id, kind, name, token_hash, token_prefix, token_last4, token_enc)
+	linkedID := uuid.Must(uuid.NewV7())
+	_, err = database.Exec(`INSERT INTO api_tokens(id, owner_id, kind, name, token_hash, token_prefix, token_last4, token_enc)
 		VALUES(?, ?, 'linked', 'automation', 'linked-hash', 'own_01234567', 'RSTV', 'encrypted')`, linkedID, primary.OwnerID)
 	if err != nil {
 		t.Fatal(err)
@@ -74,9 +72,9 @@ func TestLinkedTokenRevealRendersOnlyItsLinkedCard(t *testing.T) {
 	request := httptest.NewRequest("GET", "/server/preferences/tokens", nil)
 	request.AddCookie(&http.Cookie{Name: OwnerTokenCookieName, Value: primaryToken})
 	response := httptest.NewRecorder()
-	handler.renderOwnerTokensPageState(response, request, linkedToken, "", "revealed", linkedID, "", "")
+	handler.renderOwnerTokensPageState(response, request, linkedToken, "", "revealed", linkedID.String(), "", "")
 
-	if rendered.RevealToken != linkedToken || rendered.RevealTokenID != linkedID {
+	if rendered.RevealToken != linkedToken || rendered.RevealTokenID != linkedID.String() {
 		t.Fatalf("linked reveal state = token %q, id %s; want linked card %s", rendered.RevealToken, rendered.RevealTokenID, linkedID)
 	}
 	if rendered.PrimaryMasked != maskOwnerTokenSuffix(primary.Last4) {
@@ -125,7 +123,7 @@ func TestOwnerTokenFlashIsConsumedAfterRedirect(t *testing.T) {
 }
 
 func TestPrimaryTokenBearerDistinguishesLinkedFromInvalidTokens(t *testing.T) {
-	database, err := sql.Open("sqlite", ":memory:")
+	database, err := db.OpenSQLite(":memory:")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -134,11 +132,9 @@ func TestPrimaryTokenBearerDistinguishesLinkedFromInvalidTokens(t *testing.T) {
 			t.Errorf("close database: %v", err)
 		}
 	})
-	database.SetMaxOpenConns(1)
 	_, err = database.Exec(`CREATE TABLE owners (id TEXT PRIMARY KEY, last_seen_at INTEGER);
 		CREATE TABLE api_tokens (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			public_id TEXT UNIQUE,
+			id TEXT PRIMARY KEY,
 			owner_id TEXT NOT NULL,
 			kind TEXT NOT NULL,
 			name TEXT,
@@ -165,8 +161,8 @@ func TestPrimaryTokenBearerDistinguishesLinkedFromInvalidTokens(t *testing.T) {
 	}
 	const linkedToken = "own_0123456789ABCDEFGHIJKLMNOPQRSTUV"
 	linkedHash := sha256.Sum256([]byte(linkedToken))
-	_, err = database.Exec(`INSERT INTO api_tokens(public_id, owner_id, kind, name, token_hash, token_prefix, token_last4, token_enc)
-		VALUES(?, ?, 'linked', 'automation', ?, ?, ?, 'encrypted')`, uuid.NewString(), primary.OwnerID,
+	_, err = database.Exec(`INSERT INTO api_tokens(id, owner_id, kind, name, token_hash, token_prefix, token_last4, token_enc)
+		VALUES(?, ?, 'linked', 'automation', ?, ?, ?, 'encrypted')`, uuid.Must(uuid.NewV7()), primary.OwnerID,
 		hex.EncodeToString(linkedHash[:]), ownerTokenPrefix(linkedToken), ownerTokenSuffix(linkedToken))
 	if err != nil {
 		t.Fatal(err)
@@ -219,5 +215,126 @@ func TestPrimaryTokenBearerDistinguishesLinkedFromInvalidTokens(t *testing.T) {
 				t.Fatalf("primary token validation error does not match %v", test.wantErr)
 			}
 		})
+	}
+}
+
+func TestPrimaryTokenRevokeRequiresConfirmationAndDeletesOwner(t *testing.T) {
+	database, err := db.OpenSQLite(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := database.Close(); err != nil {
+			t.Errorf("close database: %v", err)
+		}
+	})
+	_, err = database.Exec(`CREATE TABLE owners (id TEXT PRIMARY KEY, last_seen_at INTEGER);
+		CREATE TABLE api_tokens (
+			id TEXT PRIMARY KEY,
+			owner_id TEXT NOT NULL REFERENCES owners(id) ON DELETE CASCADE,
+			kind TEXT NOT NULL,
+			name TEXT,
+			token_hash TEXT NOT NULL,
+			token_prefix TEXT NOT NULL,
+			token_last4 TEXT NOT NULL,
+			token_enc TEXT NOT NULL,
+			created_at INTEGER NOT NULL DEFAULT 0,
+			last_used_at INTEGER,
+			expires_at INTEGER,
+			revoked_at INTEGER
+		);`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	handler := newTestPagesHandler()
+	handler.DB = database
+	handler.Config = config.DefaultConfig()
+	handler.Config.Server.Security.EncryptionKey = base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{5}, 32))
+	type revokeAudit struct {
+		source, ownerID, prefix string
+		tokens, resources       int64
+	}
+	var audits []revokeAudit
+	handler.TokenOwnerRevokeLogger = func(source, ownerID, prefix string, tokens, resources int64) {
+		audits = append(audits, revokeAudit{source: source, ownerID: ownerID, prefix: prefix, tokens: tokens, resources: resources})
+	}
+	identity, primaryToken, err := handler.createPrimaryToken(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	const linkedToken = "own_0123456789ABCDEFGHIJKLMNOPQRSTUV"
+	linkedHash := sha256.Sum256([]byte(linkedToken))
+	_, err = database.Exec(`INSERT INTO api_tokens(id, owner_id, kind, name, token_hash, token_prefix, token_last4, token_enc)
+		VALUES(?, ?, 'linked', 'automation', ?, ?, ?, 'encrypted')`, uuid.Must(uuid.NewV7()), identity.OwnerID,
+		hex.EncodeToString(linkedHash[:]), ownerTokenPrefix(linkedToken), ownerTokenSuffix(linkedToken))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	revoke := func(token, confirmation string) *httptest.ResponseRecorder {
+		t.Helper()
+		body, err := json.Marshal(map[string]string{"confirm": confirmation})
+		if err != nil {
+			t.Fatal(err)
+		}
+		request := httptest.NewRequest(http.MethodDelete, "/api/v1/server/preferences/tokens/primary", bytes.NewReader(body))
+		request.Header.Set("Authorization", "Bearer "+token)
+		request.Header.Set("Content-Type", "application/json")
+		response := httptest.NewRecorder()
+		handler.APIV1ServerPrimaryTokenRevokeHandler(response, request)
+		return response
+	}
+
+	invalid := revoke(primaryToken, "xxxx")
+	if invalid.Code != http.StatusBadRequest {
+		t.Fatalf("invalid confirmation status = %d, want %d: %s", invalid.Code, http.StatusBadRequest, invalid.Body.String())
+	}
+	var owners, tokens int
+	if err := database.QueryRow(`SELECT COUNT(*) FROM owners WHERE id = ?`, identity.OwnerID).Scan(&owners); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.QueryRow(`SELECT COUNT(*) FROM api_tokens WHERE owner_id = ?`, identity.OwnerID).Scan(&tokens); err != nil {
+		t.Fatal(err)
+	}
+	if owners != 1 || tokens != 2 {
+		t.Fatalf("invalid confirmation changed data: owners=%d tokens=%d, want 1 and 2", owners, tokens)
+	}
+	if len(audits) != 0 {
+		t.Fatalf("invalid confirmation wrote revoke audit events: %#v", audits)
+	}
+
+	linked := revoke(linkedToken, identity.Last4)
+	if linked.Code != http.StatusForbidden {
+		t.Fatalf("linked token revoke status = %d, want %d: %s", linked.Code, http.StatusForbidden, linked.Body.String())
+	}
+	if len(audits) != 0 {
+		t.Fatalf("linked-token attempt wrote revoke audit events: %#v", audits)
+	}
+
+	valid := revoke(primaryToken, identity.Last4)
+	if valid.Code != http.StatusOK {
+		t.Fatalf("valid revoke status = %d, want %d: %s", valid.Code, http.StatusOK, valid.Body.String())
+	}
+	var response struct {
+		Data map[string]int64 `json:"data"`
+	}
+	if err := json.Unmarshal(valid.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode revoke response: %v", err)
+	}
+	if response.Data["tokens"] != 2 || response.Data["resources"] != 0 {
+		t.Fatalf("revoke counts = %#v, want 2 tokens and 0 resources", response.Data)
+	}
+	if err := database.QueryRow(`SELECT COUNT(*) FROM owners WHERE id = ?`, identity.OwnerID).Scan(&owners); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.QueryRow(`SELECT COUNT(*) FROM api_tokens WHERE owner_id = ?`, identity.OwnerID).Scan(&tokens); err != nil {
+		t.Fatal(err)
+	}
+	if owners != 0 || tokens != 0 {
+		t.Fatalf("successful revoke left data: owners=%d tokens=%d", owners, tokens)
+	}
+	if len(audits) != 1 || audits[0] != (revokeAudit{source: "api", ownerID: identity.OwnerID, prefix: identity.Prefix, tokens: 2, resources: 0}) {
+		t.Fatalf("revoke audit events = %#v, want one owner-scoped API event with deletion counts", audits)
 	}
 }

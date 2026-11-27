@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/apimgr/ipgaze/src/common/i18n"
 	"github.com/apimgr/ipgaze/src/config"
 	"github.com/apimgr/ipgaze/src/netutil"
 )
@@ -74,7 +75,7 @@ func (s *Server) feedHandler(atom bool) http.HandlerFunc {
 			body, err = xml.Marshal(rssFeed{Version: "2.0", Channel: rssChannel{Title: title, Link: feedURL, Description: title}})
 		}
 		if err != nil {
-			http.Error(w, "feed generation failed", http.StatusInternalServerError)
+			http.Error(w, i18n.T(r.Context(), "errors.server_error"), http.StatusInternalServerError)
 			return
 		}
 		body = append([]byte(xml.Header), body...)

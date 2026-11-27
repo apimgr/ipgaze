@@ -123,6 +123,13 @@ func TestNeedsUpdate_WhenCurrentEmpty(t *testing.T) {
 	}
 }
 
+func TestNeedsUpdate_WhenCurrentIsNewer(t *testing.T) {
+	r := &CheckResult{Current: "1.2.0", Available: "1.1.0"}
+	if r.NeedsUpdate() {
+		t.Error("NeedsUpdate() = true when current version is newer, want false")
+	}
+}
+
 // ---------------------------------------------------------------------------
 // isOlderVersion (internal)
 // ---------------------------------------------------------------------------

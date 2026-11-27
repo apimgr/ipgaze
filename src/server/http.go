@@ -20,12 +20,12 @@ import (
 	"sync"
 	"time"
 
-	"database/sql"
-
 	"github.com/apimgr/ipgaze/src/blocklist"
+	"github.com/apimgr/ipgaze/src/common/httputil"
 	"github.com/apimgr/ipgaze/src/common/i18n"
 	"github.com/apimgr/ipgaze/src/common/theme"
 	"github.com/apimgr/ipgaze/src/config"
+	dbstore "github.com/apimgr/ipgaze/src/db"
 	"github.com/apimgr/ipgaze/src/email"
 	"github.com/apimgr/ipgaze/src/iputil/geo"
 	applog "github.com/apimgr/ipgaze/src/log"
@@ -40,7 +40,6 @@ import (
 	"github.com/apimgr/ipgaze/src/threat"
 	"github.com/go-chi/chi/v5"
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
-	"github.com/google/uuid"
 	"github.com/rs/cors"
 )
 
@@ -88,6 +87,10 @@ type Server struct {
 	// apiOperationIDs identifies documented API operations registered by the
 	// active route table, for MCP tool discovery and llms.txt endpoint listing.
 	apiOperationIDs map[string]struct{}
+	// apiRoutes contains the handler-bearing route values mounted by the active
+	// router. Documentation and discovery receive snapshots of these same values.
+	routesMu        sync.RWMutex
+	activeAPIRoutes []swagger.Route
 	// handlerMu protects the active request handler while a file-backed config
 	// change rebuilds middleware and routes. Requests already in flight finish
 	// on the previous handler before the swap proceeds.
@@ -96,7 +99,7 @@ type Server struct {
 	// sched holds the scheduler for /debug/scheduler status.
 	sched *scheduler.Scheduler
 	// sqlDB holds the database connection for /debug/db stats.
-	sqlDB              *sql.DB
+	sqlDB              *dbstore.Store
 	PagesHandler       *handler.PagesHandler
 	SpecialHandler     *handler.SpecialHandler
 	HealthHandler      *handler.HealthHandler
@@ -391,40 +394,53 @@ func (s *Server) ValidateAPIToken(rawToken string) bool {
 	if !ok {
 		return false
 	}
-	_, _ = s.sqlDB.Exec(`UPDATE api_tokens SET last_used_at = strftime('%s', 'now')
-		WHERE id = ? AND (last_used_at IS NULL OR last_used_at < strftime('%s', 'now') - 60)`, tokenID)
-	_, _ = s.sqlDB.Exec(`UPDATE owners SET last_seen_at = strftime('%s', 'now') WHERE id = ?`, ownerID)
+	s.sqlDB.MarkOwnerUsage(tokenID, ownerID, time.Now())
 	return true
 }
 
 // findOwnerToken resolves an active owner token by its non-secret prefix, then
 // compares the stored SHA-256 digest to the inbound digest in constant time.
-func (s *Server) findOwnerToken(rawToken string) (tokenID int64, ownerID string, ok bool) {
+func (s *Server) findOwnerToken(rawToken string) (tokenID string, ownerID string, ok bool) {
 	if s.sqlDB == nil || len(rawToken) != len("own_")+32 || !strings.HasPrefix(rawToken, "own_") {
-		return 0, "", false
+		return "", "", false
 	}
-	rows, err := s.sqlDB.Query(`SELECT id, owner_id, token_hash FROM api_tokens WHERE token_prefix = ? AND revoked_at IS NULL
+	rows, err := s.sqlDB.Query(`SELECT id, owner_id, token_hash FROM api_tokens WHERE token_prefix = ? AND owner_id <> 'system' AND revoked_at IS NULL
 		AND (expires_at IS NULL OR expires_at > strftime('%s', 'now'))`, rawToken[:12])
 	if err != nil {
-		return 0, "", false
+		return "", "", false
 	}
 	defer func() {
 		if closeErr := rows.Close(); closeErr != nil {
-			tokenID, ownerID, ok = 0, "", false
+			tokenID, ownerID, ok = "", "", false
 		}
 	}()
 	inboundHash := sha256.Sum256([]byte(rawToken))
 	for rows.Next() {
 		var storedHash string
 		if rows.Scan(&tokenID, &ownerID, &storedHash) != nil {
-			return 0, "", false
+			return "", "", false
 		}
 		expectedHash, decodeErr := hex.DecodeString(storedHash)
 		if decodeErr == nil && len(expectedHash) == len(inboundHash) && subtle.ConstantTimeCompare(expectedHash, inboundHash[:]) == 1 {
 			return tokenID, ownerID, true
 		}
 	}
-	return 0, "", false
+	return "", "", false
+}
+
+func (s *Server) auditRejectedCLIToken(r *http.Request, rawToken string) {
+	if r == nil || s.logManager == nil || !httputil.IsOurCliClient(r.UserAgent()) {
+		return
+	}
+	details := map[string]any{"path": sanitizeLogValue(r.URL.Path)}
+	if rawToken != "" {
+		hash := sha256.Sum256([]byte(rawToken))
+		details["token_fingerprint"] = hex.EncodeToString(hash[:6])
+	}
+	s.logManager.WriteAudit(applog.AuditEvent{
+		Event: "cli.token_rejected", Source: "cli", Category: "cli", Severity: "warn", Result: "failure",
+		Actor: applog.AuditActor{Type: "cli", IP: s.authClientIP(r)}, Details: details,
+	})
 }
 
 // SetAllowlist configures the IP allowlist. Allowlisted IPs bypass blocklist,
@@ -479,6 +495,14 @@ func (s *Server) SetRateLimiter(rl *RateLimiter) {
 	}
 }
 
+// StopRateLimiter flushes buffered rate-limit counters after HTTP requests
+// have drained and before the database store is closed.
+func (s *Server) StopRateLimiter() {
+	if s != nil && s.rateLimiter != nil {
+		s.rateLimiter.Stop()
+	}
+}
+
 // SetGeoIPCountries configures country-level blocking.
 // deny and allow are ISO 3166-1 alpha-2 codes. If both are set, allow wins.
 func (s *Server) SetGeoIPCountries(deny, allow []string) {
@@ -504,7 +528,7 @@ func (s *Server) SetScheduler(sched *scheduler.Scheduler) {
 }
 
 // SetDB attaches the SQL database connection for /debug/db stats endpoint.
-func (s *Server) SetDB(db *sql.DB) {
+func (s *Server) SetDB(db *dbstore.Store) {
 	s.sqlDB = db
 	if s.rateLimiter != nil {
 		s.rateLimiter.SetDB(db)
@@ -928,7 +952,7 @@ func (s *Server) APIV1CountryHandler(w http.ResponseWriter, r *http.Request) *ap
 	if err != nil {
 		return badRequest(err).WithMessage(i18n.T(r.Context(), "errors.bad_request")).AsJSON()
 	}
-	return writeAPIScalar(w, r, "country", response.Country)
+	return writeAPIScalar(w, r, "v1_country", response.Country)
 }
 
 // APIV1CityHandler is the API mirror of the web /city route.
@@ -937,7 +961,7 @@ func (s *Server) APIV1CityHandler(w http.ResponseWriter, r *http.Request) *appEr
 	if err != nil {
 		return badRequest(err).WithMessage(i18n.T(r.Context(), "errors.bad_request")).AsJSON()
 	}
-	return writeAPIScalar(w, r, "city", response.City)
+	return writeAPIScalar(w, r, "v1_city", response.City)
 }
 
 // APIV1ASNHandler is the API mirror of the web /asn route.
@@ -946,19 +970,27 @@ func (s *Server) APIV1ASNHandler(w http.ResponseWriter, r *http.Request) *appErr
 	if err != nil {
 		return badRequest(err).WithMessage(i18n.T(r.Context(), "errors.bad_request")).AsJSON()
 	}
-	return writeAPIScalar(w, r, "asn", response.ASN)
+	return writeAPIScalar(w, r, "v1_asn", response.ASN)
 }
 
 // writeAPIScalar emits a single lookup value under the /api/** rules of AI.md
 // PART 14: JSON by default, raw text for a `.txt` request, an Accept of
 // text/plain, or a non-interactive client.
-func writeAPIScalar(w http.ResponseWriter, r *http.Request, field, value string) *appError {
+func writeAPIScalar(w http.ResponseWriter, r *http.Request, operationID, value string) *appError {
 	if apiResponseFormat(r) == "text" {
+		route, ok := swagger.RouteForOperationID(operationID)
+		if !ok || route.Primary == "" {
+			return internalServerError(fmt.Errorf("text route %s has no primary field", operationID)).AsJSON()
+		}
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		_, _ = fmt.Fprintln(w, value)
 		return nil
 	}
-	b, err := json.MarshalIndent(map[string]string{field: value}, "", "  ")
+	route, ok := swagger.RouteForOperationID(operationID)
+	if !ok || route.Primary == "" {
+		return internalServerError(fmt.Errorf("API route %s has no primary field", operationID)).AsJSON()
+	}
+	b, err := json.MarshalIndent(map[string]string{route.Primary: value}, "", "  ")
 	if err != nil {
 		return internalServerError(err).AsJSON()
 	}
@@ -975,7 +1007,7 @@ func (s *Server) APIV1CountryISOHandler(w http.ResponseWriter, r *http.Request) 
 	if err != nil {
 		return badRequest(err).WithMessage(i18n.T(r.Context(), "errors.bad_request")).AsJSON()
 	}
-	return writeAPIScalar(w, r, "country_iso", response.CountryISO)
+	return writeAPIScalar(w, r, "v1_country_iso", response.CountryISO)
 }
 
 // APIV1CoordinatesHandler is the API mirror of the web /coordinates route.
@@ -984,7 +1016,7 @@ func (s *Server) APIV1CoordinatesHandler(w http.ResponseWriter, r *http.Request)
 	if err != nil {
 		return badRequest(err).WithMessage(i18n.T(r.Context(), "errors.bad_request")).AsJSON()
 	}
-	return writeAPIScalar(w, r, "coordinates", formatCoordinatePair(response.Latitude, response.Longitude))
+	return writeAPIScalar(w, r, "v1_coordinates", formatCoordinatePair(response.Latitude, response.Longitude))
 }
 
 // APIV1ASNOrgHandler is the API mirror of the web /asn-org route.
@@ -993,7 +1025,7 @@ func (s *Server) APIV1ASNOrgHandler(w http.ResponseWriter, r *http.Request) *app
 	if err != nil {
 		return badRequest(err).WithMessage(i18n.T(r.Context(), "errors.bad_request")).AsJSON()
 	}
-	return writeAPIScalar(w, r, "asn_org", response.ASNOrg)
+	return writeAPIScalar(w, r, "v1_asn_org", response.ASNOrg)
 }
 
 // getTrust returns the TrustResolver, creating a nil-safe fallback if not yet wired.
@@ -1112,27 +1144,6 @@ func (s *Server) buildHandler() http.Handler {
 		r.Use(CompressionMiddleware(s.config.Server.Compression))
 	}
 
-	// Static files (embedded) - serve under /static/ prefix.
-	// Cache-Control per AI.md PART 9 "Asset Version-Busting (REQUIRED)":
-	// a request whose "?v=" matches the running build's AssetStamp is this
-	// exact release's bytes and can be cached for a year as immutable; any
-	// other request (no stamp, or an old release's stamp) must always
-	// revalidate, so an update is never masked by a stale cache.
-	r.Get("/static/*", func(w http.ResponseWriter, req *http.Request) {
-		if req.URL.Query().Get("v") == s.AssetStamp() {
-			w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
-		} else {
-			w.Header().Set("Cache-Control", "no-cache")
-			w.Header().Set("ETag", `"`+s.AssetStamp()+`"`)
-		}
-		http.StripPrefix("/static/", StaticHandler()).ServeHTTP(w, req)
-	})
-	r.Get("/theme.css", s.themeCSSHandler())
-
-	// Branding logo — fetched/cached server-side and served locally so the
-	// page never hotlinks a remote URL directly (AI.md "Branding & SEO").
-	r.Get("/branding/logo", s.brandingLogoHandler())
-
 	// Special files (PWA, robots, security)
 	if s.SpecialHandler == nil {
 		s.SpecialHandler = handler.NewSpecialHandler("")
@@ -1196,62 +1207,6 @@ func (s *Server) buildHandler() http.Handler {
 	if s.config != nil {
 		s.SpecialHandler.SitemapEnabled = s.config.Server.SEO.Sitemap.Enabled
 	}
-	r.Get("/robots.txt", s.SpecialHandler.RobotsTxtHandler)
-	// Every project must serve a dynamically generated sitemap (AI.md PART 24
-	// "Sitemap.xml"); HEAD is registered so crawlers can probe it cheaply.
-	r.Get("/sitemap.xml", s.sitemapHandler())
-	r.Head("/sitemap.xml", s.sitemapHandler())
-	r.Get("/feed.xml", s.feedHandler(true))
-	r.Head("/feed.xml", s.feedHandler(true))
-	r.Get("/rss.xml", s.feedHandler(false))
-	r.Head("/rss.xml", s.feedHandler(false))
-	// Browsers probe /favicon.ico unconditionally, so it must be served rather
-	// than fall through to the 404 page (AI.md PART 24 "Static Files").
-	r.Get("/favicon.ico", s.faviconHandler())
-	r.Head("/favicon.ico", s.faviconHandler())
-	r.Get("/.well-known/security.txt", s.SpecialHandler.SecurityTxtHandler)
-	r.Get("/.well-known/pgp-key.asc", s.SpecialHandler.PGPKeyHandler)
-	r.Get("/llms.txt", s.SpecialHandler.LLMsTxtHandler)
-	r.Get("/.well-known/llms.txt", s.SpecialHandler.LLMsTxtHandler)
-	// GET and HEAD are the only valid methods for /.well-known/** and anything
-	// else must be 405 (AI.md PART 14 "Well-Known Namespace Contract"). chi
-	// answers 405 for unregistered methods on a known path, so registering HEAD
-	// explicitly is what keeps it out of that bucket; net/http suppresses the
-	// body for HEAD, so the GET handlers can be reused verbatim.
-	r.Head("/.well-known/security.txt", s.SpecialHandler.SecurityTxtHandler)
-	r.Head("/.well-known/pgp-key.asc", s.SpecialHandler.PGPKeyHandler)
-	r.Head("/.well-known/llms.txt", s.SpecialHandler.LLMsTxtHandler)
-	r.Get("/manifest.json", s.SpecialHandler.ManifestHandler)
-	r.Get("/sw.js", s.SpecialHandler.ServiceWorkerHandler)
-
-	// i18n locale files — served from embedded binary for WebUI JavaScript
-	// GET /locales/{lang}.json — returns the JSON translation file for the given locale
-	r.Get("/locales/{lang}.json", func(w http.ResponseWriter, req *http.Request) {
-		lang := chi.URLParam(req, "lang")
-		data, err := i18n.LocaleJSON(lang)
-		if err != nil {
-			detectedLang := i18n.DetectLocale(req)
-			// AI.md 24407/24414: 404 is a theme-required error page, so the
-			// response is content-negotiated instead of a bare http.Error body.
-			writeNegotiatedError(w, req, http.StatusNotFound, "", i18n.T(i18n.WithLang(req.Context(), detectedLang), "errors.not_found"))
-			return
-		}
-		w.Header().Set("Content-Type", "application/json; charset=utf-8")
-		w.Header().Set("Cache-Control", "public, max-age=86400")
-		// Write errors are unrecoverable once headers are sent; log is not actionable here.
-		w.Write(data) //nolint:errcheck
-	})
-
-	// Metrics endpoint set per AI.md PART 20: /server/metrics, the versioned and
-	// unversioned API aliases, and the root alias — all one shared handler.
-	if s.metricsEnabled {
-		handler.RegisterMetricsRoutes(r, s.metricsConfig, "ipgaze")
-	}
-
-	// INTERNAL Tor control channel (AI.md PART 31.1) — loopback-gated, never
-	// documented or advertised, registered at the same tier as /server/metrics.
-	s.registerTorControlRoutes(r)
-
 	// Health check per PART 16
 	if s.HealthHandler == nil {
 		s.HealthHandler = handler.NewHealthHandler(s.Version, s.CommitID, s.BuildDate, s.Mode, s.StartTime)
@@ -1288,36 +1243,10 @@ func (s *Server) buildHandler() http.Handler {
 		s.HealthHandler.ProjectDescription = s.config.Server.Branding.Description
 		s.HealthHandler.GeoIPEnabled = s.config.Server.GeoIP.Enabled
 	}
-	r.Get("/server/healthz", s.HealthHandler.HealthzHandler)
-	// /healthz is an optional root-level alias — only registered when explicitly enabled.
-	// Per AI.md PART 13: gated by server.healthz.root.enabled config.
-	if s.HealthzRootEnabled {
-		r.Get("/healthz", s.HealthHandler.HealthzHandler)
-	}
 
 	// Initialize CacheHandler if not already set
 	if s.CacheHandler == nil {
 		s.CacheHandler = handler.NewCacheHandler(s.cache)
-	}
-
-	// OpenAPI/Swagger routes (if handler is set)
-	if s.SwaggerHandler != nil {
-		r.Get("/server/docs/swagger", s.SwaggerHandler)
-		r.Get("/server/docs/swagger/theme.css", s.SwaggerHandler)
-	}
-	if s.SwaggerJSONHandler != nil {
-		// unversioned API alias — always JSON, never the interactive UI
-		r.Get("/api/swagger", s.SwaggerJSONHandler)
-	}
-
-	// GraphQL routes (if handler is set)
-	if s.GraphQLHandler != nil {
-		r.Get("/server/docs/graphql", s.GraphQLHandler)
-		r.Get("/server/docs/graphql/theme.css", s.GraphQLHandler)
-		r.Post("/server/docs/graphql", s.GraphQLHandler)
-		// unversioned API aliases — same handler, never redirect
-		r.Get("/api/graphql", s.GraphQLHandler)
-		r.Post("/api/graphql", s.GraphQLHandler)
 	}
 
 	// PUBLIC /server/* routes (per AI.md PART 17 - Standard Pages)
@@ -1371,7 +1300,16 @@ func (s *Server) buildHandler() http.Handler {
 			s.logManager.WriteAudit(applog.AuditEvent{
 				Event: event, Source: source, Category: "auth", Severity: "info", Result: "success",
 				Target:  &applog.AuditTarget{Type: "owner", ID: ownerID},
-				Details: map[string]any{"token_prefix": prefix},
+				Details: map[string]any{"token_prefix": prefix, "source": source},
+			})
+		}
+	}
+	s.PagesHandler.TokenOwnerRevokeLogger = func(source, ownerID, prefix string, tokens, resources int64) {
+		if s.logManager != nil {
+			s.logManager.WriteAudit(applog.AuditEvent{
+				Event: "token.revoked", Source: source, Category: "auth", Severity: "info", Result: "success",
+				Target:  &applog.AuditTarget{Type: "owner", ID: ownerID},
+				Details: map[string]any{"token_prefix": prefix, "source": source, "scope": "owner", "tokens": tokens, "resources": resources},
 			})
 		}
 	}
@@ -1383,6 +1321,7 @@ func (s *Server) buildHandler() http.Handler {
 			s.logManager.WriteAuthFailure(sanitizeLogValue(s.authClientIP(r)), sanitizeLogValue(r.URL.Path), "invalid_token")
 		}
 	}
+	s.PagesHandler.TokenRejected = s.auditRejectedCLIToken
 	s.PagesHandler.ValidateBearerToken = s.ValidateAPIToken
 	s.PagesHandler.MCPTools = func(r *http.Request) []handler.MCPToolDescription {
 		return s.registeredMCPTools(r)
@@ -1404,242 +1343,78 @@ func (s *Server) buildHandler() http.Handler {
 	SetErrorLogManager(s.logManager)
 	errorPageData = s.PagesHandler.NewPageData
 	errorPageAssetStamp = s.AssetStamp()
-	r.Get("/server", s.PagesHandler.ServerRedirectHandler)
-	r.Get("/server/about", s.PagesHandler.ServerAboutHandler)
-	r.Get("/server/help", s.PagesHandler.ServerHelpHandler)
-	r.Get("/server/help/mcp", s.PagesHandler.ServerMCPHelpHandler)
-	r.Get("/server/privacy", s.PagesHandler.ServerPrivacyHandler)
-	r.Get("/server/contact", s.PagesHandler.ServerContactHandler)
-	r.Post("/server/contact", s.PagesHandler.ServerContactHandler)
-	r.Get("/server/tracking.js", s.PagesHandler.ServerTrackingScript)
-	r.Get("/server/terms", s.PagesHandler.ServerTermsHandler)
-	r.Get("/server/security", s.PagesHandler.ServerSecurityHandler)
-	r.Get("/server/dpo", s.PagesHandler.ServerDPOHandler)
-	r.Get("/server/security/policy", s.PagesHandler.ServerSecurityPolicyHandler)
-	r.Get("/server/security/thanks", s.PagesHandler.ServerSecurityThanksHandler)
-	r.Get("/server/security/report/{tracking_id}", func(w http.ResponseWriter, req *http.Request) {
-		s.PagesHandler.ServerSecurityReportHandler(w, req, chi.URLParam(req, "tracking_id"))
-	})
-	r.Post("/server/consent", s.PagesHandler.ConsentHandler)
-	r.Post("/server/ccpa", s.PagesHandler.CCPAHandler)
-	r.Post("/server/preferences", s.PagesHandler.ServerPreferencesUpdateHandler)
-	r.Get("/server/preferences", s.PagesHandler.ServerPreferencesHandler)
-	r.Get("/server/preferences/tokens", s.PagesHandler.ServerPreferencesTokensHandler)
-	r.Post("/server/preferences/token/restore", s.PagesHandler.ServerPreferencesTokenRestoreHandler)
-	r.Post("/server/preferences/token/create", s.PagesHandler.ServerPreferencesTokenCreateHandler)
-	r.Post("/server/preferences/token/reveal", s.PagesHandler.ServerPreferencesTokenRevealHandler)
-	r.Post("/server/preferences/token/rotate", s.PagesHandler.ServerPreferencesTokenRotateHandler)
-	r.Post("/server/preferences/token/forget", s.PagesHandler.ServerPreferencesTokenForgetHandler)
-	r.Post("/server/preferences/tokens", s.PagesHandler.ServerPreferencesLinkedTokenCreateHandler)
-	linkedTokenFormAction := func(action string) http.HandlerFunc {
-		return func(w http.ResponseWriter, req *http.Request) {
-			publicID := chi.URLParam(req, "id")
-			if _, err := uuid.Parse(publicID); err != nil {
-				http.Redirect(w, req, "/server/preferences/tokens", http.StatusSeeOther)
-				return
-			}
-			s.PagesHandler.ServerPreferencesLinkedTokenActionHandler(w, req, publicID, action)
-		}
-	}
-	r.Post("/server/preferences/tokens/{id}/reveal", linkedTokenFormAction("reveal"))
-	r.Post("/server/preferences/tokens/{id}/rotate", linkedTokenFormAction("rotate"))
-	r.Post("/server/preferences/tokens/{id}/update", linkedTokenFormAction("update"))
-	r.Post("/server/preferences/tokens/{id}/revoke", linkedTokenFormAction("revoke"))
-	r.Get("/server/preferences/sync", s.PagesHandler.ServerPreferencesSyncHandler)
-	r.Post("/server/preferences/sync", s.PagesHandler.ServerPreferencesSyncHandler)
-	r.Get("/server/preferences/sync/import", s.PagesHandler.ServerPreferencesSyncImportHandler)
-	r.Post("/announcements/dismiss", s.PagesHandler.DismissAnnouncementHandler)
-
 	// /api/autodiscover — unversioned; returns server info, cli_versions, cli_min_version (AI.md PART 32)
-	r.Get("/api/autodiscover", s.autodiscoverHandler())
-
-	// /cli/binaries/{project_name}-cli-{os}-{arch} — CLI binary download (AI.md PART 32)
-	// Streams the CLI binary for the requested platform from the data directory.
-	// When cli.binary_download.require_auth is set, the route is gated by the
-	// operator-token middleware so the rejection path gets the constant-time
-	// compare, the identical error message, and the timing floor AI.md PART 11
-	// requires — an inline check in the handler cannot provide those.
-	if s.config != nil && s.config.Server.CLI.BinaryDownload.RequireAuth {
-		r.With(s.RequireOperatorToken).Get("/cli/binaries/{filename}", s.cliBinaryDownloadHandler())
-	} else {
-		r.Get("/cli/binaries/{filename}", s.cliBinaryDownloadHandler())
-	}
-
-	// /api/healthz — unversioned direct alias per PART 13, same handler as canonical
-	r.Get("/api/healthz", s.HealthHandler.APIV1HealthzHandler)
-	// .txt variant forces plain text per PART 14 content-negotiation priority 1.
-	r.Get("/api/healthz.txt", s.HealthHandler.APIV1HealthzHandler)
 
 	// API v1 routes
 	mcpHandler := s.MCPHandler()
-	r.Handle("/api/mcp", mcpHandler)
-	r.Handle("/mcp", mcpHandler)
 	r.Route("/api/v1", func(r chi.Router) {
 		// A `.txt` suffix on ANY /api/v1 route forces plain text (AI.md PART 14
 		// "Content Negotiation Priority"); the middleware strips it before
 		// routing so no endpoint needs a second registration.
 		r.Use(APITextSuffixMiddleware)
-		r.Handle("/server/mcp", mcpHandler)
 		versionHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			type versionData struct {
-				Version string `json:"version"`
-				Commit  string `json:"commit"`
-				Date    string `json:"date"`
-			}
 			// AI.md PART 14: every success response uses the canonical
 			// {"ok":true,"data":...} envelope — no endpoint may invent its own shape.
-			handler.SendAPIResponseOK(w, versionData{
+			handler.SendAPIResponseOK(w, model.VersionResponse{
 				Version: s.Version,
 				Commit:  s.CommitID,
 				Date:    s.BuildDate,
 			}, nil)
 		})
-		linkedTokenAction := func(action string) http.HandlerFunc {
-			return func(w http.ResponseWriter, req *http.Request) {
-				publicID := chi.URLParam(req, "id")
-				if _, err := uuid.Parse(publicID); err != nil {
-					handler.SendAPIResponseError(w, http.StatusBadRequest, "BAD_REQUEST", "Invalid token id", nil)
-					return
-				}
-				s.PagesHandler.APIV1ServerLinkedTokenActionHandler(w, req, publicID, action)
-			}
-		}
-		operationHandlers := map[string]http.Handler{
-			"v1_info":            appHandlerToHTTP(s.APIV1InfoHandler),
-			"v1_ip":              appHandlerToHTTP(s.APIV1IPHandler),
-			"v1_ip_lookup":       appHandlerToHTTP(s.APIV1IPLookupHandler),
-			"v1_healthz":         http.HandlerFunc(s.HealthHandler.APIV1HealthzHandler),
-			"v1_healthz_txt":     http.HandlerFunc(s.HealthHandler.APIV1HealthzHandler),
-			"v1_version":         versionHandler,
-			"v1_about":           http.HandlerFunc(s.PagesHandler.APIV1ServerAboutHandler),
-			"v1_help":            http.HandlerFunc(s.PagesHandler.APIV1ServerHelpHandler),
-			"v1_help_mcp":        http.HandlerFunc(s.PagesHandler.APIV1ServerMCPHelpHandler),
-			"v1_privacy":         http.HandlerFunc(s.PagesHandler.APIV1ServerPrivacyHandler),
-			"v1_terms":           http.HandlerFunc(s.PagesHandler.APIV1ServerTermsHandler),
-			"v1_security":        http.HandlerFunc(s.PagesHandler.APIV1ServerSecurityHandler),
-			"v1_dpo":             http.HandlerFunc(s.PagesHandler.APIV1ServerDPOHandler),
-			"v1_security_policy": http.HandlerFunc(s.PagesHandler.APIV1ServerSecurityPolicyHandler),
-			"v1_security_thanks": http.HandlerFunc(s.PagesHandler.APIV1ServerSecurityThanksHandler),
-			"v1_contact":         http.HandlerFunc(s.PagesHandler.APIV1ServerContactHandler),
-			"v1_contact_get":     http.HandlerFunc(s.PagesHandler.APIV1ServerContactHandler),
-			"v1_auth_check": s.RequireOperatorToken(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				handler.SendAPIResponseOK(w, struct {
-					Kind string `json:"kind"`
-				}{Kind: "operator"}, nil)
-			})),
-			"v1_preferences":             http.HandlerFunc(s.PagesHandler.APIV1ServerPreferencesHandler),
-			"v1_preferences_update":      http.HandlerFunc(s.PagesHandler.APIV1ServerPreferencesUpdateHandler),
-			"v1_preferences_sync":        http.HandlerFunc(s.PagesHandler.APIV1ServerPreferencesSyncHandler),
-			"v1_preferences_sync_import": http.HandlerFunc(s.PagesHandler.APIV1ServerPreferencesSyncImportHandler),
-			"v1_tokens_list":             http.HandlerFunc(s.PagesHandler.APIV1ServerTokensListHandler),
-			"v1_tokens_issue":            http.HandlerFunc(s.PagesHandler.APIV1ServerTokensIssueHandler),
-			"v1_tokens_primary_reveal": http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-				s.PagesHandler.APIV1ServerPrimaryTokenActionHandler(w, req, "reveal")
-			}),
-			"v1_tokens_primary_rotate": http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-				s.PagesHandler.APIV1ServerPrimaryTokenActionHandler(w, req, "rotate")
-			}),
-			"v1_tokens_linked_create": http.HandlerFunc(s.PagesHandler.APIV1ServerLinkedTokenCreateHandler),
-			"v1_tokens_linked_reveal": linkedTokenAction("reveal"),
-			"v1_tokens_linked_rotate": linkedTokenAction("rotate"),
-			"v1_tokens_linked_update": linkedTokenAction("update"),
-			"v1_tokens_linked_revoke": linkedTokenAction("revoke"),
-			"v1_json":                 appHandlerToHTTP(s.APIV1InfoHandler),
-			"v1_consent":              http.HandlerFunc(s.PagesHandler.ConsentHandler),
-			"v1_ccpa":                 http.HandlerFunc(s.PagesHandler.CCPAHandler),
-			"v1_dismiss":              http.HandlerFunc(s.PagesHandler.DismissAnnouncementHandler),
-			"report_csp":              s.reportsHandler("csp"),
-			"report_nel":              s.reportsHandler("nel"),
-			"report_deprecation":      s.reportsHandler("deprecation"),
-			"report_intervention":     s.reportsHandler("intervention"),
-			"report_crash":            s.reportsHandler("crash"),
-			"report_error":            s.reportsHandler("error"),
-			"report_default":          s.reportsHandler("default"),
-		}
-		if s.gr != nil && !s.gr.IsEmpty() {
-			operationHandlers["v1_country"] = appHandlerToHTTP(s.APIV1CountryHandler)
-			operationHandlers["v1_city"] = appHandlerToHTTP(s.APIV1CityHandler)
-			operationHandlers["v1_asn"] = appHandlerToHTTP(s.APIV1ASNHandler)
-			operationHandlers["v1_country_iso"] = appHandlerToHTTP(s.APIV1CountryISOHandler)
-			operationHandlers["v1_coordinates"] = appHandlerToHTTP(s.APIV1CoordinatesHandler)
-			operationHandlers["v1_asn_org"] = appHandlerToHTTP(s.APIV1ASNOrgHandler)
-		}
-		if s.LookupPort != nil {
-			operationHandlers["v1_port_check"] = appHandlerToHTTP(s.PortHandler)
-		}
-		if s.GraphQLHandler != nil {
-			operationHandlers["v1_graphql_get"] = s.GraphQLHandler
-			operationHandlers["v1_graphql_post"] = s.GraphQLHandler
-		}
-		if s.SwaggerJSONHandler != nil {
-			operationHandlers["v1_swagger"] = s.SwaggerJSONHandler
-		}
+		routes := s.apiRoutes(versionHandler, mcpHandler)
+		s.routesMu.Lock()
+		s.activeAPIRoutes = append([]swagger.Route(nil), routes...)
+		s.routesMu.Unlock()
 		s.apiOperationIDs = make(map[string]struct{})
-		for _, definition := range swagger.APIV1RouteDefinitions() {
-			routeHandler, exists := operationHandlers[definition.OperationID]
-			if !exists || routeHandler == nil {
+		for _, route := range routes {
+			if route.Handler == nil || !strings.HasPrefix(route.Path, "/api/v1") {
 				continue
 			}
-			s.apiOperationIDs[definition.OperationID] = struct{}{}
-			if definition.RuntimeAlias {
+			s.apiOperationIDs[route.OperationID] = struct{}{}
+			if route.RuntimeAlias && route.Path != route.RuntimePath {
 				continue
 			}
-			routePath := definition.RuntimePath
+			routePath := route.RuntimePath
 			if routePath == "" {
-				routePath = definition.Path
+				routePath = route.Path
 			}
 			routePath = strings.TrimPrefix(routePath, "/api/v1")
 			if routePath == "" {
 				routePath = "/"
 			}
-			r.Method(definition.Method, routePath, routeHandler)
+			if route.OperationID == "v1Mcp" {
+				r.Handle(routePath, route.Handler)
+			} else {
+				r.Method(route.Method, routePath, route.Handler)
+			}
 		}
-		r.Method(http.MethodPost, "/server/preferences/tokens/primary/reveal", operationHandlers["v1_tokens_primary_reveal"])
-		r.Method(http.MethodPost, "/server/preferences/tokens/primary/rotate", operationHandlers["v1_tokens_primary_rotate"])
-		r.Route("/server/preferences/tokens/{id}", func(r chi.Router) {
-			r.Method(http.MethodPost, "/reveal", operationHandlers["v1_tokens_linked_reveal"])
-			r.Method(http.MethodPost, "/rotate", operationHandlers["v1_tokens_linked_rotate"])
-			r.Method(http.MethodPatch, "/", operationHandlers["v1_tokens_linked_update"])
-			r.Method(http.MethodDelete, "/", operationHandlers["v1_tokens_linked_revoke"])
-		})
 		if s.SpecialHandler != nil {
 			s.SpecialHandler.APIV1OperationIDs = s.apiOperationIDs
+			s.SpecialHandler.APIV1Routes = append([]swagger.Route(nil), routes...)
 		}
 	})
-
-	// JSON endpoint
-	r.Get("/json", appHandlerToHTTP(s.JSONHandler))
-
-	// CLI endpoints
-	r.Get("/ip", appHandlerToHTTP(s.CLIHandler))
-	r.Get("/ip.txt", appHandlerToHTTP(s.CLIHandler))
-	if !s.gr.IsEmpty() {
-		r.Get("/country", appHandlerToHTTP(s.CLICountryHandler))
-		r.Get("/country.txt", appHandlerToHTTP(s.CLICountryHandler))
-		r.Get("/country-iso", appHandlerToHTTP(s.CLICountryISOHandler))
-		r.Get("/country-iso.txt", appHandlerToHTTP(s.CLICountryISOHandler))
-		r.Get("/city", appHandlerToHTTP(s.CLICityHandler))
-		r.Get("/city.txt", appHandlerToHTTP(s.CLICityHandler))
-		r.Get("/coordinates", appHandlerToHTTP(s.CLICoordinatesHandler))
-		r.Get("/coordinates.txt", appHandlerToHTTP(s.CLICoordinatesHandler))
-		r.Get("/asn", appHandlerToHTTP(s.CLIASNHandler))
-		r.Get("/asn.txt", appHandlerToHTTP(s.CLIASNHandler))
-		r.Get("/asn-org", appHandlerToHTTP(s.CLIASNOrgHandler))
-		r.Get("/asn-org.txt", appHandlerToHTTP(s.CLIASNOrgHandler))
-	}
-
-	// Root path with content negotiation (JSON/CLI/Browser)
-	r.Get("/", s.rootHandler())
-
-	// Port testing
-	if s.LookupPort != nil {
-		r.Get("/port/*", appHandlerToHTTP(s.PortHandler))
+	// Mount every handler-bearing root and server route from the same registry
+	// values used by API documentation and discovery.
+	for _, route := range s.RegisteredAPIRoutes() {
+		if route.Handler == nil || strings.HasPrefix(route.Path, "/api/v1") || strings.HasPrefix(route.Path, "/debug/") {
+			continue
+		}
+		routePath := route.RuntimePath
+		if routePath == "" {
+			routePath = route.Path
+		}
+		if strings.HasPrefix(route.Path, "/server/tor/") && route.Internal {
+			r.Handle(route.Path, route.Handler)
+		} else if route.OperationID == "mcpRootAlias" {
+			r.Handle(routePath, route.Handler)
+		} else {
+			r.Method(route.Method, routePath, route.Handler)
+		}
 	}
 
 	// Store router for /debug/routes inspection, then register debug routes.
 	s.router = r
-	// registerDebugRoutes checks s.config.IsDebug() internally.
-	s.registerDebugRoutes(r)
+	s.registerDebugRoutes(r, s.RegisteredAPIRoutes())
 
 	// IP lookup catch-all for /{ip} requests
 	// Handles IPv4 like /8.8.8.8 and IPv6 like /2001:4860:4860::8888
@@ -1854,16 +1629,32 @@ func (s *Server) rootHandler() http.HandlerFunc {
 	}
 }
 
-// scanCLIBinaries scans {dataDir}/binaries/ for ipgaze-cli-{os}-{arch}[.exe] files
-// and returns a map keyed by "{os}-{arch}" with the server version and the file's SHA-256
-// digest. Files that cannot be read are silently skipped. Returns an empty map when
-// dataDir is empty or the directory does not exist (AI.md PART 32).
-func scanCLIBinaries(dataDir, version string) map[string]cliVersionEntry {
+// scanCLIBinaries scans the operator-provisioned release artifacts and
+// publishes only binaries whose listed SHA-256 matches their contents.
+func scanCLIBinaries(binDir string) map[string]cliVersionEntry {
 	result := make(map[string]cliVersionEntry)
-	if dataDir == "" {
+	if binDir == "" {
 		return result
 	}
-	binDir := filepath.Join(dataDir, "binaries")
+	versionData, err := os.ReadFile(filepath.Join(binDir, "version.txt"))
+	if err != nil {
+		return result
+	}
+	version := strings.TrimSpace(strings.SplitN(string(versionData), "\n", 2)[0])
+	if version == "" {
+		return result
+	}
+	checksumData, err := os.ReadFile(filepath.Join(binDir, "sha256.txt"))
+	if err != nil {
+		return result
+	}
+	checksums := make(map[string]string)
+	for _, line := range strings.Split(string(checksumData), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) >= 2 {
+			checksums[strings.TrimPrefix(fields[len(fields)-1], "*")] = fields[0]
+		}
+	}
 	entries, err := os.ReadDir(binDir)
 	if err != nil {
 		return result
@@ -1880,16 +1671,36 @@ func scanCLIBinaries(dataDir, version string) map[string]cliVersionEntry {
 		// Strip prefix and optional ".exe" suffix to get the "{os}-{arch}" key.
 		key := strings.TrimPrefix(name, prefix)
 		key = strings.TrimSuffix(key, ".exe")
-		if key == "" {
+		if key == "" || !strings.Contains(key, "-") {
 			continue
 		}
 		sum, sumErr := sha256File(filepath.Join(binDir, name))
 		if sumErr != nil {
 			continue
 		}
+		expected, ok := checksums[name]
+		if !ok || !strings.EqualFold(expected, sum) {
+			log.Printf("WARN: CLI binary %s omitted from autodiscover: SHA-256 missing or does not match sha256.txt", name)
+			continue
+		}
 		result[key] = cliVersionEntry{Version: version, SHA256: sum}
 	}
 	return result
+}
+
+// cliBinaryDir resolves the configured release directory, defaulting to
+// {data_dir}/cli as prescribed by AI.md PART 32.
+func (s *Server) cliBinaryDir() string {
+	dir := ""
+	if s.config != nil {
+		dir = strings.TrimSpace(s.config.Server.CLI.BinaryDownload.Dir)
+	}
+	if dir == "" {
+		dir = filepath.Join(s.DataDir, "cli")
+	} else {
+		dir = strings.ReplaceAll(dir, "{data_dir}", s.DataDir)
+	}
+	return filepath.Clean(dir)
 }
 
 // sha256File computes the hex-encoded SHA-256 digest of the file at path.
@@ -1933,8 +1744,9 @@ func (s *Server) autodiscoverHandler() http.HandlerFunc {
 			Version: s.Version,
 			API:     map[string]string{"current_version": "v1"},
 			URLs:    []string{baseURL},
-			// Scan data dir for ipgaze-cli-{os}-{arch}[.exe] binaries and compute SHA-256 (AI.md PART 32).
-			CLIVersions: scanCLIBinaries(s.DataDir, s.Version),
+			// Scan the provisioned CLI release artifacts on each request so changes
+			// to the directory are reflected without restarting the server.
+			CLIVersions: scanCLIBinaries(s.cliBinaryDir()),
 			// CLIMinVersion from config (AI.md PART 32 — config-driven, not hardcoded)
 			CLIMinVersion: "",
 		}}
@@ -1956,7 +1768,7 @@ func (s *Server) autodiscoverHandler() http.HandlerFunc {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		w.Header().Set("Cache-Control", "public, max-age=3600")
+		w.Header().Set("Cache-Control", "no-store")
 		// Write errors are unrecoverable once headers are sent; log is not actionable here.
 		w.Write(data)         //nolint:errcheck
 		w.Write([]byte("\n")) //nolint:errcheck
@@ -1968,7 +1780,7 @@ func (s *Server) autodiscoverHandler() http.HandlerFunc {
 // Public by default; set cli.binary_download.require_auth: true in server.yml, which
 // mounts RequireOperatorToken in front of this route (see registerRoutes) so the
 // bearer-token check runs in constant time and is padded to the failed-auth floor.
-// Streams the binary from {data_dir}/binaries/{filename} (built by `make build`).
+// Streams the operator-provisioned binary from {data_dir}/cli/{filename}.
 func (s *Server) cliBinaryDownloadHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// Extract filename from URL (chi wildcard is everything after /cli/binaries/)
@@ -1987,9 +1799,18 @@ func (s *Server) cliBinaryDownloadHandler() http.HandlerFunc {
 			writeNegotiatedError(w, r, http.StatusBadRequest, "", i18n.T(r.Context(), "errors.invalid_format"))
 			return
 		}
+		if !strings.HasPrefix(filename, "ipgaze-cli-") {
+			writeNegotiatedError(w, r, http.StatusNotFound, "", i18n.T(r.Context(), "errors.not_found"))
+			return
+		}
+		platform := strings.TrimPrefix(filename, "ipgaze-cli-")
+		platform = strings.TrimSuffix(platform, ".exe")
+		if _, published := scanCLIBinaries(s.cliBinaryDir())[platform]; !published {
+			writeNegotiatedError(w, r, http.StatusNotFound, "", i18n.T(r.Context(), "errors.not_found"))
+			return
+		}
 
-		// Binaries live in {data_dir}/binaries/ (DataDir set from --data flag in main)
-		binPath := filepath.Join(s.DataDir, "binaries", filename)
+		binPath := filepath.Join(s.cliBinaryDir(), filename)
 
 		f, err := os.Open(binPath)
 		if err != nil {
@@ -2022,6 +1843,24 @@ func (s *Server) cliBinaryDownloadHandler() http.HandlerFunc {
 			// Write error after headers are sent; nothing actionable
 			return
 		}
+		clientIP := ""
+		if ip, ipErr := s.RequestIP(r, false); ipErr == nil {
+			clientIP = ip.String()
+		}
+		if s.logManager != nil {
+			platform := strings.TrimPrefix(filename, "ipgaze-cli-")
+			platform = strings.TrimSuffix(platform, ".exe")
+			version := ""
+			if versionData, readErr := os.ReadFile(filepath.Join(s.cliBinaryDir(), "version.txt")); readErr == nil {
+				version = strings.TrimSpace(strings.SplitN(string(versionData), "\n", 2)[0])
+			}
+			s.logManager.WriteAudit(applog.AuditEvent{
+				Event: "cli.update_started", Source: "cli", Category: "cli", Severity: "info", Result: "success",
+				Actor:   applog.AuditActor{Type: "client", IP: clientIP},
+				Target:  &applog.AuditTarget{Type: "cli_binary", ID: filename},
+				Details: map[string]any{"os_arch": platform, "version": version, "client_ip": clientIP},
+			})
+		}
 	}
 }
 
@@ -2050,7 +1889,7 @@ func (s *Server) reportsHandler(reportType string) http.HandlerFunc {
 	event := securityEventForReport(reportType)
 	return func(w http.ResponseWriter, r *http.Request) {
 		clientIP := s.authClientIP(r)
-		if !s.reportLimiter.Allow(clientIP) {
+		if s.reportLimiter != nil && !s.reportLimiter.Allow(clientIP) {
 			w.Header().Set("Retry-After", "60")
 			w.WriteHeader(http.StatusTooManyRequests)
 			return
@@ -2067,7 +1906,9 @@ func (s *Server) reportsHandler(reportType string) http.HandlerFunc {
 
 		// sanitizeLogValue strips control characters and truncates, so a
 		// crafted report cannot forge extra security.log lines.
-		s.logManager.WriteSecurity(event+" "+sanitizeLogValue(string(body)), clientIP)
+		if s.logManager != nil {
+			s.logManager.WriteSecurity(event+" "+sanitizeLogValue(string(body)), clientIP)
+		}
 
 		w.WriteHeader(http.StatusNoContent)
 	}

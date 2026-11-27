@@ -7,7 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
+	"log"
 	"math"
 	"net/http"
 	"strconv"
@@ -16,6 +16,7 @@ import (
 	"time"
 
 	i18n "github.com/apimgr/ipgaze/src/common/i18n"
+	dbstore "github.com/apimgr/ipgaze/src/db"
 	applog "github.com/apimgr/ipgaze/src/log"
 	"github.com/apimgr/ipgaze/src/netutil"
 	"github.com/apimgr/ipgaze/src/server/handler"
@@ -122,7 +123,7 @@ type RateLimiter struct {
 	limiters         map[string]*clientLimiter
 	lru              *list.List
 	config           RateLimitConfig
-	db               *sql.DB
+	db               *dbstore.Store
 	windowCounter    rateLimitWindowCounter
 	identityForToken func(string, bool) (string, bool)
 	authFailures     map[string][]time.Time
@@ -130,6 +131,12 @@ type RateLimiter struct {
 	mu               sync.RWMutex
 	cleanupInterval  time.Duration
 	stopCleanup      chan struct{}
+	stopOnce         sync.Once
+	flushDone        sync.WaitGroup
+	windowMu         sync.Mutex
+	windows          map[string]rateLimitWindow
+	flushNow         chan chan error
+	maxWindows       int
 	// logManager receives a security.log entry for every rejection so
 	// Fail2ban can ban a sustained offender (AI.md PART 11).
 	logManager *applog.Manager
@@ -139,6 +146,15 @@ type RateLimiter struct {
 	// subsystem (AI.md PART 17/18's security_alert event).
 	OnBlocked func(clientIP string)
 }
+
+type rateLimitWindow struct {
+	count, previous int64
+	start           int64
+	windowSeconds   int64
+	lastSeen        time.Time
+}
+
+const maxRateLimitWindows = 65536
 
 type rateLimitWindowCounter interface {
 	SupportsRateLimitWindow() bool
@@ -187,8 +203,12 @@ func NewRateLimiter(cfg RateLimitConfig, trust *netutil.TrustResolver) *RateLimi
 		trust:           trust,
 		cleanupInterval: 10 * time.Minute,
 		stopCleanup:     make(chan struct{}),
+		windows:         make(map[string]rateLimitWindow),
+		flushNow:        make(chan chan error),
+		maxWindows:      maxRateLimitWindows,
 	}
 
+	rl.flushDone.Add(1)
 	go rl.cleanupLoop()
 
 	return rl
@@ -209,12 +229,12 @@ func (rl *RateLimiter) AuthFailureBlocked(clientIP string) (bool, time.Duration)
 	}
 	if rl.db != nil {
 		now := time.Now()
-		count, windowStart, err := rateLimitDBWindow(rl.db, "auth_failures|ip:"+clientIP, now, rl.config.AuthFailures.effectiveWindow(), rl.config.AuthFailures.Limit, false)
+		count, start, err := rl.rateWindow("auth_failures|ip:"+clientIP, now, rl.config.AuthFailures.effectiveWindow(), false)
 		if err != nil {
 			return true, rl.config.AuthFailures.effectiveWindow()
 		}
 		if count >= int64(rl.config.AuthFailures.Limit) {
-			return true, rateLimitRetryAfter(windowStart, rl.config.AuthFailures.effectiveWindow(), now)
+			return true, rateLimitRetryAfter(start, rl.config.AuthFailures.effectiveWindow(), now)
 		}
 		return false, 0
 	}
@@ -247,7 +267,7 @@ func (rl *RateLimiter) RecordAuthFailure(clientIP string) {
 		return
 	}
 	if rl.db != nil {
-		_, _, _ = rateLimitDBWindow(rl.db, "auth_failures|ip:"+clientIP, time.Now(), rl.config.AuthFailures.effectiveWindow(), rl.config.AuthFailures.Limit+1, true)
+		_, _, _ = rl.rateWindow("auth_failures|ip:"+clientIP, time.Now(), rl.config.AuthFailures.effectiveWindow(), true)
 		return
 	}
 	rl.mu.Lock()
@@ -268,7 +288,7 @@ func (rl *RateLimiter) SetLogManager(lm *applog.Manager) {
 }
 
 // SetDB enables persisted sliding-window counters in the application database.
-func (rl *RateLimiter) SetDB(db *sql.DB) {
+func (rl *RateLimiter) SetDB(db *dbstore.Store) {
 	rl.db = db
 }
 
@@ -286,20 +306,14 @@ func (rl *RateLimiter) SetTokenIdentityResolver(resolve func(string, bool) (stri
 	rl.identityForToken = resolve
 }
 
-func rateLimitDBWindow(db *sql.DB, key string, now time.Time, window time.Duration, threshold int, add bool) (int64, time.Time, error) {
-	tx, err := db.Begin()
-	if err != nil {
-		return 0, time.Time{}, err
-	}
-	count, start, err := rateLimitDBWindowTx(tx, key, now, window, threshold, add)
-	if err != nil {
-		_ = tx.Rollback()
-		return 0, time.Time{}, err
-	}
-	if err := tx.Commit(); err != nil {
-		return 0, time.Time{}, err
-	}
-	return count, start, nil
+func rateLimitDBWindow(db *dbstore.Store, key string, now time.Time, window time.Duration, threshold int, add bool) (count int64, start time.Time, err error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	err = db.Write(ctx, func(tx *sql.Tx) error {
+		count, start, err = rateLimitDBWindowTx(tx, key, now, window, threshold, add)
+		return err
+	})
+	return count, start, err
 }
 
 func rateLimitDBWindowTx(tx *sql.Tx, key string, now time.Time, window time.Duration, threshold int, add bool) (int64, time.Time, error) {
@@ -378,15 +392,6 @@ func (rl *RateLimiter) allowPersisted(class rateClass, subject string) bool {
 	if rl.db == nil {
 		return false
 	}
-	tx, err := rl.db.Begin()
-	if err != nil {
-		return false
-	}
-	defer func() {
-		if rollbackErr := tx.Rollback(); rollbackErr != nil && !errors.Is(rollbackErr, sql.ErrTxDone) {
-			slog.Warn("rate limit transaction rollback failed", "error", rollbackErr)
-		}
-	}()
 	now := time.Now()
 	keys := []struct {
 		name   string
@@ -400,20 +405,98 @@ func (rl *RateLimiter) allowPersisted(class rateClass, subject string) bool {
 	}
 	allowed := true
 	for _, key := range keys {
-		bucketKey := key.name + "|" + subject
-		count, _, err := rateLimitDBWindowTx(tx, bucketKey, now, key.bucket.effectiveWindow(), key.bucket.Limit+1, true)
-		if err != nil {
-			return false
-		}
-		if count > int64(key.bucket.Limit) {
+		count, _, err := rl.rateWindow(key.name+"|"+subject, now, key.bucket.effectiveWindow(), true)
+		if err != nil || count > int64(key.bucket.Limit) {
 			allowed = false
-			break
 		}
-	}
-	if err := tx.Commit(); err != nil {
-		return false
 	}
 	return allowed
+}
+
+func (rl *RateLimiter) rateWindow(key string, now time.Time, window time.Duration, add bool) (int64, time.Time, error) {
+	seconds := int64(window.Seconds())
+	if seconds < 1 {
+		seconds = 1
+	}
+	nowSeconds := now.Unix()
+	start := nowSeconds - nowSeconds%seconds
+	rl.windowMu.Lock()
+	defer rl.windowMu.Unlock()
+	state, ok := rl.windows[key]
+	if !ok {
+		rl.pruneRateWindowsLocked(now)
+		maxWindows := rl.maxWindows
+		if maxWindows <= 0 {
+			maxWindows = maxRateLimitWindows
+		}
+		if len(rl.windows) >= maxWindows {
+			return 0, time.Time{}, errors.New("rate-limit window capacity reached")
+		}
+		state = rateLimitWindow{start: start, windowSeconds: seconds}
+		if rl.db != nil {
+			var storedStart int64
+			if err := rl.db.QueryRowContext(context.Background(), `SELECT count,prev_count,window_start FROM rate_limits WHERE key = ?`, key).Scan(&state.count, &state.previous, &storedStart); err == nil {
+				state.start = storedStart
+			} else if !errors.Is(err, sql.ErrNoRows) {
+				return 0, time.Time{}, err
+			}
+		}
+	}
+	if start > state.start {
+		if start-state.start >= 2*seconds {
+			state.previous = 0
+		} else {
+			state.previous = state.count
+		}
+		state.count = 0
+		state.start = start
+	}
+	if add {
+		state.count++
+	}
+	state.windowSeconds = seconds
+	state.lastSeen = now
+	rl.windows[key] = state
+	elapsed := float64(nowSeconds-state.start) / float64(seconds)
+	return int64(math.Ceil(float64(state.previous)*(1-elapsed) + float64(state.count))), time.Unix(state.start, 0), nil
+}
+
+func (rl *RateLimiter) pruneRateWindowsLocked(now time.Time) {
+	for key, state := range rl.windows {
+		if state.windowSeconds <= 0 || state.start+2*state.windowSeconds <= now.Unix() {
+			delete(rl.windows, key)
+		}
+	}
+}
+
+func (rl *RateLimiter) flushWindows() error {
+	if rl.db == nil {
+		return nil
+	}
+	rl.windowMu.Lock()
+	snapshot := make(map[string]rateLimitWindow, len(rl.windows))
+	for key, value := range rl.windows {
+		snapshot[key] = value
+	}
+	rl.windowMu.Unlock()
+	if len(snapshot) == 0 {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		return rl.db.FlushHotCounters(ctx)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := rl.db.Write(ctx, func(tx *sql.Tx) error {
+		for key, state := range snapshot {
+			if _, err := tx.ExecContext(ctx, `INSERT INTO rate_limits(key,count,prev_count,window_start,updated_at) VALUES(?,?,?,?,?) ON CONFLICT(key) DO UPDATE SET count=excluded.count,prev_count=excluded.prev_count,window_start=excluded.window_start,updated_at=excluded.updated_at`, key, state.count, state.previous, state.start, time.Now().Unix()); err != nil {
+				return err
+			}
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+	return rl.db.FlushHotCounters(ctx)
 }
 
 func (rl *RateLimiter) retryAfter(class rateClass, subject string) time.Duration {
@@ -459,7 +542,7 @@ func (rl *RateLimiter) retryAfter(class rateClass, subject string) time.Duration
 	}
 	var retry time.Duration
 	for _, item := range windows {
-		count, windowStart, err := rateLimitDBWindow(rl.db, fmt.Sprintf("%s|%s", item.class, subject), now, item.bucket.effectiveWindow(), item.bucket.Limit+1, false)
+		count, windowStart, err := rl.rateWindow(fmt.Sprintf("%s|%s", item.class, subject), now, item.bucket.effectiveWindow(), false)
 		if err != nil || count <= int64(item.bucket.Limit) {
 			continue
 		}
@@ -487,13 +570,22 @@ func rateLimitRetryAfter(oldest time.Time, window time.Duration, now time.Time) 
 
 // cleanupLoop periodically removes stale rate limiters
 func (rl *RateLimiter) cleanupLoop() {
-	ticker := time.NewTicker(rl.cleanupInterval)
-	defer ticker.Stop()
+	defer rl.flushDone.Done()
+	flushTicker := time.NewTicker(30 * time.Second)
+	cleanupTicker := time.NewTicker(rl.cleanupInterval)
+	defer flushTicker.Stop()
+	defer cleanupTicker.Stop()
 
 	for {
 		select {
-		case <-ticker.C:
+		case <-flushTicker.C:
+			if err := rl.flushWindows(); err != nil {
+				log.Printf("rate-limit window flush failed: %v", err)
+			}
+		case <-cleanupTicker.C:
 			rl.cleanup()
+		case result := <-rl.flushNow:
+			result <- rl.flushWindows()
 		case <-rl.stopCleanup:
 			return
 		}
@@ -512,9 +604,12 @@ func (rl *RateLimiter) cleanup() {
 			rl.lru.Remove(cl.entry)
 		}
 	}
+	rl.windowMu.Lock()
+	rl.pruneRateWindowsLocked(time.Now())
+	rl.windowMu.Unlock()
 	if rl.db != nil {
 		cutoffUnix := time.Now().Add(-rl.retentionDuration()).Unix()
-		_, _ = rl.db.Exec(`DELETE FROM rate_limits WHERE window_start <= ?`, cutoffUnix)
+		_, _ = rl.db.Exec(`DELETE FROM rate_limits WHERE key IN (SELECT key FROM rate_limits WHERE window_start <= ? LIMIT 500)`, cutoffUnix)
 	}
 }
 
@@ -542,7 +637,13 @@ func maxInt(left, right int) int {
 
 // Stop stops the rate limiter cleanup goroutine
 func (rl *RateLimiter) Stop() {
-	close(rl.stopCleanup)
+	rl.stopOnce.Do(func() {
+		close(rl.stopCleanup)
+		rl.flushDone.Wait()
+		if err := rl.flushWindows(); err != nil {
+			log.Printf("final rate-limit window flush failed: %v", err)
+		}
+	})
 }
 
 // ReportRateLimiter caps the public browser-report endpoints per source IP
@@ -723,7 +824,7 @@ func classifyRequest(r *http.Request) rateClass {
 	}
 	switch r.URL.Path {
 	case "/server/preferences/token/reveal", "/server/preferences/token/rotate", "/server/preferences/token/restore", "/server/preferences/token/create",
-		"/api/v1/server/preferences/tokens/primary", "/api/v1/server/preferences/tokens/primary/reveal", "/api/v1/server/preferences/tokens/primary/rotate":
+		"/server/preferences/token/revoke", "/api/v1/server/preferences/tokens/primary", "/api/v1/server/preferences/tokens/primary/reveal", "/api/v1/server/preferences/tokens/primary/rotate":
 		return rateClassStrict
 	}
 	if strings.HasPrefix(r.URL.Path, "/api/v1/server/preferences/tokens/") &&

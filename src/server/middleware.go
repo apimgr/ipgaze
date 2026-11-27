@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"time"
@@ -16,7 +17,6 @@ import (
 	applog "github.com/apimgr/ipgaze/src/log"
 	"github.com/apimgr/ipgaze/src/netutil"
 	"github.com/apimgr/ipgaze/src/paths"
-	serverhandler "github.com/apimgr/ipgaze/src/server/handler"
 	smetrics "github.com/apimgr/ipgaze/src/server/metrics"
 	"github.com/google/uuid"
 )
@@ -170,9 +170,10 @@ func RecoverMiddleware(lm *applog.Manager) func(http.Handler) http.Handler {
 }
 
 // recoverAndRespond is RecoverMiddleware's deferred body. Every panic is
-// recorded in error.log with the request ID, method, path, and a sanitized
-// panic value (AI.md PART 11 "error.log") before the guaranteed fallback
-// response is emitted. The log write can never prevent that response.
+// recorded in error.log with the request ID, method, path, a sanitized panic
+// value, and the full stack trace (AI.md PART 11 "error.log") before the
+// guaranteed fallback response is emitted. Panic details never reach the
+// console or response, and the log write can never prevent that response.
 func recoverAndRespond(lm *applog.Manager, rw *recoverResponseWriter, w http.ResponseWriter, r *http.Request) {
 	rec := recover()
 	if rec == nil {
@@ -182,9 +183,8 @@ func recoverAndRespond(lm *applog.Manager, rw *recoverResponseWriter, w http.Res
 	detail := fmt.Sprintf("request_id=%s method=%s path=%s panic=%s",
 		sanitizeLogValue(requestID), sanitizeLogValue(r.Method),
 		sanitizeLogValue(r.URL.Path), sanitizeLogValue(fmt.Sprint(rec)))
-	log.Printf("panic recovered: %s ip=%s", detail, clientIPIdentifier(r))
 	if lm != nil {
-		lm.WriteError("error", "panic recovered: "+detail)
+		lm.WriteError("error", fmt.Sprintf("panic recovered: %s ip=%s\n%s", detail, clientIPIdentifier(r), debug.Stack()))
 	}
 	if rw.wroteHeader {
 		// Handler already streamed part of a response; writing a second status
@@ -192,13 +192,7 @@ func recoverAndRespond(lm *applog.Manager, rw *recoverResponseWriter, w http.Res
 		// nothing safe left to do.
 		return
 	}
-	if detectClientType(r) != "html" {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		_, _ = fmt.Fprint(w, `{"ok":false,"error":"SERVER_ERROR","message":"Internal Server Error"}`+"\n")
-		return
-	}
-	serverhandler.WriteErrorHTML(w, r, http.StatusInternalServerError, "Internal Server Error")
+	writeNegotiatedError(w, r, http.StatusInternalServerError, "SERVER_ERROR", i18n.T(r.Context(), "errors.server_error"))
 }
 
 // LangMiddleware detects the request locale using the priority chain from AI.md PART 30:
@@ -228,8 +222,8 @@ func LangFromContext(ctx context.Context) string {
 }
 
 // URLNormalizeMiddleware normalizes URL paths for consistent routing.
-// When the normalized path differs from the original a 301 redirect is issued so
-// clients and search engines always land on the canonical URL form.
+// Canonical redirects use 301 for GET/HEAD and 308 for other methods so the
+// original method and body are preserved.
 // This MUST be the first middleware in the chain.
 func URLNormalizeMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -237,7 +231,11 @@ func URLNormalizeMiddleware(next http.Handler) http.Handler {
 		if normalized != r.URL.Path {
 			u := *r.URL
 			u.Path = normalized
-			http.Redirect(w, r, u.String(), http.StatusMovedPermanently)
+			status := http.StatusMovedPermanently
+			if r.Method != http.MethodGet && r.Method != http.MethodHead {
+				status = http.StatusPermanentRedirect
+			}
+			http.Redirect(w, r, u.String(), status)
 			return
 		}
 		next.ServeHTTP(w, r)
@@ -474,7 +472,6 @@ func DefaultSecurityHeaderConfig() SecurityHeaderConfig {
 			{Feature: "gyroscope", Value: "()"},
 			{Feature: "hid", Value: "()"},
 			{Feature: "idle-detection", Value: "()"},
-			{Feature: "interest-cohort", Value: "()"},
 			{Feature: "magnetometer", Value: "()"},
 			{Feature: "microphone", Value: "()"},
 			{Feature: "midi", Value: "()"},
@@ -485,7 +482,6 @@ func DefaultSecurityHeaderConfig() SecurityHeaderConfig {
 			{Feature: "serial", Value: "()"},
 			{Feature: "storage-access", Value: "(self)"},
 			{Feature: "usb", Value: "()"},
-			{Feature: "web-share", Value: "(self)"},
 			{Feature: "xr-spatial-tracking", Value: "()"},
 		},
 		Headers: MiscHeaderConfig{
@@ -563,7 +559,7 @@ func (h HSTSHeaderConfig) hstsHeaderValue() string {
 
 // nelHeaderValue renders the NEL policy JSON from config.
 func (n NELHeaderConfig) nelHeaderValue() string {
-	value := fmt.Sprintf(`{"report_to":"default","max_age":%d,"include_subdomains":%t`,
+	value := fmt.Sprintf(`{"report_to":"nel","max_age":%d,"include_subdomains":%t`,
 		n.MaxAgeSeconds, n.IncludeSubdomains)
 	if n.SampleRate >= 0 && n.SampleRate < 1.0 {
 		value += fmt.Sprintf(`,"failure_fraction":%g`, n.SampleRate)
@@ -605,12 +601,13 @@ func SecurityHeadersMiddleware(cfg SecurityHeaderConfig, sslEnabled, debug bool)
 			setHeaderIfSet(w, "Cross-Origin-Embedder-Policy", cfg.Headers.COEP)
 			setHeaderIfSet(w, "Cross-Origin-Resource-Policy", cfg.Headers.CORP)
 
-			// Reporting-Endpoints per AI.md PART 11.
-			// Report-To max_age=10886400 (~126 days) and NEL max_age=2592000 (30 days).
-			reportsEndpoint := `"https://` + r.Host + cfg.ReportsPath + `/default"`
-			w.Header().Set("Reporting-Endpoints", `default=`+reportsEndpoint)
-			w.Header().Set("Report-To", fmt.Sprintf(`{"group":"default","max_age":%d,"endpoints":[{"url":%s}]}`,
-				cfg.ReportToMaxAgeSeconds, reportsEndpoint))
+			// Reporting-Endpoints per AI.md PART 11. NEL has its own group
+			// and endpoint; all other browser reports use the default group.
+			defaultReportsEndpoint := `"https://` + r.Host + cfg.ReportsPath + `/default"`
+			nelReportsEndpoint := `"https://` + r.Host + cfg.ReportsPath + `/nel"`
+			w.Header().Set("Reporting-Endpoints", `default=`+defaultReportsEndpoint+`, nel=`+nelReportsEndpoint)
+			w.Header().Set("Report-To", fmt.Sprintf(`{"group":"default","max_age":%d,"endpoints":[{"url":%s}]}, {"group":"nel","max_age":%d,"endpoints":[{"url":%s}]}`,
+				cfg.ReportToMaxAgeSeconds, defaultReportsEndpoint, cfg.ReportToMaxAgeSeconds, nelReportsEndpoint))
 			if cfg.NEL.Enabled {
 				w.Header().Set("NEL", nel)
 			}
@@ -856,6 +853,7 @@ func (s *Server) RequireOperatorToken(next http.Handler) http.Handler {
 			s.logManager.WriteAuthFailure(sanitizeLogValue(s.authClientIP(r)),
 				sanitizeLogValue(r.URL.Path), reason)
 			padFailedAuth(start)
+			s.auditRejectedCLIToken(r, rawToken)
 			writeUnauthorized(w, r)
 			return
 		}

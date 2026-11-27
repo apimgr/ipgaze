@@ -31,6 +31,7 @@ import (
 	i18n "github.com/apimgr/ipgaze/src/common/i18n"
 	"github.com/apimgr/ipgaze/src/common/urlutil"
 	"github.com/apimgr/ipgaze/src/config"
+	dbstore "github.com/apimgr/ipgaze/src/db"
 	"github.com/apimgr/ipgaze/src/email"
 	"github.com/apimgr/ipgaze/src/netutil"
 	"github.com/apimgr/ipgaze/src/notify"
@@ -98,17 +99,19 @@ type PagesHandler struct {
 	// itself never carried it) — same import-cycle rationale as DetectTheme.
 	// Falls back to the request cookie when unset (e.g. tests constructing
 	// PagesHandler directly).
-	CSRFToken           func(*http.Request) string
-	MCPTools            func(*http.Request) []MCPToolDescription
-	PGPKeyAvailable     func() bool
-	PGPFingerprint      func() string
-	DB                  *sql.DB
-	PGPPublicKeyPath    string
-	SecurityLogger      func(message, ip string)
-	TokenAuditLogger    func(event, source, ownerID, tokenPrefix string)
-	TokenRestoreFailed  func(r *http.Request)
-	ValidateBearerToken func(string) bool
-	CommitID            string
+	CSRFToken              func(*http.Request) string
+	MCPTools               func(*http.Request) []MCPToolDescription
+	PGPKeyAvailable        func() bool
+	PGPFingerprint         func() string
+	DB                     *dbstore.Store
+	PGPPublicKeyPath       string
+	SecurityLogger         func(message, ip string)
+	TokenAuditLogger       func(event, source, ownerID, tokenPrefix string)
+	TokenOwnerRevokeLogger func(source, ownerID, tokenPrefix string, tokens, resources int64)
+	TokenRestoreFailed     func(r *http.Request)
+	TokenRejected          func(r *http.Request, token string)
+	ValidateBearerToken    func(string) bool
+	CommitID               string
 }
 
 // MCPToolDescription is the public name and description of a registered MCP tool.
@@ -1277,7 +1280,7 @@ func (h *PagesHandler) ServerContactHandler(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	if r.Method != http.MethodGet {
-		http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
+		http.Error(w, i18n.T(r.Context(), "errors.method_not_allowed"), http.StatusMethodNotAllowed)
 		return
 	}
 	w.Header().Set("X-Robots-Tag", "noindex, nofollow")
@@ -1845,7 +1848,9 @@ func (h *PagesHandler) APIV1ServerContactHandler(w http.ResponseWriter, r *http.
 	}
 	if violation := contactFieldLengthViolation(req, securityMode); violation != nil {
 		h.logContactBlock(r, "shape")
-		SendAPIResponseError(w, http.StatusBadRequest, "VALIDATION_FAILED", "Contact field exceeds the maximum length", violation)
+		SendAPIResponseError(w, http.StatusBadRequest, "VALIDATION_FAILED", "Contact field exceeds the maximum length", map[string]any{
+			"field": violation.Field, "rule": violation.Rule, "max_length": violation.MaxLength,
+		})
 		return
 	}
 	result := h.processContactStep(r, req)
@@ -1949,7 +1954,7 @@ func (h *PagesHandler) logInvalidSecurityID(r *http.Request, supplied string) {
 	h.SecurityLogger(fmt.Sprintf("security.security_id_invalid user_agent=%q security_id_sha256_prefix=%s", userAgent, hex.EncodeToString(digest[:4])), h.clientIP(r))
 }
 
-func newSimpleCaptcha(parent context.Context, db *sql.DB, now time.Time) (string, string, error) {
+func newSimpleCaptcha(parent context.Context, db *dbstore.Store, now time.Time) (string, string, error) {
 	if db == nil {
 		return "", "", fmt.Errorf("captcha secret database unavailable")
 	}
@@ -1988,7 +1993,7 @@ func newSimpleCaptcha(parent context.Context, db *sql.DB, now time.Time) (string
 	answer := answerValue.String()
 	answerHash := simpleCaptchaAnswerHash(secret, answer)
 	cleanupCtx, cancelCleanup := context.WithTimeout(parent, 10*time.Second)
-	_, err = db.ExecContext(cleanupCtx, `DELETE FROM captcha_challenges WHERE expires_at <= ?`, now.Unix())
+	_, err = db.ExecContext(cleanupCtx, `DELETE FROM captcha_challenges WHERE id IN (SELECT id FROM captcha_challenges WHERE expires_at <= ? LIMIT 500)`, now.Unix())
 	cancelCleanup()
 	if err != nil {
 		return "", "", err
@@ -2004,7 +2009,7 @@ VALUES (?, ?, ?)`, token, hex.EncodeToString(answerHash), now.Add(10*time.Minute
 		"second", fmt.Sprintf("%d", second.Int64())), token, nil
 }
 
-func verifySimpleCaptcha(parent context.Context, db *sql.DB, token, answer string, now time.Time) bool {
+func verifySimpleCaptcha(parent context.Context, db *dbstore.Store, token, answer string, now time.Time) bool {
 	if db == nil || token == "" || strings.TrimSpace(answer) == "" {
 		return false
 	}
@@ -2019,9 +2024,11 @@ func verifySimpleCaptcha(parent context.Context, db *sql.DB, token, answer strin
 	var storedHash string
 	writeCtx, cancel := context.WithTimeout(parent, 10*time.Second)
 	defer cancel()
-	err = db.QueryRowContext(writeCtx, `DELETE FROM captcha_challenges
+	err = db.Write(writeCtx, func(tx *sql.Tx) error {
+		return tx.QueryRowContext(writeCtx, `DELETE FROM captcha_challenges
 WHERE id = ? AND expires_at > ?
 RETURNING answer_hash`, token, now.Unix()).Scan(&storedHash)
+	})
 	if err != nil {
 		return false
 	}
@@ -3187,16 +3194,21 @@ func (h *PagesHandler) ServerPreferencesHandler(w http.ResponseWriter, r *http.R
 
 type OwnerTokensPageData struct {
 	PageData
-	RestoreError  bool
-	HasOwner      bool
-	PrimaryMasked string
-	RevealToken   string
-	RevealTokenID string
-	NewToken      string
-	NewTokenID    string
-	ActionTokenID string
-	LinkedTokens  []OwnerLinkedTokenView
-	TokenAction   string
+	RestoreError          bool
+	HasOwner              bool
+	PrimaryMasked         string
+	RevealToken           string
+	RevealTokenID         string
+	NewToken              string
+	NewTokenID            string
+	ActionTokenID         string
+	LinkedTokens          []OwnerLinkedTokenView
+	TokenAction           string
+	RevokeInvalid         bool
+	RevokeLast4           string
+	RevokeTokens          int64
+	RevokeResources       int64
+	RevokeCountsAvailable bool
 }
 
 func (h *PagesHandler) ServerPreferencesTokensHandler(w http.ResponseWriter, r *http.Request) {
@@ -3228,10 +3240,11 @@ func (h *PagesHandler) ServerPreferencesTokenRestoreHandler(w http.ResponseWrite
 		return
 	}
 	tokenHash := sha256.Sum256([]byte(token))
+	var tokenID string
 	var ownerID, prefix string
-	err := h.DB.QueryRowContext(r.Context(), `SELECT owner_id, token_prefix FROM api_tokens
+	err := h.DB.QueryRowContext(r.Context(), `SELECT id, owner_id, token_prefix FROM api_tokens
 		WHERE token_hash = ? AND kind = 'primary' AND revoked_at IS NULL
-		AND (expires_at IS NULL OR expires_at > strftime('%s', 'now'))`, hex.EncodeToString(tokenHash[:])).Scan(&ownerID, &prefix)
+	AND (expires_at IS NULL OR expires_at > strftime('%s', 'now'))`, hex.EncodeToString(tokenHash[:])).Scan(&tokenID, &ownerID, &prefix)
 	if errors.Is(err, sql.ErrNoRows) && h.TokenRestoreFailed != nil {
 		h.TokenRestoreFailed(r)
 	}
@@ -3239,24 +3252,7 @@ func (h *PagesHandler) ServerPreferencesTokenRestoreHandler(w http.ResponseWrite
 		http.Redirect(w, r, "/server/preferences/tokens?status=invalid", http.StatusSeeOther)
 		return
 	}
-	tx, err := h.DB.BeginTx(r.Context(), nil)
-	if err != nil {
-		http.Redirect(w, r, "/server/preferences/tokens?status=invalid", http.StatusSeeOther)
-		return
-	}
-	if _, err = tx.ExecContext(r.Context(), `UPDATE api_tokens SET last_used_at = strftime('%s', 'now')
-		WHERE token_hash = ? AND (last_used_at IS NULL OR last_used_at < strftime('%s', 'now') - 60)`, hex.EncodeToString(tokenHash[:])); err == nil {
-		_, err = tx.ExecContext(r.Context(), `UPDATE owners SET last_seen_at = strftime('%s', 'now') WHERE id = ?`, ownerID)
-	}
-	if err == nil {
-		err = tx.Commit()
-	} else {
-		_ = tx.Rollback()
-	}
-	if err != nil {
-		http.Redirect(w, r, "/server/preferences/tokens?status=invalid", http.StatusSeeOther)
-		return
-	}
+	h.DB.MarkOwnerUsage(tokenID, ownerID, time.Now())
 	if h.TokenAuditLogger != nil {
 		h.TokenAuditLogger("token.restored", "web", ownerID, prefix)
 	}

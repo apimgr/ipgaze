@@ -150,7 +150,7 @@ func (fn appHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if !e.IsJSON() && detectClientType(r) == "html" && errorPageExecute != nil && errorPageData != nil {
 		pd := errorPageData(r)
 		pd.Code = e.Code
-		pd.Title = http.StatusText(e.Code)
+		pd.Title = handler.ErrorMessageForStatus(r, e.Code)
 		pd.Message = msg
 		pd.RequestID = RequestIDFromContext(r.Context())
 		var buf bytes.Buffer

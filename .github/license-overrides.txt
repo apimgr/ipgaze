@@ -1,0 +1,2 @@
+modernc.org/mathutil BSD-3-Clause apimgr reviewed modernc.org/mathutil@v1.7.1/LICENSE on 2026-11-26
+github.com/segmentio/asm MIT apimgr reviewed LICENSE in v1.2.1 module cache on 2026-11-26

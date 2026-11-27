@@ -1,9 +1,12 @@
 package swagger
 
 import (
+	"net/http"
+	"reflect"
 	"strings"
 
 	i18n "github.com/apimgr/ipgaze/src/common/i18n"
+	"github.com/apimgr/ipgaze/src/server/model"
 )
 
 // swaggerDefaults holds the English source text for every `swagger.*` translation
@@ -82,6 +85,7 @@ var swaggerDefaults = map[string]string{
 	"swagger.bodies.report":                              "Browser-generated report payload",
 	"swagger.bodies.dismiss":                             "Announcement identifier to dismiss",
 	"swagger.bodies.linked_token_update":                 "New linked-token name and expiry value",
+	"swagger.bodies.token_confirmation":                  "Confirmation containing the last four characters of the primary token.",
 	"swagger.paths.v1_tokens_list.summary":               "List owner tokens",
 	"swagger.paths.v1_tokens_list.description":           "Returns masked primary and linked token metadata for the authenticated owner. Token values are never returned by list operations.",
 	"swagger.paths.v1_tokens_issue.summary":              "Issue a primary owner token",
@@ -90,6 +94,8 @@ var swaggerDefaults = map[string]string{
 	"swagger.paths.v1_tokens_primary_reveal.description": "Decrypts and returns the authenticated owner's primary token. Requires the primary token.",
 	"swagger.paths.v1_tokens_primary_rotate.summary":     "Rotate the primary owner token",
 	"swagger.paths.v1_tokens_primary_rotate.description": "Replaces the authenticated owner's primary token in place; linked tokens remain valid.",
+	"swagger.paths.v1_tokens_primary_revoke.summary":     "Revoke the primary owner token",
+	"swagger.paths.v1_tokens_primary_revoke.description": "Deletes the authenticated owner, all of its tokens and all owner resources after last-four confirmation.",
 	"swagger.paths.v1_tokens_linked_create.summary":      "Create a linked owner token",
 	"swagger.paths.v1_tokens_linked_create.description":  "Creates a linked token for the authenticated owner with the supplied name and optional expiry.",
 	"swagger.paths.v1_tokens_linked_reveal.summary":      "Reveal a linked owner token",
@@ -168,20 +174,30 @@ var swaggerDefaults = map[string]string{
 	"swagger.paths.offline.summary":            "Offline fallback page",
 	"swagger.paths.offline.description":        "Returns the page the service worker displays when a navigation cannot reach the network.",
 
-	"swagger.paths.docs_swagger.summary":          "Swagger UI",
-	"swagger.paths.docs_swagger.description":      "Serves the interactive Swagger user interface, or this OpenAPI document when JSON is requested through the Accept header.",
-	"swagger.paths.api_swagger.summary":           "OpenAPI document",
-	"swagger.paths.api_swagger.description":       "Returns this OpenAPI 3.0 document as JSON unconditionally, without content negotiation.",
-	"swagger.paths.docs_graphql_get.summary":      "GraphQL explorer",
-	"swagger.paths.docs_graphql_get.description":  "Serves the self-contained GraphQL explorer interface for composing and running queries.",
-	"swagger.paths.docs_graphql_post.summary":     "Execute a GraphQL query",
-	"swagger.paths.docs_graphql_post.description": "Executes a GraphQL query against the schema that mirrors the REST API. Queries exceeding the depth or alias limits are rejected with a GraphQL-shaped error body.",
-	"swagger.paths.api_graphql_get.summary":       "GraphQL explorer (unversioned API alias)",
-	"swagger.paths.api_graphql_post.summary":      "Execute a GraphQL query (unversioned API alias)",
-	"swagger.paths.autodiscover.summary":          "Client autodiscovery",
-	"swagger.paths.autodiscover.description":      "Returns the server identity, the published command-line client versions and the minimum client version this server accepts.",
-	"swagger.paths.cli_binary.summary":            "Download a command-line client binary",
-	"swagger.paths.cli_binary.description":        "Streams the command-line client binary for the requested operating system and architecture.",
+	"swagger.paths.docs_swagger.summary":           "Swagger UI",
+	"swagger.paths.docs_swagger.description":       "Serves the interactive Swagger user interface, or this OpenAPI document when JSON is requested through the Accept header.",
+	"swagger.paths.docs_swagger_theme.summary":     "Swagger theme stylesheet",
+	"swagger.paths.docs_swagger_theme.description": "Serves the stylesheet used by the Swagger interface.",
+	"swagger.paths.docs_graphql_theme.summary":     "GraphQL theme stylesheet",
+	"swagger.paths.docs_graphql_theme.description": "Serves the stylesheet used by the GraphQL explorer.",
+	"swagger.paths.theme_css.summary":              "Site theme stylesheet",
+	"swagger.paths.theme_css.description":          "Serves the site theme stylesheet.",
+	"swagger.paths.api_swagger.summary":            "OpenAPI document",
+	"swagger.paths.api_mcp.summary":                "Connect to the MCP endpoint",
+	"swagger.paths.api_mcp.description":            "Authenticated JSON-RPC 2.0 endpoint for Model Context Protocol clients.",
+	"swagger.paths.mcp_root_alias.summary":         "Connect to the MCP endpoint (root alias)",
+	"swagger.paths.mcp_root_alias.description":     "Authenticated JSON-RPC 2.0 alias for the versioned Model Context Protocol endpoint.",
+	"swagger.paths.api_swagger.description":        "Returns this OpenAPI 3.0 document as JSON unconditionally, without content negotiation.",
+	"swagger.paths.docs_graphql_get.summary":       "GraphQL explorer",
+	"swagger.paths.docs_graphql_get.description":   "Serves the self-contained GraphQL explorer interface for composing and running queries.",
+	"swagger.paths.docs_graphql_post.summary":      "Execute a GraphQL query",
+	"swagger.paths.docs_graphql_post.description":  "Executes a GraphQL query against the schema that mirrors the REST API. Queries exceeding the depth or alias limits are rejected with a GraphQL-shaped error body.",
+	"swagger.paths.api_graphql_get.summary":        "GraphQL explorer (unversioned API alias)",
+	"swagger.paths.api_graphql_post.summary":       "Execute a GraphQL query (unversioned API alias)",
+	"swagger.paths.autodiscover.summary":           "Client autodiscovery",
+	"swagger.paths.autodiscover.description":       "Returns the server identity, the published command-line client versions and the minimum client version this server accepts.",
+	"swagger.paths.cli_binary.summary":             "Download a command-line client binary",
+	"swagger.paths.cli_binary.description":         "Streams the command-line client binary for the requested operating system and architecture.",
 
 	"swagger.paths.server_index.summary":                       "Server information index",
 	"swagger.paths.server_index.description":                   "Redirects to the server about page.",
@@ -253,6 +269,8 @@ var swaggerDefaults = map[string]string{
 	"swagger.paths.v1_contact_get.description":             "Returns the public contact form fields, captcha descriptor, security URL and abuse contact address.",
 	"swagger.paths.v1_auth_check.summary":                  "Validate operator token (API v1)",
 	"swagger.paths.v1_auth_check.description":              "Requires an Authorization: Bearer token. Returns its kind when valid and 401 otherwise; the token is never returned.",
+	"swagger.paths.v1_mcp.summary":                         "Connect to the MCP endpoint",
+	"swagger.paths.v1_mcp.description":                     "Authenticated JSON-RPC 2.0 endpoint for Model Context Protocol clients.",
 	"swagger.paths.v1_preferences.summary":                 "Get preferences (API v1)",
 	"swagger.paths.v1_preferences.description":             "Returns the theme, locale and application preferences currently stored in the caller's cookies.",
 	"swagger.paths.v1_preferences_update.summary":          "Update preferences (API v1)",
@@ -311,59 +329,83 @@ type apiErr struct {
 	slug string
 }
 
-// routeDoc describes one documented HTTP operation. path and method mirror a
-// route registered in src/server/http.go; id selects the swagger.paths.<id>.*
-// summary and description keys. descKey overrides the derived description key
-// so operations that share wording (the .txt variants, the API mirrors) do not
-// duplicate translation strings.
-type routeDoc struct {
-	path          string
-	runtimePath   string
-	runtimeAlias  bool
-	method        string
-	id            string
-	summaryKey    string
-	descKey       string
-	tagSlug       string
-	params        []Parameter
-	okSlug        string
-	content       map[string]MediaType
-	bodySlug      string
-	bodySchema    *Schema
-	bodyMediaType string
-	bodyOptional  bool
-	errs          []apiErr
-	statusOK      string
-	requiresAuth  bool
-}
+type routeDoc = Route
 
-// RouteDefinition exposes the stable HTTP identity shared by runtime API
-// registration and generated OpenAPI operations.
-type RouteDefinition struct {
-	Path         string
-	RuntimePath  string
-	RuntimeAlias bool
-	Method       string
-	OperationID  string
-}
+// RouteDefinition remains an alias for callers migrating to Route.
+type RouteDefinition = Route
 
 // APIV1RouteDefinitions returns the versioned API operations from the same
 // catalogue used to generate OpenAPI, MCP tools, and llms.txt.
-func APIV1RouteDefinitions() []RouteDefinition {
+
+func APIRouteDefinitions(handlers ...APIHandlers) []RouteDefinition {
 	var definitions []RouteDefinition
-	for _, doc := range routeDocs("en") {
-		if !strings.HasPrefix(doc.path, "/api/v1") {
+	for _, doc := range routeRegistry("en", handlers...) {
+		if doc.internal || (!strings.HasPrefix(doc.path, "/api/") && doc.id != "mcp_root_alias") {
 			continue
 		}
-		definitions = append(definitions, RouteDefinition{
-			Path:         doc.path,
-			RuntimePath:  doc.runtimePath,
-			RuntimeAlias: doc.runtimeAlias,
-			Method:       strings.ToUpper(doc.method),
-			OperationID:  doc.id,
-		})
+		definitions = append(definitions, doc)
 	}
 	return definitions
+}
+
+func APIV1RouteDefinitions(handlers ...APIHandlers) []RouteDefinition {
+	var definitions []RouteDefinition
+	for _, route := range APIRouteDefinitions(handlers...) {
+		if strings.HasPrefix(route.Path, "/api/v1") {
+			definitions = append(definitions, route)
+		}
+	}
+	return definitions
+}
+
+// LLMRouteDefinitions returns public API operations, echoip-compatible lookup
+// operations, and the public server pages required by AI.md. It derives each
+// endpoint from the shared route declarations.
+func LLMRouteDefinitions() []RouteDefinition {
+	var definitions []RouteDefinition
+	for _, route := range routeRegistry("en") {
+		if route.Internal || !route.Listed {
+			continue
+		}
+		apiRoute := strings.HasPrefix(route.Path, "/api/") || route.Path == "/mcp"
+		echoipRoute := route.tagSlug == "ip_lookup" || route.tagSlug == "geoip" || route.tagSlug == "port_check"
+		discoveryPage := route.Path == "/server/healthz" || route.Path == "/server/about"
+		if apiRoute || echoipRoute || discoveryPage {
+			definitions = append(definitions, route)
+		}
+	}
+	return definitions
+}
+
+// RuntimeRouteDefinitions returns the handler-bearing route values from the
+// same declarations used to generate OpenAPI.
+func RuntimeRouteDefinitions(handlers ...APIHandlers) []RouteDefinition {
+	var definitions []RouteDefinition
+	for _, route := range routeRegistry("en", handlers...) {
+		if route.Handler == nil {
+			continue
+		}
+		definitions = append(definitions, route)
+	}
+	return definitions
+}
+
+func routeSummary(doc routeDoc) string {
+	key := doc.summaryKey
+	if key == "" {
+		key = doc.id
+	}
+	return tr("en", "swagger.paths."+key+".summary")
+}
+
+func routeAuth(doc routeDoc) string {
+	if doc.requiresAuth {
+		if doc.id == "v1_auth_check" {
+			return "operator"
+		}
+		return "token"
+	}
+	return "none"
 }
 
 // param builds a documented parameter whose description comes from the
@@ -488,11 +530,14 @@ const apiMirrorKey = "swagger.common.api_mirror"
 // endpoints, which differ only in the report type they accept.
 const reportIntroKey = "swagger.common.report_intro"
 
-// routeDocs returns the documentation table for every PUBLIC route registered
-// in src/server/http.go. INTERNAL routes are deliberately absent: the metrics
-// endpoints and their aliases (AI.md PART 20), the loopback-only Tor control
-// endpoints (AI.md PART 31) and the debug routes must never appear in OpenAPI.
-func routeDocs(lang string) []routeDoc {
+// routeRegistry returns the shared route values used for HTTP registration,
+// documentation, discovery and GraphQL adapters. Internal routes are filtered
+// from every public representation.
+func routeRegistry(lang string, handlers ...APIHandlers) []Route {
+	var h APIHandlers
+	if len(handlers) > 0 {
+		h = handlers[0]
+	}
 	ipQuery := []Parameter{param(lang, "ip", "query", "ip_query", false, stringSchema())}
 	ipPath := []Parameter{param(lang, "ip", "path", "ip_path", true, stringSchema())}
 	prefsQuery := []Parameter{
@@ -503,148 +548,152 @@ func routeDocs(lang string) []routeDoc {
 	}
 
 	docs := []routeDoc{
-		{path: "/", method: "get", id: "root", tagSlug: "ip_lookup", okSlug: "ip_info", content: negotiatedIP()},
-		{path: "/json", method: "get", id: "json", tagSlug: "ip_lookup", params: ipQuery, okSlug: "ip_info", content: jsonRef("IPResponse")},
-		{path: "/ip", method: "get", id: "ip", tagSlug: "ip_lookup", okSlug: "text_value", content: textPlain("203.0.113.42")},
-		{path: "/ip.txt", method: "get", id: "ip_txt", descKey: txtVariantKey, tagSlug: "ip_lookup", okSlug: "text_value", content: textPlain("203.0.113.42")},
-		{path: "/{ip}", method: "get", id: "ip_lookup", tagSlug: "ip_lookup", params: ipPath, okSlug: "ip_info", content: jsonRef("IPResponse"), errs: []apiErr{{"400", "invalid_ip"}, {"404", "not_found"}}},
-		{path: "/country", method: "get", id: "country", tagSlug: "geoip", okSlug: "text_value", content: textPlain("United States")},
-		{path: "/country.txt", method: "get", id: "country_txt", descKey: txtVariantKey, tagSlug: "geoip", okSlug: "text_value", content: textPlain("United States")},
-		{path: "/country-iso", method: "get", id: "country_iso", tagSlug: "geoip", okSlug: "text_value", content: textPlain("US")},
-		{path: "/country-iso.txt", method: "get", id: "country_iso_txt", descKey: txtVariantKey, tagSlug: "geoip", okSlug: "text_value", content: textPlain("US")},
-		{path: "/city", method: "get", id: "city", tagSlug: "geoip", okSlug: "text_value", content: textPlain("Mountain View")},
-		{path: "/city.txt", method: "get", id: "city_txt", descKey: txtVariantKey, tagSlug: "geoip", okSlug: "text_value", content: textPlain("Mountain View")},
-		{path: "/coordinates", method: "get", id: "coordinates", tagSlug: "geoip", okSlug: "text_value", content: textPlain("37.422300,-122.084000")},
-		{path: "/coordinates.txt", method: "get", id: "coordinates_txt", descKey: txtVariantKey, tagSlug: "geoip", okSlug: "text_value", content: textPlain("37.422300,-122.084000")},
-		{path: "/asn", method: "get", id: "asn", tagSlug: "geoip", okSlug: "text_value", content: textPlain("AS15169")},
-		{path: "/asn.txt", method: "get", id: "asn_txt", descKey: txtVariantKey, tagSlug: "geoip", okSlug: "text_value", content: textPlain("AS15169")},
-		{path: "/asn-org", method: "get", id: "asn_org", tagSlug: "geoip", okSlug: "text_value", content: textPlain("Google LLC")},
-		{path: "/asn-org.txt", method: "get", id: "asn_org_txt", descKey: txtVariantKey, tagSlug: "geoip", okSlug: "text_value", content: textPlain("Google LLC")},
-		{path: "/port/{port}", method: "get", id: "port_check", tagSlug: "port_check", params: []Parameter{param(lang, "port", "path", "port_path", true, intSchema())}, okSlug: "port_check", content: jsonRef("PortResponse"), errs: []apiErr{{"400", "invalid_port"}}},
+		{path: "/", method: "get", id: "root", tagSlug: "ip_lookup", okSlug: "ip_info", content: negotiatedIP(), Handler: h.Root},
+		{path: "/json", method: "get", id: "json", tagSlug: "ip_lookup", params: ipQuery, okSlug: "ip_info", content: jsonRef("IPResponse"), Handler: h.JSONRoot},
+		{path: "/ip", method: "get", id: "ip", tagSlug: "ip_lookup", okSlug: "text_value", content: textPlain("203.0.113.42"), Handler: h.IPRoot},
+		{path: "/ip.txt", method: "get", id: "ip_txt", descKey: txtVariantKey, tagSlug: "ip_lookup", okSlug: "text_value", content: textPlain("203.0.113.42"), Handler: h.IPTxtRoot},
+		{path: "/{ip}", method: "get", id: "ip_lookup", tagSlug: "ip_lookup", params: ipPath, okSlug: "ip_info", content: jsonRef("IPResponse"), errs: []apiErr{{"400", "invalid_ip"}, {"404", "not_found"}}, Handler: h.IPLookupRoot},
+		{path: "/country", method: "get", id: "country", tagSlug: "geoip", okSlug: "text_value", content: textPlain("United States"), Handler: h.CountryRoot},
+		{path: "/country.txt", method: "get", id: "country_txt", descKey: txtVariantKey, tagSlug: "geoip", okSlug: "text_value", content: textPlain("United States"), Handler: h.CountryTxtRoot},
+		{path: "/country-iso", method: "get", id: "country_iso", tagSlug: "geoip", okSlug: "text_value", content: textPlain("US"), Handler: h.CountryISORoot},
+		{path: "/country-iso.txt", method: "get", id: "country_iso_txt", descKey: txtVariantKey, tagSlug: "geoip", okSlug: "text_value", content: textPlain("US"), Handler: h.CountryISOTxtRoot},
+		{path: "/city", method: "get", id: "city", tagSlug: "geoip", okSlug: "text_value", content: textPlain("Mountain View"), Handler: h.CityRoot},
+		{path: "/city.txt", method: "get", id: "city_txt", descKey: txtVariantKey, tagSlug: "geoip", okSlug: "text_value", content: textPlain("Mountain View"), Handler: h.CityTxtRoot},
+		{path: "/coordinates", method: "get", id: "coordinates", tagSlug: "geoip", okSlug: "text_value", content: textPlain("37.422300,-122.084000"), Handler: h.CoordinatesRoot},
+		{path: "/coordinates.txt", method: "get", id: "coordinates_txt", descKey: txtVariantKey, tagSlug: "geoip", okSlug: "text_value", content: textPlain("37.422300,-122.084000"), Handler: h.CoordinatesTxtRoot},
+		{path: "/asn", method: "get", id: "asn", tagSlug: "geoip", okSlug: "text_value", content: textPlain("AS15169"), Handler: h.ASNRoot},
+		{path: "/asn.txt", method: "get", id: "asn_txt", descKey: txtVariantKey, tagSlug: "geoip", okSlug: "text_value", content: textPlain("AS15169"), Handler: h.ASNTxtRoot},
+		{path: "/asn-org", method: "get", id: "asn_org", tagSlug: "geoip", okSlug: "text_value", content: textPlain("Google LLC"), Handler: h.ASNOrgRoot},
+		{path: "/asn-org.txt", method: "get", id: "asn_org_txt", descKey: txtVariantKey, tagSlug: "geoip", okSlug: "text_value", content: textPlain("Google LLC"), Handler: h.ASNOrgTxtRoot},
+		{path: "/port/{port}", runtimePath: "/port/*", method: "get", id: "port_check", tagSlug: "port_check", params: []Parameter{param(lang, "port", "path", "port_path", true, intSchema())}, okSlug: "port_check", content: jsonRef("PortResponse"), errs: []apiErr{{"400", "invalid_port"}}, Handler: h.PortRoot},
 
-		{path: "/server/healthz", method: "get", id: "healthz", tagSlug: "system", okSlug: "health", content: negotiatedHealth(), errs: []apiErr{{"503", "unavailable"}}},
-		{path: "/healthz", method: "get", id: "healthz_root", tagSlug: "system", okSlug: "health", content: negotiatedHealth(), errs: []apiErr{{"503", "unavailable"}}},
-		{path: "/api/healthz", method: "get", id: "api_healthz", tagSlug: "system", okSlug: "health", content: jsonRef("HealthResponse"), errs: []apiErr{{"503", "unavailable"}}},
-		{path: "/api/healthz.txt", method: "get", id: "api_healthz_txt", descKey: txtVariantKey, tagSlug: "system", okSlug: "health", content: textPlain("healthy"), errs: []apiErr{{"503", "unavailable"}}},
+		{path: "/server/healthz", method: "get", id: "healthz", tagSlug: "system", okSlug: "health", content: negotiatedHealth(), errs: []apiErr{{"503", "unavailable"}}, Handler: h.ServerHealth},
+		{path: "/healthz", method: "get", id: "healthz_root", tagSlug: "system", okSlug: "health", content: negotiatedHealth(), errs: []apiErr{{"503", "unavailable"}}, Handler: h.ServerHealthRoot},
+		{path: "/api/healthz", method: "get", id: "api_healthz", tagSlug: "system", okSlug: "health", content: jsonRef("HealthResponse"), errs: []apiErr{{"503", "unavailable"}}, Response: model.HealthResponse{}, Handler: h.Healthz},
+		{path: "/api/healthz.txt", method: "get", id: "api_healthz_txt", descKey: txtVariantKey, tagSlug: "system", okSlug: "health", content: textPlain("healthy"), errs: []apiErr{{"503", "unavailable"}}, Response: model.HealthResponse{}, Handler: h.HealthzText},
 
-		{path: "/locales/{lang}.json", method: "get", id: "locales", tagSlug: "system", params: []Parameter{param(lang, "lang", "path", "lang_path", true, stringSchema())}, okSlug: "json_object", content: jsonObject(), errs: []apiErr{{"404", "not_found"}}},
-		{path: "/static/{path}", method: "get", id: "static", tagSlug: "assets", params: []Parameter{param(lang, "path", "path", "asset_path", true, stringSchema())}, okSlug: "asset", content: assetContent(), errs: []apiErr{{"404", "not_found"}}},
-		{path: "/branding/logo", method: "get", id: "branding_logo", tagSlug: "assets", okSlug: "asset", content: assetContent()},
-		{path: "/cli/binaries/{filename}", method: "get", id: "cli_binary", tagSlug: "assets", params: []Parameter{param(lang, "filename", "path", "filename_path", true, stringSchema())}, okSlug: "binary", content: binaryStream(), errs: []apiErr{{"404", "not_found"}}},
+		{path: "/locales/{lang}.json", method: "get", id: "locales", tagSlug: "system", params: []Parameter{param(lang, "lang", "path", "lang_path", true, stringSchema())}, okSlug: "json_object", content: jsonObject(), errs: []apiErr{{"404", "not_found"}}, Handler: h.Locales},
+		{path: "/static/{path}", runtimePath: "/static/*", method: "get", id: "static", tagSlug: "assets", params: []Parameter{param(lang, "path", "path", "asset_path", true, stringSchema())}, okSlug: "asset", content: assetContent(), errs: []apiErr{{"404", "not_found"}}, Handler: h.Static},
+		{path: "/theme.css", method: "get", id: "theme_css", tagSlug: "assets", okSlug: "asset", content: textPlain(""), Handler: h.ThemeCSS, listedSet: true},
+		{path: "/branding/logo", method: "get", id: "branding_logo", tagSlug: "assets", okSlug: "asset", content: assetContent(), Handler: h.BrandingLogo},
+		{path: "/cli/binaries/{filename}", method: "get", id: "cli_binary", tagSlug: "assets", params: []Parameter{param(lang, "filename", "path", "filename_path", true, stringSchema())}, okSlug: "binary", content: binaryStream(), errs: []apiErr{{"404", "not_found"}}, Binary: "application/octet-stream", Handler: h.CLIBinary},
 
-		{path: "/robots.txt", method: "get", id: "robots_txt", tagSlug: "well_known", okSlug: "text_value", content: textPlain("User-agent: *")},
-		{path: "/sitemap.xml", method: "get", id: "sitemap", tagSlug: "well_known", okSlug: "sitemap", content: xmlDocument()},
-		{path: "/feed.xml", method: "get", id: "atom_feed", tagSlug: "well_known", okSlug: "feed", content: xmlDocument()},
-		{path: "/rss.xml", method: "get", id: "rss_feed", tagSlug: "well_known", okSlug: "feed", content: xmlDocument()},
-		{path: "/favicon.ico", method: "get", id: "favicon", tagSlug: "well_known", okSlug: "asset", content: assetContent()},
-		{path: "/.well-known/security.txt", method: "get", id: "wk_security_txt", descKey: "swagger.paths.security_txt.description", tagSlug: "well_known", okSlug: "text_value", content: textPlain("Contact: mailto:security@example.com")},
-		{path: "/.well-known/pgp-key.asc", method: "get", id: "wk_pgp_key", tagSlug: "well_known", okSlug: "text_value", content: textPlain("-----BEGIN PGP PUBLIC KEY BLOCK-----")},
-		{path: "/llms.txt", method: "get", id: "llms_txt", tagSlug: "well_known", okSlug: "text_value", content: textPlain("# IPGaze")},
-		{path: "/.well-known/llms.txt", method: "get", id: "wk_llms_txt", descKey: "swagger.paths.llms_txt.description", tagSlug: "well_known", okSlug: "text_value", content: textPlain("# IPGaze")},
-		{path: "/manifest.json", method: "get", id: "manifest", tagSlug: "well_known", okSlug: "manifest", content: jsonObject()},
-		{path: "/sw.js", method: "get", id: "service_worker", tagSlug: "well_known", okSlug: "script", content: scriptContent()},
+		{path: "/robots.txt", method: "get", id: "robots_txt", tagSlug: "well_known", okSlug: "text_value", content: textPlain("User-agent: *"), Handler: h.Robots},
+		{path: "/sitemap.xml", method: "get", id: "sitemap", tagSlug: "well_known", okSlug: "sitemap", content: xmlDocument(), Handler: h.Sitemap},
+		{path: "/feed.xml", method: "get", id: "atom_feed", tagSlug: "well_known", okSlug: "feed", content: xmlDocument(), Handler: h.AtomFeed},
+		{path: "/rss.xml", method: "get", id: "rss_feed", tagSlug: "well_known", okSlug: "feed", content: xmlDocument(), Handler: h.RSSFeed},
+		{path: "/favicon.ico", method: "get", id: "favicon", tagSlug: "well_known", okSlug: "asset", content: assetContent(), Handler: h.Favicon},
+		{path: "/.well-known/security.txt", method: "get", id: "wk_security_txt", descKey: "swagger.paths.security_txt.description", tagSlug: "well_known", okSlug: "text_value", content: textPlain("Contact: mailto:security@example.com"), Handler: h.SecurityTxt},
+		{path: "/.well-known/pgp-key.asc", method: "get", id: "wk_pgp_key", tagSlug: "well_known", okSlug: "text_value", content: textPlain("-----BEGIN PGP PUBLIC KEY BLOCK-----"), Handler: h.PGPKey},
+		{path: "/llms.txt", method: "get", id: "llms_txt", tagSlug: "well_known", okSlug: "text_value", content: textPlain("# IPGaze"), Handler: h.LLMsTxt},
+		{path: "/.well-known/llms.txt", method: "get", id: "wk_llms_txt", descKey: "swagger.paths.llms_txt.description", tagSlug: "well_known", okSlug: "text_value", content: textPlain("# IPGaze"), Handler: h.WellKnownLLMsTxt},
+		{path: "/manifest.json", method: "get", id: "manifest", tagSlug: "well_known", okSlug: "manifest", content: jsonObject(), Handler: h.Manifest},
+		{path: "/sw.js", method: "get", id: "service_worker", tagSlug: "well_known", okSlug: "script", content: scriptContent(), Handler: h.ServiceWorker},
 		{path: "/server/tracking.js", method: "get", id: "server_tracking_script", tagSlug: "assets", okSlug: "script", content: scriptContent(), errs: []apiErr{{"404", "not_found"}}},
 
-		{path: "/server/docs/swagger", method: "get", id: "docs_swagger", tagSlug: "documentation", okSlug: "html_page", content: htmlPage()},
-		{path: "/api/swagger", method: "get", id: "api_swagger", tagSlug: "documentation", okSlug: "spec", content: jsonObject()},
-		{path: "/server/docs/graphql", method: "get", id: "docs_graphql_get", tagSlug: "documentation", okSlug: "html_page", content: htmlPage()},
-		{path: "/server/docs/graphql", method: "post", id: "docs_graphql_post", tagSlug: "documentation", okSlug: "graphql", content: jsonRef("GraphQLResponse"), bodySlug: "graphql", bodySchema: &Schema{Ref: "#/components/schemas/GraphQLRequest"}, errs: []apiErr{{"400", "bad_request"}}},
-		{path: "/api/graphql", method: "get", id: "api_graphql_get", descKey: "swagger.paths.docs_graphql_get.description", tagSlug: "documentation", okSlug: "html_page", content: htmlPage()},
-		{path: "/api/graphql", method: "post", id: "api_graphql_post", descKey: "swagger.paths.docs_graphql_post.description", tagSlug: "documentation", okSlug: "graphql", content: jsonRef("GraphQLResponse"), bodySlug: "graphql", bodySchema: &Schema{Ref: "#/components/schemas/GraphQLRequest"}, errs: []apiErr{{"400", "bad_request"}}},
-		{path: "/api/autodiscover", method: "get", id: "autodiscover", tagSlug: "system", okSlug: "json_object", content: jsonObject()},
+		{path: "/server/docs/swagger", method: "get", id: "docs_swagger", tagSlug: "documentation", okSlug: "html_page", content: htmlPage(), Handler: h.ServerSwagger},
+		{path: "/server/docs/swagger/theme.css", method: "get", id: "docs_swagger_theme", tagSlug: "assets", okSlug: "asset", content: textPlain(""), Handler: h.ServerSwagger, listedSet: true},
+		{path: "/api/swagger", method: "get", id: "api_swagger", tagSlug: "documentation", okSlug: "spec", content: jsonObject(), Handler: h.SwaggerAlias},
+		{path: "/server/docs/graphql", method: "get", id: "docs_graphql_get", tagSlug: "documentation", okSlug: "html_page", content: htmlPage(), Handler: h.ServerGraphQLGet},
+		{path: "/server/docs/graphql/theme.css", method: "get", id: "docs_graphql_theme", tagSlug: "assets", okSlug: "asset", content: textPlain(""), Handler: h.ServerGraphQLGet, listedSet: true},
+		{path: "/api/graphql", method: "get", id: "api_graphql_get", descKey: "swagger.paths.docs_graphql_get.description", tagSlug: "documentation", okSlug: "html_page", content: htmlPage(), Handler: h.GraphQLGetAlias},
+		{path: "/api/graphql", method: "post", id: "api_graphql_post", descKey: "swagger.paths.docs_graphql_post.description", tagSlug: "documentation", okSlug: "graphql", content: jsonRef("GraphQLResponse"), bodySlug: "graphql", bodySchema: &Schema{Ref: "#/components/schemas/GraphQLRequest"}, errs: []apiErr{{"400", "bad_request"}}, Handler: h.GraphQLPostAlias},
+		{path: "/api/mcp", method: "post", id: "api_mcp", tagSlug: "documentation", okSlug: "json_object", content: jsonObject(), requiresAuth: true, Handler: h.MCPAlias},
+		{path: "/mcp", method: "post", id: "mcp_root_alias", tagSlug: "documentation", okSlug: "json_object", content: jsonObject(), requiresAuth: true, Handler: h.MCPRootAlias},
+		{path: "/api/autodiscover", method: "get", id: "autodiscover", tagSlug: "system", okSlug: "json_object", content: jsonObject(), Handler: h.Autodiscover},
 
-		{path: "/server", method: "get", id: "server_index", tagSlug: "pages", okSlug: "redirect", content: htmlPage(), statusOK: "302"},
-		{path: "/server/about", method: "get", id: "server_about", tagSlug: "pages", okSlug: "html_page", content: htmlPage()},
-		{path: "/server/help", method: "get", id: "server_help", tagSlug: "pages", okSlug: "html_page", content: htmlPage()},
-		{path: "/server/help/mcp", method: "get", id: "server_help_mcp", tagSlug: "pages", okSlug: "html_page", content: htmlPage()},
-		{path: "/server/privacy", method: "get", id: "server_privacy", tagSlug: "pages", okSlug: "html_page", content: htmlPage()},
-		{path: "/server/dpo", method: "get", id: "server_dpo", tagSlug: "pages", okSlug: "html_page", content: htmlPage()},
-		{path: "/server/contact", method: "get", id: "server_contact", tagSlug: "pages", okSlug: "html_page", content: htmlPage()},
-		{path: "/server/contact", method: "post", id: "server_contact_post", tagSlug: "pages", okSlug: "html_page", content: htmlPage(), bodySlug: "contact", bodySchema: &Schema{Ref: "#/components/schemas/ContactRequest"}, errs: []apiErr{{"400", "bad_request"}, {"429", "too_many_requests"}}},
-		{path: "/server/terms", method: "get", id: "server_terms", tagSlug: "pages", okSlug: "html_page", content: htmlPage()},
-		{path: "/server/security", method: "get", id: "server_security", tagSlug: "pages", okSlug: "html_page", content: htmlPage()},
-		{path: "/server/security/policy", method: "get", id: "server_security_policy", tagSlug: "pages", okSlug: "html_page", content: htmlPage()},
-		{path: "/server/security/thanks", method: "get", id: "server_security_thanks", tagSlug: "pages", okSlug: "html_page", content: htmlPage()},
-		{path: "/server/security/report/{tracking_id}", method: "get", id: "server_security_report_status", tagSlug: "pages", params: []Parameter{param(lang, "tracking_id", "path", "security_report_tracking_id", true, &Schema{Type: "string"})}, okSlug: "html_page", content: htmlPage()},
-		{path: "/server/consent", method: "post", id: "server_consent", tagSlug: "pages", okSlug: "redirect", content: htmlPage(), statusOK: "303", bodySlug: "consent", bodySchema: &Schema{Type: "object"}},
-		{path: "/server/ccpa", method: "post", id: "server_ccpa", tagSlug: "pages", okSlug: "redirect", content: htmlPage(), statusOK: "303", bodySlug: "ccpa", bodySchema: &Schema{Type: "object"}},
-		{path: "/server/preferences", method: "get", id: "server_preferences", tagSlug: "pages", okSlug: "html_page", content: negotiatedPreferencesCurrent()},
-		{path: "/server/preferences", method: "post", id: "server_preferences_post", tagSlug: "pages", okSlug: "redirect", statusOK: "303", bodySlug: "preferences", bodySchema: &Schema{Type: "object", Properties: map[string]Schema{"csrf_token": {Type: "string"}, "redirect": {Type: "string"}, "theme": {Type: "string"}, "lang": {Type: "string"}, "ipgaze_pref_widget": {Type: "string"}, "consent_form": {Type: "string"}, "consent_preferences": {Type: "string"}, "consent_analytics": {Type: "string"}, "ccpa_opt_out": {Type: "string"}, "action": {Type: "string"}}}, bodyMediaType: "application/x-www-form-urlencoded", bodyOptional: true, errs: []apiErr{{"403", "forbidden"}}},
-		{path: "/server/preferences/tokens", method: "get", id: "server_preferences_tokens", summaryKey: "v1_tokens_list", tagSlug: "pages", okSlug: "html_page", content: htmlPage()},
-		{path: "/server/preferences/token/create", method: "post", id: "server_preferences_token_create", summaryKey: "v1_tokens_issue", tagSlug: "pages", okSlug: "html_page", content: htmlPage(), bodyMediaType: "application/x-www-form-urlencoded", bodyOptional: true},
-		{path: "/server/preferences/token/restore", method: "post", id: "server_preferences_token_restore", summaryKey: "v1_tokens_issue", tagSlug: "pages", okSlug: "redirect", content: htmlPage(), statusOK: "303", bodySlug: "linked_token_update", bodySchema: &Schema{Type: "object"}, bodyMediaType: "application/x-www-form-urlencoded"},
-		{path: "/server/preferences/token/reveal", method: "post", id: "server_preferences_token_reveal", summaryKey: "v1_tokens_primary_reveal", tagSlug: "pages", okSlug: "html_page", content: htmlPage()},
-		{path: "/server/preferences/token/rotate", method: "post", id: "server_preferences_token_rotate", summaryKey: "v1_tokens_primary_rotate", tagSlug: "pages", okSlug: "html_page", content: htmlPage()},
-		{path: "/server/preferences/token/forget", method: "post", id: "server_preferences_token_forget", summaryKey: "v1_tokens_list", tagSlug: "pages", okSlug: "redirect", content: htmlPage(), statusOK: "303", bodySlug: "linked_token_update", bodySchema: &Schema{Type: "object"}, bodyMediaType: "application/x-www-form-urlencoded"},
-		{path: "/server/preferences/tokens", method: "post", id: "server_preferences_tokens_create", summaryKey: "v1_tokens_linked_create", tagSlug: "pages", okSlug: "html_page", content: htmlPage(), bodyMediaType: "application/x-www-form-urlencoded"},
-		{path: "/server/preferences/tokens/{id}/reveal", method: "post", id: "server_preferences_tokens_reveal", summaryKey: "v1_tokens_linked_reveal", tagSlug: "pages", params: []Parameter{param(lang, "id", "path", "token_id", true, stringSchema())}, okSlug: "html_page", content: htmlPage()},
-		{path: "/server/preferences/tokens/{id}/rotate", method: "post", id: "server_preferences_tokens_rotate", summaryKey: "v1_tokens_linked_rotate", tagSlug: "pages", params: []Parameter{param(lang, "id", "path", "token_id", true, stringSchema())}, okSlug: "html_page", content: htmlPage()},
-		{path: "/server/preferences/tokens/{id}/update", method: "post", id: "server_preferences_tokens_update", summaryKey: "v1_tokens_linked_update", tagSlug: "pages", params: []Parameter{param(lang, "id", "path", "token_id", true, stringSchema())}, okSlug: "redirect", content: htmlPage(), statusOK: "303", bodySlug: "linked_token_update", bodySchema: &Schema{Type: "object"}, bodyMediaType: "application/x-www-form-urlencoded"},
-		{path: "/server/preferences/tokens/{id}/revoke", method: "post", id: "server_preferences_tokens_revoke", summaryKey: "v1_tokens_linked_revoke", tagSlug: "pages", params: []Parameter{param(lang, "id", "path", "token_id", true, stringSchema())}, okSlug: "redirect", content: htmlPage(), statusOK: "303", bodySlug: "linked_token_update", bodySchema: &Schema{Type: "object"}, bodyMediaType: "application/x-www-form-urlencoded"},
-		{path: "/server/preferences/sync", method: "get", id: "server_preferences_sync", tagSlug: "pages", okSlug: "html_page", content: negotiatedPreferences()},
-		{path: "/server/preferences/sync", method: "post", id: "server_preferences_sync_post", tagSlug: "pages", okSlug: "redirect", statusOK: "303", bodySlug: "preferences_sync", bodySchema: &Schema{Type: "object", Properties: map[string]Schema{"code": {Type: "string"}}}, bodyMediaType: "application/x-www-form-urlencoded", bodyOptional: true},
-		{path: "/server/preferences/sync/import", method: "get", id: "server_preferences_sync_import", tagSlug: "pages", params: prefsQuery, okSlug: "redirect", statusOK: "303"},
-		{path: "/announcements/dismiss", method: "post", id: "announcements_dismiss", tagSlug: "pages", okSlug: "redirect", content: htmlPage(), statusOK: "303", bodySlug: "dismiss", bodySchema: &Schema{Type: "object"}},
+		{path: "/server", method: "get", id: "server_index", tagSlug: "pages", okSlug: "redirect", content: htmlPage(), statusOK: "302", Handler: h.ServerIndex},
+		{path: "/server/about", method: "get", id: "server_about", tagSlug: "pages", okSlug: "html_page", content: htmlPage(), Handler: h.ServerAbout},
+		{path: "/server/help", method: "get", id: "server_help", tagSlug: "pages", okSlug: "html_page", content: htmlPage(), Handler: h.ServerHelp},
+		{path: "/server/help/mcp", method: "get", id: "server_help_mcp", tagSlug: "pages", okSlug: "html_page", content: htmlPage(), Handler: h.ServerHelpMCP},
+		{path: "/server/privacy", method: "get", id: "server_privacy", tagSlug: "pages", okSlug: "html_page", content: htmlPage(), Handler: h.ServerPrivacy},
+		{path: "/server/dpo", method: "get", id: "server_dpo", tagSlug: "pages", okSlug: "html_page", content: htmlPage(), Handler: h.ServerDPO},
+		{path: "/server/contact", method: "get", id: "server_contact", tagSlug: "pages", okSlug: "html_page", content: htmlPage(), Handler: h.ServerContactGet},
+		{path: "/server/contact", method: "post", id: "server_contact_post", tagSlug: "pages", okSlug: "html_page", content: htmlPage(), bodySlug: "contact", bodySchema: &Schema{Ref: "#/components/schemas/ContactRequest"}, errs: []apiErr{{"400", "bad_request"}, {"429", "too_many_requests"}}, Handler: h.ServerContactPost},
+		{path: "/server/terms", method: "get", id: "server_terms", tagSlug: "pages", okSlug: "html_page", content: htmlPage(), Handler: h.ServerTerms},
+		{path: "/server/security", method: "get", id: "server_security", tagSlug: "pages", okSlug: "html_page", Handler: h.ServerSecurity},
+		{path: "/server/security/policy", method: "get", id: "server_security_policy", tagSlug: "pages", okSlug: "html_page", content: htmlPage(), Handler: h.ServerSecurityPolicy},
+		{path: "/server/security/thanks", method: "get", id: "server_security_thanks", tagSlug: "pages", okSlug: "html_page", content: htmlPage(), Handler: h.ServerSecurityThanks},
+		{path: "/server/security/report/{tracking_id}", method: "get", id: "server_security_report_status", tagSlug: "pages", params: []Parameter{param(lang, "tracking_id", "path", "security_report_tracking_id", true, &Schema{Type: "string"})}, okSlug: "html_page", content: htmlPage(), Handler: h.ServerSecurityReport},
+		{path: "/server/consent", method: "post", id: "server_consent", tagSlug: "pages", okSlug: "redirect", content: htmlPage(), statusOK: "303", bodySlug: "consent", bodySchema: &Schema{Type: "object"}, Handler: h.ServerConsent},
+		{path: "/server/ccpa", method: "post", id: "server_ccpa", tagSlug: "pages", okSlug: "redirect", content: htmlPage(), statusOK: "303", bodySlug: "ccpa", bodySchema: &Schema{Type: "object"}, Handler: h.ServerCCPA},
+		{path: "/server/preferences", method: "get", id: "server_preferences", tagSlug: "pages", okSlug: "html_page", content: negotiatedPreferencesCurrent(), Handler: h.ServerPreferences},
+		{path: "/server/preferences", method: "post", id: "server_preferences_post", tagSlug: "pages", okSlug: "redirect", statusOK: "303", bodySlug: "preferences", bodySchema: &Schema{Type: "object", Properties: map[string]Schema{"csrf_token": {Type: "string"}, "redirect": {Type: "string"}, "theme": {Type: "string"}, "lang": {Type: "string"}, "ipgaze_pref_widget": {Type: "string"}, "consent_form": {Type: "string"}, "consent_preferences": {Type: "string"}, "consent_analytics": {Type: "string"}, "ccpa_opt_out": {Type: "string"}, "action": {Type: "string"}}}, bodyMediaType: "application/x-www-form-urlencoded", bodyOptional: true, errs: []apiErr{{"403", "forbidden"}}, Handler: h.ServerPreferencesPost},
+		{path: "/server/preferences/tokens", method: "get", id: "server_preferences_tokens", summaryKey: "v1_tokens_list", tagSlug: "pages", okSlug: "html_page", content: htmlPage(), Handler: h.ServerPreferencesTokens},
+		{path: "/server/preferences/token/create", method: "post", id: "server_preferences_token_create", summaryKey: "v1_tokens_issue", tagSlug: "pages", okSlug: "html_page", content: htmlPage(), bodyMediaType: "application/x-www-form-urlencoded", bodyOptional: true, Handler: h.ServerTokenCreate},
+		{path: "/server/preferences/token/restore", method: "post", id: "server_preferences_token_restore", summaryKey: "v1_tokens_issue", tagSlug: "pages", okSlug: "redirect", content: htmlPage(), statusOK: "303", bodySlug: "linked_token_update", bodySchema: &Schema{Type: "object"}, bodyMediaType: "application/x-www-form-urlencoded", Handler: h.ServerTokenRestore},
+		{path: "/server/preferences/token/reveal", method: "post", id: "server_preferences_token_reveal", summaryKey: "v1_tokens_primary_reveal", tagSlug: "pages", okSlug: "html_page", content: htmlPage(), Handler: h.ServerTokenReveal},
+		{path: "/server/preferences/token/rotate", method: "post", id: "server_preferences_token_rotate", summaryKey: "v1_tokens_primary_rotate", tagSlug: "pages", okSlug: "html_page", content: htmlPage(), Handler: h.ServerTokenRotate},
+		{path: "/server/preferences/token/revoke", method: "post", id: "server_preferences_token_revoke", summaryKey: "v1_tokens_primary_revoke", tagSlug: "pages", okSlug: "redirect", statusOK: "303", bodySlug: "token_confirmation", bodySchema: &Schema{Type: "object", Required: []string{"confirm"}, Properties: map[string]Schema{"confirm": {Type: "string"}}}, bodyMediaType: "application/x-www-form-urlencoded", Handler: h.ServerTokenRevoke},
+		{path: "/server/preferences/token/forget", method: "post", id: "server_preferences_token_forget", summaryKey: "v1_tokens_list", tagSlug: "pages", okSlug: "redirect", content: htmlPage(), statusOK: "303", bodySlug: "linked_token_update", bodySchema: &Schema{Type: "object"}, bodyMediaType: "application/x-www-form-urlencoded", Handler: h.ServerTokenForget},
+		{path: "/server/preferences/tokens", method: "post", id: "server_preferences_tokens_create", summaryKey: "v1_tokens_linked_create", tagSlug: "pages", okSlug: "html_page", content: htmlPage(), bodyMediaType: "application/x-www-form-urlencoded", Handler: h.ServerLinkedTokenCreate},
+		{path: "/server/preferences/tokens/{id}/reveal", method: "post", id: "server_preferences_tokens_reveal", summaryKey: "v1_tokens_linked_reveal", tagSlug: "pages", params: []Parameter{param(lang, "id", "path", "token_id", true, stringSchema())}, okSlug: "html_page", content: htmlPage(), Handler: h.ServerLinkedTokenReveal},
+		{path: "/server/preferences/tokens/{id}/rotate", method: "post", id: "server_preferences_tokens_rotate", summaryKey: "v1_tokens_linked_rotate", tagSlug: "pages", params: []Parameter{param(lang, "id", "path", "token_id", true, stringSchema())}, okSlug: "html_page", content: htmlPage(), Handler: h.ServerLinkedTokenRotate},
+		{path: "/server/preferences/tokens/{id}/update", method: "post", id: "server_preferences_tokens_update", summaryKey: "v1_tokens_linked_update", tagSlug: "pages", params: []Parameter{param(lang, "id", "path", "token_id", true, stringSchema())}, okSlug: "redirect", content: htmlPage(), statusOK: "303", bodySlug: "linked_token_update", bodySchema: &Schema{Type: "object"}, bodyMediaType: "application/x-www-form-urlencoded", Handler: h.ServerLinkedTokenUpdate},
+		{path: "/server/preferences/tokens/{id}/revoke", method: "post", id: "server_preferences_tokens_revoke", summaryKey: "v1_tokens_linked_revoke", tagSlug: "pages", params: []Parameter{param(lang, "id", "path", "token_id", true, stringSchema())}, okSlug: "redirect", content: htmlPage(), statusOK: "303", bodySlug: "linked_token_update", bodySchema: &Schema{Type: "object"}, bodyMediaType: "application/x-www-form-urlencoded", Handler: h.ServerLinkedTokenRevoke},
+		{path: "/server/preferences/sync", method: "get", id: "server_preferences_sync", tagSlug: "pages", okSlug: "html_page", content: negotiatedPreferences(), Handler: h.ServerPreferencesSync},
+		{path: "/server/preferences/sync", method: "post", id: "server_preferences_sync_post", tagSlug: "pages", okSlug: "redirect", statusOK: "303", bodySlug: "preferences_sync", bodySchema: &Schema{Type: "object", Properties: map[string]Schema{"code": {Type: "string"}}}, bodyMediaType: "application/x-www-form-urlencoded", bodyOptional: true, Handler: h.ServerPreferencesSyncPost},
+		{path: "/server/preferences/sync/import", method: "get", id: "server_preferences_sync_import", tagSlug: "pages", params: prefsQuery, okSlug: "redirect", statusOK: "303", Handler: h.ServerPreferencesSyncImport},
+		{path: "/announcements/dismiss", method: "post", id: "announcements_dismiss", tagSlug: "pages", okSlug: "redirect", content: htmlPage(), statusOK: "303", bodySlug: "dismiss", bodySchema: &Schema{Type: "object"}, Handler: h.Dismiss},
 
-		{path: "/api/v1", runtimePath: "/api/v1/", method: "get", id: "v1_info", tagSlug: "api_v1", params: ipQuery, okSlug: "ip_info", content: jsonRef("IPResponse")},
-		{path: "/api/v1/ip", method: "get", id: "v1_ip", tagSlug: "api_v1", okSlug: "text_value", content: textPlain("203.0.113.42")},
-		{path: "/api/v1/ip/{ip}", runtimePath: "/api/v1/ip/*", method: "get", id: "v1_ip_lookup", tagSlug: "api_v1", params: ipPath, okSlug: "ip_info", content: jsonRef("IPResponse"), errs: []apiErr{{"400", "invalid_ip"}}},
-		{path: "/api/v1/country", method: "get", id: "v1_country", tagSlug: "api_v1", okSlug: "text_value", content: textPlain("United States")},
-		{path: "/api/v1/city", method: "get", id: "v1_city", tagSlug: "api_v1", okSlug: "text_value", content: textPlain("Mountain View")},
-		{path: "/api/v1/asn", method: "get", id: "v1_asn", tagSlug: "api_v1", okSlug: "text_value", content: textPlain("AS15169")},
-		{path: "/api/v1/server/healthz", method: "get", id: "v1_healthz", tagSlug: "api_v1", okSlug: "health", content: jsonRef("HealthResponse"), errs: []apiErr{{"503", "unavailable"}}},
-		{path: "/api/v1/server/healthz.txt", runtimePath: "/api/v1/server/healthz", runtimeAlias: true, method: "get", id: "v1_healthz_txt", descKey: txtVariantKey, tagSlug: "api_v1", okSlug: "health", content: textPlain("healthy"), errs: []apiErr{{"503", "unavailable"}}},
-		{path: "/api/v1/version", method: "get", id: "v1_version", tagSlug: "api_v1", okSlug: "version", content: jsonRef("VersionResponse")},
-		{path: "/api/v1/server/about", method: "get", id: "v1_about", descKey: apiMirrorKey, tagSlug: "api_v1", okSlug: "json_object", content: jsonObject()},
-		{path: "/api/v1/server/help", method: "get", id: "v1_help", descKey: apiMirrorKey, tagSlug: "api_v1", okSlug: "json_object", content: jsonObject()},
-		{path: "/api/v1/server/help/mcp", method: "get", id: "v1_help_mcp", descKey: apiMirrorKey, tagSlug: "api_v1", okSlug: "json_object", content: jsonObject()},
-		{path: "/api/v1/server/privacy", method: "get", id: "v1_privacy", descKey: apiMirrorKey, tagSlug: "api_v1", okSlug: "json_object", content: jsonObject()},
-		{path: "/api/v1/server/dpo", method: "get", id: "v1_dpo", descKey: apiMirrorKey, tagSlug: "api_v1", okSlug: "json_object", content: jsonObject()},
-		{path: "/api/v1/server/terms", method: "get", id: "v1_terms", descKey: apiMirrorKey, tagSlug: "api_v1", okSlug: "json_object", content: jsonObject()},
-		{path: "/api/v1/server/security", method: "get", id: "v1_security", descKey: apiMirrorKey, tagSlug: "api_v1", okSlug: "json_object", content: jsonObject()},
-		{path: "/api/v1/server/security/policy", method: "get", id: "v1_security_policy", descKey: apiMirrorKey, tagSlug: "api_v1", okSlug: "json_object", content: jsonObject()},
-		{path: "/api/v1/server/security/thanks", method: "get", id: "v1_security_thanks", descKey: apiMirrorKey, tagSlug: "api_v1", okSlug: "json_object", content: jsonObject()},
-		{path: "/api/v1/server/contact", method: "get", id: "v1_contact_get", tagSlug: "api_v1", okSlug: "json_object", content: jsonObject()},
-		{path: "/api/v1/server/contact", method: "post", id: "v1_contact", tagSlug: "api_v1", okSlug: "json_object", content: jsonObject(), bodySlug: "contact", bodySchema: &Schema{Ref: "#/components/schemas/ContactRequest"}, errs: []apiErr{{"400", "bad_request"}, {"429", "too_many_requests"}}},
-		{path: "/api/v1/server/auth/check", method: "get", id: "v1_auth_check", tagSlug: "api_v1", okSlug: "json_object", content: jsonObject(), errs: []apiErr{{"401", "unauthorized"}}, requiresAuth: true},
-		{path: "/api/v1/server/preferences", method: "get", id: "v1_preferences", tagSlug: "api_v1", okSlug: "json_object", content: jsonRef("PreferencesResponse")},
-		{path: "/api/v1/server/preferences", method: "post", id: "v1_preferences_update", tagSlug: "api_v1", okSlug: "json_object", content: jsonRef("PreferencesResponse"), bodySlug: "preferences", bodySchema: &Schema{Ref: "#/components/schemas/PreferencesRequest"}},
-		{path: "/api/v1/server/preferences/sync", method: "get", id: "v1_preferences_sync", tagSlug: "api_v1", okSlug: "json_object", content: jsonRef("PreferencesExportResponse")},
-		{path: "/api/v1/server/preferences/sync/import", method: "get", id: "v1_preferences_sync_import", tagSlug: "api_v1", params: prefsQuery, okSlug: "json_object", content: jsonRef("PreferencesResponse")},
-		{path: "/api/v1/server/preferences/tokens", method: "get", id: "v1_tokens_list", descKey: "swagger.paths.v1_tokens_list.description", tagSlug: "api_v1", okSlug: "json_object", content: jsonObject(), requiresAuth: true},
-		{path: "/api/v1/server/preferences/tokens/primary", method: "post", id: "v1_tokens_issue", descKey: "swagger.paths.v1_tokens_issue.description", tagSlug: "api_v1", okSlug: "json_object", content: jsonObject(), statusOK: "201", errs: []apiErr{{"409", "conflict"}}},
-		{path: "/api/v1/server/preferences/tokens/primary/reveal", runtimePath: "/api/v1/server/preferences/tokens/primary/reveal", runtimeAlias: true, method: "post", id: "v1_tokens_primary_reveal", descKey: "swagger.paths.v1_tokens_primary_reveal.description", tagSlug: "api_v1", okSlug: "json_object", content: jsonObject(), requiresAuth: true},
-		{path: "/api/v1/server/preferences/tokens/primary/rotate", runtimePath: "/api/v1/server/preferences/tokens/primary/rotate", runtimeAlias: true, method: "post", id: "v1_tokens_primary_rotate", descKey: "swagger.paths.v1_tokens_primary_rotate.description", tagSlug: "api_v1", okSlug: "json_object", content: jsonObject(), requiresAuth: true},
-		{path: "/api/v1/server/preferences/tokens", method: "post", id: "v1_tokens_linked_create", descKey: "swagger.paths.v1_tokens_linked_create.description", tagSlug: "api_v1", okSlug: "json_object", content: jsonObject(), requiresAuth: true},
-		{path: "/api/v1/server/preferences/tokens/{id}/reveal", runtimePath: "/api/v1/server/preferences/tokens/{id}/reveal", runtimeAlias: true, method: "post", id: "v1_tokens_linked_reveal", descKey: "swagger.paths.v1_tokens_linked_reveal.description", tagSlug: "api_v1", params: []Parameter{param(lang, "id", "path", "token_id", true, stringSchema())}, okSlug: "json_object", content: jsonObject(), requiresAuth: true},
-		{path: "/api/v1/server/preferences/tokens/{id}/rotate", runtimePath: "/api/v1/server/preferences/tokens/{id}/rotate", runtimeAlias: true, method: "post", id: "v1_tokens_linked_rotate", descKey: "swagger.paths.v1_tokens_linked_rotate.description", tagSlug: "api_v1", params: []Parameter{param(lang, "id", "path", "token_id", true, stringSchema())}, okSlug: "json_object", content: jsonObject(), requiresAuth: true},
-		{path: "/api/v1/server/preferences/tokens/{id}", runtimePath: "/api/v1/server/preferences/tokens/{id}", runtimeAlias: true, method: "patch", id: "v1_tokens_linked_update", descKey: "swagger.paths.v1_tokens_linked_update.description", tagSlug: "api_v1", params: []Parameter{param(lang, "id", "path", "token_id", true, stringSchema())}, okSlug: "json_object", content: jsonObject(), bodySlug: "linked_token_update", bodySchema: &Schema{Type: "object", Properties: map[string]Schema{"name": {Type: "string"}, "expiry": {Type: "string"}}}, requiresAuth: true},
-		{path: "/api/v1/server/preferences/tokens/{id}", runtimePath: "/api/v1/server/preferences/tokens/{id}", runtimeAlias: true, method: "delete", id: "v1_tokens_linked_revoke", descKey: "swagger.paths.v1_tokens_linked_revoke.description", tagSlug: "api_v1", params: []Parameter{param(lang, "id", "path", "token_id", true, stringSchema())}, okSlug: "json_object", content: jsonObject(), requiresAuth: true},
-		{path: "/api/v1/server/swagger", method: "get", id: "v1_swagger", tagSlug: "api_v1", okSlug: "spec", content: jsonObject()},
-		{path: "/api/v1/server/graphql", method: "get", id: "v1_graphql_get", descKey: "swagger.paths.docs_graphql_get.description", tagSlug: "api_v1", okSlug: "html_page", content: htmlPage()},
-		{path: "/api/v1/json", method: "get", id: "v1_json", tagSlug: "api_v1", params: ipQuery, okSlug: "ip_info", content: jsonRef("IPResponse")},
-		{path: "/api/v1/country-iso", method: "get", id: "v1_country_iso", tagSlug: "api_v1", okSlug: "json_object", content: jsonObject()},
-		{path: "/api/v1/coordinates", method: "get", id: "v1_coordinates", tagSlug: "api_v1", okSlug: "json_object", content: jsonObject()},
-		{path: "/api/v1/asn-org", method: "get", id: "v1_asn_org", tagSlug: "api_v1", okSlug: "json_object", content: jsonObject()},
-		{path: "/api/v1/port/{port}", runtimePath: "/api/v1/port/*", method: "get", id: "v1_port_check", tagSlug: "api_v1", params: []Parameter{param(lang, "port", "path", "port_path", true, intSchema())}, okSlug: "port_check", content: jsonRef("PortResponse"), errs: []apiErr{{"400", "invalid_port"}}},
-		{path: "/api/v1/server/consent", method: "post", id: "v1_consent", tagSlug: "api_v1", okSlug: "accepted", statusOK: "204", bodySlug: "consent", bodySchema: &Schema{Type: "object"}},
-		{path: "/api/v1/server/ccpa", method: "post", id: "v1_ccpa", tagSlug: "api_v1", okSlug: "accepted", statusOK: "204", bodySlug: "ccpa", bodySchema: &Schema{Type: "object"}},
-		{path: "/api/v1/announcements/dismiss", method: "post", id: "v1_dismiss", tagSlug: "api_v1", okSlug: "accepted", statusOK: "204", bodySlug: "dismiss", bodySchema: &Schema{Type: "object"}},
-		{path: "/api/v1/server/graphql", method: "post", id: "v1_graphql_post", descKey: "swagger.paths.docs_graphql_post.description", tagSlug: "api_v1", okSlug: "graphql", content: jsonRef("GraphQLResponse"), bodySlug: "graphql", bodySchema: &Schema{Ref: "#/components/schemas/GraphQLRequest"}, errs: []apiErr{{"400", "bad_request"}}},
+		{path: "/api/v1", runtimePath: "/api/v1/", method: "get", id: "v1_info", tagSlug: "api_v1", params: ipQuery, okSlug: "ip_info", content: jsonRef("IPResponse"), Response: model.IPLookupResponse{}, Handler: h.Info},
+		{path: "/api/v1/ip", method: "get", id: "v1_ip", tagSlug: "api_v1", okSlug: "text_value", content: textPlain("203.0.113.42"), Primary: "ip", GraphQLField: "myIP", Response: model.IPLookupResponse{}, Handler: h.IP},
+		{path: "/api/v1/ip/{ip}", runtimePath: "/api/v1/ip/*", method: "get", id: "v1_ip_lookup", tagSlug: "api_v1", params: ipPath, okSlug: "ip_info", content: jsonRef("IPResponse"), errs: []apiErr{{"400", "invalid_ip"}}, Response: model.IPLookupResponse{}, GraphQLField: "lookupIP", Handler: h.IPLookup},
+		{path: "/api/v1/country", method: "get", id: "v1_country", tagSlug: "api_v1", okSlug: "text_value", content: textPlain("United States"), Primary: "country", Response: map[string]any{"country": ""}, Handler: h.Country},
+		{path: "/api/v1/city", method: "get", id: "v1_city", tagSlug: "api_v1", okSlug: "text_value", content: textPlain("Mountain View"), Primary: "city", Response: map[string]any{"city": ""}, Handler: h.City},
+		{path: "/api/v1/asn", method: "get", id: "v1_asn", tagSlug: "api_v1", okSlug: "text_value", content: textPlain("AS15169"), Primary: "asn", Response: map[string]any{"asn": ""}, Handler: h.ASN},
+		{path: "/api/v1/server/healthz", method: "get", id: "v1_healthz", tagSlug: "api_v1", okSlug: "health", content: jsonRef("HealthResponse"), errs: []apiErr{{"503", "unavailable"}}, Response: model.HealthResponse{}, GraphQLField: "health", Handler: h.Health},
+		{path: "/api/v1/server/healthz.txt", runtimePath: "/api/v1/server/healthz", runtimeAlias: true, method: "get", id: "v1_healthz_txt", descKey: txtVariantKey, tagSlug: "api_v1", okSlug: "health", content: textPlain("healthy"), errs: []apiErr{{"503", "unavailable"}}, Handler: h.HealthText},
+		{path: "/api/v1/version", method: "get", id: "v1_version", tagSlug: "api_v1", okSlug: "version", content: jsonRef("VersionResponse"), Response: model.VersionResponse{}, Handler: h.Version},
+		{path: "/api/v1/server/about", method: "get", id: "v1_about", descKey: apiMirrorKey, tagSlug: "api_v1", okSlug: "json_object", content: jsonObject(), Handler: h.About},
+		{path: "/api/v1/server/help", method: "get", id: "v1_help", descKey: apiMirrorKey, tagSlug: "api_v1", okSlug: "json_object", content: jsonObject(), Handler: h.Help},
+		{path: "/api/v1/server/help/mcp", method: "get", id: "v1_help_mcp", descKey: apiMirrorKey, tagSlug: "api_v1", okSlug: "json_object", content: jsonObject(), Handler: h.HelpMCP},
+		{path: "/api/v1/server/privacy", method: "get", id: "v1_privacy", descKey: apiMirrorKey, tagSlug: "api_v1", okSlug: "json_object", content: jsonObject(), Handler: h.Privacy},
+		{path: "/api/v1/server/dpo", method: "get", id: "v1_dpo", descKey: apiMirrorKey, tagSlug: "api_v1", okSlug: "json_object", content: jsonObject(), Handler: h.DPO},
+		{path: "/api/v1/server/terms", method: "get", id: "v1_terms", descKey: apiMirrorKey, tagSlug: "api_v1", okSlug: "json_object", content: jsonObject(), Handler: h.Terms},
+		{path: "/api/v1/server/security", method: "get", id: "v1_security", descKey: apiMirrorKey, tagSlug: "api_v1", okSlug: "json_object", content: jsonObject(), Handler: h.Security},
+		{path: "/api/v1/server/security/policy", method: "get", id: "v1_security_policy", descKey: apiMirrorKey, tagSlug: "api_v1", okSlug: "json_object", content: jsonObject(), Handler: h.SecurityPolicy},
+		{path: "/api/v1/server/security/thanks", method: "get", id: "v1_security_thanks", descKey: apiMirrorKey, tagSlug: "api_v1", okSlug: "json_object", content: jsonObject(), Handler: h.SecurityThanks},
+		{path: "/api/v1/server/contact", method: "get", id: "v1_contact_get", tagSlug: "api_v1", okSlug: "json_object", content: jsonObject(), GraphQLField: "contactForm", Handler: h.ContactGet},
+		{path: "/api/v1/server/contact", method: "post", id: "v1_contact", tagSlug: "api_v1", okSlug: "json_object", content: jsonObject(), bodySlug: "contact", bodySchema: &Schema{Ref: "#/components/schemas/ContactRequest"}, errs: []apiErr{{"400", "bad_request"}, {"429", "too_many_requests"}}, Handler: h.ContactPost},
+		{path: "/api/v1/server/auth/check", method: "get", id: "v1_auth_check", tagSlug: "api_v1", okSlug: "json_object", content: jsonObject(), errs: []apiErr{{"401", "unauthorized"}}, requiresAuth: true, GraphQLField: "authCheck", Handler: h.AuthCheck},
+		{path: "/api/v1/server/preferences", method: "get", id: "v1_preferences", tagSlug: "api_v1", okSlug: "json_object", content: jsonRef("PreferencesResponse"), Handler: h.Preferences},
+		{path: "/api/v1/server/preferences", method: "post", id: "v1_preferences_update", tagSlug: "api_v1", okSlug: "json_object", content: jsonRef("PreferencesResponse"), bodySlug: "preferences", bodySchema: &Schema{Ref: "#/components/schemas/PreferencesRequest"}, Handler: h.PreferencesUpdate},
+		{path: "/api/v1/server/preferences/sync", method: "get", id: "v1_preferences_sync", tagSlug: "api_v1", okSlug: "json_object", content: jsonRef("PreferencesExportResponse"), Handler: h.PreferencesSync},
+		{path: "/api/v1/server/preferences/sync/import", method: "get", id: "v1_preferences_sync_import", tagSlug: "api_v1", params: prefsQuery, okSlug: "json_object", content: jsonRef("PreferencesResponse"), Handler: h.PreferencesSyncImport},
+		{path: "/api/v1/server/preferences/tokens", method: "get", id: "v1_tokens_list", descKey: "swagger.paths.v1_tokens_list.description", tagSlug: "api_v1", okSlug: "json_object", content: jsonObject(), requiresAuth: true, Handler: h.TokensList},
+		{path: "/api/v1/server/preferences/tokens/primary", method: "post", id: "v1_tokens_issue", descKey: "swagger.paths.v1_tokens_issue.description", tagSlug: "api_v1", okSlug: "json_object", content: jsonObject(), statusOK: "201", errs: []apiErr{{"409", "conflict"}}, Handler: h.TokensIssue},
+		{path: "/api/v1/server/preferences/tokens/primary/reveal", runtimePath: "/api/v1/server/preferences/tokens/primary/reveal", runtimeAlias: true, method: "post", id: "v1_tokens_primary_reveal", descKey: "swagger.paths.v1_tokens_primary_reveal.description", tagSlug: "api_v1", okSlug: "json_object", content: jsonObject(), requiresAuth: true, Handler: h.TokensPrimaryReveal},
+		{path: "/api/v1/server/preferences/tokens/primary/rotate", runtimePath: "/api/v1/server/preferences/tokens/primary/rotate", runtimeAlias: true, method: "post", id: "v1_tokens_primary_rotate", descKey: "swagger.paths.v1_tokens_primary_rotate.description", tagSlug: "api_v1", okSlug: "json_object", content: jsonObject(), requiresAuth: true, Handler: h.TokensPrimaryRotate},
+		{path: "/api/v1/server/preferences/tokens/primary", method: "delete", id: "v1_tokens_primary_revoke", descKey: "swagger.paths.v1_tokens_primary_revoke.description", tagSlug: "api_v1", okSlug: "json_object", content: jsonObject(), bodySlug: "token_confirmation", bodySchema: &Schema{Type: "object", Required: []string{"confirm"}, Properties: map[string]Schema{"confirm": {Type: "string"}}}, requiresAuth: true, Handler: h.TokensPrimaryRevoke},
+		{path: "/api/v1/server/preferences/tokens", method: "post", id: "v1_tokens_linked_create", descKey: "swagger.paths.v1_tokens_linked_create.description", tagSlug: "api_v1", okSlug: "json_object", content: jsonObject(), requiresAuth: true, Handler: h.TokensLinkedCreate},
+		{path: "/api/v1/server/preferences/tokens/{id}/reveal", runtimePath: "/api/v1/server/preferences/tokens/{id}/reveal", runtimeAlias: true, method: "post", id: "v1_tokens_linked_reveal", descKey: "swagger.paths.v1_tokens_linked_reveal.description", tagSlug: "api_v1", params: []Parameter{param(lang, "id", "path", "token_id", true, stringSchema())}, okSlug: "json_object", content: jsonObject(), requiresAuth: true, Handler: h.TokensLinkedReveal},
+		{path: "/api/v1/server/preferences/tokens/{id}/rotate", runtimePath: "/api/v1/server/preferences/tokens/{id}/rotate", runtimeAlias: true, method: "post", id: "v1_tokens_linked_rotate", descKey: "swagger.paths.v1_tokens_linked_rotate.description", tagSlug: "api_v1", params: []Parameter{param(lang, "id", "path", "token_id", true, stringSchema())}, okSlug: "json_object", content: jsonObject(), requiresAuth: true, Handler: h.TokensLinkedRotate},
+		{path: "/api/v1/server/preferences/tokens/{id}", runtimePath: "/api/v1/server/preferences/tokens/{id}", runtimeAlias: true, method: "patch", id: "v1_tokens_linked_update", descKey: "swagger.paths.v1_tokens_linked_update.description", tagSlug: "api_v1", params: []Parameter{param(lang, "id", "path", "token_id", true, stringSchema())}, okSlug: "json_object", content: jsonObject(), bodySlug: "linked_token_update", bodySchema: &Schema{Type: "object", Properties: map[string]Schema{"name": {Type: "string"}, "expiry": {Type: "string"}}}, requiresAuth: true, Handler: h.TokensLinkedUpdate},
+		{path: "/api/v1/server/preferences/tokens/{id}", runtimePath: "/api/v1/server/preferences/tokens/{id}", runtimeAlias: true, method: "delete", id: "v1_tokens_linked_revoke", descKey: "swagger.paths.v1_tokens_linked_revoke.description", tagSlug: "api_v1", params: []Parameter{param(lang, "id", "path", "token_id", true, stringSchema())}, okSlug: "json_object", content: jsonObject(), requiresAuth: true, Handler: h.TokensLinkedRevoke},
+		{path: "/api/v1/server/swagger", method: "get", id: "v1_swagger", tagSlug: "api_v1", okSlug: "spec", content: jsonObject(), Handler: h.Swagger},
+		{path: "/api/v1/server/mcp", method: "post", id: "v1_mcp", tagSlug: "api_v1", okSlug: "json_object", content: jsonObject(), requiresAuth: true, Handler: h.MCP},
+		{path: "/api/v1/server/graphql", method: "get", id: "v1_graphql_get", descKey: "swagger.paths.docs_graphql_get.description", tagSlug: "api_v1", okSlug: "html_page", content: htmlPage(), Handler: h.GraphQLGet},
+		{path: "/api/v1/json", method: "get", id: "v1_json", tagSlug: "api_v1", params: ipQuery, okSlug: "ip_info", content: jsonRef("IPResponse"), Handler: h.JSON},
+		{path: "/api/v1/country-iso", method: "get", id: "v1_country_iso", tagSlug: "api_v1", okSlug: "json_object", content: jsonObject(), Primary: "country_iso", Response: map[string]any{"country_iso": ""}, Handler: h.CountryISO},
+		{path: "/api/v1/coordinates", method: "get", id: "v1_coordinates", tagSlug: "api_v1", okSlug: "json_object", content: jsonObject(), Primary: "coordinates", Response: map[string]any{"coordinates": ""}, Handler: h.Coordinates},
+		{path: "/api/v1/asn-org", method: "get", id: "v1_asn_org", tagSlug: "api_v1", okSlug: "json_object", content: jsonObject(), Primary: "asn_org", Response: map[string]any{"asn_org": ""}, Handler: h.ASNOrg},
+		{path: "/api/v1/port/{port}", runtimePath: "/api/v1/port/*", method: "get", id: "v1_port_check", tagSlug: "api_v1", params: []Parameter{param(lang, "port", "path", "port_path", true, intSchema())}, okSlug: "port_check", content: jsonRef("PortResponse"), errs: []apiErr{{"400", "invalid_port"}}, Response: model.PortResponse{}, GraphQLField: "checkPort", Handler: h.PortCheck},
+		{path: "/api/v1/server/graphql", method: "post", id: "v1_graphql_post", descKey: "swagger.paths.docs_graphql_post.description", tagSlug: "api_v1", okSlug: "graphql", content: jsonRef("GraphQLResponse"), bodySlug: "graphql", bodySchema: &Schema{Ref: "#/components/schemas/GraphQLRequest"}, errs: []apiErr{{"400", "bad_request"}}, Handler: h.GraphQLPost},
 	}
 
 	// Browser reporting endpoints — identical shape, one per report type.
 	reports := []struct {
-		suffix string
-		id     string
+		suffix  string
+		id      string
+		handler http.HandlerFunc
 	}{
-		{"csp", "report_csp"},
-		{"nel", "report_nel"},
-		{"deprecation", "report_deprecation"},
-		{"intervention", "report_intervention"},
-		{"crash", "report_crash"},
-		{"error", "report_error"},
-		{"default", "report_default"},
+		{"csp", "report_csp", h.ReportCSP},
+		{"nel", "report_nel", h.ReportNEL},
+		{"deprecation", "report_deprecation", h.ReportDeprecation},
+		{"intervention", "report_intervention", h.ReportIntervention},
+		{"crash", "report_crash", h.ReportCrash},
+		{"default", "report_default", h.ReportDefault},
 	}
 	for _, rep := range reports {
 		docs = append(docs, routeDoc{
@@ -656,11 +705,15 @@ func routeDocs(lang string) []routeDoc {
 			okSlug:     "accepted",
 			statusOK:   "204",
 			bodySlug:   "report",
-			bodySchema: &Schema{Type: "object"},
+			bodySchema: &Schema{Type: "object"}, Handler: rep.handler,
 		})
 	}
 
-	return docs
+	var registry Registry
+	for _, route := range docs {
+		registry.Add(route)
+	}
+	return registry.Routes()
 }
 
 // buildOperation renders one routeDoc into an OpenAPI Operation with every
@@ -687,7 +740,7 @@ func buildOperation(lang string, d routeDoc) *Operation {
 	responses := map[string]APIResponse{
 		okStatus: {
 			Description: tr(lang, "swagger.responses."+d.okSlug),
-			Content:     d.content,
+			Content:     routeResponseContent(d),
 		},
 	}
 	for _, e := range d.errs {
@@ -698,7 +751,7 @@ func buildOperation(lang string, d routeDoc) *Operation {
 	}
 
 	op := &Operation{
-		OperationID: d.id,
+		OperationID: d.OperationID,
 		Summary:     tr(lang, "swagger.paths."+summaryKey+".summary"),
 		Description: tr(lang, descKey),
 		Tags:        []string{tr(lang, "swagger.tags."+d.tagSlug)},
@@ -708,7 +761,11 @@ func buildOperation(lang string, d routeDoc) *Operation {
 	if d.requiresAuth {
 		op.Security = []map[string][]string{{"BearerAuth": {}}}
 	}
-	if d.bodySchema != nil {
+	requestSchema := schemaForModel(d.Request)
+	if requestSchema == nil {
+		requestSchema = d.bodySchema
+	}
+	if requestSchema != nil {
 		mediaType := d.bodyMediaType
 		if mediaType == "" {
 			mediaType = "application/json"
@@ -716,19 +773,236 @@ func buildOperation(lang string, d routeDoc) *Operation {
 		op.RequestBody = &RequestBody{
 			Description: tr(lang, "swagger.bodies."+d.bodySlug),
 			Required:    !d.bodyOptional,
-			Content:     map[string]MediaType{mediaType: {Schema: d.bodySchema}},
+			Content:     map[string]MediaType{mediaType: {Schema: requestSchema}},
 		}
 	}
 	return op
 }
 
+func routeResponseContent(route Route) map[string]MediaType {
+	content := make(map[string]MediaType, len(route.content))
+	for mediaType, media := range route.content {
+		content[mediaType] = media
+	}
+	if schema := schemaForModel(route.Response); schema != nil {
+		mediaType := "application/json"
+		if len(content) == 0 {
+			content[mediaType] = MediaType{Schema: schema}
+		} else {
+			for mediaType, media := range content {
+				if strings.Contains(mediaType, "json") {
+					media.Schema = schema
+					content[mediaType] = media
+				}
+			}
+		}
+	}
+	if len(content) == 0 {
+		return nil
+	}
+	return content
+}
+
+func schemaForModel(model any) *Schema {
+	if model == nil {
+		return nil
+	}
+	switch value := model.(type) {
+	case *Schema:
+		return value
+	case Schema:
+		return &value
+	}
+	typeOf := reflect.TypeOf(model)
+	for typeOf.Kind() == reflect.Pointer {
+		typeOf = typeOf.Elem()
+	}
+	if typeOf.PkgPath() == "net" && typeOf.Name() == "IP" {
+		return &Schema{Type: "string", Format: "ip"}
+	}
+	if typeOf.PkgPath() == "math/big" && typeOf.Name() == "Int" {
+		return &Schema{Type: "integer", Format: "int64"}
+	}
+	if typeOf.PkgPath() == "time" && typeOf.Name() == "Time" {
+		return &Schema{Type: "string", Format: "date-time"}
+	}
+	if typeOf.Kind() == reflect.Map {
+		schema := &Schema{Type: "object", AdditionalProperties: &Schema{}}
+		if typeOf.Key().Kind() == reflect.String && reflect.ValueOf(model).Len() > 0 {
+			schema.AdditionalProperties = nil
+			schema.Properties = make(map[string]Schema)
+			values := reflect.ValueOf(model)
+			for _, key := range values.MapKeys() {
+				value := values.MapIndex(key)
+				if value.Kind() == reflect.Interface && !value.IsNil() {
+					value = value.Elem()
+				}
+				if value.IsValid() {
+					if property := schemaForType(value.Type()); property != nil {
+						schema.Properties[key.String()] = *property
+					}
+				}
+			}
+		}
+		return schema
+	}
+	if typeOf.Kind() != reflect.Struct {
+		return nil
+	}
+	schema := &Schema{Type: "object", Properties: make(map[string]Schema)}
+	for i := 0; i < typeOf.NumField(); i++ {
+		field := typeOf.Field(i)
+		if !field.IsExported() {
+			continue
+		}
+		name := strings.Split(field.Tag.Get("json"), ",")[0]
+		if name == "-" {
+			continue
+		}
+		if name == "" {
+			name = field.Name
+		}
+		fieldType := field.Type
+		for fieldType.Kind() == reflect.Pointer {
+			fieldType = fieldType.Elem()
+		}
+		property := Schema{}
+		switch fieldType.Kind() {
+		case reflect.String:
+			property.Type = "string"
+		case reflect.Bool:
+			property.Type = "boolean"
+		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64, reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+			property.Type = "integer"
+		case reflect.Float32, reflect.Float64:
+			property.Type = "number"
+		case reflect.Slice, reflect.Array:
+			if fieldType.Name() == "IP" {
+				property.Type = "string"
+				property.Format = "ip"
+			} else {
+				property.Type = "array"
+				property.Items = schemaForType(fieldType.Elem())
+			}
+		case reflect.Map:
+			property.Type = "object"
+			property.AdditionalProperties = &Schema{}
+		case reflect.Struct:
+			if nested := schemaForModel(reflect.New(fieldType).Interface()); nested != nil {
+				property = *nested
+			} else {
+				continue
+			}
+		default:
+			continue
+		}
+		schema.Properties[name] = property
+		jsonOptions := strings.Split(field.Tag.Get("json"), ",")[1:]
+		optional := false
+		for _, option := range jsonOptions {
+			if option == "omitempty" {
+				optional = true
+				break
+			}
+		}
+		if !optional && field.Type.Kind() != reflect.Pointer {
+			schema.Required = append(schema.Required, name)
+		}
+	}
+	return schema
+}
+
+func schemaForType(typeOf reflect.Type) *Schema {
+	for typeOf.Kind() == reflect.Pointer {
+		typeOf = typeOf.Elem()
+	}
+	if typeOf.String() == "net.IP" || (typeOf.PkgPath() == "net" && typeOf.Name() == "IP") {
+		return &Schema{Type: "string", Format: "ip"}
+	}
+	if typeOf.PkgPath() == "math/big" && typeOf.Name() == "Int" {
+		return &Schema{Type: "integer", Format: "int64"}
+	}
+	if typeOf.PkgPath() == "time" && typeOf.Name() == "Time" {
+		return &Schema{Type: "string", Format: "date-time"}
+	}
+	switch typeOf.Kind() {
+	case reflect.String:
+		return &Schema{Type: "string"}
+	case reflect.Bool:
+		return &Schema{Type: "boolean"}
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64, reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		return &Schema{Type: "integer"}
+	case reflect.Float32, reflect.Float64:
+		return &Schema{Type: "number"}
+	case reflect.Map:
+		return &Schema{Type: "object", AdditionalProperties: &Schema{}}
+	default:
+		return &Schema{}
+	}
+}
+
+// OperationForRoute renders the OpenAPI operation metadata carried by one
+// registry value. MCP uses this to build tools from every authorized route,
+// including routes omitted from the public Listed surface.
+func OperationForRoute(route Route, lang string) *Operation {
+	if route.OperationID == "" || route.id == "" {
+		return nil
+	}
+	return buildOperation(lang, route)
+}
+
 // generatePaths generates every documented API endpoint for the OpenAPI
-// specification, localized for lang. The path set mirrors the PUBLIC routes
-// registered in src/server/http.go — see routeDocs for the INTERNAL exclusions.
+// specification, localized for lang. Internal routes never enter the public spec.
 func generatePaths(lang string) map[string]PathItem {
+	return generatePathsFromRoutes(lang, routeRegistry(lang))
+}
+
+// generatePathsForRegistry overlays active API routes with the handler-bearing
+// values mounted by the server, then renders the same route definitions into
+// OpenAPI. Non-versioned compatibility documentation remains in the catalog.
+func generatePathsForRegistry(lang string, registeredRoutes func() []Route) map[string]PathItem {
+	if registeredRoutes == nil {
+		return generatePaths(lang)
+	}
+	registered := make(map[string]Route)
+	for _, route := range registeredRoutes() {
+		if route.Handler != nil {
+			registered[route.OperationID] = route
+		}
+	}
+	var routes []Route
+	for _, route := range routeRegistry(lang) {
+		managedRuntime := strings.HasPrefix(route.Path, "/api/") || route.OperationID == "mcpRootAlias" || route.Path == "/server" || strings.HasPrefix(route.Path, "/server/") || route.Path == "/announcements/dismiss" || route.OperationID == "healthzRoot" || route.tagSlug == "ip_lookup" || route.tagSlug == "geoip" || route.tagSlug == "port_check"
+		switch route.OperationID {
+		case "locales", "static", "themeCss", "brandingLogo", "cliBinary", "robotsTxt", "sitemap", "atomFeed", "rssFeed", "favicon", "wkSecurityTxt", "wkPgpKey", "llmsTxt", "wkLlmsTxt", "manifest", "serviceWorker":
+			managedRuntime = true
+		}
+		if !managedRuntime {
+			routes = append(routes, route)
+			continue
+		}
+		active, ok := registered[route.OperationID]
+		if !ok || active.Internal {
+			continue
+		}
+		route.Handler = active.Handler
+		route.Internal = active.Internal
+		route.Listed = active.Listed
+		route.Primary = active.Primary
+		route.Message = active.Message
+		route.Binary = active.Binary
+		routes = append(routes, route)
+	}
+	return generatePathsFromRoutes(lang, routes)
+}
+
+func generatePathsFromRoutes(lang string, routes []Route) map[string]PathItem {
 	paths := make(map[string]PathItem)
 
-	for _, d := range routeDocs(lang) {
+	for _, d := range routes {
+		if d.Internal || d.internal || !d.Listed {
+			continue
+		}
 		op := buildOperation(lang, d)
 		item := paths[d.path]
 		switch d.method {

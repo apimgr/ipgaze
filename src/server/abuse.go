@@ -13,6 +13,7 @@ import (
 
 	i18n "github.com/apimgr/ipgaze/src/common/i18n"
 	"github.com/apimgr/ipgaze/src/config"
+	dbstore "github.com/apimgr/ipgaze/src/db"
 	applog "github.com/apimgr/ipgaze/src/log"
 	"github.com/apimgr/ipgaze/src/netutil"
 )
@@ -67,7 +68,7 @@ type requestCounts struct {
 // AbuseMiddleware enforces configured permanent and persisted temporary IP
 // blocks, then counts requests for flood detection. It must run before the
 // normal rate limiter so requests rejected with 429 still count toward a flood.
-func AbuseMiddleware(db *sql.DB, policy AbusePolicy, trust *netutil.TrustResolver, allowlist *AllowlistLookup, logs *applog.Manager, onAlert func(string)) func(http.Handler) http.Handler {
+func AbuseMiddleware(db *dbstore.Store, policy AbusePolicy, trust *netutil.TrustResolver, allowlist *AllowlistLookup, logs *applog.Manager, onAlert func(string)) func(http.Handler) http.Handler {
 	if policy.Multiplier < 1 {
 		policy.Multiplier = 10
 	}
@@ -79,7 +80,7 @@ func AbuseMiddleware(db *sql.DB, policy AbusePolicy, trust *netutil.TrustResolve
 	}
 	if db != nil {
 		cleanupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		_, err := db.ExecContext(cleanupCtx, `DELETE FROM ip_blocks WHERE expires_at <= ?`, time.Now().Unix())
+		_, err := db.ExecContext(cleanupCtx, `DELETE FROM ip_blocks WHERE ip IN (SELECT ip FROM ip_blocks WHERE expires_at <= ? LIMIT 500)`, time.Now().Unix())
 		cancel()
 		if err != nil {
 			log.Printf("abuse block cleanup: failed to remove expired IP blocks: %v", err)
@@ -236,7 +237,7 @@ func compileIPBlocks(entries []config.BlockedIPEntry) []*net.IPNet {
 	return result
 }
 
-func isIPBlocked(ctx context.Context, db *sql.DB, ip net.IP, permanent []*net.IPNet, now time.Time) (bool, error) {
+func isIPBlocked(ctx context.Context, db *dbstore.Store, ip net.IP, permanent []*net.IPNet, now time.Time) (bool, error) {
 	for _, network := range permanent {
 		if network.Contains(ip) {
 			return true, nil
@@ -267,7 +268,7 @@ func isIPBlocked(ctx context.Context, db *sql.DB, ip net.IP, permanent []*net.IP
 	return true, nil
 }
 
-func persistTemporaryIPBlock(ctx context.Context, db *sql.DB, ip string, expires time.Time, offenseCount int) error {
+func persistTemporaryIPBlock(ctx context.Context, db *dbstore.Store, ip string, expires time.Time, offenseCount int) error {
 	if db == nil {
 		return fmt.Errorf("temporary IP block database unavailable")
 	}

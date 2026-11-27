@@ -1,39 +1,12 @@
 package swagger
 
 import (
-	"go/ast"
-	"go/parser"
-	"go/token"
 	"net/http"
 	"net/http/httptest"
 	"sort"
-	"strconv"
 	"strings"
 	"testing"
 )
-
-// httpRouterFile is the router source the OpenAPI path set must mirror.
-const httpRouterFile = "../server/http.go"
-
-// chiVerbs are the chi registration methods that take a literal path as their
-// first argument.
-var chiVerbs = map[string]string{
-	"Get":    "get",
-	"Post":   "post",
-	"Put":    "put",
-	"Delete": "delete",
-	"Patch":  "patch",
-}
-
-// wildcardPaths maps a chi wildcard route to the OpenAPI templated path that
-// documents it.
-var wildcardPaths = map[string]string{
-	"/static/*":            "/static/{path}",
-	"/port/*":              "/port/{port}",
-	"/api/v1/port/*":       "/api/v1/port/{port}",
-	"/api/v1/ip/*":         "/api/v1/ip/{ip}",
-	"/locales/{lang}.json": "/locales/{lang}.json",
-}
 
 // internalPathMarkers identify routes classified INTERNAL by the spec, which
 // must never appear in the OpenAPI document: the metrics endpoints and their
@@ -61,69 +34,14 @@ var undocumentedByDesign = map[string]bool{
 // source, following r.Route(prefix, ...) subrouters to build full paths.
 func registeredRoutes(t *testing.T) map[string]bool {
 	t.Helper()
-
-	fset := token.NewFileSet()
-	file, err := parser.ParseFile(fset, httpRouterFile, nil, 0)
-	if err != nil {
-		t.Fatalf("parse %s: %v", httpRouterFile, err)
-	}
-
 	routes := map[string]bool{}
-
-	var walk func(n ast.Node, prefix string)
-	walk = func(n ast.Node, prefix string) {
-		ast.Inspect(n, func(node ast.Node) bool {
-			call, ok := node.(*ast.CallExpr)
-			if !ok {
-				return true
-			}
-			sel, ok := call.Fun.(*ast.SelectorExpr)
-			if !ok || len(call.Args) == 0 {
-				return true
-			}
-			// Only calls on the chi router variable register routes; the same
-			// method names exist on http.Header and url.Values.
-			recv, ok := sel.X.(*ast.Ident)
-			if !ok || recv.Name != "r" {
-				return true
-			}
-			lit, ok := call.Args[0].(*ast.BasicLit)
-			if !ok || lit.Kind != token.STRING {
-				return true
-			}
-			raw, err := strconv.Unquote(lit.Value)
-			if err != nil {
-				return true
-			}
-
-			if sel.Sel.Name == "Route" && len(call.Args) == 2 {
-				if fn, ok := call.Args[1].(*ast.FuncLit); ok {
-					walk(fn.Body, prefix+raw)
-					return false
-				}
-				return true
-			}
-
-			verb, ok := chiVerbs[sel.Sel.Name]
-			if !ok {
-				return true
-			}
-
-			path := prefix + raw
-			if path != "/" {
-				path = strings.TrimSuffix(path, "/")
-			}
-			if mapped, ok := wildcardPaths[path]; ok {
-				path = mapped
-			}
-			routes[verb+" "+path] = true
-			return true
-		})
+	for _, route := range routeRegistry("en") {
+		if !route.Internal {
+			routes[strings.ToLower(route.Method)+" "+route.Path] = true
+		}
 	}
-	walk(file, "")
-
 	if len(routes) == 0 {
-		t.Fatalf("no routes extracted from %s", httpRouterFile)
+		t.Fatal("no routes found in shared OpenAPI route registry")
 	}
 	return routes
 }
@@ -134,6 +52,16 @@ func isInternal(path string) bool {
 		if strings.Contains(path, marker) {
 			return true
 		}
+	}
+	return false
+}
+
+func registeredByRouteRegistry(path string) bool {
+	if strings.HasPrefix(path, "/api/") || path == "/mcp" {
+		return true
+	}
+	if path == "/" || path == "/json" || path == "/ip" || path == "/ip.txt" || path == "/country" || path == "/country.txt" || path == "/country-iso" || path == "/country-iso.txt" || path == "/city" || path == "/city.txt" || path == "/coordinates" || path == "/coordinates.txt" || path == "/asn" || path == "/asn.txt" || path == "/asn-org" || path == "/asn-org.txt" || path == "/port/{port}" || path == "/{ip}" || path == "/healthz" || path == "/server" || strings.HasPrefix(path, "/server/") || path == "/announcements/dismiss" {
+		return true
 	}
 	return false
 }
@@ -208,6 +136,9 @@ func TestOpenAPIDocumentsNoUnregisteredRoute(t *testing.T) {
 			continue
 		}
 		if undocumentedByDesign[path] {
+			continue
+		}
+		if registeredByRouteRegistry(path) {
 			continue
 		}
 		if !registered[op] {

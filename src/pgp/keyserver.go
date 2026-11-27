@@ -3,12 +3,12 @@ package pgp
 import (
 	"bytes"
 	"context"
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"time"
 
+	dbstore "github.com/apimgr/ipgaze/src/db"
 	"github.com/apimgr/ipgaze/src/tor"
 )
 
@@ -46,7 +46,7 @@ type vksUploadRequest struct {
 // Publish POSTs the public key to every host in keyservers (VKS-style
 // submission endpoint), recording success per host into pgp_keypairs via
 // RecordKeyserverPublish. Returns one PublishResult per keyserver.
-func Publish(db *sql.DB, fingerprint, publicArmor string, keyservers []string) []PublishResult {
+func Publish(db *dbstore.Store, fingerprint, publicArmor string, keyservers []string) []PublishResult {
 	results := make([]PublishResult, 0, len(keyservers))
 	for _, host := range keyservers {
 		err := publishOne(host, publicArmor)
@@ -93,10 +93,13 @@ func publishOne(host, publicArmor string) error {
 		}
 		_ = resp.Body.Close()
 
-		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		if resp.StatusCode == http.StatusOK {
 			return nil
 		}
 		lastErr = fmt.Errorf("pgp: publish to %s: unexpected status %d", host, resp.StatusCode)
+		if resp.StatusCode >= 400 && resp.StatusCode < 500 && resp.StatusCode != http.StatusTooManyRequests {
+			return lastErr
+		}
 	}
 
 	return lastErr

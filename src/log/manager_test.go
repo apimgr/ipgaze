@@ -229,6 +229,7 @@ func TestNewManagerReportsBrokenAuditChainOnce(t *testing.T) {
 	if !strings.Contains(string(first), `"event":"security.audit_chain_broken"`) {
 		t.Fatalf("broken-chain event missing: %s", first)
 	}
+	assertSystemActorsHaveNoID(t, string(first))
 	m, err = NewManager(dir, cfg)
 	if err != nil {
 		t.Fatal(err)
@@ -240,6 +241,37 @@ func TestNewManagerReportsBrokenAuditChainOnce(t *testing.T) {
 	}
 	if strings.Count(string(second), `"event":"security.audit_chain_broken"`) != 1 {
 		t.Fatalf("broken-chain warning was repeated: %s", second)
+	}
+}
+
+func TestWriteAuditEventSystemActorOmitsID(t *testing.T) {
+	dir := t.TempDir()
+	m, err := NewManager(dir, DefaultConfig())
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
+	m.WriteAuditEvent("", "server.started", "server", "info", "success", "", nil)
+	m.Close()
+
+	b, err := os.ReadFile(filepath.Join(dir, "audit.log"))
+	if err != nil {
+		t.Fatalf("read audit.log: %v", err)
+	}
+	assertSystemActorsHaveNoID(t, string(b))
+}
+
+func assertSystemActorsHaveNoID(t *testing.T, data string) {
+	t.Helper()
+	for _, line := range strings.Split(strings.TrimSpace(data), "\n") {
+		var event struct {
+			Actor AuditActor `json:"actor"`
+		}
+		if err := json.Unmarshal([]byte(line), &event); err != nil {
+			t.Fatalf("unmarshal audit event: %v", err)
+		}
+		if event.Actor.Type == "system" && event.Actor.ID != "" {
+			t.Errorf("system actor.id = %q; want omitted", event.Actor.ID)
+		}
 	}
 }
 

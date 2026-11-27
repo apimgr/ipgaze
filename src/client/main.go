@@ -137,8 +137,6 @@ func stdinIsTerminal() bool {
 // exitCodeForError maps an API error to the PART 32 exit-code taxonomy.
 func exitCodeForError(err error) int {
 	switch {
-	case errors.Is(err, api.ErrTokenRevoked):
-		return exitAuth
 	case api.IsConnectionError(err):
 		return exitConnection
 	case api.IsUnauthorized(err):
@@ -317,13 +315,13 @@ func main() {
 
 	// Handle --update (check or install) — runs before the version-gate check.
 	if updateCmd != "" {
-		os.Exit(handleUpdate(ctx, client, cfg, updateCmd, lang))
+		os.Exit(handleUpdate(ctx, client, cfg, updateCmd, lang, logger))
 	}
 
 	// cli_min_version enforcement plus the update.auto decision on every start
 	// (AI.md PART 32 step 1/2). Skipped for unversioned development builds.
 	if Version != "devel" {
-		enforceVersionPolicy(ctx, client, cfg, lang)
+		enforceVersionPolicy(ctx, client, cfg, lang, logger)
 	}
 
 	// Determine display mode per AI.md PART 32 auto-detection rules,
@@ -490,10 +488,10 @@ func printVersion(serverURL, lang string) {
 }
 
 // handleUpdate runs --update check or --update yes and returns the exit code.
-func handleUpdate(ctx context.Context, client *api.APIClient, cfg *setup.CLIConfig, cmd, lang string) int {
+func handleUpdate(ctx context.Context, client *api.APIClient, cfg *setup.CLIConfig, cmd, lang string, logger *clientLogger) int {
 	switch cmd {
 	case "check":
-		result, err := updater.CheckForUpdates(ctx, client, Version)
+		result, err := updater.CheckForUpdates(ctx, client, Version, logger.Audit)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "%s\n", trf(lang, "client.err_update_check", "error", err.Error()))
 			return exitCodeForError(err)
@@ -508,10 +506,10 @@ func handleUpdate(ctx context.Context, client *api.APIClient, cfg *setup.CLIConf
 		}
 		fmt.Println(trf(lang, "client.update_available",
 			"current", result.Current, "available", result.Available))
-		return offerUpdate(ctx, client, cfg, result, lang)
+		return offerUpdate(ctx, client, cfg, result, lang, logger)
 
 	case "yes", "":
-		if err := updater.Do(ctx, client, projectName, "", Version); err != nil {
+		if err := updater.Do(ctx, client, projectName, "", Version, logger.Audit); err != nil {
 			fmt.Fprintf(os.Stderr, "%s\n", trf(lang, "client.err_update_failed", "error", err.Error()))
 			return exitCodeForError(err)
 		}
@@ -525,7 +523,7 @@ func handleUpdate(ctx context.Context, client *api.APIClient, cfg *setup.CLIConf
 
 // offerUpdate applies the PART 32 step-2 decision: auto-update silently when
 // update.auto is truthy and the session is non-interactive, otherwise prompt.
-func offerUpdate(ctx context.Context, client *api.APIClient, cfg *setup.CLIConfig, result *updater.CheckResult, lang string) int {
+func offerUpdate(ctx context.Context, client *api.APIClient, cfg *setup.CLIConfig, result *updater.CheckResult, lang string, logger *clientLogger) int {
 	if !result.NeedsUpdate() {
 		return exitSuccess
 	}
@@ -533,7 +531,7 @@ func offerUpdate(ctx context.Context, client *api.APIClient, cfg *setup.CLIConfi
 	interactive := stdinIsTerminal()
 
 	if cfg.UpdateAuto() && !interactive {
-		return runUpdate(ctx, client, lang)
+		return runUpdate(ctx, client, lang, logger)
 	}
 
 	if !interactive {
@@ -545,12 +543,12 @@ func offerUpdate(ctx context.Context, client *api.APIClient, cfg *setup.CLIConfi
 	if err != nil || !config.IsTruthy(strings.TrimSpace(answer)) {
 		return exitSuccess
 	}
-	return runUpdate(ctx, client, lang)
+	return runUpdate(ctx, client, lang, logger)
 }
 
 // runUpdate performs the download-and-replace update and reports the exit code.
-func runUpdate(ctx context.Context, client *api.APIClient, lang string) int {
-	if err := updater.Do(ctx, client, projectName, "", Version); err != nil {
+func runUpdate(ctx context.Context, client *api.APIClient, lang string, logger *clientLogger) int {
+	if err := updater.Do(ctx, client, projectName, "", Version, logger.Audit); err != nil {
 		fmt.Fprintf(os.Stderr, "%s\n", trf(lang, "client.err_update_failed", "error", err.Error()))
 		return exitCodeForError(err)
 	}
@@ -559,8 +557,8 @@ func runUpdate(ctx context.Context, client *api.APIClient, lang string) int {
 
 // enforceVersionPolicy refuses to continue when the CLI is below the server's
 // cli_min_version, and otherwise applies the update.auto decision.
-func enforceVersionPolicy(ctx context.Context, client *api.APIClient, cfg *setup.CLIConfig, lang string) {
-	result, err := updater.CheckForUpdates(ctx, client, Version)
+func enforceVersionPolicy(ctx context.Context, client *api.APIClient, cfg *setup.CLIConfig, lang string, logger *clientLogger) {
+	result, err := updater.CheckForUpdates(ctx, client, Version, logger.Audit)
 	if err != nil {
 		// Non-fatal: autodiscover unreachable, continue with the request.
 		return
@@ -571,7 +569,7 @@ func enforceVersionPolicy(ctx context.Context, client *api.APIClient, cfg *setup
 		os.Exit(exitGeneral)
 	}
 	if result.NeedsUpdate() && cfg.UpdateAuto() && !stdinIsTerminal() {
-		runUpdate(ctx, client, lang)
+		runUpdate(ctx, client, lang, logger)
 	}
 }
 
@@ -586,9 +584,6 @@ func runCLI(ctx context.Context, client *api.APIClient, out *cliout.Output, args
 			value, err = client.GetIPField(ctx, args[0], field)
 		} else {
 			value, err = client.GetField(ctx, field)
-		}
-		if errors.Is(err, api.ErrTokenRevoked) {
-			handleTokenRevoked(lang)
 		}
 		if err != nil {
 			out.PrintError("%v", err)
@@ -606,9 +601,6 @@ func runCLI(ctx context.Context, client *api.APIClient, out *cliout.Output, args
 		ipResp, err = client.GetIPJSON(ctx, args[0])
 	} else {
 		ipResp, err = client.GetMyIPJSON(ctx)
-	}
-	if errors.Is(err, api.ErrTokenRevoked) {
-		handleTokenRevoked(lang)
 	}
 	if err != nil {
 		out.PrintError("%v", err)
@@ -769,31 +761,6 @@ func persistCLIFlags(cfg *setup.CLIConfig, flagServer, flagToken, configPath str
 	}
 }
 
-// handleTokenRevoked logs the cli.token_revoked_detected audit event, removes the
-// cached token from disk, and exits. Called whenever doAPIRequest returns ErrTokenRevoked.
-// (AI.md PART 32 audit events table)
-func handleTokenRevoked(lang string) {
-	fmt.Fprintln(os.Stderr, "audit: cli.token_revoked_detected")
-	fmt.Fprintf(os.Stderr, "%s\n", trf(lang, "client.err_token_revoked"))
-	// Clear the token field in cli.yml by rewriting config without a token.
-	configPath := paths.ConfigFile()
-	if data, err := os.ReadFile(configPath); err == nil {
-		var lines []string
-		for _, line := range strings.Split(string(data), "\n") {
-			if !strings.HasPrefix(strings.TrimSpace(line), "token:") {
-				lines = append(lines, line)
-			}
-		}
-		// 0o600: cli.yml may contain other secrets besides the token being
-		// cleared here (e.g. server URL credentials); permissions_unix.go's
-		// checkFilePermissions() rejects any mode with group/other bits set,
-		// so writing 0o644 here would make the client refuse its own
-		// rewritten config on the very next load.
-		_ = os.WriteFile(configPath, []byte(strings.Join(lines, "\n")), 0o600)
-	}
-	os.Exit(exitAuth)
-}
-
 // loadConfig loads the CLI config from the resolved config path.
 // Validates file permissions before reading.
 func loadConfig(configPath string) (*setup.CLIConfig, error) {
@@ -846,6 +813,7 @@ const completionFlags = "--help --version --config --server --token --token-file
 func printClientCompletions(shell, binaryName, lang string) int {
 	formats := strings.Join(setup.OutputFormats, " ")
 	fields := strings.Join(api.FieldNames, " ")
+	languages := strings.Join(i18n.SupportedLocales, " ")
 
 	switch shell {
 	case "bash":
@@ -868,12 +836,12 @@ _arguments \
     '--token-file[File containing the API token]:file:_files' \
     '--output[Output format]:format:(%s)' \
     '--field[Output specific field]:field:(%s)' \
-    '--lang[Language]:lang:(en es fr de zh ar ja)' \
+    '--lang[Language]:lang:(%s)' \
     '--color[Color output]:mode:(auto yes no)' \
     '--debug[Enable debug output]' \
     '--shell[Shell integration]:cmd:(completions init help)' \
     '--update[Auto-update]:cmd:(check yes)'
-`, binaryName, formats, fields)
+`, binaryName, formats, fields, languages)
 	case "fish":
 		fmt.Printf(`complete -c %s -s h -l help -d 'Show help'
 complete -c %s -s v -l version -d 'Show version'
@@ -883,14 +851,14 @@ complete -c %s -l token -d 'API token' -r
 complete -c %s -l token-file -d 'File containing the API token' -r -F
 complete -c %s -l output -d 'Output format' -r -a '%s'
 complete -c %s -l field -d 'Output specific field' -r -a '%s'
-complete -c %s -l lang -d 'Language' -r -a 'en es fr de zh ar ja'
+complete -c %s -l lang -d 'Language' -r -a '%s'
 complete -c %s -l color -d 'Color output' -r -a 'auto yes no'
 complete -c %s -l debug -d 'Enable debug output'
 complete -c %s -l shell -d 'Shell integration' -r -a 'completions init help'
 complete -c %s -l update -d 'Auto-update' -r -a 'check yes'
 `, binaryName, binaryName, binaryName, binaryName, binaryName, binaryName,
-			binaryName, formats, binaryName, fields, binaryName, binaryName,
-			binaryName, binaryName, binaryName)
+			binaryName, formats, binaryName, fields, binaryName, languages,
+			binaryName, binaryName, binaryName, binaryName)
 	case "sh", "dash":
 		// POSIX sh/dash basic completions using bash builtins when available.
 		fmt.Printf(`# %s sh/dash completions (uses bash builtins if available)

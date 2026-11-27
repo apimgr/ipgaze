@@ -10,7 +10,9 @@ import (
 	"net/http"
 	"net/http/pprof"
 	"runtime"
+	"strings"
 
+	"github.com/apimgr/ipgaze/src/swagger"
 	"github.com/go-chi/chi/v5"
 )
 
@@ -33,44 +35,58 @@ func respondError(w http.ResponseWriter, status int, message string) {
 	})
 }
 
-// registerDebugRoutes mounts all debug endpoints under /debug/.
-// Returns immediately (no routes registered) unless s.config.IsDebug() is true.
-func (s *Server) registerDebugRoutes(r chi.Router) {
+// debugRouteDefinitions returns the debug-only Route values that belong to the
+// shared registry. No route exists unless debug mode and its specific feature
+// gate are enabled.
+func (s *Server) debugRouteDefinitions() []swagger.Route {
 	if s.config == nil || !s.config.IsDebug() {
+		return nil
+	}
+	var routes []swagger.Route
+	add := func(method, path, id string, h http.Handler) {
+		routes = append(routes, swagger.Route{Method: method, Path: "/debug/" + strings.TrimPrefix(path, "/"), OperationID: "debug_" + id, Auth: "operator", Listed: false, Internal: true, Handler: h.ServeHTTP})
+	}
+	if s.config.Server.Debug.Pprof {
+		add(http.MethodGet, "pprof/", "pprof_index", http.HandlerFunc(pprof.Index))
+		add(http.MethodGet, "pprof/cmdline", "pprof_cmdline", http.HandlerFunc(pprof.Cmdline))
+		add(http.MethodGet, "pprof/profile", "pprof_profile", http.HandlerFunc(pprof.Profile))
+		add(http.MethodGet, "pprof/symbol", "pprof_symbol", http.HandlerFunc(pprof.Symbol))
+		add(http.MethodGet, "pprof/trace", "pprof_trace", http.HandlerFunc(pprof.Trace))
+		for _, profile := range []string{"heap", "goroutine", "allocs", "block", "mutex", "threadcreate"} {
+			add(http.MethodGet, "pprof/"+profile, "pprof_"+profile, pprof.Handler(profile))
+		}
+	}
+	if s.config.Server.Debug.RuntimeEndpoints {
+		add(http.MethodGet, "vars", "vars", expvar.Handler())
+		add(http.MethodGet, "error500", "error500", http.HandlerFunc(s.handleDebugError500))
+		add(http.MethodGet, "config", "config", http.HandlerFunc(s.handleDebugConfig))
+		add(http.MethodGet, "routes", "routes", http.HandlerFunc(s.handleDebugRoutes))
+		add(http.MethodGet, "cache", "cache", http.HandlerFunc(s.handleDebugCache))
+		add(http.MethodPost, "cache/resize", "cache_resize", http.HandlerFunc(s.handleDebugCacheResize))
+		add(http.MethodGet, "db", "db", http.HandlerFunc(s.handleDebugDB))
+		add(http.MethodGet, "scheduler", "scheduler", http.HandlerFunc(s.handleDebugScheduler))
+		add(http.MethodGet, "memory", "memory", http.HandlerFunc(s.handleDebugMemory))
+		add(http.MethodGet, "goroutines", "goroutines", http.HandlerFunc(s.handleDebugGoroutines))
+	}
+	return routes
+}
+
+// registerDebugRoutes mounts the Internal values from the shared route list.
+func (s *Server) registerDebugRoutes(r chi.Router, routes []swagger.Route) {
+	var debugRoutes []swagger.Route
+	for _, route := range routes {
+		if route.Internal && strings.HasPrefix(route.Path, "/debug/") && route.Handler != nil {
+			debugRoutes = append(debugRoutes, route)
+		}
+	}
+	if len(debugRoutes) == 0 {
 		return
 	}
-
 	r.Route("/debug", func(r chi.Router) {
 		r.Use(s.RequireOperatorToken)
-
-		// pprof endpoints — gated by server.debug.pprof per AI.md PART 6.
-		if s.config.Server.Debug.Pprof {
-			r.HandleFunc("/pprof/", pprof.Index)
-			r.HandleFunc("/pprof/cmdline", pprof.Cmdline)
-			r.HandleFunc("/pprof/profile", pprof.Profile)
-			r.HandleFunc("/pprof/symbol", pprof.Symbol)
-			r.HandleFunc("/pprof/trace", pprof.Trace)
-			r.Handle("/pprof/heap", pprof.Handler("heap"))
-			r.Handle("/pprof/goroutine", pprof.Handler("goroutine"))
-			r.Handle("/pprof/allocs", pprof.Handler("allocs"))
-			r.Handle("/pprof/block", pprof.Handler("block"))
-			r.Handle("/pprof/mutex", pprof.Handler("mutex"))
-			r.Handle("/pprof/threadcreate", pprof.Handler("threadcreate"))
-		}
-
-		// Custom runtime endpoints — gated by server.debug.runtime_endpoints
-		// per AI.md PART 6.
-		if s.config.Server.Debug.RuntimeEndpoints {
-			r.Handle("/vars", expvar.Handler())
-			r.Get("/error500", s.handleDebugError500)
-			r.Get("/config", s.handleDebugConfig)
-			r.Get("/routes", s.handleDebugRoutes)
-			r.Get("/cache", s.handleDebugCache)
-			r.Post("/cache/resize", s.handleDebugCacheResize)
-			r.Get("/db", s.handleDebugDB)
-			r.Get("/scheduler", s.handleDebugScheduler)
-			r.Get("/memory", s.handleDebugMemory)
-			r.Get("/goroutines", s.handleDebugGoroutines)
+		for _, route := range debugRoutes {
+			path := strings.TrimPrefix(route.Path, "/debug")
+			r.Method(route.Method, path, route.Handler)
 		}
 	})
 }

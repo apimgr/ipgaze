@@ -11,6 +11,7 @@ import (
 
 	i18n "github.com/apimgr/ipgaze/src/common/i18n"
 	"github.com/apimgr/ipgaze/src/server/handler"
+	"github.com/apimgr/ipgaze/src/swagger"
 	"github.com/apimgr/ipgaze/src/tor"
 )
 
@@ -97,13 +98,6 @@ type torValidateError struct {
 	Message string `json:"message"`
 }
 
-// torControlRoute pairs a control endpoint with the single HTTP method it
-// accepts.
-type torControlRoute struct {
-	method string
-	fn     func(http.ResponseWriter, *http.Request, TorController)
-}
-
 // registerTorControlRoutes wires the INTERNAL Tor control channel described in
 // AI.md PART 31.1. These routes are the same tier as /server/metrics: never
 // documented in OpenAPI, never advertised under /.well-known or FeaturesInfo,
@@ -111,21 +105,41 @@ type torControlRoute struct {
 // HTTP method at the router level so that a wrong method still passes through
 // the loopback gate first — chi's own 405 would otherwise reveal the route to
 // a remote caller.
+func (s *Server) torControlRouteDefinitions() []swagger.Route {
+	definitions := []struct {
+		path, operationID string
+		method            string
+		fn                func(http.ResponseWriter, *http.Request, TorController)
+	}{
+		{"/server/tor/status", "torControlStatus", http.MethodGet, torStatusHandler},
+		{"/server/tor/validate", "torControlValidate", http.MethodPost, torValidateHandler},
+		{"/server/tor/restart", "torControlRestart", http.MethodPost, torRestartHandler},
+		{"/server/tor/regenerate", "torControlRegenerate", http.MethodPost, torRegenerateHandler},
+		{"/server/tor/vanity/start", "torControlVanityStart", http.MethodPost, torVanityStartHandler},
+		{"/server/tor/vanity/stop", "torControlVanityStop", http.MethodPost, torVanityStopHandler},
+		{"/server/tor/vanity/apply", "torControlVanityApply", http.MethodPost, torVanityApplyHandler},
+		{"/server/tor/import-keys", "torControlImportKeys", http.MethodPost, torImportKeysHandler},
+	}
+	routes := make([]swagger.Route, 0, len(definitions))
+	for _, definition := range definitions {
+		handler := s.torControlEndpoint(definition.method, definition.fn)
+		routes = append(routes, swagger.Route{
+			Method: definition.method, Path: definition.path, OperationID: definition.operationID,
+			Auth: "none", Listed: false, Internal: true, Handler: handler.ServeHTTP,
+		})
+	}
+	return routes
+}
+
 func (s *Server) registerTorControlRoutes(r interface {
 	Handle(pattern string, h http.Handler)
 }) {
-	routes := map[string]torControlRoute{
-		"/server/tor/status":       {http.MethodGet, torStatusHandler},
-		"/server/tor/validate":     {http.MethodPost, torValidateHandler},
-		"/server/tor/restart":      {http.MethodPost, torRestartHandler},
-		"/server/tor/regenerate":   {http.MethodPost, torRegenerateHandler},
-		"/server/tor/vanity/start": {http.MethodPost, torVanityStartHandler},
-		"/server/tor/vanity/stop":  {http.MethodPost, torVanityStopHandler},
-		"/server/tor/vanity/apply": {http.MethodPost, torVanityApplyHandler},
-		"/server/tor/import-keys":  {http.MethodPost, torImportKeysHandler},
+	var registry swagger.Registry
+	for _, route := range s.torControlRouteDefinitions() {
+		registry.Add(route)
 	}
-	for pattern, route := range routes {
-		r.Handle(pattern, s.torControlEndpoint(route.method, route.fn))
+	for _, route := range registry.Routes() {
+		r.Handle(route.Path, route.Handler)
 	}
 }
 
@@ -193,21 +207,21 @@ func decodeTorControlRequest(r *http.Request) (torControlRequest, error) {
 
 func torControlConfirmationRequired(w http.ResponseWriter, r *http.Request) {
 	handler.SendAPIResponseError(w, http.StatusBadRequest, "VALIDATION_FAILED",
-		i18n.T(r.Context(), "errors.required"), map[string]string{"field": "confirm"})
+		i18n.T(r.Context(), "errors.required"), map[string]any{"field": "confirm"})
 }
 
 // torControlBadRequest reports a malformed or rejected control request,
 // keeping the specific reason in details for the local CLI caller.
 func torControlBadRequest(w http.ResponseWriter, r *http.Request, reason string) {
 	handler.SendAPIResponseError(w, http.StatusBadRequest, "BAD_REQUEST",
-		i18n.T(r.Context(), "errors.bad_request"), map[string]string{"reason": reason})
+		i18n.T(r.Context(), "errors.bad_request"), map[string]any{"reason": reason})
 }
 
 // torControlFailed reports a control operation that could not be completed,
 // keeping the specific reason in details for the local CLI caller.
 func torControlFailed(w http.ResponseWriter, r *http.Request, reason string) {
 	handler.SendAPIResponseError(w, http.StatusInternalServerError, "SERVER_ERROR",
-		i18n.T(r.Context(), "errors.server_error"), map[string]string{"reason": reason})
+		i18n.T(r.Context(), "errors.server_error"), map[string]any{"reason": reason})
 }
 
 // torStatusHandler serves GET /server/tor/status.
@@ -305,7 +319,7 @@ func torVanityStartHandler(w http.ResponseWriter, r *http.Request, tc TorControl
 	}
 	prefix := strings.TrimSpace(req.Prefix)
 	if err := tor.ValidateVanityPrefix(prefix); err != nil {
-		handler.SendAPIResponseError(w, http.StatusBadRequest, "VALIDATION_FAILED", i18n.T(r.Context(), "errors.bad_request"), map[string]string{"field": "prefix", "reason": err.Error()})
+		handler.SendAPIResponseError(w, http.StatusBadRequest, "VALIDATION_FAILED", i18n.T(r.Context(), "errors.bad_request"), map[string]any{"field": "prefix", "reason": err.Error()})
 		return
 	}
 	if err := tc.StartVanitySearch(prefix, req.Workers); err != nil {
@@ -313,10 +327,10 @@ func torVanityStartHandler(w http.ResponseWriter, r *http.Request, tc TorControl
 		// conflict, not a malformed request.
 		if errors.Is(err, tor.ErrVanitySearchRunning) {
 			handler.SendAPIResponseError(w, http.StatusConflict, "CONFLICT",
-				i18n.T(r.Context(), "errors.conflict"), map[string]string{"prefix": tc.VanitySearchStatus().Prefix})
+				i18n.T(r.Context(), "errors.conflict"), map[string]any{"prefix": tc.VanitySearchStatus().Prefix})
 			return
 		}
-		handler.SendAPIResponseError(w, http.StatusBadRequest, "VALIDATION_FAILED", i18n.T(r.Context(), "errors.bad_request"), map[string]string{"field": "prefix", "reason": err.Error()})
+		handler.SendAPIResponseError(w, http.StatusBadRequest, "VALIDATION_FAILED", i18n.T(r.Context(), "errors.bad_request"), map[string]any{"field": "prefix", "reason": err.Error()})
 		return
 	}
 	status := tc.VanitySearchStatus()
@@ -384,12 +398,12 @@ func torImportKeysHandler(w http.ResponseWriter, r *http.Request, tc TorControll
 	}
 	path := strings.TrimSpace(req.Path)
 	if path == "" || !filepath.IsAbs(path) {
-		handler.SendAPIResponseError(w, http.StatusBadRequest, "VALIDATION_FAILED", i18n.T(r.Context(), "errors.bad_request"), map[string]string{"field": "path", "reason": "import path must be absolute"})
+		handler.SendAPIResponseError(w, http.StatusBadRequest, "VALIDATION_FAILED", i18n.T(r.Context(), "errors.bad_request"), map[string]any{"field": "path", "reason": "import path must be absolute"})
 		return
 	}
 	address, err := tc.ImportKeys(path)
 	if err != nil {
-		handler.SendAPIResponseError(w, http.StatusBadRequest, "VALIDATION_FAILED", i18n.T(r.Context(), "errors.bad_request"), map[string]string{"field": "path", "reason": err.Error()})
+		handler.SendAPIResponseError(w, http.StatusBadRequest, "VALIDATION_FAILED", i18n.T(r.Context(), "errors.bad_request"), map[string]any{"field": "path", "reason": err.Error()})
 		return
 	}
 	handler.SendAPIResponseOK(w, torActionResponse{OnionAddress: address}, nil)

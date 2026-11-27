@@ -3,6 +3,7 @@ package graphql
 import (
 	"sync"
 
+	"github.com/apimgr/ipgaze/src/swagger"
 	gql "github.com/graphql-go/graphql"
 )
 
@@ -70,6 +71,10 @@ func schemaForLocale(lang string) gql.Schema {
 // with every description resolved for lang. The type system mirrors the REST
 // API field for field so both interfaces expose identical functionality.
 func buildSchema(lang string) (gql.Schema, error) {
+	return buildSchemaForRoutes(lang, swagger.APIV1RouteDefinitions())
+}
+
+func buildSchemaForRoutes(lang string, routes []swagger.Route) (gql.Schema, error) {
 	contactFieldType := gql.NewObject(gql.ObjectConfig{Name: "ContactField", Fields: gql.Fields{
 		"name": &gql.Field{Type: gql.NewNonNull(gql.String)}, "type": &gql.Field{Type: gql.NewNonNull(gql.String)},
 		"required": &gql.Field{Type: gql.NewNonNull(gql.Boolean)}, "maxLength": &gql.Field{Type: gql.Int},
@@ -425,49 +430,41 @@ func buildSchema(lang string) (gql.Schema, error) {
 		},
 	})
 
+	// Build executable query fields from the route registry so internal routes
+	// cannot enter the public GraphQL schema.
+	queryFields := make(gql.Fields)
+	for _, route := range routes {
+		if route.Internal || route.GraphQLField == "" {
+			continue
+		}
+		switch route.GraphQLField {
+		case "myIP":
+			queryFields[route.GraphQLField] = &gql.Field{Type: ipResponseType, Description: tr(lang, "graphql.query.myIP.description"), Resolve: resolveMyIP}
+		case "lookupIP":
+			queryFields[route.GraphQLField] = &gql.Field{
+				Type: ipResponseType, Description: tr(lang, "graphql.query.lookupIP.description"),
+				Args:    gql.FieldConfigArgument{"ip": &gql.ArgumentConfig{Type: gql.NewNonNull(gql.String), Description: tr(lang, "graphql.args.lookupIP.ip")}},
+				Resolve: resolveLookupIP,
+			}
+		case "checkPort":
+			queryFields[route.GraphQLField] = &gql.Field{
+				Type: portResponseType, Description: tr(lang, "graphql.query.checkPort.description"),
+				Args:    gql.FieldConfigArgument{"port": &gql.ArgumentConfig{Type: gql.NewNonNull(gql.Int), Description: tr(lang, "graphql.args.checkPort.port")}},
+				Resolve: resolveCheckPort,
+			}
+		case "health":
+			queryFields[route.GraphQLField] = &gql.Field{Type: healthResponseType, Description: tr(lang, "graphql.query.health.description"), Resolve: resolveHealth}
+		case "authCheck":
+			queryFields[route.GraphQLField] = &gql.Field{Type: gql.String, Description: tr(lang, "graphql.query.authCheck.description"), Resolve: resolveAuthCheck}
+		case "contactForm":
+			queryFields[route.GraphQLField] = &gql.Field{Type: contactFormType, Description: tr(lang, "graphql.query.contactForm.description"), Resolve: resolveContactForm}
+		}
+	}
+
 	// Define the root query
 	rootQuery := gql.NewObject(gql.ObjectConfig{
-		Name: "Query",
-		Fields: gql.Fields{
-			"myIP": &gql.Field{
-				Type:        ipResponseType,
-				Description: tr(lang, "graphql.query.myIP.description"),
-				Resolve:     resolveMyIP,
-			},
-			"lookupIP": &gql.Field{
-				Type:        ipResponseType,
-				Description: tr(lang, "graphql.query.lookupIP.description"),
-				Args: gql.FieldConfigArgument{
-					"ip": &gql.ArgumentConfig{
-						Type:        gql.NewNonNull(gql.String),
-						Description: tr(lang, "graphql.args.lookupIP.ip"),
-					},
-				},
-				Resolve: resolveLookupIP,
-			},
-			"checkPort": &gql.Field{
-				Type:        portResponseType,
-				Description: tr(lang, "graphql.query.checkPort.description"),
-				Args: gql.FieldConfigArgument{
-					"port": &gql.ArgumentConfig{
-						Type:        gql.NewNonNull(gql.Int),
-						Description: tr(lang, "graphql.args.checkPort.port"),
-					},
-				},
-				Resolve: resolveCheckPort,
-			},
-			"health": &gql.Field{
-				Type:        healthResponseType,
-				Description: tr(lang, "graphql.query.health.description"),
-				Resolve:     resolveHealth,
-			},
-			"authCheck": &gql.Field{
-				Type:        gql.String,
-				Description: tr(lang, "graphql.query.authCheck.description"),
-				Resolve:     resolveAuthCheck,
-			},
-			"contactForm": &gql.Field{Type: contactFormType, Description: tr(lang, "graphql.query.contactForm.description"), Resolve: resolveContactForm},
-		},
+		Name:   "Query",
+		Fields: queryFields,
 	})
 
 	return gql.NewSchema(gql.SchemaConfig{

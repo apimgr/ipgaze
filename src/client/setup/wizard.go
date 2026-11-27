@@ -251,7 +251,7 @@ func (m *setupModel) focusInput(idx focusIndex) tea.Cmd {
 
 // testConnection returns a command that validates the server URL format and
 // probes the server's health endpoint, per AI.md PART 32 "CONNECTION TEST".
-func testConnection(url, token string) tea.Cmd {
+func testConnection(url, token, lang string) tea.Cmd {
 	return func() tea.Msg {
 		req, err := http.NewRequest(http.MethodGet, url+"/api/v1/server/healthz", nil)
 		if err != nil {
@@ -270,10 +270,14 @@ func testConnection(url, token string) tea.Cmd {
 		defer resp.Body.Close() //nolint:errcheck
 
 		if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
-			return testResultMsg{err: errors.New(http.StatusText(resp.StatusCode))}
+			key := "errors.unauthorized"
+			if resp.StatusCode == http.StatusForbidden {
+				key = "errors.forbidden"
+			}
+			return testResultMsg{err: errors.New(i18n.Translate(lang, key))}
 		}
 		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-			return testResultMsg{err: fmt.Errorf("HTTP %d", resp.StatusCode)}
+			return testResultMsg{err: errors.New(i18n.Translate(lang, "errors.server_error"))}
 		}
 
 		var health struct {
@@ -297,7 +301,7 @@ func testConnection(url, token string) tea.Cmd {
 			}
 			_ = checkResp.Body.Close()
 			if checkResp.StatusCode != http.StatusOK {
-				return testResultMsg{err: errors.New("invalid token")}
+				return testResultMsg{err: errors.New(i18n.Translate(lang, "errors.token_invalid"))}
 			}
 		}
 		name := health.Project.Name
@@ -361,7 +365,7 @@ func (m setupModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.validErr = ""
 			m.testErr = ""
 			m.testing = true
-			return m, testConnection(url, m.token())
+			return m, testConnection(url, m.token(), m.lang)
 		}
 	}
 

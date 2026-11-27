@@ -544,7 +544,12 @@
     "tokens_status_revoked": "取り消し済み",
     "tokens_forget_confirm": "このブラウザーのトークンを忘れることを確認",
     "tokens_rotate_confirm": "トークンのローテーションを確認",
-    "tokens_revoke_confirm": "トークンの取り消しを確認"
+    "tokens_revoke_confirm": "トークンの取り消しを確認",
+    "tokens_revoke_primary": "プライマリートークンを失効",
+    "tokens_revoke_primary_warning": "所有者 ID、{tokens} 個のトークン、{resources} 個のリソースが完全に削除されます。",
+    "tokens_revoke_primary_confirm": "削除を確認するには、プライマリートークンの末尾 4 文字を入力してください。",
+    "tokens_revoke_primary_invalid": "確認内容が一致しません。何も削除されていません。",
+    "tokens_revoke_primary_success": "所有者とトークンを削除しました。"
   },
   "announcements": {
     "warning": "警告",
@@ -915,7 +920,6 @@
     "err_update_failed": "更新に失敗しました: {error}",
     "err_unknown_update": "不明な更新コマンド「{command}」です。有効なコマンド: check、yes",
     "update_prompt": "この更新を今すぐインストールしますか? [y/N]",
-    "err_token_revoked": "サーバーがこのトークンを失効させました。--token または --token-file で再度認証してください。",
     "shell_help_usage": "使い方: {binary} --shell completions|init|help SHELL",
     "err_unknown_shell_command": "不明なシェルコマンド「{command}」です。有効なコマンド: completions、init、help",
     "err_unsupported_shell": "サポートされていないシェル「{shell}」です。サポートされるシェル: {shells}",

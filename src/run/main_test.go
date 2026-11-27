@@ -1,9 +1,8 @@
-package main
+package run
 
 import (
 	"bytes"
 	"context"
-	"database/sql"
 	"fmt"
 	"io"
 	"os"
@@ -14,6 +13,7 @@ import (
 
 	"github.com/apimgr/ipgaze/src/common/i18n"
 	"github.com/apimgr/ipgaze/src/config"
+	"github.com/apimgr/ipgaze/src/db"
 	"github.com/apimgr/ipgaze/src/paths"
 )
 
@@ -59,7 +59,7 @@ func TestConfiguredBlocklistSourcesHonorEnabledSettings(t *testing.T) {
 
 func TestCleanupSecurityDataRetentionAndRetiredKeys(t *testing.T) {
 	now := time.Date(2026, 11, 21, 12, 0, 0, 0, time.UTC)
-	conn, err := sql.Open("sqlite", ":memory:")
+	conn, err := db.OpenSQLite(":memory:")
 	if err != nil {
 		t.Fatal(err)
 	}

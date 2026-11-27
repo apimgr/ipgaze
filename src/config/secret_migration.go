@@ -62,6 +62,41 @@ func migrateConfiguredSecrets(path string, primary []byte) []byte {
 		return primary
 	}
 	mergeMissingConfigNodes(secretRoot, newSecrets)
+	if findConfigNode(secretRoot, "server.ssl.letsencrypt.dns_credentials") != nil {
+		combined := cloneYAMLNode(merged)
+		mergeConfigNodes(combined, secretRoot, "", secretPath, map[string]string{}, &[]configOverride{})
+		combinedBytes, marshalErr := yaml.Marshal(&yaml.Node{Kind: yaml.DocumentNode, Content: []*yaml.Node{combined}})
+		if marshalErr != nil {
+			log.Printf("config: secret migration skipped: encode merged DNS credentials: %v", marshalErr)
+			return primary
+		}
+		cfg := DefaultConfig()
+		if unmarshalErr := yaml.Unmarshal(combinedBytes, cfg); unmarshalErr != nil {
+			log.Printf("config: secret migration skipped: read merged DNS credentials: %v", unmarshalErr)
+			return primary
+		}
+		if _, normalizeErr := normalizeDNSCredentials(cfg); normalizeErr != nil {
+			log.Printf("config: secret migration skipped: encrypt DNS credentials: %v", normalizeErr)
+			return primary
+		}
+		if cfg.Server.Security.EncryptionKey != "" {
+			setConfigNode(secretRoot, "server.security.encryption_key", &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: cfg.Server.Security.EncryptionKey})
+			if findConfigNode(secretRoot, "server.security.encryption_key_version") == nil {
+				setConfigNode(secretRoot, "server.security.encryption_key_version", &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "1"})
+			}
+		}
+		dnsBytes, marshalErr := yaml.Marshal(cfg.Server.SSL.LetsEncrypt.DNSCredentials)
+		if marshalErr != nil {
+			log.Printf("config: secret migration skipped: encode encrypted DNS credentials: %v", marshalErr)
+			return primary
+		}
+		var dnsDoc yaml.Node
+		if unmarshalErr := yaml.Unmarshal(dnsBytes, &dnsDoc); unmarshalErr != nil || len(dnsDoc.Content) == 0 {
+			log.Printf("config: secret migration skipped: decode encrypted DNS credentials")
+			return primary
+		}
+		setConfigNode(secretRoot, "server.ssl.letsencrypt.dns_credentials", dnsDoc.Content[0])
+	}
 	encodedSecrets, err := yaml.Marshal(&secretDoc)
 	if err != nil {
 		log.Printf("config: secret migration skipped: encode secrets: %v", err)

@@ -544,7 +544,12 @@
     "tokens_status_revoked": "Widerrufen",
     "tokens_forget_confirm": "Vergessen dieses Browser-Tokens bestätigen",
     "tokens_rotate_confirm": "Erneuerung des Tokens bestätigen",
-    "tokens_revoke_confirm": "Widerruf des Tokens bestätigen"
+    "tokens_revoke_confirm": "Widerruf des Tokens bestätigen",
+    "tokens_revoke_primary": "Primäres Token widerrufen",
+    "tokens_revoke_primary_warning": "Dadurch werden deine Identität sowie alle {tokens} Tokens und {resources} Ressourcen dauerhaft gelöscht.",
+    "tokens_revoke_primary_confirm": "Gib zur Bestätigung der Löschung die letzten vier Zeichen deines primären Tokens ein.",
+    "tokens_revoke_primary_invalid": "Die Bestätigung stimmt nicht überein. Es wurde nichts gelöscht.",
+    "tokens_revoke_primary_success": "Eigentümer und Tokens wurden gelöscht."
   },
   "announcements": {
     "warning": "Warnung",
@@ -921,7 +926,6 @@
     "err_update_failed": "Die Aktualisierung ist fehlgeschlagen: {error}",
     "err_unknown_update": "Unbekannter Aktualisierungsbefehl \"{command}\". Gültige Befehle: check, yes",
     "update_prompt": "Diese Aktualisierung jetzt installieren? [j/N]",
-    "err_token_revoked": "Der Server hat dieses Token widerrufen. Authentifizieren Sie sich erneut mit --token oder --token-file.",
     "shell_help_usage": "Aufruf: {binary} --shell completions|init|help SHELL",
     "err_unknown_shell_command": "Unbekannter Shell-Befehl \"{command}\". Gültige Befehle: completions, init, help",
     "err_unsupported_shell": "Nicht unterstützte Shell \"{shell}\". Unterstützte Shells: {shells}",

@@ -10,6 +10,7 @@ import (
 	"github.com/apimgr/ipgaze/src/blocklist"
 	"github.com/apimgr/ipgaze/src/config"
 	"github.com/apimgr/ipgaze/src/netutil"
+	"github.com/apimgr/ipgaze/src/swagger"
 )
 
 func TestSetConfig(t *testing.T) {
@@ -73,6 +74,45 @@ func TestSetMetricsConfig(t *testing.T) {
 			t.Errorf("Loki.MaxAge = %q, want 1h", s2.metricsConfig.Loki.MaxAge)
 		}
 	})
+}
+
+func TestMetricsEndpointsUseInternalRouteRegistryValues(t *testing.T) {
+	srv := testServer()
+	cfg := config.MetricsConfig{Enabled: true}
+	cfg.Auth.Tokens.Prometheus = "prom-token"
+	cfg.Auth.Tokens.Grafana = "grafana-token"
+	cfg.Auth.Tokens.Loki = "loki-token"
+	srv.SetMetricsConfig(cfg)
+	srv.Handler()
+
+	want := map[string]bool{
+		"/server/metrics":        false,
+		"/api/v1/server/metrics": false,
+		"/api/metrics":           false,
+	}
+	for _, route := range srv.RegisteredAPIRoutes() {
+		if _, ok := want[route.Path]; !ok {
+			continue
+		}
+		if !route.Internal || route.Listed || route.Handler == nil {
+			t.Errorf("metrics route %q is not an unlisted Internal registry value", route.Path)
+		}
+		want[route.Path] = true
+	}
+	for path, found := range want {
+		if !found {
+			t.Errorf("metrics route %q is missing from the runtime registry", path)
+		}
+	}
+	spec := swagger.GenerateSpec(swagger.SwaggerHandlerConfig{RegisteredRoutes: srv.RegisteredAPIRoutes}, "http://localhost", "en")
+	if spec.Paths["/api/v1/server/metrics"].Get != nil || spec.Paths["/server/metrics"].Get != nil {
+		t.Fatal("Internal metrics route was included in OpenAPI")
+	}
+	for _, operation := range srv.registeredMCPOperations(httptest.NewRequest("POST", "/mcp", nil)) {
+		if operation.route.Internal {
+			t.Errorf("Internal metrics route %q appeared in MCP tools", operation.route.Path)
+		}
+	}
 }
 
 func TestSetAllowlist(t *testing.T) {

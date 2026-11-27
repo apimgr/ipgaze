@@ -18,6 +18,8 @@ import (
 	"github.com/apimgr/ipgaze/src/netutil"
 	serverhandler "github.com/apimgr/ipgaze/src/server/handler"
 	"github.com/apimgr/ipgaze/src/server/model"
+	"github.com/apimgr/ipgaze/src/swagger"
+	"github.com/go-chi/chi/v5"
 )
 
 func lookupAddr(net.IP) (string, error) { return "localhost", nil }
@@ -150,6 +152,62 @@ func testServer() *Server {
 		Mode:          "development",
 		// Enable root /healthz alias (default config has this enabled).
 		HealthzRootEnabled: true,
+	}
+}
+
+func TestRuntimeRouteRegistryMatchesMountedRoutesAndOpenAPI(t *testing.T) {
+	srv := testServer()
+	srv.Handler()
+	routes := srv.RegisteredAPIRoutes()
+	if len(routes) == 0 {
+		t.Fatal("runtime route registry is empty")
+	}
+	spec := swagger.GenerateSpec(swagger.SwaggerHandlerConfig{RegisteredRoutes: srv.RegisteredAPIRoutes}, "http://localhost", "en")
+	for _, route := range routes {
+		if route.Handler == nil {
+			t.Errorf("route %s %s has no runtime handler", route.Method, route.Path)
+			continue
+		}
+		path := route.RuntimePath
+		if path == "" {
+			path = route.Path
+		}
+		path = strings.Replace(path, "*", "route-check", 1)
+		for strings.Contains(path, "{") {
+			start := strings.Index(path, "{")
+			end := strings.Index(path[start:], "}")
+			if end < 0 {
+				break
+			}
+			path = path[:start] + "route-check" + path[start+end+1:]
+		}
+		if !srv.router.Match(chi.NewRouteContext(), route.Method, path) {
+			t.Errorf("runtime registry route %s %s does not match the mounted router path %q", route.Method, route.Path, path)
+		}
+		if route.Internal || !route.Listed {
+			continue
+		}
+		item, ok := spec.Paths[route.Path]
+		if !ok || routeOperation(item, route.Method) == nil {
+			t.Errorf("listed runtime route %s %s is missing from OpenAPI", route.Method, route.Path)
+		}
+	}
+}
+
+func routeOperation(item swagger.PathItem, method string) *swagger.Operation {
+	switch strings.ToUpper(method) {
+	case http.MethodGet:
+		return item.Get
+	case http.MethodPost:
+		return item.Post
+	case http.MethodPut:
+		return item.Put
+	case http.MethodPatch:
+		return item.Patch
+	case http.MethodDelete:
+		return item.Delete
+	default:
+		return nil
 	}
 }
 
@@ -435,6 +493,20 @@ func TestDebugEndpointsRequireOperatorBearer(t *testing.T) {
 	srv := testServer()
 	srv.SetConfig(&config.AppConfig{Server: config.ServerConfig{Debug: config.DebugConfig{Pprof: true, RuntimeEndpoints: true}}})
 	srv.SetOperatorToken("debug-token")
+	srv.Handler()
+	var foundDebug bool
+	for _, route := range srv.RegisteredAPIRoutes() {
+		if route.Path == "/debug/config" {
+			foundDebug = route.Internal && route.Handler != nil && !route.Listed
+		}
+	}
+	if !foundDebug {
+		t.Fatal("enabled debug route was not represented as an Internal registry value")
+	}
+	debugSpec := swagger.GenerateSpec(swagger.SwaggerHandlerConfig{RegisteredRoutes: srv.RegisteredAPIRoutes}, "http://localhost", "en")
+	if debugSpec.Paths["/debug/config"].Get != nil {
+		t.Fatal("Internal debug route was exposed through OpenAPI")
+	}
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
@@ -730,6 +802,7 @@ func TestAPIV1AuthCheckEndpoint(t *testing.T) {
 		t.Fatal(err)
 	}
 	req.Header.Set("Authorization", "Bearer test-operator-token")
+	req.Header.Set("Accept", "application/json")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)

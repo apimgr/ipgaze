@@ -1,4 +1,4 @@
-package main
+package run
 
 import (
 	"archive/tar"
@@ -6,8 +6,10 @@ import (
 	"compress/gzip"
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/hmac"
 	cryptorand "crypto/rand"
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -18,6 +20,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/apimgr/ipgaze/src/config"
 	"golang.org/x/crypto/argon2"
@@ -34,8 +37,16 @@ import (
 //   echoed and are never accepted via a CLI flag.
 
 const (
-	backupSaltLen  = 16
-	backupNonceLen = 12
+	backupSaltLen         = 16
+	backupNonceLen        = 12
+	backupHeaderMagic     = "BKUP1"
+	backupHeaderFixedLen  = 55
+	backupMinArgonMemory  = 8192
+	backupMaxArgonMemory  = 1048576
+	backupMinArgonTime    = 1
+	backupMaxArgonTime    = 10
+	backupMinArgonThreads = 1
+	backupMaxArgonThreads = 16
 	// AES-256
 	backupKeyLen = 32
 )
@@ -55,22 +66,66 @@ func defaultBackupRestoreLimits() BackupRestoreLimits {
 
 // Argon2id tuning per OWASP minimum recommendations for interactive use.
 const (
-	backupArgonTime = 1
+	backupArgonTime = 3
 	// 64 MiB
 	backupArgonMemory  = 64 * 1024
 	backupArgonThreads = 4
 )
 
-// deriveBackupKey derives a 256-bit AES key from a password and salt via Argon2id.
-func deriveBackupKey(password string, salt []byte) []byte {
-	return argon2.IDKey([]byte(password), salt, backupArgonTime, backupArgonMemory, backupArgonThreads, backupKeyLen)
+// deriveBackupKey derives a 256-bit AES key from a password and archive KDF parameters.
+func deriveBackupKeyWithParams(password string, salt []byte, memory, iterations, threads uint32) []byte {
+	return argon2.IDKey([]byte(password), salt, iterations, memory, uint8(threads), backupKeyLen)
 }
 
-// encryptBackupArchive encrypts an in-memory tar.gz archive with AES-256-GCM.
-// Output layout: salt(16) || nonce(12) || ciphertext(+GCM tag).
-// The unencrypted archive is only ever held in memory by the caller — it is
-// never written to disk before this function returns.
-func encryptBackupArchive(plaintext []byte, password string) ([]byte, error) {
+func deriveBackupKey(password string, salt []byte) []byte {
+	return deriveBackupKeyWithParams(password, salt, backupArgonMemory, backupArgonTime, backupArgonThreads)
+}
+
+type backupEncryptionHeader struct {
+	salt                        []byte
+	memory, iterations, threads uint32
+	nonce                       []byte
+	keyID                       string
+	baseName                    string
+	raw                         []byte
+}
+
+func backupKeyID(key []byte) string {
+	mac := hmac.New(sha256.New, key)
+	_, _ = mac.Write([]byte("key-id"))
+	return hex.EncodeToString(mac.Sum(nil)[:4])
+}
+
+func readBackupEncryptionHeader(data []byte) (backupEncryptionHeader, error) {
+	if len(data) < backupHeaderFixedLen || string(data[:5]) != backupHeaderMagic {
+		return backupEncryptionHeader{}, errors.New("corrupt backup header: missing BKUP1 header")
+	}
+	header := backupEncryptionHeader{salt: append([]byte(nil), data[5:21]...), memory: binary.BigEndian.Uint32(data[21:25]), iterations: binary.BigEndian.Uint32(data[25:29]), threads: binary.BigEndian.Uint32(data[29:33]), nonce: append([]byte(nil), data[33:45]...), keyID: string(data[45:53])}
+	baseLen := int(binary.BigEndian.Uint16(data[53:55]))
+	if baseLen > 255 || len(data) < backupHeaderFixedLen+baseLen+16 {
+		return backupEncryptionHeader{}, errors.New("corrupt backup header: invalid base name length or truncated header")
+	}
+	keyIDBytes, keyIDErr := hex.DecodeString(header.keyID)
+	if keyIDErr != nil || len(keyIDBytes) != 4 || strings.ToLower(header.keyID) != header.keyID {
+		return backupEncryptionHeader{}, errors.New("corrupt backup header: invalid key identifier")
+	}
+	if baseLen > 0 {
+		name := string(data[55 : 55+baseLen])
+		if !utf8.ValidString(name) || filepath.Base(name) != name || strings.ContainsAny(name, `/\\`) {
+			return backupEncryptionHeader{}, errors.New("corrupt backup header: invalid base filename")
+		}
+		header.baseName = name
+	}
+	if header.memory < backupMinArgonMemory || header.memory > backupMaxArgonMemory || header.iterations < backupMinArgonTime || header.iterations > backupMaxArgonTime || header.threads < backupMinArgonThreads || header.threads > backupMaxArgonThreads || header.memory < 8*header.threads {
+		return backupEncryptionHeader{}, errors.New("corrupt backup header: Argon2id parameters exceed allowed bounds")
+	}
+	header.raw = data[:backupHeaderFixedLen+baseLen]
+	return header, nil
+}
+
+// encryptBackupArchive writes the authenticated BKUP1 header and ciphertext.
+// An optional base filename identifies an incremental archive in cleartext.
+func encryptBackupArchive(plaintext []byte, password string, baseNames ...string) ([]byte, error) {
 	if password == "" {
 		return nil, errors.New("encryptBackupArchive: empty password")
 	}
@@ -78,39 +133,34 @@ func encryptBackupArchive(plaintext []byte, password string) ([]byte, error) {
 	if _, err := io.ReadFull(cryptorand.Reader, salt); err != nil {
 		return nil, fmt.Errorf("generate salt: %w", err)
 	}
-	key := deriveBackupKey(password, salt)
-	block, err := aes.NewCipher(key)
-	if err != nil {
-		return nil, fmt.Errorf("new cipher: %w", err)
-	}
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return nil, fmt.Errorf("new gcm: %w", err)
-	}
 	nonce := make([]byte, backupNonceLen)
 	if _, err := io.ReadFull(cryptorand.Reader, nonce); err != nil {
 		return nil, fmt.Errorf("generate nonce: %w", err)
 	}
-	ciphertext := gcm.Seal(nil, nonce, plaintext, nil)
-	out := make([]byte, 0, len(salt)+len(nonce)+len(ciphertext))
-	out = append(out, salt...)
-	out = append(out, nonce...)
-	out = append(out, ciphertext...)
-	return out, nil
-}
-
-// decryptBackupArchive reverses encryptBackupArchive.
-func decryptBackupArchive(data []byte, password string) ([]byte, error) {
-	if len(data) < backupSaltLen+backupNonceLen {
-		return nil, errors.New("decryptBackupArchive: file too short to contain salt and nonce")
+	baseName := ""
+	if len(baseNames) > 0 && baseNames[0] != "" {
+		baseName = baseNames[0]
 	}
-	if password == "" {
-		return nil, errors.New("decryptBackupArchive: empty password")
+	if len(baseName) > 255 || !utf8.ValidString(baseName) || strings.ContainsAny(baseName, `/\\`) {
+		return nil, errors.New("encryptBackupArchive: invalid base filename")
 	}
-	salt := data[:backupSaltLen]
-	nonce := data[backupSaltLen : backupSaltLen+backupNonceLen]
-	ciphertext := data[backupSaltLen+backupNonceLen:]
 	key := deriveBackupKey(password, salt)
+	header := make([]byte, 0, backupHeaderFixedLen+len(baseName))
+	header = append(header, backupHeaderMagic...)
+	header = append(header, salt...)
+	var field [4]byte
+	binary.BigEndian.PutUint32(field[:], backupArgonMemory)
+	header = append(header, field[:]...)
+	binary.BigEndian.PutUint32(field[:], backupArgonTime)
+	header = append(header, field[:]...)
+	binary.BigEndian.PutUint32(field[:], backupArgonThreads)
+	header = append(header, field[:]...)
+	header = append(header, nonce...)
+	header = append(header, backupKeyID(key)...)
+	var length [2]byte
+	binary.BigEndian.PutUint16(length[:], uint16(len(baseName)))
+	header = append(header, length[:]...)
+	header = append(header, baseName...)
 	block, err := aes.NewCipher(key)
 	if err != nil {
 		return nil, fmt.Errorf("new cipher: %w", err)
@@ -119,7 +169,33 @@ func decryptBackupArchive(data []byte, password string) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("new gcm: %w", err)
 	}
-	plaintext, err := gcm.Open(nil, nonce, ciphertext, nil)
+	ciphertext := gcm.Seal(nil, nonce, plaintext, header)
+	return append(header, ciphertext...), nil
+}
+
+// decryptBackupArchive validates attacker-controlled KDF parameters before
+// deriving a key and authenticates the complete cleartext header as GCM AAD.
+func decryptBackupArchive(data []byte, password string) ([]byte, error) {
+	if password == "" {
+		return nil, errors.New("decryptBackupArchive: empty password")
+	}
+	header, err := readBackupEncryptionHeader(data)
+	if err != nil {
+		return nil, err
+	}
+	key := deriveBackupKeyWithParams(password, header.salt, header.memory, header.iterations, header.threads)
+	if !hmac.Equal([]byte(backupKeyID(key)), []byte(header.keyID)) {
+		return nil, errors.New("decrypt: wrong password or corrupted archive")
+	}
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return nil, fmt.Errorf("new cipher: %w", err)
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, fmt.Errorf("new gcm: %w", err)
+	}
+	plaintext, err := gcm.Open(nil, header.nonce, data[len(header.raw):], header.raw)
 	if err != nil {
 		return nil, fmt.Errorf("decrypt: wrong password or corrupted archive: %w", err)
 	}

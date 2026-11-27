@@ -23,7 +23,7 @@ type APIResponse struct {
 	// Message is the human-readable error description on failure; omitted on success.
 	Message string `json:"message,omitempty"`
 	// Details carries additional structured error context on failure; omitted on success.
-	Details interface{} `json:"details,omitempty"`
+	Details map[string]any `json:"details,omitempty"`
 }
 
 // APIPagination carries list pagination metadata per AI.md PART 14 (default limit 250).
@@ -53,7 +53,7 @@ func SendAPIResponseAccepted(w http.ResponseWriter, data interface{}) {
 // SendAPIResponseError writes a JSON error envelope with the given status code,
 // UPPER_SNAKE_CASE error code, human-readable message, and optional structured
 // details, per AI.md PART 14's canonical error shape.
-func SendAPIResponseError(w http.ResponseWriter, status int, code, message string, details interface{}) {
+func SendAPIResponseError(w http.ResponseWriter, status int, code, message string, details map[string]any) {
 	sendAPIResponse(w, status, &APIResponse{OK: false, Error: code, Message: message, Details: details})
 }
 

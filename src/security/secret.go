@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"time"
 
+	dbstore "github.com/apimgr/ipgaze/src/db"
 	"github.com/apimgr/ipgaze/src/security/cryptoutil"
 )
 
@@ -41,7 +42,7 @@ const secretGraceWindow = 7 * 24 * time.Hour
 // GetOrCreateSecret returns the current value of the named app_secrets row,
 // generating and persisting a new 32-byte random secret if the row does not
 // yet exist. Safe to call concurrently at startup.
-func GetOrCreateSecret(db *sql.DB, name SecretName) ([]byte, error) {
+func GetOrCreateSecret(db *dbstore.Store, name SecretName) ([]byte, error) {
 	readCtx, cancelRead := context.WithTimeout(context.Background(), secretReadTimeout)
 	defer cancelRead()
 
@@ -85,7 +86,7 @@ func GetOrCreateSecret(db *sql.DB, name SecretName) ([]byte, error) {
 
 // RotateSecretIfDue rotates a secret after its configured lifetime. A legacy
 // row without rotated_at is initialized without changing its value.
-func RotateSecretIfDue(db *sql.DB, name SecretName, lifetime time.Duration, now time.Time) (bool, error) {
+func RotateSecretIfDue(db *dbstore.Store, name SecretName, lifetime time.Duration, now time.Time) (bool, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), secretReadTimeout)
 	defer cancel()
 	var rotatedAt sql.NullInt64
@@ -112,7 +113,7 @@ func RotateSecretIfDue(db *sql.DB, name SecretName, lifetime time.Duration, now 
 // RotateSecret generates a fresh random value for the named secret, keeping
 // the previous value valid for secretGraceWindow (AI.md PART 11). Callers are
 // responsible for the sensitive-operation auth gate and audit logging.
-func RotateSecret(db *sql.DB, name SecretName) error {
+func RotateSecret(db *dbstore.Store, name SecretName) error {
 	current, err := GetOrCreateSecret(db, name)
 	if err != nil {
 		return err
@@ -145,7 +146,7 @@ func RotateSecret(db *sql.DB, name SecretName) error {
 // PreviousSecret returns the pre-rotation value of name if it is still
 // within its grace window, for validating in-flight tokens/URLs signed
 // before a rotation. Returns (nil, nil) if there is no live previous value.
-func PreviousSecret(db *sql.DB, name SecretName) ([]byte, error) {
+func PreviousSecret(db *dbstore.Store, name SecretName) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), secretReadTimeout)
 	defer cancel()
 

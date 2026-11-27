@@ -1,4 +1,4 @@
-package main
+package run
 
 import (
 	"bytes"
@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	_ "modernc.org/sqlite"
+	"github.com/google/uuid"
 
 	"github.com/apimgr/ipgaze/src/config"
 	"github.com/apimgr/ipgaze/src/db"
@@ -22,9 +22,9 @@ import (
 
 // openTestDB returns an in-memory sqlite database with the full application
 // schema applied, for exercising maintenance-command DB logic in isolation.
-func openTestDB(t *testing.T) *sql.DB {
+func openTestDB(t *testing.T) *db.Store {
 	t.Helper()
-	conn, err := sql.Open("sqlite", ":memory:")
+	conn, err := db.OpenSQLite(":memory:")
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}
@@ -37,6 +37,13 @@ func openTestDB(t *testing.T) *sql.DB {
 		t.Fatalf("ensure schema: %v", err)
 	}
 	return conn
+}
+
+func ensureTestOwner(t *testing.T, conn *db.Store, owner string) {
+	t.Helper()
+	if _, err := conn.Exec(`INSERT INTO owners(id) VALUES(?) ON CONFLICT(id) DO NOTHING`, owner); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestIsDatabaseEmpty_EmptyDatabase(t *testing.T) {
@@ -61,7 +68,7 @@ func TestIsDatabaseEmpty_WithTokenRow(t *testing.T) {
 	if _, err := conn.Exec(`INSERT INTO owners(id) VALUES ('owner-token-test')`); err != nil {
 		t.Fatalf("insert owner: %v", err)
 	}
-	if _, err := conn.Exec(`INSERT INTO api_tokens (owner_id, kind, token_hash, token_prefix, token_last4, token_enc) VALUES ('owner-token-test','primary','h','own_test','last','encrypted')`); err != nil {
+	if _, err := conn.Exec(`INSERT INTO api_tokens (id,owner_id, kind, token_hash, token_prefix, token_last4, token_enc) VALUES ('00000000-0000-7000-8000-000000000001','owner-token-test','primary','h','own_test','last','encrypted')`); err != nil {
 		t.Fatalf("insert api_tokens: %v", err)
 	}
 	if isDatabaseEmpty(conn) {
@@ -70,7 +77,7 @@ func TestIsDatabaseEmpty_WithTokenRow(t *testing.T) {
 }
 
 func TestIsDatabaseEmpty_MissingTable(t *testing.T) {
-	conn, err := sql.Open("sqlite", ":memory:")
+	conn, err := db.OpenSQLite(":memory:")
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}
@@ -130,7 +137,7 @@ func TestComplianceCountsAreOwnerScopedAndExcludeClosedReports(t *testing.T) {
 	if _, err := conn.Exec(`INSERT INTO owners(id) VALUES ('owner-a'), ('owner-b')`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := conn.Exec(`INSERT INTO api_tokens(owner_id, kind, token_hash, token_prefix, token_last4, token_enc) VALUES ('owner-a','primary','h-a','prefix-a','last','enc')`); err != nil {
+	if _, err := conn.Exec(`INSERT INTO api_tokens(id,owner_id, kind, token_hash, token_prefix, token_last4, token_enc) VALUES ('00000000-0000-7000-8000-000000000002','owner-a','primary','h-a','prefix-a','last','enc')`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := conn.Exec(`INSERT INTO security_reports(tracking_id, severity, component, body_enc, body_alg, token_hash, closed_at) VALUES ('open','low','api',X'00','aes-256-gcm','h1',NULL), ('closed','low','api',X'00','aes-256-gcm','h2',1)`); err != nil {
@@ -177,10 +184,10 @@ func TestMaintenanceTokenList_ListsActiveAndRevoked(t *testing.T) {
 	if _, err := conn.Exec(`INSERT INTO owners(id) VALUES ('owner-active'), ('owner-revoked')`); err != nil {
 		t.Fatalf("insert owners: %v", err)
 	}
-	if _, err := conn.Exec(`INSERT INTO api_tokens (owner_id, kind, token_hash, token_prefix, token_last4, token_enc) VALUES ('owner-active','primary','h1','abc123','last','encrypted')`); err != nil {
+	if _, err := conn.Exec(`INSERT INTO api_tokens (id,owner_id, kind, token_hash, token_prefix, token_last4, token_enc) VALUES ('00000000-0000-7000-8000-000000000003','owner-active','primary','h1','abc123','last','encrypted')`); err != nil {
 		t.Fatalf("insert active token: %v", err)
 	}
-	if _, err := conn.Exec(`INSERT INTO api_tokens (owner_id, kind, token_hash, token_prefix, token_last4, token_enc, revoked_at) VALUES ('owner-revoked','primary','h2','def456','last','encrypted', 1)`); err != nil {
+	if _, err := conn.Exec(`INSERT INTO api_tokens (id,owner_id, kind, token_hash, token_prefix, token_last4, token_enc, revoked_at) VALUES ('00000000-0000-7000-8000-000000000004','owner-revoked','primary','h2','def456','last','encrypted', 1)`); err != nil {
 		t.Fatalf("insert revoked token: %v", err)
 	}
 	out := captureStdout(func() { maintenanceTokenList(conn) })
@@ -207,7 +214,8 @@ func TestMaintenanceTokenRevoke_RevokesMatchingToken(t *testing.T) {
 	if _, err := conn.Exec(`INSERT INTO owners(id) VALUES ('owner-revoke-test')`); err != nil {
 		t.Fatalf("insert owner: %v", err)
 	}
-	if _, err := conn.Exec(`INSERT INTO api_tokens (owner_id, kind, token_hash, token_prefix, token_last4, token_enc) VALUES ('owner-revoke-test','primary','h1','xyz789','last','encrypted')`); err != nil {
+	ensureTestOwner(t, conn, "owner-revoke-test")
+	if _, err := conn.Exec(`INSERT INTO api_tokens (id,owner_id, kind, token_hash, token_prefix, token_last4, token_enc) VALUES ('00000000-0000-7000-8000-000000000005','owner-revoke-test','primary','h1','xyz789','last','encrypted')`); err != nil {
 		t.Fatalf("insert token: %v", err)
 	}
 	logsDir := t.TempDir()
@@ -230,13 +238,15 @@ func TestMaintenanceDataExport_WritesOwnerScopedDisclosure(t *testing.T) {
 	if _, err := conn.Exec(`INSERT INTO owners(id) VALUES ('owner-export-test')`); err != nil {
 		t.Fatalf("insert owner: %v", err)
 	}
-	if _, err := conn.Exec(`INSERT INTO api_tokens (owner_id, kind, token_hash, token_prefix, token_last4, token_enc) VALUES ('owner-export-test','primary','h1','abc','last','encrypted')`); err != nil {
+	ensureTestOwner(t, conn, "owner-export-test")
+	if _, err := conn.Exec(`INSERT INTO api_tokens (id,owner_id, kind, token_hash, token_prefix, token_last4, token_enc) VALUES ('00000000-0000-7000-8000-000000000006','owner-export-test','primary','h1','abc','last','encrypted')`); err != nil {
 		t.Fatalf("insert token: %v", err)
 	}
 	if _, err := conn.Exec(`INSERT INTO owners(id) VALUES ('owner-other-test')`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := conn.Exec(`INSERT INTO api_tokens (owner_id, kind, token_hash, token_prefix, token_last4, token_enc) VALUES ('owner-other-test','primary','h2','other-prefix','last','other-encrypted')`); err != nil {
+	ensureTestOwner(t, conn, "owner-other-test")
+	if _, err := conn.Exec(`INSERT INTO api_tokens (id,owner_id, kind, token_hash, token_prefix, token_last4, token_enc) VALUES ('00000000-0000-7000-8000-000000000007','owner-other-test','primary','h2','other-prefix','last','other-encrypted')`); err != nil {
 		t.Fatal(err)
 	}
 	outputPath := filepath.Join(t.TempDir(), "owner-export.json")
@@ -279,7 +289,12 @@ func TestMaintenanceDataDelete_DeletesOnlyOwnerAndTokens(t *testing.T) {
 		if _, err := conn.Exec(`INSERT INTO owners(id) VALUES (?)`, owner); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := conn.Exec(`INSERT INTO api_tokens(owner_id, kind, token_hash, token_prefix, token_last4, token_enc) VALUES (?, 'primary', ?, ?, 'last', 'encrypted')`, owner, owner+"-hash", owner+"-prefix"); err != nil {
+		ensureTestOwner(t, conn, owner)
+		tokenID, idErr := uuid.NewV7()
+		if idErr != nil {
+			t.Fatal(idErr)
+		}
+		if _, err := conn.Exec(`INSERT INTO api_tokens(id,owner_id, kind, token_hash, token_prefix, token_last4, token_enc) VALUES (?, ?, 'primary', ?, ?, 'last', 'encrypted')`, tokenID.String(), owner, owner+"-hash", owner+"-prefix"); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -386,11 +401,26 @@ func TestMaintenanceBackupTestDecryptsExtractedKey(t *testing.T) {
 	if err := conn.Close(); err != nil {
 		t.Fatalf("close database: %v", err)
 	}
-	const wantArmor = "-----BEGIN PGP PRIVATE KEY BLOCK-----\ntest\n-----END PGP PRIVATE KEY BLOCK-----\n"
-	if err := pgp.SaveKeypair(configDir, &pgp.Keypair{PublicArmor: "public", PrivateArmor: wantArmor}, secret); err != nil {
+	keypair, err := pgp.Generate("IPGaze", "security@example.test")
+	if err != nil {
+		t.Fatalf("generate PGP keypair: %v", err)
+	}
+	cfg.Server.Security.EncryptionKey = base64.StdEncoding.EncodeToString(make([]byte, 32))
+	serverYAML := "server:\n  security:\n    encryption_key: " + cfg.Server.Security.EncryptionKey + "\n"
+	if err := os.MkdirAll(configDir, 0700); err != nil {
+		t.Fatalf("create config directory: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(configDir, "server.yml"), []byte(serverYAML), 0600); err != nil {
+		t.Fatalf("write server.yml: %v", err)
+	}
+	if err := pgp.SaveKeypair(configDir, keypair, secret); err != nil {
 		t.Fatalf("SaveKeypair: %v", err)
 	}
-	if err := maintenanceBackupTest(configDir, cfg, dirs); err != nil {
+	archivePath := filepath.Join(tmpDir, "backup.tar.gz")
+	if err := maintenanceBackup(cfg, configDir, tmpDir, dirs.DB, archivePath, true, true, false, nil); err != nil {
+		t.Fatalf("maintenanceBackup: %v", err)
+	}
+	if err := maintenanceBackupTest(configDir, cfg, dirs, archivePath); err != nil {
 		t.Fatalf("maintenanceBackupTest: %v", err)
 	}
 }
@@ -629,5 +659,20 @@ func TestEmailTestSampleVariablesUsesConfiguredIdentity(t *testing.T) {
 	variables := emailTestSampleVariables(cfg)
 	if variables["app_name"] != "Test IPGaze" || variables["app_url"] != "https://ips.example.test" || variables["notification_reply_to"] != "ops@example.test" {
 		t.Fatalf("sample variables = %#v", variables)
+	}
+}
+
+func TestBackupTestSkippedReportsEachDependentCheck(t *testing.T) {
+	out := captureStdout(func() {
+		reportBackupTestSkipped("archive decryption failed", "Manifest", "Manifest checksums", "PGP fingerprint match")
+	})
+	for _, expected := range []string{
+		"Manifest: NOT CHECKED (archive decryption failed)",
+		"Manifest checksums: NOT CHECKED (archive decryption failed)",
+		"PGP fingerprint match: NOT CHECKED (archive decryption failed)",
+	} {
+		if !strings.Contains(out, expected) {
+			t.Errorf("backup test skip report missing %q: %q", expected, out)
+		}
 	}
 }

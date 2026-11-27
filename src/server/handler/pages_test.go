@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"container/list"
 	"context"
-	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -24,7 +23,6 @@ import (
 	"github.com/apimgr/ipgaze/src/email"
 	"github.com/apimgr/ipgaze/src/netutil"
 	"github.com/apimgr/ipgaze/src/security"
-	_ "modernc.org/sqlite"
 )
 
 // browserUserAgent is a graphical-browser User-Agent. Frontend page tests that
@@ -81,6 +79,41 @@ func TestNewPagesHandler(t *testing.T) {
 	}
 	if h.Render == nil {
 		t.Error("Render = nil, want non-nil")
+	}
+}
+
+func TestHubRegistriesExposeEveryRegisteredPageInOrder(t *testing.T) {
+	ctx := context.Background()
+	helpPages := registeredHubPages(ctx, helpPageRegistry)
+	preferencePages := preferencePageRegistry(ctx)
+	registered := RegisteredHubPagePaths()
+	if len(registered) != len(helpPages)+len(preferencePages) {
+		t.Fatalf("RegisteredHubPagePaths() has %d paths, help/preferences expose %d pages", len(registered), len(helpPages)+len(preferencePages))
+	}
+	registeredSet := make(map[string]bool, len(registered))
+	for _, path := range registered {
+		if registeredSet[path] {
+			t.Errorf("hub page %q is registered more than once", path)
+		}
+		registeredSet[path] = true
+	}
+	for _, page := range append(append([]HubPage(nil), helpPages...), preferencePages...) {
+		if !registeredSet[page.Path] {
+			t.Errorf("hub page %q is missing from RegisteredHubPagePaths", page.Path)
+		}
+		if page.Title == "" || page.Description == "" {
+			t.Errorf("hub page %q has an empty title or description", page.Path)
+		}
+	}
+	for name, pages := range map[string][]HubPage{"help": helpPages, "preferences": preferencePages} {
+		for i := 1; i < len(pages); i++ {
+			if pages[i-1].Order > pages[i].Order {
+				t.Errorf("%s hub pages are not ordered: %q (%d) follows %q (%d)", name, pages[i].Path, pages[i].Order, pages[i-1].Path, pages[i-1].Order)
+			}
+		}
+	}
+	if got := buildHelpResponse(ctx).Pages; len(got) != len(helpPages) {
+		t.Errorf("help JSON contains %d registered pages, want %d", len(got), len(helpPages))
 	}
 }
 
@@ -457,7 +490,7 @@ func TestSecurityReportStatusWithoutDatabaseReturnsNotFound(t *testing.T) {
 }
 
 func TestSecurityThanksDatabaseFailureReturnsAPIError(t *testing.T) {
-	conn, err := sql.Open("sqlite", ":memory:")
+	conn, err := db.OpenSQLite(":memory:")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -486,7 +519,7 @@ func TestSecurityThanksDatabaseFailureReturnsAPIError(t *testing.T) {
 }
 
 func TestSecurityReportStatusConsumesToken(t *testing.T) {
-	conn, err := sql.Open("sqlite", ":memory:")
+	conn, err := db.OpenSQLite(":memory:")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -598,7 +631,7 @@ func TestServerContactHandler_POST(t *testing.T) {
 
 func TestAPIV1ServerContactHandler_POST(t *testing.T) {
 	h := newTestPagesHandler()
-	db, err := sql.Open("sqlite", ":memory:")
+	db, err := db.OpenSQLite(":memory:")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -673,7 +706,7 @@ func TestAPIV1ServerContactHandler_POST(t *testing.T) {
 }
 
 func TestSimpleCaptcha_ValidWrongExpiredAndTampered(t *testing.T) {
-	db, err := sql.Open("sqlite", ":memory:")
+	db, err := db.OpenSQLite(":memory:")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -739,7 +772,7 @@ func TestSimpleCaptcha_ValidWrongExpiredAndTampered(t *testing.T) {
 }
 
 func TestSubmitSecurityReportEncryptedAndNotifies(t *testing.T) {
-	conn, err := sql.Open("sqlite", ":memory:")
+	conn, err := db.OpenSQLite(":memory:")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -815,7 +848,7 @@ func TestSubmitSecurityReportEncryptedAndNotifies(t *testing.T) {
 }
 
 func TestContactFormTokenChecksSignatureAndAge(t *testing.T) {
-	conn, err := sql.Open("sqlite", ":memory:")
+	conn, err := db.OpenSQLite(":memory:")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -846,7 +879,7 @@ func TestContactFormTokenChecksSignatureAndAge(t *testing.T) {
 }
 
 func TestContactReviewTokenBindsFieldsAndIsSingleUse(t *testing.T) {
-	conn, err := sql.Open("sqlite", ":memory:")
+	conn, err := db.OpenSQLite(":memory:")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1088,7 +1121,7 @@ func TestContactThirdStrikeBansIP(t *testing.T) {
 }
 
 func TestContactHoneypotReviewSilentlyDropsWithoutDelivery(t *testing.T) {
-	conn, err := sql.Open("sqlite", ":memory:")
+	conn, err := db.OpenSQLite(":memory:")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1324,7 +1357,7 @@ func TestAPIV1ServerContactHandler_MethodNotAllowed(t *testing.T) {
 
 func TestAPIV1ServerContactHandler_GET(t *testing.T) {
 	h := newTestPagesHandler()
-	conn, err := sql.Open("sqlite", ":memory:")
+	conn, err := db.OpenSQLite(":memory:")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1375,8 +1408,8 @@ func TestAPIV1ServerContactHandler_RejectsOverlongUnicodeField(t *testing.T) {
 	if err := json.NewDecoder(w.Body).Decode(&response); err != nil {
 		t.Fatal(err)
 	}
-	details, ok := response.Details.(map[string]interface{})
-	if !ok || response.Error != "VALIDATION_FAILED" || details["field"] != "name" || details["rule"] != "max_length" {
+	details := response.Details
+	if response.Error != "VALIDATION_FAILED" || details["field"] != "name" || details["rule"] != "max_length" {
 		t.Errorf("validation response = %#v, want field-level max_length for name", response)
 	}
 }
@@ -1402,7 +1435,7 @@ func TestContactFieldLengthViolationSecurityFields(t *testing.T) {
 }
 
 func TestContactFormDefinitionSecurityReportLimits(t *testing.T) {
-	conn, err := sql.Open("sqlite", ":memory:")
+	conn, err := db.OpenSQLite(":memory:")
 	if err != nil {
 		t.Fatal(err)
 	}

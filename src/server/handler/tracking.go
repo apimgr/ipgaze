@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"strings"
 
+	i18n "github.com/apimgr/ipgaze/src/common/i18n"
 	"github.com/apimgr/ipgaze/src/config"
 	"github.com/apimgr/ipgaze/src/netutil"
 )
@@ -38,7 +39,7 @@ func (h *PagesHandler) ServerTrackingScript(w http.ResponseWriter, r *http.Reque
 	w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
 	w.Header().Set("Pragma", "no-cache")
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		http.Error(w, i18n.T(i18n.WithLang(r.Context(), i18n.DetectLocale(r)), "errors.method_not_allowed"), http.StatusMethodNotAllowed)
 		return
 	}
 	enabled, source := h.analyticsTracking(r)

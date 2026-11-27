@@ -54,14 +54,27 @@ type CheckResult struct {
 	MinVersion string
 }
 
+// AuditLogger records structured CLI audit events without coupling updater to
+// the client's logging package.
+type AuditLogger func(event string, fields map[string]string)
+
+func recordAudit(loggers []AuditLogger, event string, fields map[string]string) {
+	for _, logger := range loggers {
+		if logger != nil {
+			logger(event, fields)
+			return
+		}
+	}
+}
+
 // NeedsUpdate returns true when an update is available.
 func (r *CheckResult) NeedsUpdate() bool {
-	return r.Available != "" && r.Current != r.Available
+	return r.Available != "" && isOlderVersion(r.Current, r.Available)
 }
 
 // CheckForUpdates queries /api/autodiscover and returns whether an update is available.
 // It logs cli.update_forced when the running version is below cli_min_version.
-func CheckForUpdates(ctx context.Context, client *api.APIClient, currentVersion string) (*CheckResult, error) {
+func CheckForUpdates(ctx context.Context, client *api.APIClient, currentVersion string, audit ...AuditLogger) (*CheckResult, error) {
 	disc, err := client.Autodiscover(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("autodiscover: %w", err)
@@ -84,6 +97,7 @@ func CheckForUpdates(ctx context.Context, client *api.APIClient, currentVersion 
 		// Audit event: cli.update_forced
 		fmt.Fprintf(os.Stderr, "audit: cli.update_forced current=%s min_required=%s\n",
 			currentVersion, disc.CLIMinVersion)
+		recordAudit(audit, "cli.update_forced", map[string]string{"current_version": currentVersion, "minimum": disc.CLIMinVersion})
 	}
 
 	return result, nil
@@ -91,11 +105,8 @@ func CheckForUpdates(ctx context.Context, client *api.APIClient, currentVersion 
 
 // Do downloads, verifies, and installs the update. Calls re-exec on success.
 // Emits audit events to stderr per AI.md PART 32.
-func Do(ctx context.Context, client *api.APIClient, projectName, serverBase, currentVersion string) error {
-	// Audit event: cli.update_started
-	fmt.Fprintf(os.Stderr, "audit: cli.update_started from=%s\n", currentVersion)
-
-	result, err := CheckForUpdates(ctx, client, currentVersion)
+func Do(ctx context.Context, client *api.APIClient, projectName, serverBase, currentVersion string, audit ...AuditLogger) error {
+	result, err := CheckForUpdates(ctx, client, currentVersion, audit...)
 	if err != nil {
 		return err
 	}
@@ -131,11 +142,13 @@ func Do(ctx context.Context, client *api.APIClient, projectName, serverBase, cur
 	// the hard-abort in the server-side updater (src/updater/update.go).
 	if result.SHA256 == "" {
 		fmt.Fprintln(os.Stderr, "audit: cli.update_checksum_invalid expected=(none)")
+		recordAudit(audit, "cli.update_checksum_invalid", map[string]string{"current_version": result.Current, "available_version": result.Available, "os_arch": PlatformKey()})
 		return errors.Join(fmt.Errorf("checksum not available for this platform — aborting update"), removeTemp(tmpPath))
 	}
 	if err := verifyChecksum(tmpPath, result.SHA256); err != nil {
 		// Audit event: cli.update_checksum_invalid
 		fmt.Fprintf(os.Stderr, "audit: cli.update_checksum_invalid expected=%s\n", result.SHA256)
+		recordAudit(audit, "cli.update_checksum_invalid", map[string]string{"current_version": result.Current, "available_version": result.Available, "os_arch": PlatformKey()})
 		return errors.Join(fmt.Errorf("checksum mismatch: %w", err), removeTemp(tmpPath))
 	}
 
@@ -171,6 +184,7 @@ func Do(ctx context.Context, client *api.APIClient, projectName, serverBase, cur
 
 	// Audit event: cli.update_completed
 	fmt.Fprintf(os.Stderr, "audit: cli.update_completed version=%s\n", result.Available)
+	recordAudit(audit, "cli.update_completed", map[string]string{"old_version": result.Current, "new_version": result.Available, "os_arch": PlatformKey()})
 	fmt.Printf("Update complete. Restarting...\n")
 
 	// Re-exec with original argv to continue the in-progress command

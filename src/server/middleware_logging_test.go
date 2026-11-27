@@ -1,6 +1,8 @@
 package server
 
 import (
+	"bytes"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -83,6 +85,37 @@ func TestNonHealthRequestIsLogged(t *testing.T) {
 
 	if got := readLogFile(t, dir, "access.log"); !strings.Contains(got, "/api/v1/ip") {
 		t.Errorf("ordinary request was not logged, got %q", got)
+	}
+}
+
+func TestRecoverMiddlewareLogsStackOnlyToErrorFile(t *testing.T) {
+	lm, dir := newTestLogManager(t)
+	var console bytes.Buffer
+	previousOutput := log.Writer()
+	log.SetOutput(&console)
+	t.Cleanup(func() { log.SetOutput(previousOutput) })
+
+	const panicValue = "panic details must stay in the error file"
+	next := http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		panic(panicValue)
+	})
+	req := httptest.NewRequest(http.MethodGet, "/panic-test", nil)
+	req.Header.Set("Accept", "application/json")
+	resp := httptest.NewRecorder()
+	RecoverMiddleware(lm)(next).ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusInternalServerError {
+		t.Fatalf("panic response status = %d, want %d", resp.Code, http.StatusInternalServerError)
+	}
+	if strings.Contains(resp.Body.String(), panicValue) || strings.Contains(resp.Body.String(), "goroutine ") {
+		t.Errorf("panic details leaked in response: %q", resp.Body.String())
+	}
+	if strings.Contains(console.String(), panicValue) || strings.Contains(console.String(), "goroutine ") {
+		t.Errorf("panic details leaked to console: %q", console.String())
+	}
+	errorLog := readLogFile(t, dir, "error.log")
+	if !strings.Contains(errorLog, panicValue) || !strings.Contains(errorLog, "goroutine ") || !strings.Contains(errorLog, "TestRecoverMiddlewareLogsStackOnlyToErrorFile") {
+		t.Errorf("error.log does not contain panic context and stack: %q", errorLog)
 	}
 }
 

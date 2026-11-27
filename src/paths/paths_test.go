@@ -823,12 +823,15 @@ func TestUserDirs_LinuxXDG(t *testing.T) {
 }
 
 func TestUserDirs_Darwin(t *testing.T) {
-	cfg, data, _, _, _, _, _, _, backup := userDirs("darwin", "myapp", "/Users/user")
+	cfg, data, _, _, _, _, security, db, backup := userDirs("darwin", "myapp", "/Users/user")
 	if !strings.Contains(cfg, "myapp") || !strings.Contains(data, "myapp") {
 		t.Errorf("userDirs(darwin) paths missing project: cfg=%q data=%q", cfg, data)
 	}
 	if !strings.Contains(backup, "myapp") {
 		t.Errorf("userDirs(darwin) backup missing project: %q", backup)
+	}
+	if security != filepath.Join(data, "security") || db != filepath.Join(data, "db") {
+		t.Errorf("userDirs(darwin) security/db = %q / %q", security, db)
 	}
 }
 

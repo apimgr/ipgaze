@@ -303,12 +303,12 @@ func TestLLMsTxtHandler(t *testing.T) {
 	if !strings.Contains(body, "GET /api/v1/ip/{ip}") {
 		t.Errorf("body missing generated IP lookup API endpoint: %q", body)
 	}
-	for _, endpoint := range []string{"GET /", "GET /{ip}", "GET /country", "GET /port/{port}", "GET /api/graphql"} {
+	for _, endpoint := range []string{"GET /", "GET /{ip}", "GET /country", "GET /port/{port}", "GET /api/graphql", "GET /server/healthz", "GET /server/about"} {
 		if !strings.Contains(body, endpoint) {
 			t.Errorf("body missing generated public endpoint %q: %q", endpoint, body)
 		}
 	}
-	for _, endpoint := range []string{"GET /server/about", "GET /static/{path}"} {
+	for _, endpoint := range []string{"GET /static/{path}"} {
 		if strings.Contains(body, endpoint) {
 			t.Errorf("body unexpectedly lists non-API route %q: %q", endpoint, body)
 		}
@@ -359,7 +359,7 @@ func TestLLMsReadRateLimitUsesConfiguration(t *testing.T) {
 
 func TestLLMsAPIEndpointsRespectActiveRuntimeRegistry(t *testing.T) {
 	spec := swagger.GenerateSpec(swagger.SwaggerHandlerConfig{}, "https://example.com/api/v1", "en")
-	active := map[string]struct{}{"v1_healthz": {}}
+	active := map[string]struct{}{"v1Healthz": {}}
 	endpoints := llmsAPIEndpoints(spec.Paths, active)
 	joined := strings.Join(endpoints, "\n")
 	if !strings.Contains(joined, "GET /api/v1/server/healthz") {
@@ -370,5 +370,17 @@ func TestLLMsAPIEndpointsRespectActiveRuntimeRegistry(t *testing.T) {
 	}
 	if !strings.Contains(joined, "GET /") || !strings.Contains(joined, "GET /{ip}") {
 		t.Fatal("runtime filtering removed echoip-compatible root routes")
+	}
+}
+
+func TestLLMsAPIRoutesUseListedRegistryValues(t *testing.T) {
+	routes := []swagger.RouteDefinition{
+		{Method: "GET", Path: "/api/v1/visible", OperationID: "visible", Summary: "Visible endpoint", Listed: true},
+		{Method: "GET", Path: "/api/v1/hidden", OperationID: "hidden", Summary: "Hidden endpoint", Listed: false},
+		{Method: "GET", Path: "/api/v1/internal", OperationID: "internal", Summary: "Internal endpoint", Listed: true, Internal: true},
+	}
+	got := llmsAPIRoutes(routes, nil)
+	if len(got) != 1 || got[0] != "GET /api/v1/visible — Visible endpoint" {
+		t.Fatalf("llmsAPIRoutes() = %#v", got)
 	}
 }

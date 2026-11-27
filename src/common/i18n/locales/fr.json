@@ -544,7 +544,12 @@
     "tokens_status_revoked": "Révoqué",
     "tokens_forget_confirm": "Confirmer l’oubli du jeton de ce navigateur",
     "tokens_rotate_confirm": "Confirmer le renouvellement du jeton",
-    "tokens_revoke_confirm": "Confirmer la révocation du jeton"
+    "tokens_revoke_confirm": "Confirmer la révocation du jeton",
+    "tokens_revoke_primary": "Révoquer le jeton principal",
+    "tokens_revoke_primary_warning": "Cela supprime définitivement votre identité, vos {tokens} jetons et vos {resources} ressources.",
+    "tokens_revoke_primary_confirm": "Saisissez les quatre derniers caractères de votre jeton principal pour confirmer la suppression.",
+    "tokens_revoke_primary_invalid": "La confirmation ne correspond pas. Rien n’a été supprimé.",
+    "tokens_revoke_primary_success": "Le propriétaire et ses jetons ont été supprimés."
   },
   "announcements": {
     "warning": "Avertissement",
@@ -921,7 +926,6 @@
     "err_update_failed": "Échec de la mise à jour : {error}",
     "err_unknown_update": "Commande de mise à jour inconnue « {command} ». Commandes valides : check, yes",
     "update_prompt": "Installer cette mise à jour maintenant ? [o/N]",
-    "err_token_revoked": "Le serveur a révoqué ce jeton. Authentifiez-vous à nouveau avec --token ou --token-file.",
     "shell_help_usage": "Utilisation : {binary} --shell completions|init|help SHELL",
     "err_unknown_shell_command": "Commande shell inconnue « {command} ». Commandes valides : completions, init, help",
     "err_unsupported_shell": "Shell non pris en charge « {shell} ». Shells pris en charge : {shells}",

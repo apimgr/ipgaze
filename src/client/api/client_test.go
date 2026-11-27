@@ -118,6 +118,16 @@ func TestGetMyIP_ReturnsIP(t *testing.T) {
 	}
 }
 
+func TestParseAPIResponseIncludesStructuredErrorDetails(t *testing.T) {
+	resp, err := ParseAPIResponse([]byte(`{"ok":false,"error":"VALIDATION_FAILED","message":"Invalid input","details":{"field":"email","rule":"format"}}`))
+	if err != nil {
+		t.Fatalf("ParseAPIResponse: %v", err)
+	}
+	if resp.OK || resp.Error != "VALIDATION_FAILED" || resp.Message != "Invalid input" || resp.Details["field"] != "email" || resp.Details["rule"] != "format" {
+		t.Errorf("ParseAPIResponse() = %#v, want structured error details", resp)
+	}
+}
+
 func TestGetMyIP_TrimsWhitespace(t *testing.T) {
 	srv := newTestServer(t, routeMap{
 		"/ip": textHandler("  192.168.1.1  \n"),
@@ -410,51 +420,13 @@ func TestDoAPIRequest_SendsUserAgent(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// TOKEN_REVOKED detection
-// ---------------------------------------------------------------------------
-
-func TestDoAPIRequest_PlainTextTokenRevoked(t *testing.T) {
+// TestDoAPIRequest_UnauthorizedIsGeneric verifies that a rejected token is
+// returned through the same generic 401 path as any other authentication failure.
+func TestDoAPIRequest_UnauthorizedIsGeneric(t *testing.T) {
 	srv := newTestServer(t, routeMap{
 		"/ip": func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusUnauthorized)
-			if _, err := fmt.Fprint(w, "TOKEN_REVOKED"); err != nil {
-				t.Errorf("write response: %v", err)
-			}
-		},
-	})
-	defer srv.Close()
-
-	c := NewAPIClient(srv.URL, "old-token", "", "")
-	_, err := c.GetMyIP(context.Background())
-	if err != ErrTokenRevoked {
-		t.Errorf("expected ErrTokenRevoked, got %v", err)
-	}
-}
-
-func TestDoAPIRequest_JSONTokenRevoked(t *testing.T) {
-	srv := newTestServer(t, routeMap{
-		"/json": func(w http.ResponseWriter, r *http.Request) {
-			w.WriteHeader(http.StatusUnauthorized)
-			if _, err := fmt.Fprint(w, `{"error":"TOKEN_REVOKED"}`); err != nil {
-				t.Errorf("write response: %v", err)
-			}
-		},
-	})
-	defer srv.Close()
-
-	c := NewAPIClient(srv.URL, "old-token", "", "")
-	_, err := c.GetMyIPJSON(context.Background())
-	if err != ErrTokenRevoked {
-		t.Errorf("expected ErrTokenRevoked, got %v", err)
-	}
-}
-
-func TestDoAPIRequest_OtherUnauthorizedNotRevoked(t *testing.T) {
-	srv := newTestServer(t, routeMap{
-		"/ip": func(w http.ResponseWriter, r *http.Request) {
-			w.WriteHeader(http.StatusUnauthorized)
-			if _, err := fmt.Fprint(w, `{"error":"invalid_token"}`); err != nil {
+			if _, err := fmt.Fprint(w, `{"ok":false,"error":"UNAUTHORIZED","message":"Authentication required"}`); err != nil {
 				t.Errorf("write response: %v", err)
 			}
 		},
@@ -463,51 +435,9 @@ func TestDoAPIRequest_OtherUnauthorizedNotRevoked(t *testing.T) {
 
 	c := NewAPIClient(srv.URL, "bad-token", "", "")
 	_, err := c.GetMyIP(context.Background())
-	if err == ErrTokenRevoked {
-		t.Error("got ErrTokenRevoked for non-revocation 401, want generic error")
-	}
-	if err == nil {
-		t.Error("expected error from 401, got nil")
-	}
-}
-
-// ---------------------------------------------------------------------------
-// isTokenRevoked unit tests (package-internal function)
-// ---------------------------------------------------------------------------
-
-func TestIsTokenRevoked_PlainText(t *testing.T) {
-	if !isTokenRevoked([]byte("TOKEN_REVOKED")) {
-		t.Error("expected true for plain TOKEN_REVOKED")
-	}
-}
-
-func TestIsTokenRevoked_PlainTextWithWhitespace(t *testing.T) {
-	if !isTokenRevoked([]byte("  TOKEN_REVOKED  ")) {
-		t.Error("expected true for TOKEN_REVOKED with surrounding whitespace")
-	}
-}
-
-func TestIsTokenRevoked_JSONError(t *testing.T) {
-	if !isTokenRevoked([]byte(`{"error":"TOKEN_REVOKED"}`)) {
-		t.Error(`expected true for {"error":"TOKEN_REVOKED"}`)
-	}
-}
-
-func TestIsTokenRevoked_OtherJSONError(t *testing.T) {
-	if isTokenRevoked([]byte(`{"error":"invalid_credentials"}`)) {
-		t.Error("expected false for non-TOKEN_REVOKED JSON error")
-	}
-}
-
-func TestIsTokenRevoked_RandomBody(t *testing.T) {
-	if isTokenRevoked([]byte("Internal Server Error")) {
-		t.Error("expected false for generic error text")
-	}
-}
-
-func TestIsTokenRevoked_EmptyBody(t *testing.T) {
-	if isTokenRevoked([]byte("")) {
-		t.Error("expected false for empty body")
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) || apiErr.StatusCode != http.StatusUnauthorized || apiErr.Body != `{"ok":false,"error":"UNAUTHORIZED","message":"Authentication required"}` {
+		t.Errorf("unauthorized error = %#v, want generic 401 APIError", err)
 	}
 }
 

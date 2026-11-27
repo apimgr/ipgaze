@@ -24,6 +24,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/apimgr/ipgaze/src/common/i18n"
 )
 
 // I2PServiceConfig holds I2P eepsite configuration per AI.md PART 31.2.
@@ -139,6 +141,9 @@ type I2PManager struct {
 	addressHandlers []func(string)
 	startCancel     context.CancelFunc
 	startDone       chan struct{}
+	recoveryCancel  context.CancelFunc
+	recoveryWait    func(context.Context, time.Duration) bool
+	recovering      bool
 	stopping        bool
 	stopDone        chan struct{}
 	// startErr holds the last start failure so Status()/GetInfo() can report
@@ -367,41 +372,61 @@ func (m *I2PManager) finishStart(ctx context.Context, cancel context.CancelFunc,
 func (m *I2PManager) monitorService(ctx context.Context, svc *service) {
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
+	m.monitorServiceWithProbe(ctx, svc, ticker.C, m.probeSAM)
+}
+
+func (m *I2PManager) probeSAM(ctx context.Context) error {
+	probeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	m.mu.RLock()
+	samAddr := m.cfg.SAMAddress
+	m.mu.RUnlock()
+	if samAddr == "" {
+		samAddr = "127.0.0.1:7656"
+	}
+	conn, _, err := samDial(probeCtx, samAddr)
+	if err != nil {
+		return err
+	}
+	_, writeErr := fmt.Fprintln(conn, "QUIT")
+	closeErr := conn.Close()
+	return errors.Join(writeErr, closeErr)
+}
+
+func (m *I2PManager) monitorServiceWithProbe(ctx context.Context, svc *service, ticks <-chan time.Time, probe func(context.Context) error) {
 	failures := 0
 	for {
 		failed := false
+		failureCause := error(nil)
 		select {
 		case <-ctx.Done():
 			return
 		case err := <-svc.samLost:
 			failed = true
 			if err != nil {
-				m.markUnavailable(svc, fmt.Errorf("SAM session lost: %w", err))
-				return
+				failureCause = fmt.Errorf("SAM session lost: %w", err)
 			}
-		case <-ticker.C:
+		case <-ticks:
 		}
 		if svc.provider == ProviderI2PD {
 			select {
 			case <-svc.i2pdExited:
 				failed = true
+				failureCause = errors.New("i2pd process exited")
 			default:
 			}
 		} else if !failed {
-			probeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-			samAddr := m.cfg.SAMAddress
-			if samAddr == "" {
-				samAddr = "127.0.0.1:7656"
+			if probe == nil {
+				probe = m.probeSAM
 			}
-			conn, _, err := samDial(probeCtx, samAddr)
-			cancel()
-			if err == nil {
-				_, _ = fmt.Fprintln(conn, "QUIT")
-				_ = conn.Close()
+			if err := probe(ctx); err == nil {
 				failures = 0
 			} else {
 				failures++
 				failed = failures >= 3
+				if failed {
+					failureCause = fmt.Errorf("SAM liveness probe failed three consecutive times: %w", err)
+				}
 			}
 		}
 		if !failed {
@@ -410,13 +435,16 @@ func (m *I2PManager) monitorService(ctx context.Context, svc *service) {
 		if ctx.Err() != nil {
 			return
 		}
-		m.markUnavailable(svc, errors.New("I2P provider session lost"))
+		if failureCause == nil {
+			failureCause = errors.New("I2P provider session lost")
+		}
+		m.markUnavailable(svc, failureCause)
+		m.recoverAfterFailure(svc)
 		return
 	}
 }
 
-// HealthCheck probes the active provider and marks it unavailable without
-// restarting it or logging the same failure more than once.
+// HealthCheck probes the active provider and starts recovery after a failure.
 func (m *I2PManager) HealthCheck() {
 	m.mu.RLock()
 	svc := m.svc
@@ -449,7 +477,87 @@ func (m *I2PManager) HealthCheck() {
 	}
 	if err != nil {
 		m.markUnavailable(svc, err)
+		go m.recoverAfterFailure(svc)
 	}
+}
+
+// recoverAfterFailure recreates the provider session with the persisted key,
+// backing off from five seconds to five minutes between failed starts.
+func (m *I2PManager) recoverAfterFailure(failed *service) {
+	m.mu.Lock()
+	if m.svc != failed || m.stopping || m.recovering {
+		m.mu.Unlock()
+		return
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	m.recovering = true
+	m.recoveryCancel = cancel
+	if failed.monitorCancel != nil {
+		failed.monitorCancel()
+		failed.monitorCancel = nil
+	}
+	m.svc = nil
+	m.running = false
+	m.provider = ProviderNone
+	_ = closeServiceLocked(failed)
+	m.mu.Unlock()
+
+	defer func() {
+		cancel()
+		m.mu.Lock()
+		m.recovering = false
+		m.recoveryCancel = nil
+		m.mu.Unlock()
+	}()
+
+	delay := 5 * time.Second
+	for {
+		if ctx.Err() != nil {
+			return
+		}
+		wait := m.recoveryWait
+		if wait == nil {
+			wait = waitForRecoveryDelay
+		}
+		if !wait(ctx, delay) {
+			return
+		}
+		m.mu.RLock()
+		stopping := m.stopping
+		m.mu.RUnlock()
+		if stopping || ctx.Err() != nil {
+			return
+		}
+		if err := m.Start(); err == nil && m.IsRunning() {
+			return
+		}
+		delay = nextRecoveryDelay(delay)
+	}
+}
+
+func waitForRecoveryDelay(ctx context.Context, delay time.Duration) bool {
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-timer.C:
+		return true
+	}
+}
+
+func nextRecoveryDelay(delay time.Duration) time.Duration {
+	if delay <= 0 {
+		return 5 * time.Second
+	}
+	if delay >= 5*time.Minute {
+		return 5 * time.Minute
+	}
+	delay *= 2
+	if delay > 5*time.Minute {
+		return 5 * time.Minute
+	}
+	return delay
 }
 
 func (m *I2PManager) markUnavailable(svc *service, cause error) {
@@ -546,6 +654,9 @@ func (m *I2PManager) Stop() error {
 		return nil
 	}
 	m.stopping = true
+	if m.recoveryCancel != nil {
+		m.recoveryCancel()
+	}
 	stopDone := make(chan struct{})
 	m.stopDone = stopDone
 	if m.startCancel != nil {
@@ -618,7 +729,20 @@ func (m *I2PManager) RegenerateAddress() (string, error) {
 	if err := m.Start(); err != nil {
 		return "", err
 	}
-	return m.EepsiteAddress(), nil
+	if address := m.EepsiteAddress(); address != "" {
+		return address, nil
+	}
+	m.mu.RLock()
+	err := m.startErr
+	enabled := m.cfg.Enabled
+	m.mu.RUnlock()
+	if err == nil && !enabled {
+		err = ErrI2PDisabled
+	}
+	if err == nil {
+		err = errors.New("I2P eepsite did not start")
+	}
+	return "", fmt.Errorf("regenerate I2P address: %w", err)
 }
 
 // EepsiteAddress returns the current .b32.i2p address (empty if not running).
@@ -879,7 +1003,7 @@ func (m *I2PManager) startDedicated(ctx context.Context) (*service, error) {
 		handler := m.pendingHandler
 		m.mu.RUnlock()
 		if handler == nil {
-			http.Error(w, "I2P backend is starting", http.StatusServiceUnavailable)
+			http.Error(w, i18n.T(r.Context(), "errors.maintenance_mode"), http.StatusServiceUnavailable)
 			return
 		}
 		handler.ServeHTTP(w, r)
@@ -1203,7 +1327,7 @@ func loadOrCreateSAMDestination(conn net.Conn, r *bufio.Reader, keysPath string,
 	if err := tmp.Chmod(0o600); err != nil {
 		return samDestination{}, errors.Join(err, tmp.Close())
 	}
-	if _, err := tmp.WriteString(priv + "\n"); err != nil {
+	if _, err := tmp.WriteString(priv); err != nil {
 		return samDestination{}, errors.Join(fmt.Errorf("write destination key: %w", err), tmp.Close())
 	}
 	if err := tmp.Sync(); err != nil {
@@ -1294,7 +1418,7 @@ func (m *I2PManager) startSAMEepsite(ctx context.Context, samAddr, keysPath stri
 	}
 	stopForwardClose := context.AfterFunc(ctx, func() { _ = forward.Close() })
 	defer stopForwardClose()
-	reply, err = samCommand(forward, fr, 10*time.Second, fmt.Sprintf("STREAM FORWARD ID=%s PORT=%d HOST=127.0.0.1 SILENT=true", id, i2pBackendPort))
+	reply, err = samCommand(forward, fr, 10*time.Second, fmt.Sprintf("STREAM FORWARD ID=%s PORT=%d SILENT=true", id, i2pBackendPort))
 	if err != nil || !strings.Contains(reply, "RESULT=OK") {
 		_ = forward.Close()
 		_ = conn.Close()

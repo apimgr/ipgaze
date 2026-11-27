@@ -544,7 +544,12 @@
     "tokens_status_revoked": "Revoked",
     "tokens_forget_confirm": "Confirm forgetting this browser token",
     "tokens_rotate_confirm": "Confirm token rotation",
-    "tokens_revoke_confirm": "Confirm token revocation"
+    "tokens_revoke_confirm": "Confirm token revocation",
+    "tokens_revoke_primary": "Revoke primary token",
+    "tokens_revoke_primary_warning": "This permanently deletes your owner identity, all {tokens} tokens, and all {resources} resources.",
+    "tokens_revoke_primary_confirm": "Type the last four characters of your primary token to confirm deletion.",
+    "tokens_revoke_primary_invalid": "The confirmation did not match. Nothing was deleted.",
+    "tokens_revoke_primary_success": "Owner and tokens deleted."
   },
   "announcements": {
     "warning": "Warning",
@@ -921,7 +926,6 @@
     "err_update_failed": "Update failed: {error}",
     "err_unknown_update": "Unknown update command \"{command}\". Valid commands: check, yes",
     "update_prompt": "Install this update now? [y/N]",
-    "err_token_revoked": "The server revoked this token. Authenticate again with --token or --token-file.",
     "shell_help_usage": "Usage: {binary} --shell completions|init|help SHELL",
     "err_unknown_shell_command": "Unknown shell command \"{command}\". Valid commands: completions, init, help",
     "err_unsupported_shell": "Unsupported shell \"{shell}\". Supported shells: {shells}",

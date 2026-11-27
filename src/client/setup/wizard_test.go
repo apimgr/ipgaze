@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/apimgr/ipgaze/src/common/display"
+	"github.com/apimgr/ipgaze/src/common/i18n"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -28,7 +29,7 @@ func TestTestConnection_UsesVersionedHealthEndpoint(t *testing.T) {
 	}))
 	defer server.Close()
 
-	msg := testConnection(server.URL, "token-value")()
+	msg := testConnection(server.URL, "token-value", "en")()
 	result, ok := msg.(testResultMsg)
 	if !ok {
 		t.Fatalf("testConnection result type = %T, want testResultMsg", msg)
@@ -38,6 +39,22 @@ func TestTestConnection_UsesVersionedHealthEndpoint(t *testing.T) {
 	}
 	if result.serverName != "IPGaze" || result.version != "1.2.3" {
 		t.Errorf("testConnection result = (%q, %q), want (IPGaze, 1.2.3)", result.serverName, result.version)
+	}
+}
+
+func TestTestConnection_TranslatesAuthorizationErrors(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "", http.StatusUnauthorized)
+	}))
+	defer server.Close()
+
+	msg := testConnection(server.URL, "", "fr")()
+	result, ok := msg.(testResultMsg)
+	if !ok {
+		t.Fatalf("testConnection result type = %T, want testResultMsg", msg)
+	}
+	if result.err == nil || result.err.Error() != i18n.Translate("fr", "errors.unauthorized") {
+		t.Fatalf("testConnection error = %v, want localized authorization error", result.err)
 	}
 }
 

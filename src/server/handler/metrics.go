@@ -7,12 +7,14 @@ import (
 	"net/http"
 	"net/netip"
 	"sort"
+	"strings"
 	"time"
 
 	i18n "github.com/apimgr/ipgaze/src/common/i18n"
 	"github.com/apimgr/ipgaze/src/config"
 	"github.com/apimgr/ipgaze/src/netutil"
 	"github.com/apimgr/ipgaze/src/server/metrics"
+	"github.com/apimgr/ipgaze/src/swagger"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
@@ -39,7 +41,7 @@ type MetricsRouter interface {
 // An empty token disables that service: 403 with an empty body.
 // The token is read from the Authorization header only — query-string tokens
 // are forbidden because they leak into access logs and proxy logs.
-func MetricsAuth(cfg config.MetricsConfig, token string, h http.Handler) http.Handler {
+func MetricsAuth(cfg config.MetricsConfig, token string, h http.Handler, onRejected ...func(*http.Request, string)) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		// Escape hatch for firewalled internal networks only; default false.
@@ -56,6 +58,14 @@ func MetricsAuth(cfg config.MetricsConfig, token string, h http.Handler) http.Ha
 		want := "Bearer " + token
 		// Constant-time comparison; never an early exit on the first mismatch.
 		if len(auth) != len(want) || subtle.ConstantTimeCompare([]byte(auth), []byte(want)) != 1 {
+			if len(onRejected) > 0 && onRejected[0] != nil {
+				parts := strings.Fields(auth)
+				rejected := ""
+				if len(parts) == 2 && strings.EqualFold(parts[0], "Bearer") {
+					rejected = parts[1]
+				}
+				onRejected[0](r, rejected)
+			}
 			metrics.RecordAuthAttempt("metrics", "failure")
 			padMetricsAuth(start)
 			lang := i18n.DetectLocale(r)
@@ -89,28 +99,57 @@ func padMetricsAuth(start time.Time) {
 // PART 20. Every alias invokes the SAME handler — never a redirect, because
 // redirects break Prometheus scrapers. appName is both the metric-name prefix
 // used in the Grafana queries and the Loki stream's app label.
-func RegisterMetricsRoutes(r MetricsRouter, cfg config.MetricsConfig, appName string) {
+func RegisterMetricsRoutes(r MetricsRouter, cfg config.MetricsConfig, appName string, onRejected ...func(*http.Request, string)) {
+	var registry swagger.Registry
+	for _, route := range MetricsRouteDefinitions(cfg, appName, onRejected...) {
+		registry.Add(route)
+	}
+	for _, route := range registry.Routes() {
+		r.Get(route.Path, route.Handler)
+	}
+}
+
+// MetricsRouteDefinitions returns the Internal route values for every enabled
+// metrics alias. The server adds these values to its shared route registry.
+func MetricsRouteDefinitions(cfg config.MetricsConfig, appName string, onRejected ...func(*http.Request, string)) []swagger.Route {
 	logBuffer := metrics.DefaultLogBuffer(cfg.Loki.MaxEntries)
 	logDisabledMetricsServices(cfg, logBuffer)
 
-	prom := MetricsAuth(cfg, cfg.Auth.Tokens.Prometheus, promhttp.Handler())
-	grafana := MetricsAuth(cfg, cfg.Auth.Tokens.Grafana, GrafanaDashboardHandler(appName))
-	loki := MetricsAuth(cfg, cfg.Auth.Tokens.Loki, LokiStreamsHandler(cfg.Loki, logBuffer, appName))
+	prom := MetricsAuth(cfg, cfg.Auth.Tokens.Prometheus, promhttp.Handler(), onRejected...)
+	grafana := MetricsAuth(cfg, cfg.Auth.Tokens.Grafana, GrafanaDashboardHandler(appName), onRejected...)
+	loki := MetricsAuth(cfg, cfg.Auth.Tokens.Loki, LokiStreamsHandler(cfg.Loki, logBuffer, appName), onRejected...)
 
-	mount := func(prefix string) {
+	var routes []swagger.Route
+	auth := "service"
+	if cfg.Auth.AllowUnauthenticated {
+		auth = "none"
+	}
+	add := func(prefix, prefixID string) {
 		// The bare path serves the same handler as the prometheus sub-endpoint.
-		r.Get(prefix, prom.ServeHTTP)
-		r.Get(prefix+"/prometheus", prom.ServeHTTP)
-		r.Get(prefix+"/grafana", grafana.ServeHTTP)
-		r.Get(prefix+"/loki", loki.ServeHTTP)
+		for _, endpoint := range []struct {
+			path, id string
+			handler  http.HandlerFunc
+		}{
+			{prefix, "PrometheusRoot", prom.ServeHTTP},
+			{prefix + "/prometheus", "Prometheus", prom.ServeHTTP},
+			{prefix + "/grafana", "Grafana", grafana.ServeHTTP},
+			{prefix + "/loki", "Loki", loki.ServeHTTP},
+		} {
+			operation := "metrics" + prefixID + endpoint.id
+			routes = append(routes, swagger.Route{
+				Method: http.MethodGet, Path: endpoint.path, OperationID: operation,
+				Auth: auth, Listed: false, Internal: true, Handler: endpoint.handler,
+			})
+		}
 	}
 
-	mount("/server/metrics")
-	mount("/api/" + metricsAPIVersion + "/server/metrics")
-	mount("/api/metrics")
+	add("/server/metrics", "Server")
+	add("/api/"+metricsAPIVersion+"/server/metrics", "VersionedAPI")
+	add("/api/metrics", "API")
 	if cfg.Root.Enabled {
-		mount("/metrics")
+		add("/metrics", "Root")
 	}
+	return routes
 }
 
 // logDisabledMetricsServices records, once at startup, which metrics services

@@ -1,7 +1,6 @@
 package pgp
 
 import (
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -12,17 +11,15 @@ import (
 	"testing"
 	"time"
 
-	_ "modernc.org/sqlite"
-
 	"github.com/apimgr/ipgaze/src/db"
 )
 
 // openMemDB opens an in-memory SQLite database with the full schema applied.
-func openMemDB(t *testing.T) *sql.DB {
+func openMemDB(t *testing.T) *db.Store {
 	t.Helper()
-	conn, err := sql.Open("sqlite", ":memory:")
+	conn, err := db.OpenSQLite(":memory:")
 	if err != nil {
-		t.Fatalf("sql.Open: %v", err)
+		t.Fatalf("open SQLite store: %v", err)
 	}
 	t.Cleanup(func() {
 		if err := conn.Close(); err != nil {

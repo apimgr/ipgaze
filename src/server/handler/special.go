@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path"
 	"regexp"
 	"sort"
 	"strings"
@@ -73,9 +74,15 @@ type SpecialHandler struct {
 	// "Sitemap:" directive is omitted when the document is not served, so
 	// robots.txt never points a crawler at a 404.
 	SitemapEnabled bool
+	// BaseURLPath is the configured mount prefix used when no trusted proxy
+	// supplies a request-specific prefix.
+	BaseURLPath string
 	// APIV1OperationIDs contains the versioned API operations registered by
 	// the active runtime router. llms.txt uses it to omit disabled endpoints.
 	APIV1OperationIDs map[string]struct{}
+	// APIV1Routes is the handler-bearing registry snapshot mounted by the
+	// active router and shared with OpenAPI and MCP discovery.
+	APIV1Routes []swagger.Route
 }
 
 // NewSpecialHandler creates a new SpecialHandler
@@ -272,12 +279,13 @@ func (h *SpecialHandler) ManifestHandler(w http.ResponseWriter, r *http.Request)
 	// see a changed manifest.json promptly on its next revalidation.
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("ETag", `"`+h.assetStampOrCommit()+`"`)
+	basePath := h.baseURLPath(r)
 	manifest := fmt.Sprintf(`{
   "name": "IPGaze",
   "short_name": "IPGaze",
-  "description": "IP address lookup and geolocation service",
-  "start_url": "/?source=pwa",
-  "scope": "/",
+  "description": "Self-hosted public IP lookup with geolocation, VPN/proxy, and Tor detection.",
+  "start_url": "%s/?source=pwa",
+  "scope": "%s/",
   "display": "standalone",
   "orientation": "any",
   "background_color": "%s",
@@ -337,7 +345,8 @@ func (h *SpecialHandler) ManifestHandler(w http.ResponseWriter, r *http.Request)
       "purpose": "maskable"
     }
   ]
-}`, theme.ThemePaletteDark.Background, theme.ThemePaletteDark.Primary)
+	}`, basePath, basePath, theme.ThemePaletteDark.Background, theme.ThemePaletteDark.Primary)
+	manifest = strings.ReplaceAll(manifest, `"/static/`, `"`+basePath+`/static/`)
 	_, _ = fmt.Fprintln(w, manifest)
 }
 
@@ -353,6 +362,7 @@ func (h *SpecialHandler) ServiceWorkerHandler(w http.ResponseWriter, r *http.Req
 	// bytes change on every deploy — the browser's periodic sw.js byte
 	// comparison then reliably detects updates and reruns install/activate.
 	cacheVersion := h.assetStampOrCommit()
+	basePath := h.baseURLPath(r)
 	sw := `// IPGaze Service Worker — per AI.md PART 16
 const CACHE_VERSION = '` + cacheVersion + `';
 const CACHE_NAME = 'ipgaze-cache-' + CACHE_VERSION;
@@ -513,8 +523,32 @@ function offlineFallbackResponse() {
     );
   })();
 }
-`
+	`
+	if basePath != "" {
+		sw = strings.ReplaceAll(sw, "'/", "'"+basePath+"/")
+	}
 	_, _ = fmt.Fprintln(w, sw)
+}
+
+func (h *SpecialHandler) baseURLPath(r *http.Request) string {
+	configured := strings.TrimSpace(h.BaseURLPath)
+	if h.Trust != nil && h.Trust.IsTrustedPeer(r) {
+		for _, name := range []string{"X-Forwarded-Prefix", "X-Forwarded-Path", "X-Script-Name"} {
+			if value := strings.TrimSpace(r.Header.Get(name)); value != "" {
+				configured = value
+				break
+			}
+		}
+	}
+	configured = "/" + strings.Trim(configured, "/")
+	if configured == "/" {
+		return ""
+	}
+	clean := path.Clean(configured)
+	if clean == "." || clean == "/" || strings.Contains(clean, "\\") {
+		return ""
+	}
+	return clean
 }
 
 // LLMsTxtHandler serves llms.txt for AI agent discovery per AI.md PART 11.
@@ -541,7 +575,8 @@ Authentication: None required for public endpoints
 		content += "## Contact\nAPI issues: " + llmsContact(apiContact) + "\nSecurity: " + llmsContact(securityContact) + "\n"
 		if cfg.Web.LLMs.IncludeEndpoints {
 			content += "\n## Endpoints\n"
-			for _, endpoint := range llmsAPIEndpoints(spec.Paths, h.APIV1OperationIDs) {
+			routes := swagger.LLMRouteDefinitions()
+			for _, endpoint := range llmsAPIRoutes(routes, h.APIV1OperationIDs) {
 				content += "- " + endpoint + "\n"
 			}
 		}
@@ -584,6 +619,26 @@ Authentication: None required for public endpoints
 `
 	content += "\n## Source\nRepository: https://github.com/apimgr/ipgaze\nLicense: MIT\n"
 	_, _ = fmt.Fprint(w, content)
+}
+
+func llmsAPIRoutes(routes []swagger.RouteDefinition, active map[string]struct{}) []string {
+	endpoints := make([]string, 0, len(routes))
+	for _, route := range routes {
+		if route.Internal || !route.Listed {
+			continue
+		}
+		if active != nil && strings.HasPrefix(route.Path, "/api/v1") {
+			if _, ok := active[route.OperationID]; !ok {
+				continue
+			}
+		}
+		line := route.Method + " " + route.Path
+		if route.Summary != "" {
+			line += " — " + route.Summary
+		}
+		endpoints = append(endpoints, line)
+	}
+	return endpoints
 }
 
 var llmMarkdownLink = regexp.MustCompile(`\]\(([^)]*)\)`)

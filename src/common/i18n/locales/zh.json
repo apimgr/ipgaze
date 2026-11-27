@@ -544,7 +544,12 @@
     "tokens_status_revoked": "已撤销",
     "tokens_forget_confirm": "确认忘记此浏览器令牌",
     "tokens_rotate_confirm": "确认轮换令牌",
-    "tokens_revoke_confirm": "确认撤销令牌"
+    "tokens_revoke_confirm": "确认撤销令牌",
+    "tokens_revoke_primary": "撤销主令牌",
+    "tokens_revoke_primary_warning": "这将永久删除你的所有者身份、全部 {tokens} 个令牌和 {resources} 个资源。",
+    "tokens_revoke_primary_confirm": "输入主令牌的末四位字符以确认删除。",
+    "tokens_revoke_primary_invalid": "确认内容不匹配，未删除任何内容。",
+    "tokens_revoke_primary_success": "所有者和令牌已删除。"
   },
   "announcements": {
     "warning": "警告",
@@ -915,7 +920,6 @@
     "err_update_failed": "更新失败：{error}",
     "err_unknown_update": "未知的更新命令“{command}”。有效命令：check、yes",
     "update_prompt": "现在安装此更新吗？[y/N]",
-    "err_token_revoked": "服务器已吊销此令牌。请使用 --token 或 --token-file 重新进行身份验证。",
     "shell_help_usage": "用法：{binary} --shell completions|init|help SHELL",
     "err_unknown_shell_command": "未知的 shell 命令“{command}”。有效命令：completions、init、help",
     "err_unsupported_shell": "不支持的 shell“{shell}”。支持的 shell：{shells}",

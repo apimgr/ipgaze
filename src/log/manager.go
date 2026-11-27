@@ -369,7 +369,7 @@ func NewManager(logDir string, cfg LoggerConfig) (*Manager, error) {
 			if markAuditChainBrokenOnce(logDir, cfg.Audit.Filename, brokenLine) {
 				m.WriteAudit(AuditEvent{
 					Event: "security.audit_chain_broken", Category: "security", Severity: "critical", Result: "failure",
-					Actor:   AuditActor{Type: "system", ID: "server"},
+					Actor:   AuditActor{Type: "system"},
 					Details: map[string]any{"filename": cfg.Audit.Filename, "line": brokenLine}, Reason: reason,
 				})
 			}
@@ -600,9 +600,6 @@ func (m *Manager) writeAuditLocked(evt AuditEvent) {
 	if evt.Actor.Type == "" {
 		evt.Actor.Type = "system"
 	}
-	if evt.Actor.Type == "system" && evt.Actor.ID == "" {
-		evt.Actor.ID = "server"
-	}
 	if evt.Prev == "" {
 		evt.Prev = m.auditHash
 	}
@@ -624,7 +621,7 @@ func (m *Manager) flushPendingAuditChainLocked() {
 	m.pendingAuditChain = nil
 	m.writeAuditLocked(AuditEvent{
 		Event: "security.audit_chain_broken", Category: "security", Severity: "critical", Result: "failure",
-		Actor:   AuditActor{Type: "system", ID: "server"},
+		Actor:   AuditActor{Type: "system"},
 		Details: map[string]any{"filename": pending.filename, "line": pending.line}, Reason: pending.reason,
 	})
 }
@@ -652,7 +649,7 @@ func (m *Manager) WriteAuditEvent(id, event, category, severity, result, ip stri
 	if !isAuditULID(id) {
 		id = ""
 	}
-	actor := AuditActor{Type: "system", ID: "server"}
+	actor := AuditActor{Type: "system"}
 	source := ""
 	if ip != "" {
 		actor = AuditActor{Type: "operator", IP: ip}

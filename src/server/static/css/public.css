@@ -388,24 +388,6 @@ body:has(.nav-checkbox:checked) {
 }
 
 /* ============================================================================
-   Health Page Header
-   ============================================================================ */
-
-.health-header {
-  text-align: center;
-  margin-bottom: var(--space-6);
-}
-
-.health-header h1 { font-size: 2rem; color: var(--color-text); }
-
-.tagline {
-  color: var(--color-muted);
-  font-size: 1.1rem;
-  font-style: italic;
-  margin: var(--space-1) 0;
-}
-
-/* ============================================================================
    Footer
    ============================================================================ */
 

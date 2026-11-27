@@ -2,6 +2,7 @@ package handler
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"html"
@@ -13,6 +14,36 @@ import (
 	"github.com/apimgr/ipgaze/src/common/httputil"
 	i18n "github.com/apimgr/ipgaze/src/common/i18n"
 )
+
+// ErrorMessageForStatus returns the localized user-facing message associated
+// with an HTTP status, using the request's language preferences.
+func ErrorMessageForStatus(r *http.Request, status int) string {
+	lang := i18n.DetectLocale(r)
+	return errorMessageForStatus(i18n.WithLang(r.Context(), lang), status)
+}
+
+func errorMessageForStatus(ctx context.Context, status int) string {
+	key := "errors.server_error"
+	switch status {
+	case http.StatusBadRequest:
+		key = "errors.bad_request"
+	case http.StatusUnauthorized:
+		key = "errors.unauthorized"
+	case http.StatusForbidden:
+		key = "errors.forbidden"
+	case http.StatusNotFound:
+		key = "errors.not_found"
+	case http.StatusMethodNotAllowed:
+		key = "errors.method_not_allowed"
+	case http.StatusConflict:
+		key = "errors.conflict"
+	case http.StatusTooManyRequests:
+		key = "errors.rate_limited"
+	case http.StatusServiceUnavailable:
+		key = "errors.maintenance_mode"
+	}
+	return i18n.T(ctx, key)
+}
 
 // bufferedResponseWriter captures a rendered response in memory so it can be
 // post-processed before anything reaches the client. AI.md PART 9 requires the
@@ -98,6 +129,13 @@ func (h *PagesHandler) renderNegotiated(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 
+	// Only stable, anonymous information pages are eligible for the service
+	// worker's offline navigation cache. Pages carrying visitor lookups,
+	// preferences, tokens, submissions, or one-time security IDs stay online-only.
+	switch page {
+	case "about.tmpl", "help.tmpl", "help_mcp.tmpl", "terms.tmpl", "security_policy.tmpl":
+		w.Header().Set("X-Offline-Cache", "public")
+	}
 	if err := h.Render(w, r, page, data); err != nil {
 		log.Printf("page render failed: status=%d method=%s path=%s err=%v", http.StatusInternalServerError, r.Method, r.URL.Path, err)
 		writeHandlerFallback(w, r, http.StatusInternalServerError, i18n.T(r.Context(), "errors.server_error"), false)
@@ -238,7 +276,7 @@ func ErrorCodeForStatus(code int) string {
 // errorCode may be empty to take the status-derived default.
 func WriteAPIError(w http.ResponseWriter, code int, errorCode, msg string) {
 	if msg == "" {
-		msg = http.StatusText(code)
+		msg = errorMessageForStatus(context.Background(), code)
 	}
 	if errorCode == "" {
 		errorCode = ErrorCodeForStatus(code)
@@ -278,7 +316,7 @@ func WriteAPIError(w http.ResponseWriter, code int, errorCode, msg string) {
 // through to the guaranteed plain-text response with nothing yet written to w.
 func (h *PagesHandler) renderErrorPage(w http.ResponseWriter, r *http.Request, code int, msg string) {
 	if msg == "" {
-		msg = http.StatusText(code)
+		msg = ErrorMessageForStatus(r, code)
 	}
 	ua := r.Header.Get("User-Agent")
 
@@ -305,7 +343,7 @@ func (h *PagesHandler) renderErrorPage(w http.ResponseWriter, r *http.Request, c
 	if !wantsJSON && !httputil.IsNonInteractiveClient(ua) && h.Render != nil {
 		data := h.NewPageData(r)
 		data.Code = code
-		data.Title = http.StatusText(code)
+		data.Title = ErrorMessageForStatus(r, code)
 		data.Message = msg
 		buf := newBufferedResponseWriter()
 		if err := h.Render(buf, r, "error_page.tmpl", data); err == nil {

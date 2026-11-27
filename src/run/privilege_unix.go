@@ -1,6 +1,6 @@
 //go:build !windows
 
-package main
+package run
 
 import (
 	"fmt"
@@ -121,6 +121,16 @@ func ensureSystemUser(username, homeDir string) (uid, gid int, err error) {
 	}
 
 	return id, id, nil
+}
+
+// hasLegacyMacOSServiceUser reports whether the pre-canonical underscore account
+// remains on macOS. Startup keeps it untouched and uses the canonical account.
+func hasLegacyMacOSServiceUser(username string) bool {
+	if runtime.GOOS != "darwin" {
+		return false
+	}
+	_, err := user.Lookup("_" + username)
+	return err == nil
 }
 
 func createMacOSServiceUser(name string, id int, homeDir string) error {

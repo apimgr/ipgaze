@@ -1,6 +1,7 @@
 package config
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"os"
@@ -9,7 +10,11 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-func ImportLegacyDatabaseSecrets(db *sql.DB, path string) error {
+type legacySecretStore interface {
+	Write(context.Context, func(*sql.Tx) error) error
+}
+
+func ImportLegacyDatabaseSecrets(db legacySecretStore, path string) error {
 	if db == nil {
 		return fmt.Errorf("database is unavailable")
 	}
@@ -38,18 +43,15 @@ func ImportLegacyDatabaseSecrets(db *sql.DB, path string) error {
 	if len(values) == 0 {
 		return nil
 	}
-	tx, err := db.Begin()
-	if err != nil {
-		return fmt.Errorf("begin legacy secret import: %w", err)
-	}
-	defer func() { _ = tx.Rollback() }()
-	for name, value := range values {
-		if _, err := tx.Exec(`INSERT OR IGNORE INTO app_secrets (name, value) VALUES (?, ?)`, name, value); err != nil {
-			return fmt.Errorf("import legacy secret %s: %w", name, err)
+	if err := db.Write(context.Background(), func(tx *sql.Tx) error {
+		for name, value := range values {
+			if _, err := tx.Exec(`INSERT OR IGNORE INTO app_secrets (name, value) VALUES (?, ?)`, name, value); err != nil {
+				return fmt.Errorf("import legacy secret %s: %w", name, err)
+			}
 		}
-	}
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit legacy secret import: %w", err)
+		return nil
+	}); err != nil {
+		return fmt.Errorf("import legacy secrets: %w", err)
 	}
 	for _, key := range keys {
 		removeLegacyNode(root, key)

@@ -8,7 +8,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"log/slog"
 	"strings"
 	"time"
 
@@ -171,8 +170,7 @@ END`,
 	// from config via constant-time SHA-256 comparison (AI.md PART 11).
 	// ----------------------------------------------------------------------------
 	`CREATE TABLE IF NOT EXISTS api_tokens (
-    id            INTEGER PRIMARY KEY AUTOINCREMENT,
-    public_id     TEXT UNIQUE,
+    id            TEXT PRIMARY KEY,
     owner_id      TEXT NOT NULL REFERENCES owners(id) ON DELETE CASCADE,
     kind          TEXT NOT NULL CHECK (kind IN ('primary', 'linked')),
     name          TEXT,
@@ -291,8 +289,6 @@ var schemaUpdates = []string{
 	`CREATE INDEX IF NOT EXISTS idx_security_reports_public ON security_reports(status, created_at)`,
 	`ALTER TABLE rate_limits ADD COLUMN prev_count INTEGER NOT NULL DEFAULT 0`,
 	`ALTER TABLE api_tokens ADD COLUMN token_last4 TEXT NOT NULL DEFAULT ''`,
-	`ALTER TABLE api_tokens ADD COLUMN public_id TEXT`,
-	`CREATE UNIQUE INDEX IF NOT EXISTS idx_api_tokens_public_id ON api_tokens(public_id)`,
 }
 
 // migrationTimeout is the AI.md PART 10 "Query Timeouts" ceiling for schema
@@ -301,126 +297,137 @@ const migrationTimeout = 5 * time.Minute
 
 // EnsureSchema creates all required tables and applies idempotent schema updates
 // under the PART 10 migration timeout.
-// Existing application data is preserved; the one-time CAPTCHA schema upgrade
-// invalidates only transient challenges that expire after ten minutes.
+// Existing application data is preserved. Legacy tables remain intact and
+// canonical tables and columns are added without destructive replacement.
 // Call once at startup, before the server accepts requests.
-func EnsureSchema(db *sql.DB) error {
+func EnsureSchema(store *Store) error {
 	ctx, cancel := context.WithTimeout(context.Background(), migrationTimeout)
 	defer cancel()
-	return EnsureSchemaContext(ctx, db)
+	return EnsureSchemaContext(ctx, store)
 }
 
 // EnsureSchemaContext is EnsureSchema bound to a caller-supplied context, so a
 // shutdown signal or an outer deadline can abort a migration in progress.
-func EnsureSchemaContext(ctx context.Context, db *sql.DB) error {
-	if err := upgradeAPITokensSchema(ctx, db); err != nil {
-		return fmt.Errorf("db: upgrade API tokens schema: %w", err)
-	}
-	if err := upgradeContactCaptchaSchema(ctx, db); err != nil {
-		return fmt.Errorf("db: upgrade CAPTCHA schema: %w", err)
-	}
-	for _, stmt := range createStatements {
-		if _, err := db.ExecContext(ctx, stmt); err != nil {
-			return fmt.Errorf("db: create schema: %w", err)
+func EnsureSchemaContext(ctx context.Context, store *Store) error {
+	return store.Write(ctx, func(tx *sql.Tx) error {
+		if err := renameCanonicalSchedulerColumns(ctx, tx); err != nil {
+			return fmt.Errorf("db: rename scheduler columns: %w", err)
 		}
-	}
-	if err := upgradeSecurityReportsSchema(ctx, db); err != nil {
-		return fmt.Errorf("db: upgrade security reports schema: %w", err)
-	}
-
-	for _, stmt := range schemaUpdates {
-		if _, err := db.ExecContext(ctx, stmt); err != nil {
-			// Silently ignore "already exists" errors — these are expected on
-			// databases that were created with a later version of the schema.
-			if isAlreadyExistsError(err) {
-				continue
+		if err := upgradeAPITokensSchema(ctx, tx); err != nil {
+			return fmt.Errorf("db: upgrade API tokens schema: %w", err)
+		}
+		if err := upgradeSecurityReportsSchema(ctx, tx); err != nil {
+			return fmt.Errorf("db: upgrade security reports schema: %w", err)
+		}
+		for _, stmt := range createStatements {
+			if _, err := tx.ExecContext(ctx, stmt); err != nil {
+				return fmt.Errorf("db: create schema: %w", err)
 			}
-			return fmt.Errorf("db: schema update: %w", err)
 		}
-	}
-	if err := backfillAPITokenPublicIDs(ctx, db); err != nil {
-		return fmt.Errorf("db: backfill API token public IDs: %w", err)
-	}
-
-	return nil
-}
-
-// upgradeContactCaptchaSchema replaces the former hashed-token table. Captcha
-// challenges are short-lived and single-use, so outstanding challenges are
-// invalidated once when upgrading to the canonical ID-based schema.
-func upgradeContactCaptchaSchema(ctx context.Context, db *sql.DB) error {
-	rows, err := db.QueryContext(ctx, `PRAGMA table_info(contact_captcha_challenges)`)
-	if err != nil {
-		return err
-	}
-	legacy := rows.Next()
-	if err := rows.Err(); err != nil {
-		return errors.Join(err, rows.Close())
-	}
-	if err := rows.Close(); err != nil {
-		return err
-	}
-	if !legacy {
+		for _, stmt := range schemaUpdates {
+			if _, err := tx.ExecContext(ctx, stmt); err != nil {
+				if isAlreadyExistsError(err) {
+					continue
+				}
+				return fmt.Errorf("db: schema update: %w", err)
+			}
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO owners(id) VALUES('system') ON CONFLICT(id) DO NOTHING`); err != nil {
+			return fmt.Errorf("db: ensure system owner: %w", err)
+		}
 		return nil
-	}
-	tx, err := db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer func() {
-		if rollbackErr := tx.Rollback(); rollbackErr != nil && !errors.Is(rollbackErr, sql.ErrTxDone) {
-			slog.Warn("legacy CAPTCHA schema rollback failed", "error", rollbackErr)
-		}
-	}()
-	if _, err := tx.ExecContext(ctx, `DROP TABLE contact_captcha_challenges`); err != nil {
-		return err
-	}
-	if _, err := tx.ExecContext(ctx, `DROP INDEX IF EXISTS idx_contact_captcha_challenges_expires`); err != nil {
-		return err
-	}
-	if _, err := tx.ExecContext(ctx, `CREATE TABLE captcha_challenges (
-		id VARCHAR(32) PRIMARY KEY,
-		answer_hash VARCHAR(64) NOT NULL,
-		expires_at TIMESTAMP NOT NULL
-	)`); err != nil {
-		return err
-	}
-	if _, err := tx.ExecContext(ctx, `CREATE INDEX idx_captcha_challenges_expires ON captcha_challenges(expires_at)`); err != nil {
-		return err
-	}
-	return tx.Commit()
+	})
 }
 
-func backfillAPITokenPublicIDs(ctx context.Context, db *sql.DB) error {
-	rows, err := db.QueryContext(ctx, `SELECT id FROM api_tokens WHERE public_id IS NULL OR public_id = ''`)
-	if err != nil {
-		return err
-	}
-	var ids []int64
-	for rows.Next() {
-		var id int64
-		if err := rows.Scan(&id); err != nil {
-			return errors.Join(err, rows.Close())
-		}
-		ids = append(ids, id)
-	}
-	if err := rows.Err(); err != nil {
-		return errors.Join(err, rows.Close())
-	}
-	if err := rows.Close(); err != nil {
-		return err
-	}
-	for _, id := range ids {
-		if _, err := db.ExecContext(ctx, `UPDATE api_tokens SET public_id = ? WHERE id = ? AND (public_id IS NULL OR public_id = '')`, uuid.NewString(), id); err != nil {
+func renameCanonicalSchedulerColumns(ctx context.Context, tx *sql.Tx) error {
+	for _, table := range []struct {
+		name    string
+		renames [][2]string
+		columns map[string]string
+	}{
+		{
+			name:    "scheduler_tasks",
+			renames: [][2]string{{"task_id", "id"}, {"task_name", "name"}},
+			columns: map[string]string{
+				"id": `TEXT`, "name": `TEXT NOT NULL DEFAULT ''`, "enabled": `INTEGER NOT NULL DEFAULT 1`,
+				"schedule": `TEXT NOT NULL DEFAULT ''`, "last_run": `INTEGER`, "next_run": `INTEGER`,
+				"last_status": `TEXT`, "last_error": `TEXT`, "run_count": `INTEGER NOT NULL DEFAULT 0`, "fail_count": `INTEGER NOT NULL DEFAULT 0`,
+			},
+		},
+		{
+			name:    "scheduler_history",
+			renames: [][2]string{{"ran_at", "started_at"}},
+			columns: map[string]string{
+				"id": `INTEGER`, "task_id": `TEXT NOT NULL DEFAULT ''`, "started_at": `INTEGER NOT NULL DEFAULT 0`,
+				"finished_at": `INTEGER`, "status": `TEXT NOT NULL DEFAULT 'failed'`, "error": `TEXT`, "duration_ms": `INTEGER`,
+			},
+		},
+	} {
+		columns, exists, err := schemaTableColumns(ctx, tx, table.name)
+		if err != nil {
 			return err
 		}
+		if !exists {
+			continue
+		}
+		for _, rename := range table.renames {
+			if columns[rename[0]] && !columns[rename[1]] {
+				if _, err := tx.ExecContext(ctx, `ALTER TABLE `+table.name+` RENAME COLUMN `+rename[0]+` TO `+rename[1]); err != nil {
+					return fmt.Errorf("rename %s.%s to %s: %w", table.name, rename[0], rename[1], err)
+				}
+				delete(columns, rename[0])
+				columns[rename[1]] = true
+			}
+		}
+		for name, declaration := range table.columns {
+			if columns[name] {
+				continue
+			}
+			if _, err := tx.ExecContext(ctx, `ALTER TABLE `+table.name+` ADD COLUMN `+name+` `+declaration); err != nil {
+				return fmt.Errorf("add %s.%s: %w", table.name, name, err)
+			}
+		}
 	}
 	return nil
 }
 
-// upgradeAPITokensSchema preserves the earlier resource-bound token table
-// before installing the owner-token schema required by AI.md PART 8.
-func upgradeAPITokensSchema(ctx context.Context, db *sql.DB) error {
+func schemaTableColumns(ctx context.Context, tx *sql.Tx, table string) (map[string]bool, bool, error) {
+	var exists int
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?`, table).Scan(&exists); err != nil {
+		return nil, false, err
+	}
+	if exists == 0 {
+		return nil, false, nil
+	}
+	rows, err := tx.QueryContext(ctx, `PRAGMA table_info(`+table+`)`)
+	if err != nil {
+		return nil, false, err
+	}
+	columns := make(map[string]bool)
+	for rows.Next() {
+		var cid, notNull, primaryKey int
+		var name, kind string
+		var defaultValue any
+		if err := rows.Scan(&cid, &name, &kind, &notNull, &defaultValue, &primaryKey); err != nil {
+			_ = rows.Close()
+			return nil, false, err
+		}
+		columns[name] = true
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return nil, false, err
+	}
+	if err := rows.Close(); err != nil {
+		return nil, false, err
+	}
+	return columns, true, nil
+}
+
+// upgradeAPITokensSchema adds the canonical token columns in place while
+// retaining legacy columns and rows, as required by PART 10's additive schema
+// contract.
+func upgradeAPITokensSchema(ctx context.Context, db *sql.Tx) error {
 	rows, err := db.QueryContext(ctx, `PRAGMA table_info(api_tokens)`)
 	if err != nil {
 		return err
@@ -441,43 +448,35 @@ func upgradeAPITokensSchema(ctx context.Context, db *sql.DB) error {
 	if err := rows.Close(); err != nil {
 		return err
 	}
-	if len(columns) == 0 || (columns["owner_id"] && columns["kind"] && columns["token_enc"]) {
+	if len(columns) == 0 {
 		return nil
 	}
-
-	var legacyTable string
-	err = db.QueryRowContext(ctx, `SELECT name FROM sqlite_master WHERE type='table' AND name='api_tokens_legacy'`).Scan(&legacyTable)
-	if err == nil {
-		return errors.New("api_tokens_legacy already exists; refusing to replace or discard token data")
+	additions := []struct{ name, definition string }{
+		{"owner_id", `TEXT`},
+		{"kind", `TEXT NOT NULL DEFAULT 'linked'`},
+		{"name", `TEXT`},
+		{"token_enc", `TEXT NOT NULL DEFAULT ''`},
+		{"token_last4", `TEXT NOT NULL DEFAULT ''`},
+		{"rotated_at", `INTEGER`},
+		{"expires_at", `INTEGER`},
+		{"last_used_at", `INTEGER`},
+		{"revoked_at", `INTEGER`},
+		{"revoked_reason", `TEXT`},
 	}
-	if !errors.Is(err, sql.ErrNoRows) {
-		return err
-	}
-
-	tx, err := db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer func() {
-		if rollbackErr := tx.Rollback(); rollbackErr != nil && !errors.Is(rollbackErr, sql.ErrTxDone) {
-			slog.Warn("legacy API token schema rollback failed", "error", rollbackErr)
+	for _, addition := range additions {
+		if columns[addition.name] {
+			continue
 		}
-	}()
-	if _, err := tx.ExecContext(ctx, `ALTER TABLE api_tokens RENAME TO api_tokens_legacy`); err != nil {
-		return err
-	}
-	for _, index := range []string{"idx_api_tokens_hash", "idx_api_tokens_prefix", "idx_api_tokens_resource", "idx_api_tokens_active"} {
-		if _, err := tx.ExecContext(ctx, `DROP INDEX IF EXISTS `+index); err != nil {
+		if _, err := db.ExecContext(ctx, `ALTER TABLE api_tokens ADD COLUMN `+addition.name+` `+addition.definition); err != nil && !isAlreadyExistsError(err) {
 			return err
 		}
 	}
-	return tx.Commit()
+	return nil
 }
 
-// upgradeSecurityReportsSchema rebuilds pre-contract tables into the canonical
-// PART 11 shape while copying their encrypted payloads and project-specific
-// researcher credit metadata without loss.
-func upgradeSecurityReportsSchema(ctx context.Context, db *sql.DB) error {
+// upgradeSecurityReportsSchema adds canonical columns in place and copies
+// values from legacy aliases while retaining all legacy columns and rows.
+func upgradeSecurityReportsSchema(ctx context.Context, db *sql.Tx) error {
 	rows, err := db.QueryContext(ctx, `PRAGMA table_info(security_reports)`)
 	if err != nil {
 		return err
@@ -500,98 +499,42 @@ func upgradeSecurityReportsSchema(ctx context.Context, db *sql.DB) error {
 	if err := rows.Close(); err != nil {
 		return err
 	}
-	canonical := []string{"security_id", "severity", "component", "status", "body_enc", "body_alg", "contact_enc", "researcher_comment", "disclosure_date", "cve_requested", "token_hash", "token_last_used", "created_at", "updated_at", "closed_at", "credit_preference", "credit_name", "disclosed_year", "short_credit"}
-	complete := true
-	for _, column := range canonical {
-		if !columns[column] {
-			complete = false
-			break
-		}
-	}
-	if complete {
+	if len(columns) == 0 {
 		return nil
 	}
-	if !columns["tracking_id"] {
-		return errors.New("security_reports has no tracking_id column")
+	additions := []struct{ name, definition string }{
+		{"security_id", `TEXT NOT NULL DEFAULT ''`}, {"severity", `TEXT NOT NULL DEFAULT 'low'`},
+		{"component", `TEXT NOT NULL DEFAULT ''`}, {"status", `TEXT NOT NULL DEFAULT 'received'`},
+		{"body_enc", `BLOB NOT NULL DEFAULT X''`}, {"body_alg", `TEXT NOT NULL DEFAULT 'aes-256-gcm'`},
+		{"contact_enc", `BLOB`}, {"researcher_comment", `TEXT NOT NULL DEFAULT ''`},
+		{"disclosure_date", `DATE`}, {"cve_requested", `BOOLEAN NOT NULL DEFAULT FALSE`},
+		{"token_hash", `TEXT NOT NULL DEFAULT ''`}, {"token_last_used", `DATE`},
+		{"created_at", `INTEGER NOT NULL DEFAULT 0`}, {"updated_at", `INTEGER NOT NULL DEFAULT 0`},
+		{"closed_at", `INTEGER`}, {"credit_preference", `TEXT NOT NULL DEFAULT 'no'`},
+		{"credit_name", `TEXT NOT NULL DEFAULT ''`}, {"disclosed_year", `INTEGER`},
+		{"short_credit", `TEXT NOT NULL DEFAULT ''`},
 	}
-	if _, err := db.ExecContext(ctx, `DROP TABLE IF EXISTS security_reports_upgrade`); err != nil {
-		return err
-	}
-	const create = `CREATE TABLE security_reports_upgrade (
-tracking_id TEXT PRIMARY KEY,
-security_id TEXT NOT NULL DEFAULT '',
-severity TEXT NOT NULL,
-component TEXT NOT NULL,
-status TEXT NOT NULL DEFAULT 'received',
-body_enc BLOB NOT NULL,
-body_alg TEXT NOT NULL CHECK (body_alg IN ('pgp', 'aes-256-gcm')),
-contact_enc BLOB,
-researcher_comment TEXT NOT NULL DEFAULT '',
-disclosure_date DATE,
-cve_requested BOOLEAN NOT NULL DEFAULT FALSE,
-token_hash TEXT NOT NULL,
-token_last_used DATE,
-created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
-updated_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
-closed_at INTEGER,
-credit_preference TEXT NOT NULL DEFAULT 'no',
-credit_name TEXT NOT NULL DEFAULT '',
-disclosed_year INTEGER,
-short_credit TEXT NOT NULL DEFAULT ''
-)`
-	if _, err := db.ExecContext(ctx, create); err != nil {
-		return err
-	}
-	col := func(name, fallback string) string {
-		if columns[name] {
-			return name
+	for _, addition := range additions {
+		if columns[addition.name] {
+			continue
 		}
-		return fallback
+		if _, err := db.ExecContext(ctx, `ALTER TABLE security_reports ADD COLUMN `+addition.name+` `+addition.definition); err != nil && !isAlreadyExistsError(err) {
+			return err
+		}
 	}
-	body := col("body_enc", col("encrypted_body", "X''"))
-	bodyAlg := col("body_alg", col("encryption", "'aes-256-gcm'"))
-	component := col("component", col("affected_component", "''"))
-	comment := col("researcher_comment", "COALESCE(maintainer_comment, '')")
-	tokenHash := col("token_hash", col("access_token_hash", "''"))
-	used := col("token_last_used", "last_access_day")
-	if !columns["token_last_used"] && !columns["last_access_day"] {
-		used = "NULL"
+	for target, source := range map[string]string{"body_enc": "encrypted_body", "component": "affected_component", "researcher_comment": "maintainer_comment", "token_hash": "access_token_hash", "token_last_used": "last_access_day"} {
+		if !columns[target] && columns[source] {
+			if _, err := db.ExecContext(ctx, `UPDATE security_reports SET `+target+` = `+source+` WHERE `+source+` IS NOT NULL`); err != nil {
+				return err
+			}
+		}
 	}
-	created := col("created_at", "strftime('%s', 'now')")
-	updated := col("updated_at", created)
-	closed := col("closed_at", "NULL")
-	disclosure := col("disclosure_date", "NULL")
-	disclosure = "CASE WHEN " + disclosure + " IS NULL THEN NULL WHEN typeof(" + disclosure + ") = 'integer' THEN DATE(" + disclosure + ", 'unixepoch') ELSE " + disclosure + " END"
-	if used != "NULL" && used == "last_access_day" {
-		used = "CASE WHEN last_access_day IS NULL THEN NULL WHEN typeof(last_access_day) = 'integer' THEN DATE(last_access_day * 86400, 'unixepoch') ELSE last_access_day END"
+	if !columns["body_alg"] && columns["encryption"] {
+		if _, err := db.ExecContext(ctx, `UPDATE security_reports SET body_alg = encryption WHERE encryption IS NOT NULL`); err != nil {
+			return err
+		}
 	}
-	securityID := col("security_id", "''")
-	contact := col("contact_enc", "NULL")
-	cve := col("cve_requested", "0")
-	creditPref := col("credit_preference", "'no'")
-	creditName := col("credit_name", "''")
-	disclosedYear := col("disclosed_year", "NULL")
-	shortCredit := col("short_credit", "''")
-	status := col("status", "'received'")
-	status = `CASE ` + status + ` WHEN 'Received' THEN 'received' WHEN 'Triaged' THEN 'triaged' WHEN 'Confirmed' THEN 'confirmed' WHEN 'Patching' THEN 'patching' WHEN 'Disclosed' THEN 'disclosed' WHEN 'Won''t Fix' THEN 'wont_fix' ELSE ` + status + ` END`
-	query := `INSERT INTO security_reports_upgrade (tracking_id, security_id, severity, component, status, body_enc, body_alg, contact_enc, researcher_comment, disclosure_date, cve_requested, token_hash, token_last_used, created_at, updated_at, closed_at, credit_preference, credit_name, disclosed_year, short_credit)
-SELECT tracking_id, ` + securityID + `, severity, ` + component + `, ` + status + `, ` + body + `, ` + bodyAlg + `, ` + contact + `, ` + comment + `, ` + disclosure + `, ` + cve + `, ` + tokenHash + `, ` + used + `, ` + created + `, ` + updated + `, ` + closed + `, ` + creditPref + `, ` + creditName + `, ` + disclosedYear + `, ` + shortCredit + ` FROM security_reports`
-	if _, err := db.ExecContext(ctx, query); err != nil {
-		_, _ = db.ExecContext(ctx, `DROP TABLE IF EXISTS security_reports_upgrade`)
-		return err
-	}
-	tx, err := db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	if _, err = tx.ExecContext(ctx, `DROP TABLE security_reports`); err == nil {
-		_, err = tx.ExecContext(ctx, `ALTER TABLE security_reports_upgrade RENAME TO security_reports`)
-	}
-	if err != nil {
-		_ = tx.Rollback()
-		return err
-	}
-	return tx.Commit()
+	return nil
 }
 
 // isAlreadyExistsError returns true when err indicates that a column, index,
@@ -600,4 +543,131 @@ func isAlreadyExistsError(err error) bool {
 	msg := strings.ToLower(err.Error())
 	return strings.Contains(msg, "already exists") ||
 		strings.Contains(msg, "duplicate column")
+}
+
+// AdoptLegacyAPITokenIDs performs the documented one-time, operator-invoked
+// migration from integer token row IDs to UUIDv7 text IDs. Call only after a
+// verified offline backup; startup schema application never invokes it.
+func AdoptLegacyAPITokenIDs(store *Store) error {
+	return store.Write(context.Background(), func(tx *sql.Tx) error {
+		rows, err := tx.Query(`PRAGMA table_info(api_tokens)`)
+		if err != nil {
+			return err
+		}
+		idType := ""
+		columns := map[string]bool{}
+		for rows.Next() {
+			var cid, notNull, primary int
+			var name, kind string
+			var defaultValue sql.NullString
+			if err := rows.Scan(&cid, &name, &kind, &notNull, &defaultValue, &primary); err != nil {
+				_ = rows.Close()
+				return err
+			}
+			columns[name] = true
+			if name == "id" {
+				idType = strings.ToUpper(kind)
+			}
+		}
+		if err := rows.Err(); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		if err := rows.Close(); err != nil {
+			return err
+		}
+		if strings.Contains(idType, "TEXT") {
+			return nil
+		}
+		if !strings.Contains(idType, "INT") {
+			return fmt.Errorf("api_tokens.id has unsupported type %q", idType)
+		}
+		for _, required := range []string{"owner_id", "kind", "name", "token_hash", "token_prefix", "token_last4", "token_enc", "created_at", "rotated_at", "expires_at", "last_used_at", "revoked_at", "revoked_reason"} {
+			if !columns[required] {
+				return fmt.Errorf("legacy api_tokens is missing %s; adoption refused", required)
+			}
+		}
+		type tokenRow struct {
+			owner, kind, name, hash, prefix, last4, enc, reason sql.NullString
+			created, rotated, expires, used, revoked            sql.NullInt64
+		}
+		rows, err = tx.Query(`SELECT owner_id,kind,name,token_hash,token_prefix,token_last4,token_enc,created_at,rotated_at,expires_at,last_used_at,revoked_at,revoked_reason FROM api_tokens`)
+		if err != nil {
+			return err
+		}
+		var records []tokenRow
+		for rows.Next() {
+			var record tokenRow
+			if err := rows.Scan(&record.owner, &record.kind, &record.name, &record.hash, &record.prefix, &record.last4, &record.enc, &record.created, &record.rotated, &record.expires, &record.used, &record.revoked, &record.reason); err != nil {
+				_ = rows.Close()
+				return err
+			}
+			records = append(records, record)
+		}
+		if err := rows.Err(); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		if err := rows.Close(); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(`CREATE TABLE api_tokens_v7 (id TEXT PRIMARY KEY, owner_id TEXT NOT NULL REFERENCES owners(id) ON DELETE CASCADE, kind TEXT NOT NULL CHECK(kind IN ('primary','linked')), name TEXT, token_hash TEXT NOT NULL UNIQUE, token_prefix TEXT NOT NULL, token_last4 TEXT NOT NULL, token_enc TEXT NOT NULL, created_at INTEGER NOT NULL, rotated_at INTEGER, expires_at INTEGER, last_used_at INTEGER, revoked_at INTEGER, revoked_reason TEXT)`); err != nil {
+			return err
+		}
+		for _, record := range records {
+			id, err := uuid.NewV7()
+			if err != nil {
+				return fmt.Errorf("generate canonical token UUID: %w", err)
+			}
+			if _, err := tx.Exec(`INSERT INTO api_tokens_v7(id,owner_id,kind,name,token_hash,token_prefix,token_last4,token_enc,created_at,rotated_at,expires_at,last_used_at,revoked_at,revoked_reason) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, id.String(), record.owner, record.kind, record.name, record.hash, record.prefix, record.last4, record.enc, record.created, record.rotated, record.expires, record.used, record.revoked, record.reason); err != nil {
+				return err
+			}
+		}
+		if _, err := tx.Exec(`DROP TABLE api_tokens`); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(`ALTER TABLE api_tokens_v7 RENAME TO api_tokens`); err != nil {
+			return err
+		}
+		for _, statement := range []string{
+			`CREATE UNIQUE INDEX idx_api_tokens_primary ON api_tokens(owner_id) WHERE kind='primary' AND revoked_at IS NULL`,
+			`CREATE UNIQUE INDEX idx_api_tokens_linked_name ON api_tokens(owner_id,name) WHERE kind='linked'`,
+			`CREATE INDEX idx_api_tokens_hash ON api_tokens(token_hash)`, `CREATE INDEX idx_api_tokens_prefix ON api_tokens(token_prefix)`, `CREATE INDEX idx_api_tokens_owner ON api_tokens(owner_id)`, `CREATE INDEX idx_api_tokens_active ON api_tokens(revoked_at) WHERE revoked_at IS NULL`,
+		} {
+			if _, err := tx.Exec(statement); err != nil {
+				return err
+			}
+		}
+		check, err := tx.Query(`PRAGMA foreign_key_check`)
+		if err != nil {
+			return err
+		}
+		defer check.Close()
+		if check.Next() {
+			return errors.New("foreign_key_check failed after API token adoption")
+		}
+		return check.Err()
+	})
+}
+
+// RequireCanonicalAPITokenIDs rejects startup on a legacy integer-key table;
+// the operator must run the offline token adopt-ids maintenance command first.
+func RequireCanonicalAPITokenIDs(store *Store) error {
+	rows, err := store.QueryContext(context.Background(), `PRAGMA table_info(api_tokens)`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var cid, notNull, primary int
+		var name, kind string
+		var defaultValue sql.NullString
+		if err := rows.Scan(&cid, &name, &kind, &notNull, &defaultValue, &primary); err != nil {
+			return err
+		}
+		if name == "id" && !strings.Contains(strings.ToUpper(kind), "TEXT") {
+			return errors.New("api_tokens.id is legacy; run `ipgaze --maintenance token adopt-ids` before starting this version")
+		}
+	}
+	return rows.Err()
 }

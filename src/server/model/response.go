@@ -52,6 +52,13 @@ type PortResponse struct {
 	Reachable bool   `json:"reachable"`
 }
 
+// VersionResponse is the canonical data model for the version endpoint.
+type VersionResponse struct {
+	Version string `json:"version"`
+	Commit  string `json:"commit"`
+	Date    string `json:"date"`
+}
+
 // HealthResponse - canonical field order for /server/healthz
 type HealthResponse struct {
 	Project        ProjectInfo  `json:"project"`
@@ -86,6 +93,7 @@ type BuildInfo struct {
 type TorInfo struct {
 	Enabled  bool   `json:"enabled"`
 	Running  bool   `json:"running"`
+	State    string `json:"state"`
 	Status   string `json:"status"`
 	Hostname string `json:"hostname"`
 }

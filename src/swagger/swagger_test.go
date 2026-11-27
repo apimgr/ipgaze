@@ -7,6 +7,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	i18n "github.com/apimgr/ipgaze/src/common/i18n"
 )
 
 func TestGenerateSpec_BasicShape(t *testing.T) {
@@ -41,8 +43,14 @@ func TestAPIV1RouteDefinitionsMatchOpenAPI(t *testing.T) {
 			}
 		}
 	}
-	if len(definitions) != len(documented) {
-		t.Fatalf("APIV1RouteDefinitions() has %d entries, OpenAPI has %d versioned operations", len(definitions), len(documented))
+	listed := 0
+	for _, definition := range definitions {
+		if definition.Listed {
+			listed++
+		}
+	}
+	if listed != len(documented) {
+		t.Fatalf("APIV1RouteDefinitions() has %d listed entries, OpenAPI has %d versioned operations", listed, len(documented))
 	}
 	seen := make(map[string]bool, len(definitions))
 	for _, definition := range definitions {
@@ -50,14 +58,146 @@ func TestAPIV1RouteDefinitionsMatchOpenAPI(t *testing.T) {
 			t.Errorf("invalid or duplicate API operation ID %q", definition.OperationID)
 			continue
 		}
+		if strings.Contains(definition.OperationID, "_") {
+			t.Errorf("operation ID %q is not camelCase", definition.OperationID)
+		}
+		if definition.Summary == "" {
+			t.Errorf("operation %q has no registry summary", definition.OperationID)
+		}
+		if definition.Auth == "" {
+			t.Errorf("operation %q has no registry auth policy", definition.OperationID)
+		}
+		if definition.Auth == "operator" && definition.Listed {
+			t.Errorf("operator-only operation %q is listed for public discovery", definition.OperationID)
+		}
+		if definition.Auth != "operator" && definition.Auth != "service" && !definition.Listed {
+			t.Errorf("public or token operation %q is absent from public discovery", definition.OperationID)
+		}
+		if definition.Internal {
+			t.Errorf("internal operation %q reached the public route registry", definition.OperationID)
+		}
 		seen[definition.OperationID] = true
 		want := definition.Method + " " + definition.Path
-		if got := documented[definition.OperationID]; got != want {
+		got := documented[definition.OperationID]
+		if definition.Listed && got != want {
 			t.Errorf("operation %q definition = %q, OpenAPI = %q", definition.OperationID, want, got)
+		}
+		if !definition.Listed && got != "" {
+			t.Errorf("unlisted operation %q was included in OpenAPI as %q", definition.OperationID, got)
 		}
 		if definition.RuntimeAlias && definition.RuntimePath == "" {
 			t.Errorf("runtime alias %q has no runtime path", definition.OperationID)
 		}
+	}
+	if spec.Paths["/api/v1/server/auth/check"].Get != nil {
+		t.Fatal("operator-only route was included in OpenAPI")
+	}
+}
+
+func TestOpenAPIUsesActiveRouteRegistry(t *testing.T) {
+	routes := APIV1RouteDefinitions()
+	for i := range routes {
+		if routes[i].OperationID == "v1Ip" {
+			routes[i].Handler = func(http.ResponseWriter, *http.Request) {}
+		}
+	}
+	spec := GenerateSpec(SwaggerHandlerConfig{
+		RegisteredRoutes: func() []Route { return routes },
+	}, "https://example.com", "en")
+	if spec.Paths["/api/v1/ip"].Get == nil {
+		t.Fatal("active route missing from OpenAPI")
+	}
+	if spec.Paths["/api/v1/server/healthz"].Get != nil {
+		t.Fatal("route without an active handler was included in OpenAPI")
+	}
+}
+
+func TestOpenAPIUsesRegisteredUnversionedAPIAliases(t *testing.T) {
+	routes := APIRouteDefinitions()
+	for i := range routes {
+		routes[i].Handler = func(http.ResponseWriter, *http.Request) {}
+	}
+	spec := GenerateSpec(SwaggerHandlerConfig{
+		RegisteredRoutes: func() []Route { return routes },
+	}, "https://example.com", "en")
+	for _, path := range []string{"/api/healthz", "/api/swagger", "/api/graphql", "/api/mcp", "/mcp"} {
+		if _, ok := spec.Paths[path]; !ok {
+			t.Errorf("registered API alias %q missing from OpenAPI", path)
+		}
+	}
+}
+
+func TestOpenAPISchemasUseRouteRequestAndResponseModels(t *testing.T) {
+	type requestModel struct {
+		Address string `json:"address"`
+		Limit   int    `json:"limit"`
+	}
+	type responseModel struct {
+		Address string `json:"address"`
+		Valid   bool   `json:"valid"`
+	}
+	var registry Registry
+	registry.Add(Route{
+		Method:      http.MethodPost,
+		Path:        "/api/v1/test-lookups",
+		OperationID: "testLookups",
+		Summary:     "Create lookup",
+		Auth:        "none",
+		Request:     requestModel{},
+		Response:    responseModel{},
+	})
+	route := registry.Routes()[0]
+	operation := OperationForRoute(route, "en")
+	if operation == nil || operation.RequestBody == nil {
+		t.Fatal("operation did not include its route request model")
+	}
+	requestSchema := operation.RequestBody.Content["application/json"].Schema
+	if requestSchema == nil || requestSchema.Properties["address"].Type != "string" || requestSchema.Properties["limit"].Type != "integer" {
+		t.Fatalf("request schema did not reflect Request fields: %+v", requestSchema)
+	}
+	responseSchema := operation.Responses["200"].Content["application/json"].Schema
+	if responseSchema == nil || responseSchema.Properties["address"].Type != "string" || responseSchema.Properties["valid"].Type != "boolean" {
+		t.Fatalf("response schema did not reflect Response fields: %+v", responseSchema)
+	}
+}
+
+func TestOpenAPISchemaModelsPreserveIPAndTimeScalarTypes(t *testing.T) {
+	spec := GenerateSpec(SwaggerHandlerConfig{}, "https://example.com", "en")
+	resolve := func(schema *Schema) Schema {
+		if schema != nil && strings.HasPrefix(schema.Ref, "#/components/schemas/") {
+			return spec.Components.Schemas[strings.TrimPrefix(schema.Ref, "#/components/schemas/")]
+		}
+		if schema == nil {
+			return Schema{}
+		}
+		return *schema
+	}
+	var ipRoute Route
+	for _, route := range APIV1RouteDefinitions() {
+		if route.OperationID == "v1Info" {
+			ipRoute = route
+			break
+		}
+	}
+	operation := OperationForRoute(ipRoute, "en")
+	if operation == nil {
+		t.Fatal("IP route has no OpenAPI operation")
+	}
+	schema := resolve(operation.Responses["200"].Content["application/json"].Schema)
+	if schema.Properties["ip"].Type != "string" || schema.Properties["ip_decimal"].Type != "integer" {
+		t.Fatalf("IP response scalar types are incorrect: %+v", schema)
+	}
+
+	var healthRoute Route
+	for _, route := range APIV1RouteDefinitions() {
+		if route.OperationID == "v1Healthz" {
+			healthRoute = route
+			break
+		}
+	}
+	health := resolve(OperationForRoute(healthRoute, "en").Responses["200"].Content["application/json"].Schema)
+	if health.Properties["timestamp"].Type != "string" || health.Properties["timestamp"].Format != "date-time" {
+		t.Fatalf("health timestamp schema is incorrect: %+v", health)
 	}
 }
 
@@ -181,6 +321,7 @@ func TestHandler_RenderUIErrorReturnsInternalServerError(t *testing.T) {
 		return errors.New("template render failed")
 	}})
 	req := httptest.NewRequest(http.MethodGet, "/server/docs/swagger", nil)
+	req.Header.Set("Accept-Language", "fr")
 	rec := httptest.NewRecorder()
 
 	h(rec, req)
@@ -190,6 +331,10 @@ func TestHandler_RenderUIErrorReturnsInternalServerError(t *testing.T) {
 	}
 	if rec.Body.Len() == 0 {
 		t.Fatal("render failure returned an empty response")
+	}
+	want := i18n.T(i18n.WithLang(req.Context(), i18n.DetectLocale(req)), "errors.server_error")
+	if strings.TrimSpace(rec.Body.String()) != want {
+		t.Fatalf("render error body = %q, want translated %q", strings.TrimSpace(rec.Body.String()), want)
 	}
 }
 

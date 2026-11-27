@@ -544,7 +544,12 @@
     "tokens_status_revoked": "Revocato",
     "tokens_forget_confirm": "Conferma di dimenticare il token di questo browser",
     "tokens_rotate_confirm": "Conferma la rotazione del token",
-    "tokens_revoke_confirm": "Conferma la revoca del token"
+    "tokens_revoke_confirm": "Conferma la revoca del token",
+    "tokens_revoke_primary": "Revoca token principale",
+    "tokens_revoke_primary_warning": "Questo elimina definitivamente la tua identità, tutti i {tokens} token e tutte le {resources} risorse.",
+    "tokens_revoke_primary_confirm": "Digita gli ultimi quattro caratteri del token principale per confermare l’eliminazione.",
+    "tokens_revoke_primary_invalid": "La conferma non corrisponde. Non è stato eliminato nulla.",
+    "tokens_revoke_primary_success": "Proprietario e token eliminati."
   },
   "announcements": {
     "warning": "Avvertimento",
@@ -927,7 +932,6 @@
     "err_update_failed": "Aggiornamento non riuscito: {error}",
     "err_unknown_update": "Comando di aggiornamento sconosciuto \"{command}\". Comandi validi: check, yes",
     "update_prompt": "Installare questo aggiornamento adesso? [yes/no]",
-    "err_token_revoked": "Il server ha revocato questo token. Esegui di nuovo l’accesso con --token o --token-file.",
     "shell_help_usage": "Uso: {binary} --shell completion|init|help SHELL",
     "err_unknown_shell_command": "Comando shell sconosciuto “{command}”. Comandi validi: completion, init, help",
     "err_unsupported_shell": "Shell non supportata “{shell}”. Shell supportate: {shells}",

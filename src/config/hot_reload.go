@@ -17,19 +17,24 @@ import (
 
 // restartRequiredPrefixes lists dot-notation config key prefixes that require
 // a full process restart. Other changed keys are classified as hot or graceful
-// reloads by categorizeReloadChanges. The section prefixes match AI.md PART 12.
-// server.ssl/server.database/server.tor mirror the current AppConfig YAML
-// layout; the unrooted aliases retain the spec's documented prefix forms.
+// reloads by categorizeReloadChanges. Only the TLS listener fields and database
+// settings require restart; ACME settings are read on the next issuance or renewal.
+// The unrooted aliases retain the spec's documented key forms. Tor is hot-reloaded
+// by restarting only its child process in the run callback.
 var restartRequiredPrefixes = []string{
 	"server.port",
 	"server.address",
 	"server.daemonize",
-	"ssl.",
-	"server.ssl.",
+	"ssl.enabled",
+	"ssl.cert",
+	"ssl.key",
+	"ssl.min_version",
+	"server.ssl.enabled",
+	"server.ssl.cert",
+	"server.ssl.key",
+	"server.ssl.min_version",
 	"database.",
 	"server.database.",
-	"tor.",
-	"server.tor.",
 }
 
 // ConfigManager watches server.yml and yaml.d/ for changes and applies hot-reload or

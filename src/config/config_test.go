@@ -1,8 +1,10 @@
 package config
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -1599,7 +1601,7 @@ func TestImportLegacyDatabaseSecretsInsertsBeforeRemoving(t *testing.T) {
 	if _, err := db.Exec(`CREATE TABLE app_secrets (name TEXT PRIMARY KEY, value TEXT NOT NULL)`); err != nil {
 		t.Fatal(err)
 	}
-	if err := ImportLegacyDatabaseSecrets(db, path); err != nil {
+	if err := ImportLegacyDatabaseSecrets(testLegacySecretStore{db: db}, path); err != nil {
 		t.Fatalf("ImportLegacyDatabaseSecrets: %v", err)
 	}
 	var value string
@@ -1616,6 +1618,31 @@ func TestImportLegacyDatabaseSecretsInsertsBeforeRemoving(t *testing.T) {
 	if strings.Contains(string(data), "legacy-secret") {
 		t.Fatalf("legacy secret remains in config: %s", data)
 	}
+}
+
+func TestIsRecoverableConfigParseError(t *testing.T) {
+	if !IsRecoverableConfigParseError(fmt.Errorf("failed to parse config file: malformed YAML")) {
+		t.Fatal("malformed config syntax should be recoverable")
+	}
+	for _, err := range []error{nil, os.ErrPermission, fmt.Errorf("failed to read config file: %w", os.ErrPermission), fmt.Errorf("secure config permissions: %w", os.ErrPermission)} {
+		if IsRecoverableConfigParseError(err) {
+			t.Errorf("filesystem/security error %v was classified as a parse failure", err)
+		}
+	}
+}
+
+type testLegacySecretStore struct{ db *sql.DB }
+
+func (store testLegacySecretStore) Write(ctx context.Context, fn func(*sql.Tx) error) error {
+	tx, err := store.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	if err := fn(tx); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	return tx.Commit()
 }
 
 func TestMigrateConfiguredSecretsExtractsProviderArrayCredentials(t *testing.T) {
@@ -1646,6 +1673,34 @@ func TestMigrateConfiguredSecretsExtractsProviderArrayCredentials(t *testing.T) 
 		if !strings.Contains(encoded, want) {
 			t.Errorf("secrets.yml does not contain %q: %s", want, encoded)
 		}
+	}
+}
+
+func TestMigrateConfiguredSecretsEncryptsDNSCredentialsInSameMigration(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "server.yml")
+	content := []byte(`server:
+  security:
+    encryption_key: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+  ssl:
+    letsencrypt:
+      dns_credentials:
+        CF_DNS_API_TOKEN: plaintext-dns-token
+`)
+	if err := os.WriteFile(path, content, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cleaned := migrateConfiguredSecrets(path, content)
+	if strings.Contains(string(cleaned), "dns_credentials") || strings.Contains(string(cleaned), "plaintext-dns-token") {
+		t.Fatalf("DNS credentials remained in server config: %s", cleaned)
+	}
+	secrets, err := os.ReadFile(filepath.Join(dir, "secrets.yml"))
+	if err != nil {
+		t.Fatalf("ReadFile secrets.yml: %v", err)
+	}
+	if strings.Contains(string(secrets), "plaintext-dns-token") || !strings.Contains(string(secrets), "enc:v1:") {
+		t.Fatalf("DNS credential was not encrypted in migration write: %s", secrets)
 	}
 }
 
@@ -1696,6 +1751,16 @@ func TestSaveConfigToFile_RoundTripsEncryptionKeyAndDNSCredentials(t *testing.T)
 	}
 	if strings.Contains(string(data), "plaintext-test-token") || strings.Contains(string(data), "validated_at") {
 		t.Errorf("server.yml contains plaintext credentials or a validation timestamp")
+	}
+	secretData, err := os.ReadFile(filepath.Join(filepath.Dir(path), "secrets.yml"))
+	if err != nil {
+		t.Fatalf("ReadFile secrets.yml: %v", err)
+	}
+	if strings.Contains(string(secretData), "plaintext-test-token") || !strings.Contains(string(secretData), "enc:v1:") {
+		t.Errorf("secrets.yml does not contain encrypted DNS credentials: %s", secretData)
+	}
+	if strings.Contains(string(data), "dns_credentials:") {
+		t.Errorf("server.yml contains DNS credentials instead of secrets.yml: %s", data)
 	}
 }
 
@@ -2029,15 +2094,16 @@ func TestCategorizeChanges_RestartRequired(t *testing.T) {
 		"server.port",
 		"server.address",
 		"server.ssl.enabled",
+		"server.ssl.cert",
+		"server.ssl.key",
+		"server.ssl.min_version",
 		"server.database.path",
-		"server.tor.enabled",
 		"ssl.enabled",
 		"ssl.cert",
 		"ssl.key",
 		"ssl.min_version",
 		"server.daemonize",
 		"database.path",
-		"tor.enabled",
 	}
 	for _, trigger := range restartTriggers {
 		hotReload, needsRestart := categorizeChanges([]string{trigger})
@@ -2051,17 +2117,12 @@ func TestCategorizeChanges_RestartRequired(t *testing.T) {
 }
 
 func TestCategorizeChanges_RestartRequired_WholeSectionPrefixes(t *testing.T) {
-	// AI.md PART 12's restartRequiredSettings treats ssl./database./tor. as
-	// whole-section prefixes, not just the specific subkeys in the other
-	// restart-required test above — any change within these sections must
-	// recreate the TLS listener, connection pool, or Tor child process.
+	// AI.md PART 12 requires restart only for TLS listener fields and database
+	// settings; ACME settings and TLS policy headers reload without a restart.
 	restartTriggers := []string{
 		"ssl.min_version",
-		"ssl.hsts_max_age",
 		"database.driver",
 		"database.host",
-		"tor.socks_port",
-		"tor.control_port",
 	}
 	for _, trigger := range restartTriggers {
 		hotReload, needsRestart := categorizeChanges([]string{trigger})
@@ -2081,6 +2142,11 @@ func TestCategorizeChanges_HotReloadable(t *testing.T) {
 		"web.cors",
 		"branding.title",
 		"server.branding.title",
+		"server.ssl.letsencrypt.enabled",
+		"server.ssl.letsencrypt.email",
+		"server.ssl.hsts_max_age",
+		"server.tor.enabled",
+		"server.tor.socks_port",
 	}
 	for _, key := range hotKeys {
 		hotReload, needsRestart := categorizeChanges([]string{key})

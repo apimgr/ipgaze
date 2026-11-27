@@ -2177,6 +2177,8 @@ func (c ComplianceConfig) EnabledStandards() []string {
 
 // CLIBinaryDownloadConfig controls CLI binary download authentication per AI.md PART 32.
 type CLIBinaryDownloadConfig struct {
+	// Dir contains operator-provisioned client release artifacts.
+	Dir string `yaml:"dir"`
 	// RequireAuth gates the CLI binary download endpoint behind a bearer token.
 	// Default false — CLIs are public so new users can install before obtaining a token.
 	RequireAuth bool `yaml:"require_auth"`
@@ -2474,6 +2476,7 @@ func DefaultConfig() *AppConfig {
 			},
 			CLI: CLIConfig{
 				BinaryDownload: CLIBinaryDownloadConfig{
+					Dir:         "{data_dir}/cli",
 					RequireAuth: false,
 				},
 			},
@@ -2665,6 +2668,12 @@ func LoadConfigFromFile(path string) (*AppConfig, error) {
 	warnIgnoredConnectionEnvironment(cfg)
 	current = cfg
 	return cfg, nil
+}
+
+// IsRecoverableConfigParseError reports errors caused by syntactically invalid
+// server.yml content. Filesystem and security failures must remain fatal.
+func IsRecoverableConfigParseError(err error) bool {
+	return err != nil && strings.HasPrefix(err.Error(), "failed to parse config file:")
 }
 
 func migrateLegacySecrets(configFile string, content []byte) ([]byte, error) {
@@ -3323,6 +3332,9 @@ func saveConfig(cfg *AppConfig, path string) error {
 	if err := persistConnectionURLSecrets(cfg, path); err != nil {
 		return fmt.Errorf("persist connection credentials: %w", err)
 	}
+	if err := persistDNSCredentialSecrets(cfg, path); err != nil {
+		return fmt.Errorf("persist DNS credentials: %w", err)
+	}
 	dir := filepath.Dir(path)
 	if err := ensureConfigDirectory(dir); err != nil {
 		return fmt.Errorf("prepare config directory: %w", err)
@@ -3519,7 +3531,6 @@ func removeGeneratedSecretValues(content string, original []byte) (string, error
 	if len(doc.Content) == 0 {
 		return content, nil
 	}
-	dnsCredentials := findConfigNode(doc.Content[0], "server.ssl.letsencrypt.dns_credentials")
 	stripSecretConfigNodes(doc.Content[0], "")
 	if len(original) > 0 {
 		var oldDoc yaml.Node
@@ -3528,9 +3539,6 @@ func removeGeneratedSecretValues(content string, original []byte) (string, error
 		}
 		if len(oldDoc.Content) > 0 {
 			restorePrimarySecretConfigNodes(doc.Content[0], oldDoc.Content[0], "")
-			if findConfigNode(oldDoc.Content[0], "server.ssl.letsencrypt.dns_credentials") != nil && dnsCredentials != nil {
-				setConfigNode(doc.Content[0], "server.ssl.letsencrypt.dns_credentials", dnsCredentials)
-			}
 		}
 	}
 	encoded, err := yaml.Marshal(&doc)
@@ -3679,6 +3687,42 @@ func RedactConnectionURL(raw string) string {
 	return "********"
 }
 
+func persistDNSCredentialSecrets(cfg *AppConfig, configFile string) error {
+	secretPath := filepath.Join(filepath.Dir(configFile), "secrets.yml")
+	doc := &yaml.Node{Kind: yaml.DocumentNode, Content: []*yaml.Node{{Kind: yaml.MappingNode, Tag: "!!map"}}}
+	if content, err := os.ReadFile(secretPath); err == nil {
+		if err := yaml.Unmarshal(content, doc); err != nil {
+			return fmt.Errorf("parse existing secrets file: %w", err)
+		}
+		if len(doc.Content) == 0 || doc.Content[0].Kind != yaml.MappingNode {
+			return fmt.Errorf("existing secrets file root must be a mapping")
+		}
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+	root := doc.Content[0]
+	credentials := cfg.Server.SSL.LetsEncrypt.DNSCredentials.Values
+	if len(credentials) == 0 {
+		if !removeConfigNode(root, "server.ssl.letsencrypt.dns_credentials") {
+			return nil
+		}
+	} else {
+		values := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+		for name, value := range credentials {
+			values.Content = append(values.Content,
+				&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: name},
+				&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: value},
+			)
+		}
+		setConfigNode(root, "server.ssl.letsencrypt.dns_credentials", values)
+	}
+	content, err := yaml.Marshal(doc)
+	if err != nil {
+		return fmt.Errorf("encode DNS credentials: %w", err)
+	}
+	return atomicPrivateWrite(secretPath, content)
+}
+
 func persistConnectionURLSecrets(cfg *AppConfig, configFile string) error {
 	secretPath := filepath.Join(filepath.Dir(configFile), "secrets.yml")
 	doc := &yaml.Node{Kind: yaml.DocumentNode, Content: []*yaml.Node{{Kind: yaml.MappingNode, Tag: "!!map"}}}
@@ -3775,7 +3819,7 @@ func restorePrimarySecretConfigNodes(target, source *yaml.Node, prefix string) {
 				}
 			}
 			if isSecretConfigValue(full, value) {
-				if full == "server.database.url" || full == "server.cache.url" {
+				if full == "server.ssl.letsencrypt.dns_credentials" || full == "server.database.url" || full == "server.cache.url" {
 					if destinationIndex >= 0 {
 						target.Content = append(target.Content[:destinationIndex-1], target.Content[destinationIndex+1:]...)
 					}
@@ -4503,6 +4547,7 @@ server:
 
   cli:
     binary_download:
+      dir: "%s"
       require_auth: %t
 
   # Debug-only diagnostics; every field here is inert unless --debug/DEBUG is also active
@@ -4913,6 +4958,7 @@ pages:
 		cfg.Server.Compliance.PIPEDA,
 		cfg.Server.Compliance.APPI,
 		cfg.Server.Compliance.PDPA,
+		cfg.Server.CLI.BinaryDownload.Dir,
 		cfg.Server.CLI.BinaryDownload.RequireAuth,
 		cfg.Server.Debug.Pprof,
 		cfg.Server.Debug.LogQueries,
