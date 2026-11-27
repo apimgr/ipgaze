@@ -372,7 +372,7 @@ For any value settable by flag, env var, and config file (highest wins):
 |---------|---------|
 | `server.port` / `server.address` | Listen port/address (default: random `64xxx`, `[::]`) |
 | `server.mode` | `production` (default) or `development` |
-| `server.database` | `sqlite` (default) or `libsql`/Turso |
+| `server.database` | `sqlite` (default) or `libsql`/Turso; optional local SQLite read replica for remote mode |
 | `server.geoip` | GeoIP database enable/disable, country allow/deny lists |
 | `server.rate_limit` | Per-class (read/write/health) request limits |
 | `server.cache` | `none`, `memory` (default), `valkey`, `redis`, or `memcache` |

@@ -48,6 +48,13 @@ runs as root. An encrypted `.tar.gz.enc` archive also requires its backup
 password, separate from the operator token. Incremental archives require their
 base archive alongside the uploaded archive.
 
+Archives include `app_secrets.json` with every generated database secret and
+rotation row, including when the primary database is remote. A local SQLite
+database is archived as `db/server.db`; with libSQL, that file is the optional
+local cache snapshot when `server.database.cache.enabled` is true. The remote
+database itself is never included. Restore validates and imports the secret
+rows before reporting success.
+
 ## Email Maintenance
 
 Configure SMTP under `server.notifications.email` before using email features.

@@ -773,6 +773,32 @@ server:
     token: ""
 ```
 
+For remote libSQL, the optional SQLite replica is disabled by default. Enable it
+only when a persistent local cache is useful:
+
+```yaml
+server:
+  database:
+    driver: libsql
+    url: "${DATABASE_URL}"
+    cache:
+      enabled: true
+      path: "${DATA_DIR}/db/cache.db"
+      sync_interval: 30s
+      offline_mode: true
+      max_age: 1h
+```
+
+The remote database remains authoritative. Successful remote writes refresh the
+local replica; a failed refresh bypasses the cache until synchronization
+succeeds. With `offline_mode: true`, fresh cached reads continue while writes
+are rejected during a remote outage. The cache is a separate SQLite file with
+mode `0600` in a directory with mode `0700`; it omits application secrets,
+audit records, and per-request rate-limit counters. Tables with `updated_at`
+use a watermark and reconcile deletions; other cached tables are reread in
+full on each synchronization. Reads older than `max_age` use the remote while
+it is reachable.
+
 ## Representative Example
 
 ```yaml
