@@ -58,6 +58,7 @@ type Scheduler struct {
 	tasks map[string]*Task
 	// jobs stores live gocron job handles for NextRun()/LastRun() access
 	jobs          map[string]gocron.Job
+	dbMu          sync.RWMutex
 	db            *dbstore.Store
 	timezone      *time.Location
 	CatchUpWindow time.Duration
@@ -116,6 +117,36 @@ func NewScheduler(db *dbstore.Store, cfg SchedulerRunConfig) (*Scheduler, error)
 		timezone:      loc,
 		CatchUpWindow: catchUp,
 	}, nil
+}
+
+// SetDB replaces the database connection used for persisted scheduler state.
+func (s *Scheduler) SetDB(db *dbstore.Store) {
+	s.dbMu.Lock()
+	s.db = db
+	s.dbMu.Unlock()
+	if db == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.running {
+		return
+	}
+	if err := s.loadTaskStates(); err != nil {
+		log.Printf("Scheduler: failed to load task states after database recovery: %v", err)
+	}
+	s.checkMissedTasks()
+	for _, task := range s.tasks {
+		if err := s.saveTaskState(task); err != nil {
+			log.Printf("Scheduler: failed to persist task state after database recovery: %v", err)
+		}
+	}
+}
+
+func (s *Scheduler) database() *dbstore.Store {
+	s.dbMu.RLock()
+	defer s.dbMu.RUnlock()
+	return s.db
 }
 
 // jobDefinition converts a schedule string to a gocron.JobDefinition.
@@ -190,7 +221,7 @@ func (s *Scheduler) AddTask(task *Task) error {
 	}
 
 	// Save state to database
-	if s.db != nil {
+	if s.database() != nil {
 		if err := s.saveTaskState(task); err != nil {
 			log.Printf("Scheduler: failed to save task state: %v", err)
 		}
@@ -201,7 +232,8 @@ func (s *Scheduler) AddTask(task *Task) error {
 
 // saveTaskState saves or updates task state in database
 func (s *Scheduler) saveTaskState(task *Task) error {
-	if s.db == nil {
+	db := s.database()
+	if db == nil {
 		return nil
 	}
 
@@ -215,7 +247,7 @@ ON CONFLICT(id) DO UPDATE SET
 `
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	_, err := s.db.ExecContext(ctx, query, task.ID, task.Name, task.Schedule, task.Enabled)
+	_, err := db.ExecContext(ctx, query, task.ID, task.Name, task.Schedule, task.Enabled)
 	return err
 }
 
@@ -229,7 +261,7 @@ func (s *Scheduler) Start() error {
 	}
 
 	// Load task states from database
-	if s.db != nil {
+	if s.database() != nil {
 		if err := s.loadTaskStates(); err != nil {
 			log.Printf("Scheduler: failed to load task states: %v", err)
 		}
@@ -288,7 +320,7 @@ FROM scheduler_tasks
 `
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	rows, err := s.db.QueryContext(ctx, query)
+	rows, err := s.database().QueryContext(ctx, query)
 	if err != nil {
 		return err
 	}
@@ -316,7 +348,8 @@ FROM scheduler_tasks
 
 // checkMissedTasks checks for tasks that should have run while the app was down
 func (s *Scheduler) checkMissedTasks() {
-	if s.db == nil {
+	db := s.database()
+	if db == nil {
 		return
 	}
 
@@ -329,7 +362,7 @@ WHERE enabled = 1 AND (last_run IS NULL OR last_run < ?)
 `
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	rows, err := s.db.QueryContext(ctx, query, cutoff)
+	rows, err := db.QueryContext(ctx, query, cutoff)
 	if err != nil {
 		log.Printf("Scheduler: failed to check missed tasks: %v", err)
 		return
@@ -399,7 +432,7 @@ func (s *Scheduler) runTask(task *Task) {
 		log.Printf("DEBUG scheduler task completed: %s (took %v)", task.ID, time.Since(startTime))
 	}
 
-	if s.db != nil {
+	if s.database() != nil {
 		// Update the task summary row
 		s.updateTaskRun(task.ID, status, errMsg)
 		// Append a row to scheduler_history (AI.md PART 10)
@@ -423,7 +456,7 @@ VALUES (?, ?, strftime('%s', 'now'), ?, ?, ?)
 `
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	if _, err := s.db.ExecContext(ctx, query, taskID, startedAt.Unix(), string(status), errArg, durationMs); err != nil {
+	if _, err := s.database().ExecContext(ctx, query, taskID, startedAt.Unix(), string(status), errArg, durationMs); err != nil {
 		log.Printf("Scheduler: failed to append history for task %s: %v", taskID, err)
 	}
 }
@@ -457,7 +490,7 @@ WHERE id = ?
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	if _, err := s.db.ExecContext(ctx, query, args...); err != nil {
+	if _, err := s.database().ExecContext(ctx, query, args...); err != nil {
 		log.Printf("Scheduler: failed to update task run state: %v", err)
 	}
 }
@@ -484,10 +517,10 @@ func (s *Scheduler) EnableTask(taskID string) error {
 	}
 
 	// Update database (best-effort; in-memory task state is authoritative)
-	if s.db != nil {
+	if s.database() != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		s.db.ExecContext(ctx, "UPDATE scheduler_tasks SET enabled = 1 WHERE id = ?", taskID) //nolint:errcheck
+		s.database().ExecContext(ctx, "UPDATE scheduler_tasks SET enabled = 1 WHERE id = ?", taskID) //nolint:errcheck
 	}
 
 	return nil
@@ -514,10 +547,10 @@ func (s *Scheduler) DisableTask(taskID string) error {
 	}
 
 	// Update database (best-effort; in-memory task state is authoritative)
-	if s.db != nil {
+	if s.database() != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		s.db.ExecContext(ctx, "UPDATE scheduler_tasks SET enabled = 0 WHERE id = ?", taskID) //nolint:errcheck
+		s.database().ExecContext(ctx, "UPDATE scheduler_tasks SET enabled = 0 WHERE id = ?", taskID) //nolint:errcheck
 	}
 
 	return nil
@@ -566,7 +599,7 @@ func (s *Scheduler) Status() map[string]TaskState {
 
 // GetTaskStates returns the state of all tasks from the database
 func (s *Scheduler) GetTaskStates() ([]TaskState, error) {
-	if s.db == nil {
+	if s.database() == nil {
 		return nil, nil
 	}
 
@@ -578,7 +611,7 @@ ORDER BY name
 `
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	rows, err := s.db.QueryContext(ctx, query)
+	rows, err := s.database().QueryContext(ctx, query)
 	if err != nil {
 		return nil, err
 	}

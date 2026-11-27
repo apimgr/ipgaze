@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/apimgr/ipgaze/src/config"
+	"gopkg.in/yaml.v3"
 )
 
 // maliciousTarGz builds an in-memory tar.gz with a single entry whose name
@@ -758,6 +759,102 @@ func TestBackupHeaderBKUP1AndIncrementalBase(t *testing.T) {
 	encoded[backupHeaderFixedLen] ^= 1
 	if _, err := decryptBackupArchive(encoded, "password"); err == nil {
 		t.Fatal("modified header authenticated")
+	}
+}
+
+func TestCollectBackupFilesRedactsHostSecrets(t *testing.T) {
+	root := t.TempDir()
+	configDir := filepath.Join(root, "config")
+	if err := os.MkdirAll(configDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	secretsPath := filepath.Join(configDir, "secrets.yml")
+	original := []byte("server:\n  token: operator-token-value\n  backup:\n    encryption_password: 'enc:v1:backup-password-value'\n  database:\n    token: database-token-value\n")
+	if err := os.WriteFile(secretsPath, original, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	files, err := collectBackupFiles(backupArchiveLayout{configDir: configDir})
+	if err != nil {
+		t.Fatalf("collectBackupFiles: %v", err)
+	}
+	if len(files) != 1 || files[0].Path != "config/secrets.yml" {
+		t.Fatalf("backup files = %#v, want only config/secrets.yml", files)
+	}
+	var copied map[string]any
+	if err := yaml.Unmarshal(files[0].data, &copied); err != nil {
+		t.Fatalf("parse archived secrets.yml: %v", err)
+	}
+	server := copied["server"].(map[string]any)
+	if got := server["token"]; got != "" {
+		t.Errorf("archived server.token = %#v, want blank", got)
+	}
+	backup := server["backup"].(map[string]any)
+	if got := backup["encryption_password"]; got != "" {
+		t.Errorf("archived server.backup.encryption_password = %#v, want blank", got)
+	}
+	database := server["database"].(map[string]any)
+	if got := database["token"]; got != "database-token-value" {
+		t.Errorf("archived unrelated database token = %#v, want unchanged", got)
+	}
+	if bytes.Contains(files[0].data, []byte("operator-token-value")) || bytes.Contains(files[0].data, []byte("backup-password-value")) {
+		t.Fatal("archived secrets.yml contains a redacted credential")
+	}
+	after, err := os.ReadFile(secretsPath)
+	if err != nil {
+		t.Fatalf("read source secrets.yml: %v", err)
+	}
+	if !bytes.Equal(after, original) {
+		t.Fatal("collectBackupFiles modified the source secrets.yml")
+	}
+}
+
+func TestRedactBackupSecretsAllowsDataOnlySecrets(t *testing.T) {
+	original := []byte("data:\n  cve:\n    api_key: data-only-api-key\n")
+	redacted, err := redactBackupSecrets(original)
+	if err != nil {
+		t.Fatalf("redactBackupSecrets: %v", err)
+	}
+	if !bytes.Equal(redacted, original) {
+		t.Fatalf("data-only secrets changed: got %q, want %q", redacted, original)
+	}
+}
+
+func TestRestoreBackupOperatorTokenPreservesOtherSecrets(t *testing.T) {
+	configDir := t.TempDir()
+	path := filepath.Join(configDir, "secrets.yml")
+	original := []byte("server:\n  token: \"\"\n  backup:\n    encryption_password: \"\"\n  database:\n    token: db-token\n")
+	if err := os.WriteFile(path, original, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := restoreBackupOperatorToken(configDir, "target-operator-token"); err != nil {
+		t.Fatalf("restoreBackupOperatorToken: %v", err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read restored secrets.yml: %v", err)
+	}
+	var restored map[string]any
+	if err := yaml.Unmarshal(data, &restored); err != nil {
+		t.Fatalf("parse restored secrets.yml: %v", err)
+	}
+	server := restored["server"].(map[string]any)
+	if got := server["token"]; got != "target-operator-token" {
+		t.Errorf("restored server.token = %#v, want target token", got)
+	}
+	backup := server["backup"].(map[string]any)
+	if got := backup["encryption_password"]; got != "" {
+		t.Errorf("restored backup password = %#v, want blank", got)
+	}
+	database := server["database"].(map[string]any)
+	if got := database["token"]; got != "db-token" {
+		t.Errorf("restored unrelated database token = %#v, want unchanged", got)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat restored secrets.yml: %v", err)
+	}
+	if info.Mode().Perm() != 0o600 {
+		t.Errorf("restored secrets.yml permissions = %#o, want 0600", info.Mode().Perm())
 	}
 }
 

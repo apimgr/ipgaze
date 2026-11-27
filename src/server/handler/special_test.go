@@ -87,7 +87,6 @@ func TestSecurityTxtHandlerIncludesPGPFingerprintComment(t *testing.T) {
 		t.Fatal(err)
 	}
 	h := NewSpecialHandler("https://mysite.example")
-	h.PublishPGPKey = true
 	h.PGPPublicKeyPath = keyPath
 	h.PGPFingerprint = func() string { return strings.Repeat("a", 64) }
 	w := httptest.NewRecorder()
@@ -103,7 +102,6 @@ func TestSecurityTxtHandlerOmitsInvalidPGPFingerprint(t *testing.T) {
 		t.Fatal(err)
 	}
 	h := NewSpecialHandler("https://mysite.example")
-	h.PublishPGPKey = true
 	h.PGPPublicKeyPath = keyPath
 	h.PGPFingerprint = func() string { return "invalid\nContact: mailto:attacker@example.test" }
 	w := httptest.NewRecorder()
@@ -158,19 +156,18 @@ func TestHasPGPKey(t *testing.T) {
 		t.Error("hasPGPKey with default handler = true, want false")
 	}
 
-	// Enabled but no path configured.
-	h.PublishPGPKey = true
+	// No public key path configured.
 	if h.hasPGPKey() {
 		t.Error("hasPGPKey with empty PGPPublicKeyPath = true, want false")
 	}
 
-	// Enabled with a path that doesn't exist on disk.
+	// A configured path without a keypair is not available.
 	h.PGPPublicKeyPath = "/nonexistent/path/pgp.asc"
 	if h.hasPGPKey() {
 		t.Error("hasPGPKey with nonexistent path = true, want false")
 	}
 
-	// Enabled with a path that does exist.
+	// A path with a keypair makes the endpoint available.
 	f, err := os.CreateTemp(t.TempDir(), "pgp-*.asc")
 	if err != nil {
 		t.Fatal(err)

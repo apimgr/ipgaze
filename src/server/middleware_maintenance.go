@@ -137,14 +137,48 @@ func (s *Server) maintenanceMonitorLoop() {
 // returns the reason code, the reason and the operator guidance alongside the
 // error so both the log line and the maintenance status carry actionable text.
 func (s *Server) probeCriticalSubsystems() (string, string, string, error) {
-	if s.sqlDB != nil {
+	db := s.database()
+	var databaseErr error
+	if db != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		err := s.sqlDB.PingContext(ctx)
+		databaseErr = db.PingContext(ctx)
+		cancel()
+	} else if s.HealthHandler != nil && s.HealthHandler.DBRequired {
+		databaseErr = errors.New("required database is unavailable")
+	}
+	if databaseErr != nil {
+		s.dbMu.RLock()
+		recoverDatabase := s.databaseRecovery
+		s.dbMu.RUnlock()
+		if recoverDatabase == nil {
+			return maintenanceCodeDatabase,
+				"database connection is unavailable: " + databaseErr.Error(),
+				"Verify database connectivity; the server will retry the connection automatically.",
+				databaseErr
+		}
+		recovered, err := recoverDatabase()
+		if err != nil || recovered == nil {
+			if err == nil {
+				err = errors.New("database recovery returned no connection")
+			}
+			return maintenanceCodeDatabase,
+				"database connection is unavailable: " + err.Error(),
+				"Verify database connectivity; the server will retry the connection automatically.",
+				err
+		}
+		oldDB := db
+		s.SetDB(recovered)
+		db = recovered
+		if oldDB != nil && oldDB != recovered {
+			_ = oldDB.Close()
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		err = db.PingContext(ctx)
 		cancel()
 		if err != nil {
 			return maintenanceCodeDatabase,
-				"database connection failed: " + err.Error(),
-				"Verify the database is reachable and that server.yml's database credentials are correct.",
+				"database connection failed after recovery: " + err.Error(),
+				"Verify database connectivity; the server will retry the connection automatically.",
 				err
 		}
 	}

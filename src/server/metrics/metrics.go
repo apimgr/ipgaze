@@ -109,8 +109,17 @@ func StartDBStatsUpdater(db interface{ Stats() sql.DBStats }, stop <-chan struct
 	if db == nil {
 		return
 	}
+	StartDBStatsProvider(db.Stats, stop)
+}
+
+// StartDBStatsProvider periodically exports pool stats from the current DB.
+// The provider can follow database reconnections without spawning more updaters.
+func StartDBStatsProvider(provider func() sql.DBStats, stop <-chan struct{}) {
+	if provider == nil {
+		return
+	}
 	update := func() {
-		stats := db.Stats()
+		stats := provider()
 		DBConnectionsOpen.Set(float64(stats.OpenConnections))
 		DBConnectionsInUse.Set(float64(stats.InUse))
 	}

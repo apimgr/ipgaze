@@ -13,6 +13,22 @@ import (
 	"github.com/apimgr/ipgaze/src/client/setup"
 )
 
+func TestClientShellCompletionRejectsPOSIXShells(t *testing.T) {
+	for _, shell := range []string{"sh", "dash", "ksh"} {
+		if code := printClientCompletions(shell, "ipgaze-cli", "en"); code != 2 {
+			t.Errorf("printClientCompletions(%q) = %d, want exit code 2", shell, code)
+		}
+	}
+}
+
+func TestClientShellInitIsHarmlessForPOSIXShells(t *testing.T) {
+	for _, shell := range []string{"sh", "dash", "ksh"} {
+		if code := printClientInit(shell, "ipgaze-cli", "en"); code != exitSuccess {
+			t.Errorf("printClientInit(%q) = %d, want exit code %d", shell, code, exitSuccess)
+		}
+	}
+}
+
 func TestPersistCLIFlags_NilConfig_NoPanic(t *testing.T) {
 	persistCLIFlags(nil, "https://example.com", "tok", paths.ConfigFile())
 }

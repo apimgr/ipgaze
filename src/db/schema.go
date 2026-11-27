@@ -311,17 +311,17 @@ func EnsureSchema(store *Store) error {
 func EnsureSchemaContext(ctx context.Context, store *Store) error {
 	return store.Write(ctx, func(tx *sql.Tx) error {
 		if err := renameCanonicalSchedulerColumns(ctx, tx); err != nil {
-			return fmt.Errorf("db: rename scheduler columns: %w", err)
+			return fmt.Errorf("db: scheduler_tasks/scheduler_history migration: %w", err)
 		}
 		if err := upgradeAPITokensSchema(ctx, tx); err != nil {
-			return fmt.Errorf("db: upgrade API tokens schema: %w", err)
+			return fmt.Errorf("db: api_tokens migration: %w", err)
 		}
 		if err := upgradeSecurityReportsSchema(ctx, tx); err != nil {
-			return fmt.Errorf("db: upgrade security reports schema: %w", err)
+			return fmt.Errorf("db: security_reports migration: %w", err)
 		}
 		for _, stmt := range createStatements {
 			if _, err := tx.ExecContext(ctx, stmt); err != nil {
-				return fmt.Errorf("db: create schema: %w", err)
+				return fmt.Errorf("db: migration statement %q failed: %w", stmt, err)
 			}
 		}
 		for _, stmt := range schemaUpdates {
@@ -329,7 +329,7 @@ func EnsureSchemaContext(ctx context.Context, store *Store) error {
 				if isAlreadyExistsError(err) {
 					continue
 				}
-				return fmt.Errorf("db: schema update: %w", err)
+				return fmt.Errorf("db: migration statement %q failed: %w", stmt, err)
 			}
 		}
 		if _, err := tx.ExecContext(ctx, `INSERT INTO owners(id) VALUES('system') ON CONFLICT(id) DO NOTHING`); err != nil {
@@ -372,8 +372,9 @@ func renameCanonicalSchedulerColumns(ctx context.Context, tx *sql.Tx) error {
 		}
 		for _, rename := range table.renames {
 			if columns[rename[0]] && !columns[rename[1]] {
-				if _, err := tx.ExecContext(ctx, `ALTER TABLE `+table.name+` RENAME COLUMN `+rename[0]+` TO `+rename[1]); err != nil {
-					return fmt.Errorf("rename %s.%s to %s: %w", table.name, rename[0], rename[1], err)
+				statement := `ALTER TABLE ` + table.name + ` RENAME COLUMN ` + rename[0] + ` TO ` + rename[1]
+				if _, err := tx.ExecContext(ctx, statement); err != nil {
+					return fmt.Errorf("db: migration statement %q failed: %w", statement, err)
 				}
 				delete(columns, rename[0])
 				columns[rename[1]] = true
@@ -383,8 +384,9 @@ func renameCanonicalSchedulerColumns(ctx context.Context, tx *sql.Tx) error {
 			if columns[name] {
 				continue
 			}
-			if _, err := tx.ExecContext(ctx, `ALTER TABLE `+table.name+` ADD COLUMN `+name+` `+declaration); err != nil {
-				return fmt.Errorf("add %s.%s: %w", table.name, name, err)
+			statement := `ALTER TABLE ` + table.name + ` ADD COLUMN ` + name + ` ` + declaration
+			if _, err := tx.ExecContext(ctx, statement); err != nil {
+				return fmt.Errorf("db: migration statement %q failed: %w", statement, err)
 			}
 		}
 	}
@@ -467,8 +469,9 @@ func upgradeAPITokensSchema(ctx context.Context, db *sql.Tx) error {
 		if columns[addition.name] {
 			continue
 		}
-		if _, err := db.ExecContext(ctx, `ALTER TABLE api_tokens ADD COLUMN `+addition.name+` `+addition.definition); err != nil && !isAlreadyExistsError(err) {
-			return err
+		statement := `ALTER TABLE api_tokens ADD COLUMN ` + addition.name + ` ` + addition.definition
+		if _, err := db.ExecContext(ctx, statement); err != nil && !isAlreadyExistsError(err) {
+			return fmt.Errorf("db: migration statement %q failed: %w", statement, err)
 		}
 	}
 	return nil
@@ -518,20 +521,23 @@ func upgradeSecurityReportsSchema(ctx context.Context, db *sql.Tx) error {
 		if columns[addition.name] {
 			continue
 		}
-		if _, err := db.ExecContext(ctx, `ALTER TABLE security_reports ADD COLUMN `+addition.name+` `+addition.definition); err != nil && !isAlreadyExistsError(err) {
-			return err
+		statement := `ALTER TABLE security_reports ADD COLUMN ` + addition.name + ` ` + addition.definition
+		if _, err := db.ExecContext(ctx, statement); err != nil && !isAlreadyExistsError(err) {
+			return fmt.Errorf("db: migration statement %q failed: %w", statement, err)
 		}
 	}
 	for target, source := range map[string]string{"body_enc": "encrypted_body", "component": "affected_component", "researcher_comment": "maintainer_comment", "token_hash": "access_token_hash", "token_last_used": "last_access_day"} {
 		if !columns[target] && columns[source] {
-			if _, err := db.ExecContext(ctx, `UPDATE security_reports SET `+target+` = `+source+` WHERE `+source+` IS NOT NULL`); err != nil {
-				return err
+			statement := `UPDATE security_reports SET ` + target + ` = ` + source + ` WHERE ` + source + ` IS NOT NULL`
+			if _, err := db.ExecContext(ctx, statement); err != nil {
+				return fmt.Errorf("db: migration statement %q failed: %w", statement, err)
 			}
 		}
 	}
 	if !columns["body_alg"] && columns["encryption"] {
-		if _, err := db.ExecContext(ctx, `UPDATE security_reports SET body_alg = encryption WHERE encryption IS NOT NULL`); err != nil {
-			return err
+		statement := `UPDATE security_reports SET body_alg = encryption WHERE encryption IS NOT NULL`
+		if _, err := db.ExecContext(ctx, statement); err != nil {
+			return fmt.Errorf("db: migration statement %q failed: %w", statement, err)
 		}
 	}
 	return nil

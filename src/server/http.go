@@ -99,7 +99,9 @@ type Server struct {
 	// sched holds the scheduler for /debug/scheduler status.
 	sched *scheduler.Scheduler
 	// sqlDB holds the database connection for /debug/db stats.
+	dbMu               sync.RWMutex
 	sqlDB              *dbstore.Store
+	databaseRecovery   func() (*dbstore.Store, error)
 	PagesHandler       *handler.PagesHandler
 	SpecialHandler     *handler.SpecialHandler
 	HealthHandler      *handler.HealthHandler
@@ -379,7 +381,8 @@ func (s *Server) ValidateAPIToken(rawToken string) bool {
 	if s.ValidateOperatorToken(rawToken) {
 		return true
 	}
-	if s.sqlDB == nil || len(rawToken) != len("own_")+32 || !strings.HasPrefix(rawToken, "own_") {
+	db := s.database()
+	if db == nil || len(rawToken) != len("own_")+32 || !strings.HasPrefix(rawToken, "own_") {
 		return false
 	}
 	for _, char := range rawToken[len("own_"):] {
@@ -394,17 +397,18 @@ func (s *Server) ValidateAPIToken(rawToken string) bool {
 	if !ok {
 		return false
 	}
-	s.sqlDB.MarkOwnerUsage(tokenID, ownerID, time.Now())
+	db.MarkOwnerUsage(tokenID, ownerID, time.Now())
 	return true
 }
 
 // findOwnerToken resolves an active owner token by its non-secret prefix, then
 // compares the stored SHA-256 digest to the inbound digest in constant time.
 func (s *Server) findOwnerToken(rawToken string) (tokenID string, ownerID string, ok bool) {
-	if s.sqlDB == nil || len(rawToken) != len("own_")+32 || !strings.HasPrefix(rawToken, "own_") {
+	db := s.database()
+	if db == nil || len(rawToken) != len("own_")+32 || !strings.HasPrefix(rawToken, "own_") {
 		return "", "", false
 	}
-	rows, err := s.sqlDB.Query(`SELECT id, owner_id, token_hash FROM api_tokens WHERE token_prefix = ? AND owner_id <> 'system' AND revoked_at IS NULL
+	rows, err := db.Query(`SELECT id, owner_id, token_hash FROM api_tokens WHERE token_prefix = ? AND owner_id <> 'system' AND revoked_at IS NULL
 		AND (expires_at IS NULL OR expires_at > strftime('%s', 'now'))`, rawToken[:12])
 	if err != nil {
 		return "", "", false
@@ -473,13 +477,13 @@ func (s *Server) SetRateLimiter(rl *RateLimiter) {
 		if counter, ok := s.cacheBackend.(rateLimitWindowCounter); ok && counter.SupportsRateLimitWindow() {
 			rl.SetWindowCounter(counter)
 		}
-		rl.SetDB(s.sqlDB)
+		rl.SetDB(s.database())
 		rl.SetTokenIdentityResolver(func(rawToken string, strict bool) (string, bool) {
 			if s.ValidateOperatorToken(rawToken) {
 				hash := sha256.Sum256([]byte(rawToken))
 				return "token:" + hex.EncodeToString(hash[:]), true
 			}
-			if s.sqlDB == nil {
+			if s.database() == nil {
 				return "", false
 			}
 			hash := sha256.Sum256([]byte(rawToken))
@@ -529,10 +533,37 @@ func (s *Server) SetScheduler(sched *scheduler.Scheduler) {
 
 // SetDB attaches the SQL database connection for /debug/db stats endpoint.
 func (s *Server) SetDB(db *dbstore.Store) {
+	s.handlerMu.Lock()
+	s.dbMu.Lock()
 	s.sqlDB = db
+	s.dbMu.Unlock()
+	if s.HealthHandler != nil {
+		s.HealthHandler.DB = db
+	}
+	if s.PagesHandler != nil {
+		s.PagesHandler.DB = db
+	}
 	if s.rateLimiter != nil {
 		s.rateLimiter.SetDB(db)
 	}
+	if s.activeHandler != nil {
+		s.activeHandler = s.buildHandler()
+	}
+	s.handlerMu.Unlock()
+}
+
+func (s *Server) database() *dbstore.Store {
+	s.dbMu.RLock()
+	defer s.dbMu.RUnlock()
+	return s.sqlDB
+}
+
+// SetDatabaseRecovery installs the startup connection retry used by the
+// maintenance monitor when the database could not be initialized.
+func (s *Server) SetDatabaseRecovery(recover func() (*dbstore.Store, error)) {
+	s.dbMu.Lock()
+	s.databaseRecovery = recover
+	s.dbMu.Unlock()
 }
 
 // SetCacheBackend attaches the configured cache for the health probe and, when
@@ -1122,7 +1153,7 @@ func (s *Server) buildHandler() http.Handler {
 		rateLimiterAlertCallback = s.rateLimiter.OnBlocked
 	}
 	policy := AbusePolicyFromConfig(s.config, limits)
-	r.Use(AbuseMiddleware(s.sqlDB, policy, s.getTrust(), s.allowlistLookup, s.logManager, rateLimiterAlertCallback))
+	r.Use(AbuseMiddleware(s.database(), policy, s.getTrust(), s.allowlistLookup, s.logManager, rateLimiterAlertCallback))
 	r.Use(BlocklistMiddleware(s.blocklistLookup, s.logManager, maxBody))
 	if s.rateLimiter != nil {
 		r.Use(RateLimitMiddleware(s.rateLimiter))
@@ -1169,7 +1200,7 @@ func (s *Server) buildHandler() http.Handler {
 		s.SpecialHandler.ContactFormDisabled = !s.config.Pages.Contact.Enabled
 	}
 	// Wire the PGP keypair (AI.md PART 11 "GPG Keypair Management") into SpecialHandler
-	// so SecurityTxtHandler can emit the Encryption: line and PGPKeyHandler can serve the key.
+	// so SecurityTxtHandler and PGPKeyHandler can serve it while the keypair exists.
 	if s.config != nil {
 		site := strings.TrimSpace(s.config.Server.BaseURL)
 		if site == "" && strings.TrimSpace(s.config.Server.FQDN) != "" {
@@ -1180,15 +1211,15 @@ func (s *Server) buildHandler() http.Handler {
 		}
 		s.SpecialHandler.SecurityContact = config.ResolveContactRole(s.config, "security").Email
 		s.SpecialHandler.SecurityReportURL = "https://github.com/apimgr/ipgaze/security/advisories/new"
-		s.SpecialHandler.PublishPGPKey = s.config.Web.Security.PublishPGPKey
 		s.SpecialHandler.PGPPublicKeyPath = filepath.Join(s.ConfigDir, "security", "pgp.pub.asc")
 	}
-	if s.sqlDB != nil {
+	db := s.database()
+	if db != nil {
 		s.SpecialHandler.SecurityID = func() (string, error) {
-			return security.CurrentSecurityID(s.sqlDB, time.Now())
+			return security.CurrentSecurityID(db, time.Now())
 		}
 		s.SpecialHandler.PGPFingerprint = func() string {
-			record, err := pgp.ActiveRecord(s.sqlDB)
+			record, err := pgp.ActiveRecord(db)
 			if err != nil || record == nil {
 				return ""
 			}
@@ -1220,7 +1251,7 @@ func (s *Server) buildHandler() http.Handler {
 		}
 	}
 	// Wire live subsystem probes for /server/healthz checks/stats (AI.md PART 13).
-	s.HealthHandler.DB = s.sqlDB
+	s.HealthHandler.DB = s.database()
 	s.HealthHandler.TorStatus = s.TorStatus
 	s.HealthHandler.I2PStatus = s.I2PStatus
 	if s.sched != nil {
@@ -1285,7 +1316,7 @@ func (s *Server) buildHandler() http.Handler {
 	s.PagesHandler.TorStatus = s.TorStatus
 	s.PagesHandler.I2PStatus = s.I2PStatus
 	s.PagesHandler.EmailMgr = s.emailMgr
-	s.PagesHandler.DB = s.sqlDB
+	s.PagesHandler.DB = s.database()
 	s.PagesHandler.CommitID = s.CommitID
 	if s.ConfigDir != "" {
 		s.PagesHandler.PGPPublicKeyPath = filepath.Join(s.ConfigDir, "security", "pgp.pub.asc")

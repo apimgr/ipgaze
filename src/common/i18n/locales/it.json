@@ -718,7 +718,8 @@
     "email_audit_failed": "Impossibile aprire il registro di audit: {error}",
     "email_send_failed": "Invio dell’email di test non riuscito: {error}",
     "email_preview_template": "Modello: {name}",
-    "email_preview_subject": "Oggetto: {subject}"
+    "email_preview_subject": "Oggetto: {subject}",
+    "error_no_completion_shell": "{shell} non supporta il completamento programmabile"
   },
   "accessibility": {
     "skip_to_content": "Vai al contenuto",

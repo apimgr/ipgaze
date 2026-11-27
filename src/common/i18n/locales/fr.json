@@ -712,7 +712,8 @@
     "email_audit_failed": "Impossible d’ouvrir le journal d’audit : {error}",
     "email_send_failed": "Échec de l’envoi de l’e-mail de test : {error}",
     "email_preview_template": "Modèle : {name}",
-    "email_preview_subject": "Objet : {subject}"
+    "email_preview_subject": "Objet : {subject}",
+    "error_no_completion_shell": "{shell} ne prend pas en charge la complétion programmable"
   },
   "accessibility": {
     "skip_to_content": "Aller au contenu",

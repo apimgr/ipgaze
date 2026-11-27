@@ -280,14 +280,12 @@ func runMain(ctx context.Context, runtimeCfg *Config) error {
 		return nil
 	}
 
+	// Resolve output language before commands that can print translated errors.
+	lang := getLanguage(*langFlag)
 	// Handle --shell command
 	if *shellCmd != "" {
-		handleShellCommand(*shellCmd, binaryName)
-		return nil
+		return handleShellCommand(*shellCmd, binaryName, lang)
 	}
-
-	// Resolve output language per AI.md PART 30 priority chain
-	lang := getLanguage(*langFlag)
 
 	// Handle --daemon flag: daemonize before any further setup so the child
 	// inherits a clean environment. svc.Daemonize returns nil for the child
@@ -816,6 +814,30 @@ func runMain(ctx context.Context, runtimeCfg *Config) error {
 	// Open server.db per AI.md PART 10: scheduler state persists across restarts.
 	// Driver is selected from config: sqlite (default) or libsql/turso (remote).
 	var serverDB *db.Store
+	var activeServerDB atomic.Pointer[db.Store]
+	defer func() {
+		if active := activeServerDB.Load(); active != nil {
+			if err := active.Close(); err != nil {
+				log.Printf("Warning: close server database: %v", err)
+			}
+		}
+	}()
+	var startupDatabaseErr error
+	markStartupDatabaseFailure := func(err error) {
+		if err == nil {
+			return
+		}
+		if startupDatabaseErr == nil {
+			startupDatabaseErr = err
+		}
+		if serverDB != nil {
+			if closeErr := serverDB.Close(); closeErr != nil {
+				log.Printf("Warning: close unavailable startup database: %v", closeErr)
+			}
+			serverDB = nil
+		}
+		activeServerDB.Store(nil)
+	}
 	dbDriver := cfg.Server.Database.NormalizedDriver()
 	dbCfg := cfg.Server.Database
 	if dbDriver == "libsql" {
@@ -831,50 +853,45 @@ func runMain(ctx context.Context, runtimeCfg *Config) error {
 	// dirs.DB (not dataDir) is authoritative per PART 4/12: it honors the
 	// independently-relocatable DATABASE_DIR env var.
 	if dbConn, dbErr := db.NewDB(&dbCfg, dirs.DB); dbErr != nil {
-		log.Printf("Warning: Failed to open %s database: %v", dbDriver, dbErr)
+		markStartupDatabaseFailure(fmt.Errorf("open %s database: %w", dbDriver, dbErr))
 	} else {
 		serverDB = dbConn
+		activeServerDB.Store(dbConn)
 		if err := db.RequireCanonicalAPITokenIDs(serverDB); err != nil {
-			_ = serverDB.Close()
-			return fmt.Errorf("database requires one-time API token ID adoption: %w", err)
+			markStartupDatabaseFailure(fmt.Errorf("database requires one-time API token ID adoption: %w", err))
 		}
-		defer func() {
-			if err := serverDB.Close(); err != nil {
-				log.Printf("Warning: close server database: %v", err)
-			}
-		}()
 	}
 	if serverDB != nil {
 		if err := config.ImportLegacyDatabaseSecrets(serverDB, configPath); err != nil {
-			log.Printf("Failed to import legacy database secrets: %v", err)
-			return fmt.Errorf("import legacy database secrets: %w", err)
-		}
-		creditKey, keyErr := base64.StdEncoding.DecodeString(cfg.Server.Security.EncryptionKey)
-		if keyErr != nil || len(creditKey) != 32 {
-			log.Printf("Failed to initialize researcher-credit encryption key")
-			return fmt.Errorf("initialize researcher-credit encryption key: invalid configured key")
-		}
-		if err := security.EncryptLegacySecurityCredits(serverDB, creditKey); err != nil {
-			log.Printf("Failed to encrypt stored researcher credits: %v", err)
-			return fmt.Errorf("encrypt stored researcher credits: %w", err)
-		}
-		for _, secretName := range []security.SecretName{security.SecretInstallationSecret, security.SecretCookieSigningKey, security.SecretCSRFTokenSecret} {
-			if _, secretErr := security.GetOrCreateSecret(serverDB, secretName); secretErr != nil {
-				log.Printf("Failed to initialize %s: %v", secretName, secretErr)
-				return fmt.Errorf("initialize %s: %w", secretName, secretErr)
+			markStartupDatabaseFailure(fmt.Errorf("import legacy database secrets: %w", err))
+		} else {
+			creditKey, keyErr := base64.StdEncoding.DecodeString(cfg.Server.Security.EncryptionKey)
+			if keyErr != nil || len(creditKey) != 32 {
+				markStartupDatabaseFailure(errors.New("initialize researcher-credit encryption key: invalid configured key"))
+			} else if err := security.EncryptLegacySecurityCredits(serverDB, creditKey); err != nil {
+				markStartupDatabaseFailure(fmt.Errorf("encrypt stored researcher credits: %w", err))
+			} else {
+				for _, secretName := range []security.SecretName{security.SecretInstallationSecret, security.SecretCookieSigningKey, security.SecretCSRFTokenSecret} {
+					if _, secretErr := security.GetOrCreateSecret(serverDB, secretName); secretErr != nil {
+						markStartupDatabaseFailure(fmt.Errorf("initialize %s: %w", secretName, secretErr))
+						break
+					}
+				}
 			}
 		}
-		for _, rotation := range []struct {
-			name     security.SecretName
-			lifetime time.Duration
-		}{{security.SecretCookieSigningKey, 90 * 24 * time.Hour}, {security.SecretCSRFTokenSecret, 180 * 24 * time.Hour}} {
-			rotated, rotationErr := security.RotateSecretIfDue(serverDB, rotation.name, rotation.lifetime, time.Now())
-			if rotationErr != nil {
-				log.Printf("Failed to check automatic secret rotation for %s: %v", rotation.name, rotationErr)
-				return fmt.Errorf("check automatic secret rotation for %s: %w", rotation.name, rotationErr)
-			}
-			if rotated {
-				log.Printf("Automatically rotated %s", rotation.name)
+		if serverDB != nil {
+			for _, rotation := range []struct {
+				name     security.SecretName
+				lifetime time.Duration
+			}{{security.SecretCookieSigningKey, 90 * 24 * time.Hour}, {security.SecretCSRFTokenSecret, 180 * 24 * time.Hour}} {
+				rotated, rotationErr := security.RotateSecretIfDue(serverDB, rotation.name, rotation.lifetime, time.Now())
+				if rotationErr != nil {
+					markStartupDatabaseFailure(fmt.Errorf("check automatic secret rotation for %s: %w", rotation.name, rotationErr))
+					break
+				}
+				if rotated {
+					log.Printf("Automatically rotated %s", rotation.name)
+				}
 			}
 		}
 	}
@@ -916,11 +933,12 @@ func runMain(ctx context.Context, runtimeCfg *Config) error {
 			DNSCredentials: cfg.Server.SSL.LetsEncrypt.DNSCredentials.Values,
 		},
 		OnDNSCertificateIssued: func(issuedAt string) {
-			if serverDB == nil {
+			dbConn := activeServerDB.Load()
+			if dbConn == nil {
 				log.Printf("Warning: cannot store DNS certificate issuance timestamp because server.db is unavailable")
 				return
 			}
-			if _, err := serverDB.Exec(`INSERT INTO app_secrets (name, value) VALUES ('dns_validated_at', ?) ON CONFLICT(name) DO UPDATE SET value = excluded.value`, issuedAt); err != nil {
+			if _, err := dbConn.Exec(`INSERT INTO app_secrets (name, value) VALUES ('dns_validated_at', ?) ON CONFLICT(name) DO UPDATE SET value = excluded.value`, issuedAt); err != nil {
 				log.Printf("Warning: failed to store DNS certificate issuance timestamp: %v", err)
 			}
 		},
@@ -1127,7 +1145,7 @@ func runMain(ctx context.Context, runtimeCfg *Config) error {
 				if currentCfg == nil {
 					currentCfg = cfg
 				}
-				return cleanupSecurityData(context.Background(), serverDB, configDir, currentCfg.Server.Security.Reports.RetentionDays, time.Now())
+				return cleanupSecurityData(context.Background(), activeServerDB.Load(), configDir, currentCfg.Server.Security.Reports.RetentionDays, time.Now())
 			},
 		}); err != nil {
 			log.Printf("Warning: Failed to add security_cleanup task: %v", err)
@@ -1576,6 +1594,17 @@ func runMain(ctx context.Context, runtimeCfg *Config) error {
 	// Initialize metrics per AI.md PART 20
 	// ctx is declared below for graceful shutdown; use a local stop channel here.
 	metricsStop := make(chan struct{})
+	var dbStatsUpdaterOnce sync.Once
+	startDBStatsUpdater := func() {
+		dbStatsUpdaterOnce.Do(func() {
+			smetrics.StartDBStatsProvider(func() sql.DBStats {
+				if dbConn := activeServerDB.Load(); dbConn != nil {
+					return dbConn.Stats()
+				}
+				return sql.DBStats{}
+			}, metricsStop)
+		})
+	}
 	if cfg.Server.Metrics.Enabled {
 		if cfg.Server.Metrics.IncludeSystem {
 			smetrics.RegisterSystemMetrics()
@@ -1592,9 +1621,7 @@ func runMain(ctx context.Context, runtimeCfg *Config) error {
 			rc.Start()
 			defer rc.Stop()
 		}
-		if serverDB != nil {
-			smetrics.StartDBStatsUpdater(serverDB, metricsStop)
-		}
+		startDBStatsUpdater()
 		smetrics.StartUptimeUpdater(metricsStop)
 	}
 
@@ -1637,12 +1664,13 @@ func runMain(ctx context.Context, runtimeCfg *Config) error {
 			Schedule: scheduleFor("@every 15m", cfg.Server.Schedule.Tasks.TokenCleanup),
 			Enabled:  enabledFor(true, cfg.Server.Schedule.Tasks.TokenCleanup),
 			Fn: func() error {
-				if serverDB == nil {
+				dbConn := activeServerDB.Load()
+				if dbConn == nil {
 					return nil
 				}
 				cleanupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 				defer cancel()
-				if err := deleteInBatches(cleanupCtx, serverDB, `DELETE FROM captcha_challenges WHERE id IN (SELECT id FROM captcha_challenges WHERE expires_at <= ? LIMIT 500)`, time.Now().Unix()); err != nil {
+				if err := deleteInBatches(cleanupCtx, dbConn, `DELETE FROM captcha_challenges WHERE id IN (SELECT id FROM captcha_challenges WHERE expires_at <= ? LIMIT 500)`, time.Now().Unix()); err != nil {
 					return err
 				}
 				days := cfg.Server.Tokens.IdlePurgeDays
@@ -1650,7 +1678,7 @@ func runMain(ctx context.Context, runtimeCfg *Config) error {
 					return nil
 				}
 				cutoff := time.Now().Add(-time.Duration(days) * 24 * time.Hour).Unix()
-				return deleteInBatches(cleanupCtx, serverDB, `DELETE FROM owners WHERE id IN (SELECT id FROM owners WHERE id <> 'system' AND last_seen_at < ? LIMIT 500)`, cutoff)
+				return deleteInBatches(cleanupCtx, dbConn, `DELETE FROM owners WHERE id IN (SELECT id FROM owners WHERE id <> 'system' AND last_seen_at < ? LIMIT 500)`, cutoff)
 			},
 		}); err != nil {
 			log.Printf("Warning: Failed to add token_cleanup task: %v", err)
@@ -1662,14 +1690,15 @@ func runMain(ctx context.Context, runtimeCfg *Config) error {
 		if err := sched.AddTask(&scheduler.Task{
 			ID: "database_check", Name: "Database Connection Check", Schedule: "@every 1m", Enabled: true,
 			Fn: func() error {
-				if serverDB == nil {
+				dbConn := activeServerDB.Load()
+				if dbConn == nil {
 					return nil
 				}
 				probeCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-				err := serverDB.PingContext(probeCtx)
+				err := dbConn.PingContext(probeCtx)
 				if err == nil {
 					var one int
-					err = serverDB.QueryRowContext(probeCtx, "SELECT 1").Scan(&one)
+					err = dbConn.QueryRowContext(probeCtx, "SELECT 1").Scan(&one)
 				}
 				cancel()
 				now := time.Now()
@@ -1769,10 +1798,11 @@ func runMain(ctx context.Context, runtimeCfg *Config) error {
 		if err := sched.AddTask(&scheduler.Task{
 			ID: "keyserver_retry", Name: "PGP Keyserver Retry", Schedule: "@every 15m", Enabled: true,
 			Fn: func() error {
-				if serverDB == nil || !cfg.Web.Security.PublishPGPKey || len(cfg.Web.Security.Keyservers) == 0 {
+				dbConn := activeServerDB.Load()
+				if dbConn == nil || len(cfg.Web.Security.Keyservers) == 0 {
 					return nil
 				}
-				record, err := pgp.ActiveRecord(serverDB)
+				record, err := pgp.ActiveRecord(dbConn)
 				if err != nil || record == nil {
 					return err
 				}
@@ -1798,12 +1828,12 @@ func runMain(ctx context.Context, runtimeCfg *Config) error {
 						}
 						continue
 					}
-					results := pgp.Publish(serverDB, record.Fingerprint, publicKey, []string{host})
+					results := pgp.Publish(dbConn, record.Fingerprint, publicKey, []string{host})
 					if len(results) == 0 || results[0].Err == nil {
 						if err := pgp.ClearKeyserverRetry(configDir, record.Fingerprint, host); err != nil {
 							return err
 						}
-						if updated, updateErr := pgp.ActiveRecord(serverDB); updateErr == nil && updated != nil {
+						if updated, updateErr := pgp.ActiveRecord(dbConn); updateErr == nil && updated != nil {
 							if err := pgp.WriteKeyserversState(configDir, updated.Fingerprint, updated.KeyserversPublished); err != nil {
 								return err
 							}
@@ -1991,6 +2021,65 @@ func runMain(ctx context.Context, runtimeCfg *Config) error {
 	// into the HTTP server and emit the startup audit event.
 	if logMgr != nil {
 		srv.SetLogManager(logMgr)
+	}
+	srv.SetDatabaseRecovery(func() (*db.Store, error) {
+		recovered, recoverErr := db.NewDB(&dbCfg, dirs.DB)
+		if recoverErr != nil {
+			return nil, fmt.Errorf("reopen %s database: %w", dbDriver, recoverErr)
+		}
+		closeOnError := true
+		defer func() {
+			if closeOnError {
+				_ = recovered.Close()
+			}
+		}()
+		if err := db.RequireCanonicalAPITokenIDs(recovered); err != nil {
+			return nil, fmt.Errorf("adopt canonical API token IDs: %w", err)
+		}
+		if err := config.ImportLegacyDatabaseSecrets(recovered, configPath); err != nil {
+			return nil, fmt.Errorf("import legacy database secrets: %w", err)
+		}
+		creditKey, err := base64.StdEncoding.DecodeString(cfg.Server.Security.EncryptionKey)
+		if err != nil || len(creditKey) != 32 {
+			return nil, errors.New("initialize researcher-credit encryption key: invalid configured key")
+		}
+		if err := security.EncryptLegacySecurityCredits(recovered, creditKey); err != nil {
+			return nil, fmt.Errorf("encrypt stored researcher credits: %w", err)
+		}
+		for _, secretName := range []security.SecretName{security.SecretInstallationSecret, security.SecretCookieSigningKey, security.SecretCSRFTokenSecret} {
+			if _, err := security.GetOrCreateSecret(recovered, secretName); err != nil {
+				return nil, fmt.Errorf("initialize %s: %w", secretName, err)
+			}
+		}
+		for _, rotation := range []struct {
+			name     security.SecretName
+			lifetime time.Duration
+		}{{security.SecretCookieSigningKey, 90 * 24 * time.Hour}, {security.SecretCSRFTokenSecret, 180 * 24 * time.Hour}} {
+			if _, err := security.RotateSecretIfDue(recovered, rotation.name, rotation.lifetime, time.Now()); err != nil {
+				return nil, fmt.Errorf("check automatic secret rotation for %s: %w", rotation.name, err)
+			}
+		}
+		if err := syncDNSCredentialState(recovered, cfg); err != nil {
+			return nil, fmt.Errorf("synchronize DNS credential state: %w", err)
+		}
+		activeServerDB.Store(recovered)
+		if sched != nil {
+			sched.SetDB(recovered)
+		}
+		if cfg.Server.Metrics.Enabled {
+			startDBStatsUpdater()
+		}
+		closeOnError = false
+		return recovered, nil
+	})
+	if startupDatabaseErr != nil {
+		srv.EnterMaintenance(
+			"database_connection",
+			"database initialization failed: "+startupDatabaseErr.Error(),
+			"Verify database availability and permissions; the server will retry the connection automatically.",
+		)
+	}
+	if logMgr != nil {
 		logMgr.WriteAuditEvent("", "server.started", "server", "info", "success", "", map[string]any{
 			"version": Version,
 			"commit":  CommitID,
@@ -2788,7 +2877,7 @@ func validateLang(lang string) string {
 }
 
 // handleShellCommand handles --shell completions/init commands
-func handleShellCommand(cmd, binaryName string) {
+func handleShellCommand(cmd, binaryName, lang string) error {
 	args := flag.Args()
 	shell := ""
 	if len(args) > 0 {
@@ -2801,15 +2890,16 @@ func handleShellCommand(cmd, binaryName string) {
 
 	switch cmd {
 	case "completions":
-		printShellCompletions(binaryName, shell)
+		return printShellCompletions(binaryName, shell, lang)
 	case "init":
-		printShellInit(binaryName, shell)
+		return printShellInit(binaryName, shell)
 	case "--help", "-h", "help":
 		fmt.Printf(`Shell integration commands:
 
   completions [SHELL]   Print shell completion script
                         Auto-detects shell if SHELL omitted
-                        Supported: bash, zsh, fish, sh, dash, ksh, powershell, pwsh
+                        Supported: bash, zsh, fish, powershell, pwsh
+                        sh, dash and ksh have no programmable completion (exit 2)
 
   init [SHELL]          Print shell init command for eval
                         Auto-detects shell if SHELL omitted
@@ -2821,14 +2911,13 @@ Usage:
   eval "$(%s --shell init)"
   %s --shell completions bash > /etc/bash_completion.d/%s
 `, binaryName, binaryName, binaryName, binaryName, binaryName, binaryName)
+		return nil
 	default:
-		fmt.Fprintf(os.Stderr, "Unknown shell command: %s\n", cmd)
-		fmt.Fprintln(os.Stderr, "Available: completions, init, --help")
-		os.Exit(exUsage)
+		return &ExitCodeError{Code: exUsage, Err: fmt.Errorf("unknown shell command %q; available: completions, init, --help", cmd)}
 	}
 }
 
-func printShellCompletions(binaryName, shell string) {
+func printShellCompletions(binaryName, shell, lang string) error {
 	switch shell {
 	case "bash":
 		fmt.Printf(`# %s bash completions
@@ -2897,17 +2986,7 @@ complete -c %s -l include-ssl -d 'Include SSL/TLS keys in backup'
 complete -c %s -l include-data -d 'Include full data directory in backup'
 `, "%s", binaryName))
 	case "sh", "dash", "ksh":
-		fmt.Printf(`# %s %s completions (POSIX shell function)
-_%s_complete() {
-    _ipgaze_words='-h -v --help --version --status --config --data --cache --log --backup --pid --port --address --baseurl --mode --service --maintenance --update --shell --debug --i2p --color --lang --daemon --include-ssl --include-data'
-    _ipgaze_cur=${1-}
-    for _ipgaze_word in $_ipgaze_words; do
-        case $_ipgaze_word in
-            "$_ipgaze_cur"*) printf '%%s\\n' "$_ipgaze_word" ;;
-        esac
-    done
-}
-`, binaryName, shell, binaryName)
+		return &ExitCodeError{Code: 2, Err: errors.New(i18n.TranslateFormat(lang, "cli.error_no_completion_shell", "shell", shell))}
 	case "powershell", "pwsh":
 		fmt.Printf(`# %s PowerShell completions
 Register-ArgumentCompleter -Native -CommandName %s -ScriptBlock {
@@ -2919,12 +2998,13 @@ Register-ArgumentCompleter -Native -CommandName %s -ScriptBlock {
 `, binaryName, binaryName)
 	default:
 		fmt.Printf("Unknown shell: %s\n", shell)
-		fmt.Println("Supported: bash, zsh, fish, sh, dash, ksh, powershell, pwsh")
-		os.Exit(exUsage)
+		fmt.Println("Supported: bash, zsh, fish, powershell, pwsh")
+		return &ExitCodeError{Code: exUsage, Err: fmt.Errorf("unsupported shell %q", shell)}
 	}
+	return nil
 }
 
-func printShellInit(binaryName, shell string) {
+func printShellInit(binaryName, shell string) error {
 	switch shell {
 	case "bash":
 		fmt.Printf(`source <(%s --shell completions bash)
@@ -2936,15 +3016,14 @@ func printShellInit(binaryName, shell string) {
 		fmt.Printf(`%s --shell completions fish | source
 `, binaryName)
 	case "sh", "dash", "ksh":
-		fmt.Printf(`eval "$(%s --shell completions %s)"
-`, binaryName, shell)
+		fmt.Printf("# %s: %s has no programmable completion, nothing to load\n", binaryName, shell)
 	case "powershell", "pwsh":
 		fmt.Printf(`Invoke-Expression (& %s --shell completions %s)
 `, binaryName, shell)
 	default:
-		fmt.Printf("Unknown shell: %s\n", shell)
-		os.Exit(exUsage)
+		return &ExitCodeError{Code: exUsage, Err: fmt.Errorf("unsupported shell %q", shell)}
 	}
+	return nil
 }
 
 func checkHealth(port string) error {
@@ -3356,7 +3435,7 @@ func handlePGPMaintenance(args []string, configDir, logsDir string, cfg *config.
 		}
 		pgpImport(conn, configDir, rest[0], appName, securityContact, logMgr)
 	case "delete":
-		pgpDelete(conn, configDir, cfg, logMgr)
+		pgpDelete(conn, configDir, logMgr)
 	default:
 		fmt.Printf("Unknown pgp command: %s\n", action)
 		fmt.Println("Available: generate, rotate, publish, export, import, delete")
@@ -3393,7 +3472,7 @@ func pgpGenerate(conn *db.Store, configDir, appName, securityContact string, cfg
 	fmt.Printf("Generated PGP keypair: %s\n", kp.Fingerprint)
 	fmt.Printf("Expires: %s\n", kp.ExpiresAt.Format("2006-01-02"))
 
-	if cfg.Web.Security.PublishPGPKey && len(cfg.Web.Security.Keyservers) > 0 {
+	if len(cfg.Web.Security.Keyservers) > 0 {
 		publishToKeyservers(conn, configDir, kp.Fingerprint, kp.PublicArmor, cfg.Web.Security.Keyservers)
 	}
 }
@@ -3455,7 +3534,7 @@ func pgpRotate(conn *db.Store, configDir, appName, securityContact string, cfg *
 	fmt.Printf("Expires: %s\n", kp.ExpiresAt.Format("2006-01-02"))
 	fmt.Printf("Previous key remains valid for %s (grace period) for in-flight reports.\n", pgp.RotationGrace)
 
-	if cfg.Web.Security.PublishPGPKey && len(cfg.Web.Security.Keyservers) > 0 {
+	if len(cfg.Web.Security.Keyservers) > 0 {
 		publishToKeyservers(conn, configDir, kp.Fingerprint, kp.PublicArmor, cfg.Web.Security.Keyservers)
 	}
 }
@@ -3702,9 +3781,8 @@ func pgpImport(conn *db.Store, configDir, file, appName, securityContact string,
 }
 
 // pgpDelete implements `--maintenance pgp delete` (AI.md PART 11 "Delete"):
-// removes the key files, marks the DB record revoked, and flips
-// web.security.publish_pgp_key off so security.txt stops advertising it.
-func pgpDelete(conn *db.Store, configDir string, cfg *config.AppConfig, logMgr *applog.Manager) {
+// removes the key files and marks the database record revoked.
+func pgpDelete(conn *db.Store, configDir string, logMgr *applog.Manager) {
 	if !requireTypedConfirmation("DELETE PGP KEY",
 		"WARNING: this permanently deletes the PGP keypair.\n"+
 			"In-flight encrypted security reports become un-decryptable.\n"+
@@ -3724,17 +3802,12 @@ func pgpDelete(conn *db.Store, configDir string, cfg *config.AppConfig, logMgr *
 		}
 	}
 
-	cfg.Web.Security.PublishPGPKey = false
-	if err := config.SaveConfigToFile(); err != nil {
-		log.Printf("Warning: pgp delete: failed to persist publish_pgp_key=false: %v", err)
-	}
-
 	if logMgr != nil {
 		logMgr.WriteAuditEvent("", "security.pgp_key_deleted", "security", "warn", "success", "", map[string]any{
 			"fingerprint": oldRecFingerprint(rec),
 		})
 	}
-	fmt.Println("PGP keypair deleted. web.security.publish_pgp_key set to false.")
+	fmt.Println("PGP keypair deleted.")
 }
 
 // handleSecretMaintenance implements `--maintenance secret rotate <name>`
@@ -5009,7 +5082,7 @@ func maintenanceCompliance(args []string, cfg *config.AppConfig, logsDir string,
 	fmt.Printf("Consent banner shown until acknowledged: %t\n", cfg.Server.Privacy.Consent.ShowUntilAcknowledged)
 	fmt.Printf("TLS enabled:       %t\n", cfg.Server.SSL.Enabled)
 	fmt.Printf("Let's Encrypt:     %t\n", cfg.Server.SSL.LetsEncrypt.Enabled)
-	fmt.Printf("PGP key published: %t\n", cfg.Web.Security.PublishPGPKey)
+	fmt.Printf("PGP keyservers configured: %t\n", len(cfg.Web.Security.Keyservers) > 0)
 	fmt.Printf("Audit logging level: %s\n", cfg.Server.Logging.Level)
 	owners, activeTokens, openReports, err := complianceCounts(conn)
 	if err != nil {
@@ -5869,6 +5942,7 @@ func validateRestoredBackupSecrets(configDir, dbDir string, cfg *config.AppConfi
 // and wasn't restored.
 func maintenanceRestore(backupFile, configDir, dataDir, dbDir string, cfg *config.AppConfig, dirs paths.Directories, logMgr *applog.Manager) {
 	restoreLimits := backupRestoreLimits(cfg)
+	targetOperatorToken := cfg.Server.Token
 	// Authorization per AI.md PART 5 "Restore authorization flow": allowed on
 	// first-run (nothing to protect), otherwise requires server.token OR root
 	// (requireOperatorAuth already grants root a bypass via isElevated()).
@@ -6008,6 +6082,24 @@ func maintenanceRestore(backupFile, configDir, dataDir, dbDir string, cfg *confi
 		fmt.Println("Restore cancelled.")
 		return
 	}
+	if targetOperatorToken == "" {
+		var tokenErr error
+		targetOperatorToken, tokenErr = generateOperatorToken()
+		if tokenErr != nil {
+			log.Printf("Restore: generate target operator token: %v", tokenErr)
+			os.Exit(exIoErr)
+		}
+		cfg.Server.Token = targetOperatorToken
+		if err := config.SaveGeneratedOperatorToken(); err != nil {
+			log.Printf("Restore: persist target operator token: %v", err)
+			os.Exit(exIoErr)
+		}
+		if err := writeGeneratedSecretAudit(logMgr, "server.token"); err != nil {
+			log.Printf("Restore: audit generated target operator token: %v", err)
+			os.Exit(exIoErr)
+		}
+		fmt.Printf("Generated operator token: %s (shown once — save it now)\n", targetOperatorToken)
+	}
 
 	// Extract to a controlled temp directory — NEVER to the filesystem root.
 	tmpDir, err := paths.CreateProjectTempDir()
@@ -6052,6 +6144,13 @@ func maintenanceRestore(backupFile, configDir, dataDir, dbDir string, cfg *confi
 		cleanupTempDir()
 		os.Exit(exIoErr)
 	}
+	if _, err := os.Stat(extractedConfig); err == nil {
+		if err := restoreBackupOperatorToken(extractedConfig, targetOperatorToken); err != nil {
+			log.Printf("Restore: preserve target operator token: %v", err)
+			cleanupTempDir()
+			os.Exit(exIoErr)
+		}
+	}
 
 	// Move extracted config dir to its canonical location. If the archive
 	// omitted ssl/ (created without --include-ssl per AI.md PART 21), copy
@@ -6080,6 +6179,7 @@ func maintenanceRestore(backupFile, configDir, dataDir, dbDir string, cfg *confi
 	} else {
 		fmt.Println("  ssl:    not in archive — existing SSL certs left untouched")
 	}
+	fmt.Println("  server.token: preserved from target host")
 
 	// Restore the database. Newer archives carry it as a fixed top-level "db"
 	// entry (independent of --include-data); older archives nested it inside
@@ -6134,7 +6234,7 @@ func maintenanceRestore(backupFile, configDir, dataDir, dbDir string, cfg *confi
 						_ = pgp.RecordKeyserverPublish(conn, rec.Fingerprint, host, time.Unix(unix, 0))
 					}
 				}
-				if restoredConfig.Web.Security.PublishPGPKey && len(restoredConfig.Web.Security.Keyservers) > 0 {
+				if len(restoredConfig.Web.Security.Keyservers) > 0 {
 					if publicKey, keyErr := pgp.LoadPublic(configDir); keyErr == nil {
 						publishToKeyservers(conn, configDir, rec.Fingerprint, publicKey, restoredConfig.Web.Security.Keyservers)
 					} else {

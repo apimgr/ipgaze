@@ -712,7 +712,8 @@
     "email_audit_failed": "Cannot open audit log: {error}",
     "email_send_failed": "Test email failed: {error}",
     "email_preview_template": "Template: {name}",
-    "email_preview_subject": "Subject: {subject}"
+    "email_preview_subject": "Subject: {subject}",
+    "error_no_completion_shell": "{shell} has no programmable completion"
   },
   "accessibility": {
     "skip_to_content": "Skip to content",

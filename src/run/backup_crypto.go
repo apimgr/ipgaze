@@ -258,10 +258,10 @@ func resolveBackupEncryptionPassword(cfg *config.AppConfig, interactive bool) (s
 }
 
 // backupArchiveLayout describes which directories a specific backup archive
-// includes. Per AI.md PART 21, backups are non-credential by default: SSL
-// private keys and the full data directory are excluded unless the operator
-// opts in via --include-ssl / --include-data. server.yml, server.db,
-// template/, and theme/ are always included.
+// includes. Per AI.md PART 21, backups are non-credential by default: the
+// secrets.yml copy blanks the host token and backup password, SSL private keys
+// and the full data directory are excluded unless --include-ssl / --include-data
+// is set, while server.yml, server.db, template/, and theme/ are always included.
 type backupArchiveLayout struct {
 	configDir   string
 	dataDir     string
@@ -540,6 +540,12 @@ func collectBackupFiles(layout backupArchiveLayout) ([]backupFileRecord, error) 
 			if err != nil {
 				return fmt.Errorf("read %s: %w", path, err)
 			}
+			if filepath.ToSlash(rel) == "secrets.yml" {
+				data, err = redactBackupSecrets(data)
+				if err != nil {
+					return fmt.Errorf("redact backup secrets: %w", err)
+				}
+			}
 			digest := sha256.Sum256(data)
 			files = append(files, backupFileRecord{
 				Path: name, Size: int64(len(data)), ModTime: fi.ModTime().UTC().Truncate(time.Second).Format(time.RFC3339Nano),
@@ -583,6 +589,120 @@ func collectBackupFiles(layout backupArchiveLayout) ([]backupFileRecord, error) 
 	}
 	sort.Slice(files, func(i, j int) bool { return files[i].Path < files[j].Path })
 	return files, nil
+}
+
+// redactBackupSecrets blanks credentials that must remain local to the source
+// host. It edits only the in-memory YAML copy captured for the archive.
+func redactBackupSecrets(data []byte) ([]byte, error) {
+	var document yaml.Node
+	if err := yaml.Unmarshal(data, &document); err != nil {
+		return nil, fmt.Errorf("parse secrets.yml: %w", err)
+	}
+	if len(document.Content) == 0 || document.Content[0].Kind != yaml.MappingNode {
+		return nil, errors.New("secrets.yml root must be a mapping")
+	}
+	server := yamlMappingValue(document.Content[0], "server")
+	if server == nil {
+		return data, nil
+	}
+	if server.Kind != yaml.MappingNode {
+		return nil, errors.New("secrets.yml server section must be a mapping")
+	}
+	blankYAMLValue(yamlMappingValue(server, "token"))
+	backup := yamlMappingValue(server, "backup")
+	if backup != nil {
+		if backup.Kind != yaml.MappingNode {
+			return nil, errors.New("secrets.yml server.backup section must be a mapping")
+		}
+		blankYAMLValue(yamlMappingValue(backup, "encryption_password"))
+	}
+	var output bytes.Buffer
+	encoder := yaml.NewEncoder(&output)
+	encoder.SetIndent(2)
+	if err := encoder.Encode(&document); err != nil {
+		return nil, fmt.Errorf("encode redacted secrets.yml: %w", err)
+	}
+	if err := encoder.Close(); err != nil {
+		return nil, fmt.Errorf("finish redacted secrets.yml: %w", err)
+	}
+	return output.Bytes(), nil
+}
+
+func yamlMappingValue(mapping *yaml.Node, key string) *yaml.Node {
+	for i := 0; i+1 < len(mapping.Content); i += 2 {
+		if mapping.Content[i].Value == key {
+			return mapping.Content[i+1]
+		}
+	}
+	return nil
+}
+
+func blankYAMLValue(value *yaml.Node) {
+	if value == nil {
+		return
+	}
+	value.Kind = yaml.ScalarNode
+	value.Tag = "!!str"
+	value.Value = ""
+	value.Content = nil
+	value.Style = yaml.DoubleQuotedStyle
+}
+
+// restoreBackupOperatorToken writes the target host's operator token into the
+// extracted secrets file before the restored config replaces the live one.
+func restoreBackupOperatorToken(configDir, token string) error {
+	if token == "" {
+		return errors.New("target operator token is empty")
+	}
+	path := filepath.Join(configDir, "secrets.yml")
+	data, err := os.ReadFile(path)
+	if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("read extracted secrets.yml: %w", err)
+	}
+	var document yaml.Node
+	if len(data) > 0 {
+		if err := yaml.Unmarshal(data, &document); err != nil {
+			return fmt.Errorf("parse extracted secrets.yml: %w", err)
+		}
+	}
+	if len(document.Content) == 0 {
+		document.Content = []*yaml.Node{{Kind: yaml.MappingNode, Tag: "!!map"}}
+	}
+	root := document.Content[0]
+	if root.Kind != yaml.MappingNode {
+		return errors.New("extracted secrets.yml root must be a mapping")
+	}
+	server := yamlMappingValue(root, "server")
+	if server == nil {
+		server = &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+		root.Content = append(root.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "server"}, server)
+	} else if server.Kind != yaml.MappingNode {
+		return errors.New("extracted secrets.yml server section must be a mapping")
+	}
+	setYAMLMappingValue(server, "token", &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: token})
+	var output bytes.Buffer
+	encoder := yaml.NewEncoder(&output)
+	encoder.SetIndent(2)
+	if err := encoder.Encode(&document); err != nil {
+		return fmt.Errorf("encode extracted secrets.yml: %w", err)
+	}
+	if err := encoder.Close(); err != nil {
+		return fmt.Errorf("finish extracted secrets.yml: %w", err)
+	}
+	if err := os.WriteFile(path, output.Bytes(), 0o600); err != nil {
+		return fmt.Errorf("write extracted secrets.yml: %w", err)
+	}
+	return nil
+}
+
+func setYAMLMappingValue(mapping *yaml.Node, key string, value *yaml.Node) {
+	for i := 0; i+1 < len(mapping.Content); i += 2 {
+		if mapping.Content[i].Value == key {
+			mapping.Content[i+1] = value
+			return
+		}
+	}
+	mapping.Content = append(mapping.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: key}, value)
 }
 
 func checksumBackupFiles(files []backupFileRecord) string {

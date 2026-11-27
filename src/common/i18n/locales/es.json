@@ -712,7 +712,8 @@
     "email_audit_failed": "No se puede abrir el registro de auditoría: {error}",
     "email_send_failed": "Falló el envío del correo de prueba: {error}",
     "email_preview_template": "Plantilla: {name}",
-    "email_preview_subject": "Asunto: {subject}"
+    "email_preview_subject": "Asunto: {subject}",
+    "error_no_completion_shell": "{shell} no tiene autocompletado programable"
   },
   "accessibility": {
     "skip_to_content": "Ir al contenido",

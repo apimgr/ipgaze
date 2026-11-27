@@ -712,7 +712,8 @@
     "email_audit_failed": "Audit-Protokoll kann nicht geöffnet werden: {error}",
     "email_send_failed": "Test-E-Mail fehlgeschlagen: {error}",
     "email_preview_template": "Vorlage: {name}",
-    "email_preview_subject": "Betreff: {subject}"
+    "email_preview_subject": "Betreff: {subject}",
+    "error_no_completion_shell": "{shell} unterstützt keine programmierbare Vervollständigung"
   },
   "accessibility": {
     "skip_to_content": "Zum Inhalt springen",

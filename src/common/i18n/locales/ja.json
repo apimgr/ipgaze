@@ -706,7 +706,8 @@
     "email_audit_failed": "監査ログを開けません: {error}",
     "email_send_failed": "テストメールの送信に失敗しました: {error}",
     "email_preview_template": "テンプレート: {name}",
-    "email_preview_subject": "件名: {subject}"
+    "email_preview_subject": "件名: {subject}",
+    "error_no_completion_shell": "{shell} はプログラム可能な補完に対応していません"
   },
   "accessibility": {
     "skip_to_content": "コンテンツへスキップ",

@@ -152,11 +152,12 @@ func (s *Server) handleDebugCacheResize(w http.ResponseWriter, r *http.Request) 
 
 // handleDebugDB returns database connection pool statistics.
 func (s *Server) handleDebugDB(w http.ResponseWriter, r *http.Request) {
-	if s.sqlDB == nil {
+	db := s.database()
+	if db == nil {
 		respondJSON(w, http.StatusOK, map[string]string{"status": "database not available"})
 		return
 	}
-	stats := s.sqlDB.Stats()
+	stats := db.Stats()
 	respondJSON(w, http.StatusOK, map[string]any{
 		"open_connections":    stats.OpenConnections,
 		"in_use":              stats.InUse,

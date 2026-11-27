@@ -733,7 +733,8 @@
     "email_audit_failed": "تعذّر فتح سجل التدقيق: {error}",
     "email_send_failed": "فشل إرسال رسالة الاختبار: {error}",
     "email_preview_template": "القالب: {name}",
-    "email_preview_subject": "الموضوع: {subject}"
+    "email_preview_subject": "الموضوع: {subject}",
+    "error_no_completion_shell": "لا يدعم {shell} الإكمال البرمجي"
   },
   "accessibility": {
     "skip_to_content": "انتقل إلى المحتوى",

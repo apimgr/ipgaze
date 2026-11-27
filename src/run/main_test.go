@@ -630,7 +630,7 @@ func TestPrintHelp_ContainsFlags(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestPrintShellCompletions_Bash(t *testing.T) {
-	out := captureStdout(func() { printShellCompletions("testbin", "bash") })
+	out := captureStdout(func() { _ = printShellCompletions("testbin", "bash", "en") })
 	if !strings.Contains(out, "testbin") {
 		t.Errorf("bash completions missing binary name, got:\n%s", out)
 	}
@@ -640,7 +640,7 @@ func TestPrintShellCompletions_Bash(t *testing.T) {
 }
 
 func TestPrintShellCompletions_Zsh(t *testing.T) {
-	out := captureStdout(func() { printShellCompletions("testbin", "zsh") })
+	out := captureStdout(func() { _ = printShellCompletions("testbin", "zsh", "en") })
 	if !strings.Contains(out, "testbin") {
 		t.Errorf("zsh completions missing binary name, got:\n%s", out)
 	}
@@ -650,12 +650,24 @@ func TestPrintShellCompletions_Zsh(t *testing.T) {
 }
 
 func TestPrintShellCompletions_Fish(t *testing.T) {
-	out := captureStdout(func() { printShellCompletions("testbin", "fish") })
+	out := captureStdout(func() { _ = printShellCompletions("testbin", "fish", "en") })
 	if !strings.Contains(out, "testbin") {
 		t.Errorf("fish completions missing binary name, got:\n%s", out)
 	}
 	if !strings.Contains(out, "complete") {
 		t.Errorf("fish completions missing 'complete' keyword, got:\n%s", out)
+	}
+}
+
+func TestPrintShellCompletionsRejectsPOSIXShells(t *testing.T) {
+	for _, shell := range []string{"sh", "dash", "ksh"} {
+		err := printShellCompletions("testbin", shell, "en")
+		if err == nil || ExitCode(err, 0) != 2 {
+			t.Errorf("printShellCompletions(%q) error = %v, want exit code 2", shell, err)
+		}
+		if err != nil && !strings.Contains(err.Error(), "no programmable completion") {
+			t.Errorf("printShellCompletions(%q) error = %q, want translated reason", shell, err)
+		}
 	}
 }
 
@@ -681,6 +693,19 @@ func TestPrintShellInit_Fish(t *testing.T) {
 	out := captureStdout(func() { printShellInit("mybin", "fish") })
 	if !strings.Contains(out, "mybin") {
 		t.Errorf("fish init missing binary name, got:\n%s", out)
+	}
+}
+
+func TestPrintShellInitDoesNothingForPOSIXShells(t *testing.T) {
+	for _, shell := range []string{"sh", "dash", "ksh"} {
+		out := captureStdout(func() {
+			if err := printShellInit("testbin", shell); err != nil {
+				t.Fatalf("printShellInit(%q): %v", shell, err)
+			}
+		})
+		if !strings.Contains(out, "has no programmable completion, nothing to load") {
+			t.Errorf("printShellInit(%q) = %q, want harmless comment", shell, out)
+		}
 	}
 }
 

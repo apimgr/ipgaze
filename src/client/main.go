@@ -76,8 +76,8 @@ const (
 	exitUsage = 64
 )
 
-// supportedShells lists every shell the completion and init generators handle.
-const supportedShells = "bash, zsh, fish, sh, dash, ksh, powershell, pwsh"
+// supportedShells lists shells with programmable completion support.
+const supportedShells = "bash, zsh, fish, powershell, pwsh"
 
 // truthyFlag is a boolean command-line flag whose value is decoded with
 // config.ParseBool, so locale forms (yes/no, oui/non, si/no, da/net) are
@@ -859,26 +859,9 @@ complete -c %s -l update -d 'Auto-update' -r -a 'check yes'
 `, binaryName, binaryName, binaryName, binaryName, binaryName, binaryName,
 			binaryName, formats, binaryName, fields, binaryName, languages,
 			binaryName, binaryName, binaryName, binaryName)
-	case "sh", "dash":
-		// POSIX sh/dash basic completions using bash builtins when available.
-		fmt.Printf(`# %s sh/dash completions (uses bash builtins if available)
-if command -v complete >/dev/null 2>&1 && command -v compgen >/dev/null 2>&1; then
-_%s_completions() {
-    local opts="%s"
-    COMPREPLY=( $(compgen -W "$opts" -- "${COMP_WORDS[COMP_CWORD]}") )
-}
-complete -F _%s_completions %s
-fi
-`, binaryName, binaryName, completionFlags, binaryName, binaryName)
-	case "ksh":
-		// ksh93 programmable completions.
-		fmt.Printf(`# %s ksh completions
-function _%s_complete {
-    typeset opts="%s"
-    set -A REPLY -- $(print -- $opts | tr ' ' '\n' | grep "^${2}")
-}
-complete -F _%s_complete %s
-`, binaryName, binaryName, completionFlags, binaryName, binaryName)
+	case "sh", "dash", "ksh":
+		fmt.Fprintf(os.Stderr, "%s\n", trf(lang, "cli.error_no_completion_shell", "shell", shell))
+		return 2
 	case "powershell", "pwsh":
 		// PowerShell/pwsh Register-ArgumentCompleter.
 		fmt.Printf(`# %s PowerShell completions
@@ -910,10 +893,8 @@ func printClientInit(shell, binaryName, lang string) int {
 		fmt.Printf("source <(%s --shell completions zsh)\n", binaryName)
 	case "fish":
 		fmt.Printf("%s --shell completions fish | source\n", binaryName)
-	case "sh", "dash":
-		fmt.Printf("eval \"$(%s --shell completions %s)\"\n", binaryName, shell)
-	case "ksh":
-		fmt.Printf("eval \"$(%s --shell completions ksh)\"\n", binaryName)
+	case "sh", "dash", "ksh":
+		fmt.Printf("# %s: %s has no programmable completion, nothing to load\n", binaryName, shell)
 	case "powershell", "pwsh":
 		fmt.Printf("Invoke-Expression (& '%s' --shell completions powershell)\n", binaryName)
 	default:

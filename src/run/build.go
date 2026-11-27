@@ -138,7 +138,10 @@ func HandleEarlyFlags(binaryName string) bool {
 		return true
 	}
 	if shellCmd != nil && *shellCmd != "" {
-		handleShellCommand(*shellCmd, binaryName)
+		if err := handleShellCommand(*shellCmd, binaryName, getLanguage(*langFlag)); err != nil {
+			fmt.Fprintf(os.Stderr, "%s: %v\n", binaryName, err)
+			os.Exit(ExitCode(err, 1))
+		}
 		return true
 	}
 	return false

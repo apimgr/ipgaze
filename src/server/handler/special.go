@@ -39,10 +39,6 @@ type SpecialHandler struct {
 	ContactFormDisabled bool
 	// SecurityID returns the current rotating security.txt token.
 	SecurityID func() (string, error)
-	// PublishPGPKey mirrors web.security.publish_pgp_key (AI.md PART 11). When
-	// true and a keypair exists on disk, SecurityTxtHandler emits the
-	// Encryption: line and PGPKeyHandler serves the public key.
-	PublishPGPKey bool
 	// PGPPublicKeyPath is {config_dir}/security/pgp.pub.asc (AI.md PART 11
 	// "GPG Keypair Management"). Empty or missing file means no keypair yet.
 	PGPPublicKeyPath string
@@ -159,10 +155,9 @@ func (h *SpecialHandler) RobotsTxtHandler(w http.ResponseWriter, r *http.Request
 	}
 }
 
-// hasPGPKey reports whether a project PGP keypair exists on disk and
-// web.security.publish_pgp_key is enabled (AI.md PART 11 "GPG Keypair Management").
+// hasPGPKey reports whether a project PGP keypair exists on disk.
 func (h *SpecialHandler) hasPGPKey() bool {
-	if !h.PublishPGPKey || h.PGPPublicKeyPath == "" {
+	if h.PGPPublicKeyPath == "" {
 		return false
 	}
 	_, err := os.Stat(h.PGPPublicKeyPath)
@@ -178,8 +173,7 @@ func (h *SpecialHandler) PGPKeyAvailable() bool {
 // When the request is a Tor request (Host matches tor.onion_address), a Tor-safe
 // variant is served per AI.md PART 12: all URLs use the onion address, no clearnet
 // FQDN appears, Preferred-Languages is omitted, and server.tor.contact_email is used if set.
-// The Encryption: line (AI.md PART 11) is emitted only when a project PGP keypair
-// exists and web.security.publish_pgp_key is enabled.
+// The Encryption: line (AI.md PART 11) is emitted while a project PGP keypair exists.
 func (h *SpecialHandler) SecurityTxtHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/plain")
 	w.Header().Set("Cache-Control", "public, max-age=300")
@@ -256,7 +250,7 @@ func (h *SpecialHandler) currentSecurityID() (string, error) {
 
 // PGPKeyHandler serves the project's PGP public key (AI.md PART 11
 // "GPG Keypair Management"), ASCII-armored, at /.well-known/pgp-key.asc.
-// 404 if no keypair has been generated yet or publish_pgp_key is disabled.
+// 404 if no keypair has been generated yet.
 func (h *SpecialHandler) PGPKeyHandler(w http.ResponseWriter, r *http.Request) {
 	if !h.hasPGPKey() {
 		http.NotFound(w, r)

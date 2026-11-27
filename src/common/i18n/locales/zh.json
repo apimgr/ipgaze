@@ -706,7 +706,8 @@
     "email_audit_failed": "无法打开审计日志：{error}",
     "email_send_failed": "测试邮件发送失败：{error}",
     "email_preview_template": "模板：{name}",
-    "email_preview_subject": "主题：{subject}"
+    "email_preview_subject": "主题：{subject}",
+    "error_no_completion_shell": "{shell} 不支持可编程补全"
   },
   "accessibility": {
     "skip_to_content": "跳转到内容",

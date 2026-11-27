@@ -355,9 +355,6 @@ type WebSecurityConfig struct {
 	// Keyservers are the HTTP submission endpoints the project's PGP public key
 	// is published to on generate/rotate/publish (e.g. keys.openpgp.org).
 	Keyservers []string `yaml:"keyservers"`
-	// PublishPGPKey gates whether the Encryption: line is advertised in security.txt
-	// and whether /.well-known/pgp-key.asc is served. Set false by `--maintenance pgp delete`.
-	PublishPGPKey bool `yaml:"publish_pgp_key"`
 	// Contact is the secondary/CC mailto address for security.txt and the PGP
 	// key identity ("{app_name} Security <{contact}>"), per AI.md PART 11.
 	// Never the primary reporting channel — see report_url.
@@ -2515,8 +2512,7 @@ func DefaultConfig() *AppConfig {
 			},
 			CORS: "*",
 			Security: WebSecurityConfig{
-				Keyservers:    []string{"keys.openpgp.org", "keyserver.ubuntu.com"},
-				PublishPGPKey: true,
+				Keyservers: []string{"keys.openpgp.org", "keyserver.ubuntu.com"},
 			},
 			HSTS:    DefaultHSTSConfig(),
 			CSP:     DefaultCSPConfig(),
